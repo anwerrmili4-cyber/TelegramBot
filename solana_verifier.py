@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from decimal import Decimal, InvalidOperation
 from urllib.request import Request, urlopen
 
@@ -87,6 +88,36 @@ def find_solana_deposit_since(destination: str, since: int) -> dict:
             if result.get("status") == "confirmed":
                 return result
         return _result("pending", "not_found", "No new Solana deposit was found yet.")
+    except Exception as exc:
+        return _result("pending", "api_unavailable", f"Solana RPC unavailable: {exc}")
+
+
+def get_recent_balance_increase(
+    destination: str, baseline_lamports: int, window_seconds: int,
+) -> dict:
+    """Return the wallet balance increase when a confirmed inbound transfer is recent."""
+    try:
+        current_lamports = int((_rpc("getBalance", [destination, {"commitment": "finalized"}]) or {}).get("value") or 0)
+        delta_lamports = current_lamports - int(baseline_lamports)
+        if delta_lamports <= 0:
+            return _result("pending", "no_increase", "No new SOL balance increase was found.", current_lamports=current_lamports)
+        cutoff = int(time.time()) - int(window_seconds)
+        entries = _rpc("getSignaturesForAddress", [destination, {"limit": 50, "commitment": "finalized"}]) or []
+        for entry in entries:
+            signature = entry.get("signature")
+            if entry.get("err") or int(entry.get("blockTime") or 0) < cutoff:
+                continue
+            inbound = verify_solana_deposit(signature, destination)
+            if inbound.get("status") == "confirmed":
+                return _result(
+                    "confirmed", "confirmed", "Recent SOL balance increase confirmed.",
+                    signature=signature,
+                    sol_amount=float(Decimal(delta_lamports) / LAMPORTS_PER_SOL),
+                    delta_lamports=delta_lamports,
+                    current_lamports=current_lamports,
+                    received_at=int(entry.get("blockTime") or 0),
+                )
+        return _result("failed", "expired", "The SOL balance increased, but no incoming payment was found within the last hour.")
     except Exception as exc:
         return _result("pending", "api_unavailable", f"Solana RPC unavailable: {exc}")
 

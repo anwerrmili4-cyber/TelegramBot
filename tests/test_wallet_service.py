@@ -92,6 +92,30 @@ def test_token_conversion_calculation_is_preserved():
     assert wallet_service.convert_token_amount_to_usdt_cents(0.25, 80.0) == 2000
 
 
+def test_solana_scan_credits_only_balance_increase_once(mock_mongodb, monkeypatch):
+    monkeypatch.setattr(
+        wallet_service, "get_recent_balance_increase",
+        lambda *_args: {
+            "status": "confirmed", "signature": "S" * 64,
+            "sol_amount": 0.02, "current_lamports": 30023580,
+            "received_at": 1_700_000_000,
+        },
+    )
+    monkeypatch.setattr(
+        wallet_service, "fetch_sol_usdt_quote",
+        lambda: {"status": "confirmed", "price": 150.0, "source": "test"},
+    )
+
+    result = wallet_service.submit_solana_scan(42, 1_700_000_000)
+
+    assert result["status"] == "confirmed"
+    assert result["amount"] == 3.0
+    saved = mock_mongodb.wallet_topups.find_one({"txid": "S" * 64})
+    assert saved["baseline_lamports"] == 10023580
+    assert saved["balance_after_lamports"] == 30023580
+    assert wallet_service.submit_solana_scan(42, 1_700_000_000)["code"] == "already_used"
+
+
 def test_wallet_pays_order_and_reduces_external_total(mock_mongodb):
     db.add_service("AI", "🤖")
     offer_id = db.add_offer(1, "Premium", 10.0, 1)

@@ -12,8 +12,12 @@ import database as db
 from config import USDT_EVM_ADDRESS
 from onchain_verifier import verify_onchain_usdt
 from payment_verifier import verify_bybit_incoming_transfer, verify_incoming_transfer
-from config import SOLANA_DEPOSIT_ADDRESS
-from solana_verifier import fetch_sol_usdt_quote, find_solana_deposit_since, verify_solana_deposit
+from config import (
+    SOLANA_CHECK_WINDOW_SECONDS,
+    SOLANA_DEPOSIT_ADDRESS,
+    SOLANA_INITIAL_BALANCE_LAMPORTS,
+)
+from solana_verifier import fetch_sol_usdt_quote, get_recent_balance_increase, verify_solana_deposit
 
 
 def balance_cents(user_id: int) -> int:
@@ -179,14 +183,26 @@ def submit_solana_topup(user_id: int, signature: str) -> dict[str, Any]:
 
 
 def submit_solana_scan(user_id: int, since: int) -> dict[str, Any]:
-    verification = find_solana_deposit_since(SOLANA_DEPOSIT_ADDRESS, since)
+    conn = db.get_conn()
+    previous = conn.wallet_topups.find_one(
+        {"network": "solana", "balance_after_lamports": {"$exists": True}},
+        sort=[("created_at", -1), ("_id", -1)],
+    )
+    baseline_lamports = int(
+        (previous or {}).get("balance_after_lamports")
+        or SOLANA_INITIAL_BALANCE_LAMPORTS
+    )
+    verification = get_recent_balance_increase(
+        SOLANA_DEPOSIT_ADDRESS,
+        baseline_lamports,
+        SOLANA_CHECK_WINDOW_SECONDS,
+    )
     if verification["status"] != "confirmed":
         return {"status": verification["status"], "code": verification.get("code"), "message": verification.get("reason")}
     signature = verification["signature"]
-    conn = db.get_conn()
     if conn.wallet_topups.find_one({"txid": signature}) or conn.orders.find_one({"txid": signature}):
         return {"status": "failed", "code": "already_used", "message": "This payment has already been credited."}
-    if conn.wallet_topups.find_one({"network": "solana", "source_amount": verification["sol_amount"]}):
+    if conn.wallet_topups.find_one({"network": "solana", "balance_after_lamports": verification["current_lamports"]}):
         return {"status": "failed", "code": "already_used", "message": "This payment amount has already been credited."}
     quote = fetch_sol_usdt_quote()
     if quote["status"] != "confirmed":
@@ -196,7 +212,7 @@ def submit_solana_scan(user_id: int, since: int) -> dict[str, Any]:
     if not db.claim_onchain_transaction(signature, "solana", user_id, "wallet_topup", topup_id, amount_cents / 100):
         return {"status": "failed", "code": "already_used", "message": "This payment has already been submitted."}
     try:
-        conn.wallet_topups.insert_one({"id": topup_id, "txid": signature, "user_id": int(user_id), "amount_cents": amount_cents, "currency": "USDT", "source_currency": "SOL", "source_amount": verification["sol_amount"], "conversion_rate": quote["price"], "quote_source": quote["source"], "quote_at": int(time.time()), "network": "solana", "verification_method": "automatic_solana_scan", "status": "confirmed", "created_at": int(time.time())})
+        conn.wallet_topups.insert_one({"id": topup_id, "txid": signature, "user_id": int(user_id), "amount_cents": amount_cents, "currency": "USDT", "source_currency": "SOL", "source_amount": verification["sol_amount"], "conversion_rate": quote["price"], "quote_source": quote["source"], "quote_at": int(time.time()), "network": "solana", "baseline_lamports": baseline_lamports, "balance_after_lamports": verification["current_lamports"], "received_at": verification.get("received_at"), "verification_method": "automatic_solana_balance_increase", "status": "confirmed", "created_at": int(time.time())})
     except DuplicateKeyError:
         return {"status": "failed", "code": "already_used", "message": "This payment has already been submitted."}
     conn.wallets.update_one({"user_id": int(user_id)}, {"$inc": {"balance_cents": amount_cents}}, upsert=True)
