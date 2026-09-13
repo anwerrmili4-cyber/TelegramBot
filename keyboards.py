@@ -38,7 +38,7 @@ BUTTON_TEXT_KEYS = {
     "catalog_notifications_on", "catalog_notifications_off",
     "profile_deposit", "profile_withdraw", "profile_orders", "profile_referral",
     "profile_shop", "profile_notifications", "profile_reseller_api", "profile_main_menu",
-    "topup_verify_txid", "topup_verify_bybit", "topup_onchain", "topup_bsc", "topup_polygon", "topup_sol",
+    "topup_verify_txid", "topup_verify_bybit", "topup_onchain", "topup_bsc", "topup_polygon", "topup_sol", "topup_sol_check",
     "topup_home_button",
     "btn_main_menu_short", "btn_refresh_short", "btn_back_services", "btn_buy", "btn_back", "btn_paid",
     "btn_cancel_short", "btn_verify_txid", "btn_cancel_order", "btn_pay_wallet",
@@ -335,15 +335,16 @@ def topup_keyboard(lang, user_id=None):
 
 
 def topup_provider_keyboard(lang, provider, pay_id):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
+    rows = [[InlineKeyboardButton(
             "📋 Copy address" if provider == "solana" else ("📋 Copy UID" if provider == "bybit" else "📋 Copy ID"),
-            copy_text=CopyTextButton(str(pay_id)),
-            style="primary",
-        )],
+            copy_text=CopyTextButton(str(pay_id)), style="primary")]]
+    if provider == "solana":
+        rows.append([translated_button(lang, "topup_sol_check", callback_data="solana_check_payment", style="success")])
+    rows.extend([
         [InlineKeyboardButton("🔄 Change Method", callback_data="topup", style="primary")],
         [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
     ])
+    return InlineKeyboardMarkup(rows)
 
 
 def topup_onchain_keyboard(lang):

@@ -75,6 +75,22 @@ def verify_solana_deposit(signature: str, destination: str) -> dict:
         return _result("pending", "api_unavailable", f"Solana RPC unavailable: {exc}")
 
 
+def find_solana_deposit_since(destination: str, since: int) -> dict:
+    """Find the newest finalized native SOL transfer after a customer started checking."""
+    try:
+        entries = _rpc("getSignaturesForAddress", [destination, {"limit": 50, "commitment": "finalized"}]) or []
+        for entry in entries:
+            signature = entry.get("signature")
+            if entry.get("err") or int(entry.get("blockTime") or 0) < int(since):
+                continue
+            result = verify_solana_deposit(signature, destination)
+            if result.get("status") == "confirmed":
+                return result
+        return _result("pending", "not_found", "No new Solana deposit was found yet.")
+    except Exception as exc:
+        return _result("pending", "api_unavailable", f"Solana RPC unavailable: {exc}")
+
+
 def fetch_sol_usdt_quote() -> dict:
     try:
         payload = _request_json(SOLANA_PRICE_API_URL)

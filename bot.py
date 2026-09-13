@@ -2288,13 +2288,36 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if uid != ADMIN_ID and (SOLANA_ALLOWED_USER_ID <= 0 or uid != SOLANA_ALLOWED_USER_ID):
             await q.answer("This deposit method is not available for your account.", show_alert=True)
             return
-        PENDING[uid] = ("await_solana_topup_signature", {"created_at": int(time.time())})
+        PENDING[uid] = ("await_solana_topup_check", {"created_at": int(time.time())})
         await show_callback_screen(
             q,
             t(lang, "topup_sol_instructions", address=SOLANA_DEPOSIT_ADDRESS, minimum=f"{SOLANA_MIN_DEPOSIT:.9f}".rstrip("0").rstrip("."), confirmations=SOLANA_MIN_CONFIRMATIONS),
             parse_mode=ParseMode.HTML,
             reply_markup=kb.topup_provider_keyboard(lang, "solana", SOLANA_DEPOSIT_ADDRESS),
         )
+        return
+    if data == "solana_check_payment":
+        if uid != ADMIN_ID and (SOLANA_ALLOWED_USER_ID <= 0 or uid != SOLANA_ALLOWED_USER_ID):
+            await q.answer("This deposit method is not available for your account.", show_alert=True)
+            return
+        pending = PENDING.get(uid)
+        since = int((pending[1] if pending else {}).get("created_at") or time.time())
+        for progress in (0, 20, 40, 60, 80, 100):
+            bar = "🟩" * (progress // 20) + "⬜" * (5 - progress // 20)
+            await q.edit_message_text(t(lang, "topup_sol_checking", progress=progress, bar=bar), parse_mode=ParseMode.HTML)
+            if progress < 100:
+                await asyncio.sleep(2)
+            result = await asyncio.to_thread(wallet_service.submit_solana_scan, uid, since)
+            if result["status"] == "confirmed":
+                PENDING.pop(uid, None)
+                await q.edit_message_text(t(lang, "topup_sol_approved", sol_amount=f"{result['sol_amount']:.9f}".rstrip("0").rstrip("."), rate=f"{result['rate']:.4f}".rstrip("0").rstrip("."), amount=f"{result['amount']:.2f}", balance=f"{result['balance']:.2f}"), parse_mode=ParseMode.HTML, reply_markup=kb.home_keyboard(lang, uid))
+                return
+            if result.get("code") == "already_used":
+                PENDING.pop(uid, None)
+                await q.edit_message_text(result.get("message") or "This payment has already been credited.", reply_markup=kb.home_keyboard(lang, uid))
+                return
+        PENDING.pop(uid, None)
+        await q.edit_message_text(t(lang, "topup_sol_not_found"), reply_markup=kb.topup_keyboard(lang, uid))
         return
     if data in {"topup_bsc", "topup_polygon"}:
         network = "bsc" if data == "topup_bsc" else "polygon"
