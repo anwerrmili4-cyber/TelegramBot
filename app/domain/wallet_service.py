@@ -9,8 +9,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 import database as db
-from config import LTC_DEPOSIT_ADDRESS, USDT_EVM_ADDRESS
-from litecoin_verifier import fetch_ltc_usdt_quote, verify_litecoin_deposit
+from config import USDT_EVM_ADDRESS
 from onchain_verifier import verify_onchain_usdt
 from payment_verifier import verify_bybit_incoming_transfer, verify_incoming_transfer
 
@@ -138,94 +137,12 @@ def submit_onchain_topup(
     }
 
 
-def submit_litecoin_topup(
-    user_id: int, txid: str, created_at: int | None = None,
-) -> dict[str, Any]:
-    """Verify LTC, lock a live LTC/USDT quote, and credit the USDT wallet once."""
-    txid = str(txid or "").strip().lower()
-    if not re.fullmatch(r"0x[a-f0-9]{64}", txid):
-        return {"status": "failed", "code": "invalid_format", "message": "TXID BSC invalide."}
-
-    conn = db.get_conn()
-    if conn.wallet_topups.find_one({"txid": txid}) or conn.orders.find_one({"txid": txid}):
-        return {"status": "failed", "code": "already_used", "message": "TXID déjà utilisé."}
-
-    verification = verify_litecoin_deposit(txid, LTC_DEPOSIT_ADDRESS, created_at)
-    if verification["status"] != "confirmed":
-        return {
-            "status": verification["status"],
-            "code": verification.get("code"),
-            "message": verification.get("reason"),
-        }
-
-    quote = fetch_ltc_usdt_quote()
-    if quote["status"] != "confirmed":
-        return {
-            "status": quote["status"],
-            "code": quote.get("code"),
-            "message": quote.get("reason"),
-        }
-
-    ltc_amount = float(verification["ltc_amount"])
-    rate = float(quote["price"])
-    amount_cents = round(ltc_amount * rate * 100)
+def convert_token_amount_to_usdt_cents(token_amount: float, usdt_rate: float) -> int:
+    """Preserve the reusable token-to-USDT credit calculation for future networks."""
+    amount_cents = round(float(token_amount) * float(usdt_rate) * 100)
     if amount_cents < 1:
-        return {"status": "failed", "code": "amount_too_small", "message": "Converted amount is below 0.01 USDT."}
-
-    topup_id = db._next_id("wallet_topups")
-    if not db.claim_onchain_transaction(
-        txid, "bsc_ltc", user_id, "wallet_topup", topup_id, amount_cents / 100,
-    ):
-        return {"status": "failed", "code": "already_used", "message": "TXID déjà utilisé."}
-    try:
-        conn.wallet_topups.insert_one({
-            "id": topup_id,
-            "txid": txid,
-            "user_id": int(user_id),
-            "amount_cents": amount_cents,
-            "currency": "USDT",
-            "source_currency": "LTC",
-            "source_amount": ltc_amount,
-            "conversion_rate": rate,
-            "quote_source": quote["source"],
-            "quote_at": int(time.time()),
-            "network": "bsc",
-            "confirmations": int(verification.get("confirmations") or 0),
-            "received_at": verification.get("received_at"),
-            "verification_method": "automatic_bsc_ltc",
-            "status": "confirmed",
-            "created_at": int(time.time()),
-        })
-    except DuplicateKeyError:
-        return {"status": "failed", "code": "already_used", "message": "Ce TXID a déjà été soumis."}
-
-    conn.wallets.update_one(
-        {"user_id": int(user_id)},
-        {"$inc": {"balance_cents": amount_cents}},
-        upsert=True,
-    )
-    balance = balance_cents(user_id) / 100
-    db.audit_event(
-        "wallet.topup_confirmed_litecoin",
-        actor_id=user_id,
-        details={
-            "topup_id": topup_id,
-            "txid": txid,
-            "ltc_amount": ltc_amount,
-            "ltc_usdt_rate": rate,
-            "amount_cents": amount_cents,
-        },
-    )
-    return {
-        "status": "confirmed",
-        "id": topup_id,
-        "txid": txid,
-        "ltc_amount": ltc_amount,
-        "rate": rate,
-        "amount": amount_cents / 100,
-        "balance": balance,
-        "user_id": int(user_id),
-    }
+        raise ValueError("Converted amount is below 0.01 USDT.")
+    return amount_cents
 
 
 def approve_onchain_topup(topup_id: int, admin_id: int) -> dict[str, Any] | None:

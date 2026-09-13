@@ -55,9 +55,6 @@ from config import (
     CLICK_REPORT_CHAT_ID,
     CURRENCY,
     DEFAULT_LANG,
-    LTC_DEPOSIT_ADDRESS,
-    LTC_MIN_CONFIRMATIONS,
-    LTC_MIN_DEPOSIT,
     MEMBERSHIP_CACHE_SECONDS,
     REQUIRED_CHANNEL,
     SHOP_NAME,
@@ -181,7 +178,7 @@ def _interaction_button_name(query):
         "topup": "Top up balance",
         "topup_txid": "Verify Binance top-up", "topup_bybit": "Verify Bybit top-up",
         "topup_bsc": "Top up with BSC",
-        "topup_polygon": "Top up with Polygon", "topup_ltc": "Top up with Litecoin",
+        "topup_polygon": "Top up with Polygon",
         "verify_channel_join": "Verify membership",
         "paid": "Verify payment with TXID",
         "paid_chain": "Submit blockchain TXID", "continue_pay": "Continue payment",
@@ -1671,7 +1668,6 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "await_topup_txid",
         "await_onchain_topup_amount",
         "await_onchain_topup_txid",
-        "await_litecoin_topup_txid",
         "await_withdraw_amount",
         "await_withdraw_method",
         "await_withdraw_destination",
@@ -2281,24 +2277,6 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⛓️ <b>Onchain USDT deposit</b>\n\nChoose the network you will use:",
             parse_mode=ParseMode.HTML,
             reply_markup=kb.topup_onchain_keyboard(lang),
-        )
-        return
-    if data == "topup_ltc":
-        PENDING[uid] = (
-            "await_litecoin_topup_txid",
-            {"created_at": int(time.time())},
-        )
-        await show_callback_screen(
-            q,
-            t(
-                lang,
-                "topup_ltc_instructions",
-                address=LTC_DEPOSIT_ADDRESS,
-                minimum=f"{LTC_MIN_DEPOSIT:.8f}".rstrip("0").rstrip("."),
-                confirmations=LTC_MIN_CONFIRMATIONS,
-            ),
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb.topup_litecoin_keyboard(lang, LTC_DEPOSIT_ADDRESS),
         )
         return
     if data in {"topup_bsc", "topup_polygon"}:
@@ -3419,48 +3397,6 @@ async def handle_pending_input(update, context, lang):
                 contract_warning=contract_warning,
             ),
             parse_mode=ParseMode.MARKDOWN,
-        )
-        return
-
-    if kind == "await_litecoin_topup_txid":
-        await update.message.reply_text(
-            premium_customer_text(lang, "verifying"),
-            parse_mode=ParseMode.HTML,
-        )
-        result = await asyncio.to_thread(
-            wallet_service.submit_litecoin_topup,
-            uid,
-            text,
-            int((ref or {}).get("created_at") or 0),
-        )
-        if result["status"] == "pending":
-            await update.message.reply_text(t(lang, "topup_ltc_pending"))
-            return
-        if result.get("code") == "already_used":
-            PENDING.pop(uid, None)
-            await update.message.reply_text(
-                premium_customer_text(lang, "topup_already_confirmed"),
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb.home_keyboard(lang, uid),
-            )
-            return
-        if result["status"] != "confirmed":
-            await update.message.reply_text(
-                result.get("message") or "Invalid Litecoin transaction ID."
-            )
-            return
-        PENDING.pop(uid, None)
-        await update.message.reply_text(
-            t(
-                lang,
-                "topup_ltc_approved",
-                ltc_amount=f"{result['ltc_amount']:.8f}".rstrip("0").rstrip("."),
-                rate=f"{result['rate']:.4f}".rstrip("0").rstrip("."),
-                amount=f"{result['amount']:.2f}",
-                balance=f"{result['balance']:.2f}",
-            ),
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb.home_keyboard(lang, uid),
         )
         return
 

@@ -88,60 +88,8 @@ def test_onchain_topup_is_automatically_verified_and_credited(
     assert saved["verification_method"] == "automatic_onchain"
 
 
-def test_litecoin_topup_converts_live_rate_and_credits_once(
-    mock_mongodb, monkeypatch,
-):
-    monkeypatch.setattr(
-        wallet_service, "verify_litecoin_deposit",
-        lambda *_args, **_kwargs: {
-            "status": "confirmed", "code": "confirmed", "ltc_amount": 0.25,
-            "confirmations": 5, "received_at": 1_700_000_000,
-        },
-    )
-    monkeypatch.setattr(
-        wallet_service, "fetch_ltc_usdt_quote",
-        lambda: {
-            "status": "confirmed", "code": "confirmed", "price": 80.0,
-            "source": "binance_ltcusdt",
-        },
-    )
-    txid = "0x" + "b" * 64
-
-    result = wallet_service.submit_litecoin_topup(42, txid, 1_699_999_900)
-
-    assert result["status"] == "confirmed"
-    assert result["ltc_amount"] == 0.25
-    assert result["rate"] == 80.0
-    assert result["amount"] == 20.0
-    assert result["balance"] == 20.0
-    assert wallet_service.submit_litecoin_topup(99, txid)["code"] == "already_used"
-    saved = mock_mongodb.wallet_topups.find_one({"txid": txid})
-    assert saved["source_currency"] == "LTC"
-    assert saved["amount_cents"] == 2000
-    assert saved["verification_method"] == "automatic_bsc_ltc"
-
-
-def test_litecoin_topup_does_not_credit_without_live_quote(
-    mock_mongodb, monkeypatch,
-):
-    monkeypatch.setattr(
-        wallet_service, "verify_litecoin_deposit",
-        lambda *_args, **_kwargs: {
-            "status": "confirmed", "code": "confirmed", "ltc_amount": 1.0,
-        },
-    )
-    monkeypatch.setattr(
-        wallet_service, "fetch_ltc_usdt_quote",
-        lambda: {
-            "status": "pending", "code": "quote_unavailable", "reason": "offline",
-        },
-    )
-
-    result = wallet_service.submit_litecoin_topup(42, "0x" + "c" * 64)
-
-    assert result["status"] == "pending"
-    assert wallet_service.balance_cents(42) == 0
-    assert mock_mongodb.wallet_topups.count_documents({}) == 0
+def test_token_conversion_calculation_is_preserved():
+    assert wallet_service.convert_token_amount_to_usdt_cents(0.25, 80.0) == 2000
 
 
 def test_wallet_pays_order_and_reduces_external_total(mock_mongodb):

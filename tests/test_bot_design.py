@@ -1841,27 +1841,14 @@ def test_catalog_request_is_saved_and_sent_to_support_channel(monkeypatch, mock_
     assert "Request sent" in message.reply_text.await_args.args[0]
     message.delete.assert_awaited_once()
 
-def test_topup_keyboard_offers_four_deposit_methods(mock_mongodb):
+def test_topup_keyboard_offers_supported_deposit_methods(mock_mongodb):
     callbacks = [
         button.callback_data
         for row in kb.topup_keyboard("en").inline_keyboard
         for button in row
     ]
 
-    assert callbacks == [
-        "topup_ltc", "topup_bybit", "topup_txid", "topup_onchain", "home",
-    ]
-
-
-def test_litecoin_topup_instructions_require_ltc_network(mock_mongodb):
-    message = t(
-        "en", "topup_ltc_instructions", minimum="0.001",
-        address="Lexample", confirmations=3,
-    )
-
-    assert "Required network: BSC (BEP20)" in message
-    assert "Do not use another network" in message
-    assert "0x4338665c" not in message
+    assert callbacks == ["topup_bybit", "topup_txid", "topup_onchain", "home"]
 
 
 def test_topup_instructions_are_txid_only(mock_mongodb):

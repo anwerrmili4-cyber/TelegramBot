@@ -2,8 +2,8 @@
 import html
 import re
 
-from telegram import CopyTextButton, InlineKeyboardButton as _InlineKeyboardButton
-from telegram import InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import CopyTextButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram import InlineKeyboardButton as _InlineKeyboardButton
 
 
 def InlineKeyboardButton(*args, style=None, **kwargs):
@@ -38,7 +38,7 @@ BUTTON_TEXT_KEYS = {
     "catalog_notifications_on", "catalog_notifications_off",
     "profile_deposit", "profile_withdraw", "profile_orders", "profile_referral",
     "profile_shop", "profile_notifications", "profile_reseller_api", "profile_main_menu",
-    "topup_verify_txid", "topup_verify_bybit", "topup_onchain", "topup_bsc", "topup_polygon", "topup_ltc",
+    "topup_verify_txid", "topup_verify_bybit", "topup_onchain", "topup_bsc", "topup_polygon",
     "topup_home_button",
     "btn_main_menu_short", "btn_refresh_short", "btn_back_services", "btn_buy", "btn_back", "btn_paid",
     "btn_cancel_short", "btn_verify_txid", "btn_cancel_order", "btn_pay_wallet",
@@ -321,22 +321,9 @@ def home_keyboard(lang, user_id):
 
 def topup_keyboard(lang):
     return InlineKeyboardMarkup([
-        [translated_button(lang, "topup_ltc", callback_data="topup_ltc", style="success")],
         [translated_button(lang, "topup_verify_bybit", callback_data="topup_bybit", style="success")],
         [translated_button(lang, "topup_verify_txid", callback_data="topup_txid", style="success")],
         [translated_button(lang, "topup_onchain", callback_data="topup_onchain", style="success")],
-        [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
-    ])
-
-
-def topup_litecoin_keyboard(lang, address):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            "📋 Copy LTC address",
-            copy_text=CopyTextButton(str(address)),
-            style="primary",
-        )],
-        [InlineKeyboardButton("🔄 Change Method", callback_data="topup", style="primary")],
         [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
     ])
 
