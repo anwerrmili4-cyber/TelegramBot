@@ -128,6 +128,6 @@ def fetch_sol_usdt_quote() -> dict:
         price = Decimal(str(payload.get("price") or "0"))
         if not price.is_finite() or price <= 0:
             raise InvalidOperation("invalid SOL price")
-        return _result("confirmed", "confirmed", "SOL/USDT quote received.", price=float(price), source="binance_solusdt")
+        return _result("confirmed", "confirmed", "SOL/USDT quote received.", price=float(price), source="Binance SOL/USDT live price")
     except Exception as exc:
         return _result("pending", "quote_unavailable", f"SOL/USDT quote unavailable: {exc}")
