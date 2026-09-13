@@ -1010,43 +1010,25 @@ def ensure_methods_service():
     return add_service("Methods", "🧠")
 
 
-BOT_LIKE_MINE_DESCRIPTION = """Launch your own digital-products business with a bot like BLACK MARKET.
+BOT_LIKE_MINE_DESCRIPTION = """Launch your own professional digital-products business with a complete Telegram commerce system like BLACK MARKET.
 
-Included:
-• Complete private GitHub source code and deployment files
-• Customer Telegram bot with catalog, product details, stock and checkout
-• Binance Pay, Bybit Pay, USDT BEP20 and USDT Polygon payments
-• Wallet deposits, withdrawals and transaction verification
-• Automatic, manual and supplier-API delivery workflows
-• Reseller Buyer API with products, balance, purchase and documentation
-• Warranty requests with accept/refuse, replacement and refund handling
-• Orders, customer accounts, support tickets and admin communication
-• Referral rewards, loyalty discounts, stock alerts and flash sales
-• English and Arabic support
-• Telegram admin panel for daily management
-• Secure web admin dashboard with catalog, orders, users and analytics
-• Configuration and deployment structure
+The package includes a modern customer bot, a Telegram admin panel, a secure web admin dashboard, payment and wallet tools, automated and manual delivery, warranty management, customer support, marketing features, analytics, and a reseller API. The customer experience supports English and Arabic.
 
-Delivery: private GitHub repository/source package after payment confirmation. Hosting, third-party accounts, paid API keys, installation and custom development are not included unless agreed separately with the administrator."""
+Use the “What you'll get?” button below to receive the complete functions-and-benefits document before purchasing.
 
-BOT_LIKE_MINE_DESCRIPTION_AR = """أطلق مشروعك الخاص لبيع المنتجات الرقمية مع بوت مثل BLACK MARKET.
+Delivery format: after payment confirmation, you receive a private link to the complete source code and deployment files.
 
-يتضمن:
-• الشيفرة المصدرية الكاملة الخاصة من GitHub وملفات النشر
-• بوت Telegram للعملاء مع الكتالوج وتفاصيل المنتجات والمخزون والدفع
-• الدفع عبر Binance Pay وBybit Pay وUSDT BEP20 وUSDT Polygon
-• المحافظ والإيداعات والسحوبات والتحقق من المعاملات
-• التسليم التلقائي واليدوي وتسليم الموردين عبر API
-• واجهة Buyer API للموزعين مع المنتجات والرصيد والشراء والتوثيق
-• طلبات الضمان مع القبول أو الرفض والاستبدال واسترداد المبلغ
-• الطلبات وحسابات العملاء وتذاكر الدعم والتواصل مع المسؤول
-• مكافآت الإحالة وخصومات الولاء وتنبيهات المخزون والعروض السريعة
-• دعم اللغتين العربية والإنجليزية
-• لوحة مسؤول Telegram للإدارة اليومية
-• لوحة تحكم ويب آمنة للكتالوج والطلبات والعملاء والإحصائيات
-• هيكل الإعدادات وملفات النشر
+Hosting, third-party accounts, paid API keys, installation, and custom development are not included unless agreed separately with the administrator."""
 
-التسليم: مستودع GitHub خاص أو حزمة الشيفرة المصدرية بعد تأكيد الدفع. الاستضافة وحسابات الجهات الخارجية ومفاتيح API المدفوعة والتثبيت والتطوير المخصص غير مشمولة إلا باتفاق منفصل مع المسؤول."""
+BOT_LIKE_MINE_DESCRIPTION_AR = """أطلق مشروعاً احترافياً لبيع المنتجات الرقمية باستخدام نظام تجارة متكامل عبر Telegram مثل BLACK MARKET.
+
+تتضمن الحزمة بوتاً حديثاً للعملاء، ولوحة إدارة داخل Telegram، ولوحة تحكم ويب آمنة، وأدوات الدفع والمحفظة، والتسليم التلقائي واليدوي، وإدارة الضمان، ودعم العملاء، وأدوات التسويق، والإحصائيات، وواجهة API للموزعين. تدعم واجهة العملاء اللغتين العربية والإنجليزية.
+
+استخدم زر «ماذا ستحصل عليه؟» أدناه لاستلام مستند الوظائف والمزايا الكامل قبل الشراء.
+
+صيغة التسليم: بعد تأكيد الدفع، ستحصل على رابط خاص للشيفرة المصدرية الكاملة وملفات النشر.
+
+لا تشمل الحزمة الاستضافة أو حسابات الجهات الخارجية أو مفاتيح API المدفوعة أو التثبيت أو التطوير المخصص إلا باتفاق منفصل مع المسؤول."""
 
 
 def ensure_bot_like_mine_feature():
@@ -1086,13 +1068,13 @@ def ensure_bot_like_mine_feature():
             "BOT LIKE MINE",
             45.0,
             0,
-            note="Complete source-code package — delivery after admin confirmation.",
+            note="Complete source-code package — delivered as a private source-code link after payment.",
             description=BOT_LIKE_MINE_DESCRIPTION,
             description_ar=BOT_LIKE_MINE_DESCRIPTION_AR,
             currency="USDT",
             auto_delivery=False,
             low_stock_threshold=0,
-            delivery_delay="Private GitHub source delivery after payment confirmation",
+            delivery_delay="Private source-code link after payment confirmation",
             unlimited_stock=True,
             manual_stock=True,
             sales_channels=["bot"],
@@ -1110,7 +1092,7 @@ def ensure_bot_like_mine_feature():
             "currency": "USDT",
             "description": BOT_LIKE_MINE_DESCRIPTION,
             "description_ar": BOT_LIKE_MINE_DESCRIPTION_AR,
-            "note": "Complete source-code package — delivery after admin confirmation.",
+            "note": "Complete source-code package — delivered as a private source-code link after payment.",
             "feature_key": "bot_like_mine",
             "active": 1,
             "archived": 0,
@@ -1121,7 +1103,7 @@ def ensure_bot_like_mine_feature():
             "period_days": 0,
             "warranty_days": 0,
             "low_stock_threshold": 0,
-            "delivery_delay": "Private GitHub source delivery after payment confirmation",
+            "delivery_delay": "Private source-code link after payment confirmation",
             "sales_channels": ["bot"],
         }, "$unset": {"archived_at": ""}},
     )

@@ -821,6 +821,9 @@ def test_bot_like_mine_configuration_survives_feature_refresh(mock_mongodb):
     assert refreshed["benefits_document_file_id"] == "telegram-document-id"
     assert refreshed["benefits_document_name"] == "benefits.pdf"
     assert refreshed["delivery_url"] == "https://github.com/example/private-project"
+    assert "What you'll get?" in refreshed["description"]
+    assert "private link to the complete source code" in refreshed["description"]
+    assert "رابط خاص للشيفرة المصدرية الكاملة" in refreshed["description_ar"]
 
 
 def test_reseller_api_stays_in_profile_and_dashboard(mock_mongodb):
