@@ -4136,6 +4136,46 @@ def supplier_delivery_problem_text(order_id, result):
     )
 
 
+_DELIVERY_WATCHERS = set()
+
+
+def manual_delivery_waiting_text(lang, order_id):
+    messages = {
+        "fr": f"⏳ <b>Commande #{order_id} confirmée</b>\n\nVeuillez patienter : le bot vous prépare un nouveau compte. Votre produit sera disponible très bientôt.",
+        "en": f"⏳ <b>Order #{order_id} confirmed</b>\n\nPlease wait — the bot is releasing a fresh account for you. Your product will be available very soon.",
+        "ar": f"⏳ <b>تم تأكيد الطلب #{order_id}</b>\n\nيرجى الانتظار — يقوم البوت بتجهيز حساب جديد لك. سيكون منتجك متاحاً قريباً جداً.",
+    }
+    return messages.get(lang, messages["en"])
+
+
+async def watch_manual_delivery(bot, chat_id, order_id, message_id, lang, timeout=3600):
+    """Keep the customer informed while an API-failed order is delivered manually."""
+    key = (int(chat_id), int(order_id))
+    _DELIVERY_WATCHERS.add(key)
+    try:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            await asyncio.sleep(5)
+            order = db.get_order(order_id) or {}
+            if order.get("status") == "delivered":
+                with contextlib.suppress(Exception):
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text="✅ <b>Your product has been released.</b> Check the message above for your account.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                return
+            if order.get("status") not in {"paid", "payment_confirmed"}:
+                return
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        log.exception("Manual delivery watcher failed for order #%s", order_id)
+    finally:
+        _DELIVERY_WATCHERS.discard(key)
+
+
 async def send_method_media(bot, customer_id, media):
     for item in media or []:
         kind = str(item.get("type") or "document")
@@ -4215,9 +4255,26 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
                     reply_markup=kb.post_delivery_keyboard(lang, order_id),
                 )
         else:
-            await message.reply_text(premium_customer_text(lang, "verify_ok", oid=order_id),
-                                     parse_mode=ParseMode.HTML,
-                                     reply_markup=kb.post_delivery_keyboard(lang, order_id))
+            if str(result.get("error_code") or "").startswith("supplier_"):
+                waiting_message = await message.reply_text(
+                    manual_delivery_waiting_text(lang, order_id),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb.post_delivery_keyboard(lang, order_id),
+                )
+                watcher_key = (int(uid), int(order_id))
+                if watcher_key not in _DELIVERY_WATCHERS and getattr(waiting_message, "message_id", None):
+                    asyncio.create_task(
+                        watch_manual_delivery(
+                            context.bot, uid, order_id,
+                            waiting_message.message_id, lang,
+                        )
+                    )
+            else:
+                await message.reply_text(
+                    premium_customer_text(lang, "verify_ok", oid=order_id),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb.post_delivery_keyboard(lang, order_id),
+                )
         with contextlib.suppress(Exception):
             if result["status"] == "confirmed_no_delivery":
                 # Manual fulfillment is safe for native/manual products and
