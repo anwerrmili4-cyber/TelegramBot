@@ -811,6 +811,38 @@ def _announcement_plain(value):
     return str(value or "").replace("*", "").replace("_", " ").replace("`", "").strip()
 
 
+def top_selling_products_text(lang: str) -> str:
+    """Build the main-menu Top 5 from real paid catalogue orders."""
+    titles = {
+        "fr": "🔥 <b>TOP 5 DES PRODUITS LES PLUS VENDUS</b>",
+        "en": "🔥 <b>TOP 5 BEST-SELLING PRODUCTS</b>",
+        "ar": "🔥 <b>أفضل 5 منتجات مبيعاً</b>",
+    }
+    ranked = []
+    for offer in db.list_catalog_offers():
+        sold = db.offer_sold_count(offer.get("id"))
+        if sold > 0:
+            ranked.append((sold, offer))
+    ranked.sort(key=lambda item: (-item[0], int(item[1].get("id") or 0)))
+    lines = []
+    for position, (_sold, offer) in enumerate(ranked[:5], start=1):
+        fallback = str(offer.get("emoji") or offer.get("service_emoji") or "📦").strip()
+        if not _is_single_emoji(fallback):
+            fallback = "📦"
+        emoji_id = str(offer.get("custom_emoji_id") or offer.get("service_custom_emoji_id") or "").strip()
+        icon = fallback
+        if emoji_id and emoji_id.isascii():
+            icon = f"[[TGEMOJI:{emoji_id}:{fallback.encode('utf-8').hex()}]]"
+        lines.append(f"{position} - {icon} <b>{html.escape(str(offer.get('name') or 'Product'))}</b>")
+    if not lines:
+        empty = {"fr": "Aucune vente pour le moment.", "en": "No sales yet.", "ar": "لا توجد مبيعات بعد."}
+        lines.append(empty.get(lang, empty["en"]))
+    return render_stored_rich_text(
+        "[[HTML]]" + f"{titles.get(lang, titles['en'])}\n\n" + "\n".join(lines),
+        parse_legacy_markdown=False,
+    )
+
+
 def _track_broadcast_message(context, sent_message, chat_id):
     """Persist an outgoing campaign message for later global deletion."""
     job_id = getattr(context, "broadcast_job_id", None)
@@ -1396,8 +1428,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_main_menu(update, context, lang, chat_id=None):
     uid = update.effective_user.id if update.effective_user else chat_id
-    configured = db.shop_settings().get("welcome_message", "").strip()
-    text = configured or t(lang, "welcome", shop=SHOP_NAME)
+    text = top_selling_products_text(lang)
     target = update.message or (update.callback_query.message if update.callback_query else None)
     markup = kb.home_keyboard(lang, uid)
     public_base_url = public_base_url_from_environment()
@@ -1410,24 +1441,24 @@ async def send_main_menu(update, context, lang, chat_id=None):
             await target.reply_photo(
                 photo=banner_source,
                 caption=text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=markup,
             )
         except Exception:
             log.exception("Welcome image could not be sent; falling back to text")
-            await target.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+            await target.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
     else:
         try:
             await context.bot.send_photo(
                 chat_id,
                 photo=banner_source,
                 caption=text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 reply_markup=markup,
             )
         except Exception:
             log.exception("Welcome image could not be sent; falling back to text")
-            await context.bot.send_message(chat_id, text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+            await context.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1650,8 +1681,8 @@ async def cb_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.set_user_lang(q.from_user.id, lang)
     await q.answer()
     await q.edit_message_text(
-        t(lang, "welcome", shop=SHOP_NAME),
-        parse_mode=ParseMode.MARKDOWN,
+        top_selling_products_text(lang),
+        parse_mode=ParseMode.HTML,
         reply_markup=kb.home_keyboard(lang, q.from_user.id),
     )
 
@@ -2012,8 +2043,8 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("tour:"):
         await q.edit_message_text(
-            t(lang, "welcome", shop=SHOP_NAME),
-            parse_mode=ParseMode.MARKDOWN,
+            top_selling_products_text(lang),
+            parse_mode=ParseMode.HTML,
             reply_markup=kb.home_keyboard(lang, uid),
         )
         return

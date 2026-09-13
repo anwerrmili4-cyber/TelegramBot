@@ -53,6 +53,7 @@ from bot import (
     show_account,
     text_with_custom_emoji_tokens,
     text_without_custom_emojis,
+    top_selling_products_text,
 )
 from i18n import t
 
@@ -1450,6 +1451,23 @@ def test_welcome_banner_is_packaged_with_the_bot():
 
     assert banner.exists()
     assert banner.stat().st_size > 100_000
+
+
+def test_top_selling_products_are_ranked_and_rendered_with_premium_emoji(monkeypatch):
+    offers = [
+        {"id": 1, "name": "Basic", "emoji": "📦"},
+        {"id": 2, "name": "Pro & Plus", "emoji": "⭐", "custom_emoji_id": "12345"},
+        {"id": 3, "name": "Starter", "emoji": "🚀"},
+    ]
+    sales = {1: 2, 2: 7, 3: 4}
+    monkeypatch.setattr("bot.db.list_catalog_offers", lambda: offers)
+    monkeypatch.setattr("bot.db.offer_sold_count", lambda offer_id: sales[offer_id])
+
+    text = top_selling_products_text("en")
+
+    assert "TOP 5 BEST-SELLING PRODUCTS" in text
+    assert text.index("Pro &amp; Plus") < text.index("Starter") < text.index("Basic")
+    assert '<tg-emoji emoji-id="12345">⭐</tg-emoji>' in text
 
 
 def test_main_menu_sends_welcome_banner_by_cached_url(monkeypatch):
