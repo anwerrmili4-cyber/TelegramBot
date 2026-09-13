@@ -319,14 +319,19 @@ def home_keyboard(lang, user_id):
     return InlineKeyboardMarkup(rows)
 
 
-def topup_keyboard(lang):
-    return InlineKeyboardMarkup([
-        [translated_button(lang, "topup_sol", callback_data="topup_sol", style="success")],
+def topup_keyboard(lang, user_id=None):
+    rows = []
+    if user_id is not None:
+        from config import SOLANA_ALLOWED_USER_ID
+        if SOLANA_ALLOWED_USER_ID > 0 and int(user_id) == SOLANA_ALLOWED_USER_ID:
+            rows.append([translated_button(lang, "topup_sol", callback_data="topup_sol", style="success")])
+    rows.extend([
         [translated_button(lang, "topup_verify_bybit", callback_data="topup_bybit", style="success")],
         [translated_button(lang, "topup_verify_txid", callback_data="topup_txid", style="success")],
         [translated_button(lang, "topup_onchain", callback_data="topup_onchain", style="success")],
         [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
     ])
+    return InlineKeyboardMarkup(rows)
 
 
 def topup_provider_keyboard(lang, provider, pay_id):

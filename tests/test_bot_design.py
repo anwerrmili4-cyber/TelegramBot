@@ -1848,7 +1848,7 @@ def test_topup_keyboard_offers_supported_deposit_methods(mock_mongodb):
         for button in row
     ]
 
-    assert callbacks == ["topup_sol", "topup_bybit", "topup_txid", "topup_onchain", "home"]
+    assert callbacks == ["topup_bybit", "topup_txid", "topup_onchain", "home"]
 
 
 def test_topup_instructions_are_txid_only(mock_mongodb):

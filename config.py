@@ -99,6 +99,7 @@ SOLANA_MIN_CONFIRMATIONS: int = max(
 SOLANA_MIN_DEPOSIT: float = max(
     0.000000001, float(os.environ.get("HP_SOLANA_MIN_DEPOSIT", "0.01"))
 )
+SOLANA_ALLOWED_USER_ID: int = int(os.environ.get("HP_SOLANA_ALLOWED_USER_ID", "0"))
 ONCHAIN_BSC_RPC_URL: str = os.environ.get(
     "HP_ONCHAIN_BSC_RPC_URL", "https://bsc-dataseed.bnbchain.org"
 ).strip()

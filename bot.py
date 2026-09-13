@@ -59,6 +59,7 @@ from config import (
     REQUIRED_CHANNEL,
     SHOP_NAME,
     SOLANA_DEPOSIT_ADDRESS,
+    SOLANA_ALLOWED_USER_ID,
     SOLANA_MIN_CONFIRMATIONS,
     SOLANA_MIN_DEPOSIT,
     SUPPORT_TICKET_CHANNEL_ID,
@@ -1483,7 +1484,7 @@ async def show_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang, "topup_message", binance_id=BINANCE_PAY_ID, bybit_uid=BYBIT_UID,
         ),
         parse_mode=ParseMode.HTML,
-        reply_markup=kb.topup_keyboard(lang),
+        reply_markup=kb.topup_keyboard(lang, uid),
     )
 
 
@@ -2284,6 +2285,9 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     if data == "topup_sol":
+        if SOLANA_ALLOWED_USER_ID <= 0 or uid != SOLANA_ALLOWED_USER_ID:
+            await q.answer("This deposit method is not available for your account.", show_alert=True)
+            return
         PENDING[uid] = ("await_solana_topup_signature", {"created_at": int(time.time())})
         await show_callback_screen(
             q,
@@ -3378,7 +3382,7 @@ async def handle_pending_input(update, context, lang):
             await update.message.reply_text(
                 premium_customer_text(lang, "topup_failed"),
                 parse_mode=ParseMode.HTML,
-                reply_markup=kb.topup_keyboard(lang),
+                reply_markup=kb.topup_keyboard(lang, uid),
             )
         return
 
