@@ -322,8 +322,8 @@ def home_keyboard(lang, user_id):
 def topup_keyboard(lang, user_id=None):
     rows = []
     if user_id is not None:
-        from config import SOLANA_ALLOWED_USER_ID
-        if SOLANA_ALLOWED_USER_ID > 0 and int(user_id) == SOLANA_ALLOWED_USER_ID:
+        from config import ADMIN_ID, SOLANA_ALLOWED_USER_ID
+        if int(user_id) == ADMIN_ID or (SOLANA_ALLOWED_USER_ID > 0 and int(user_id) == SOLANA_ALLOWED_USER_ID):
             rows.append([translated_button(lang, "topup_sol", callback_data="topup_sol", style="success")])
     rows.extend([
         [translated_button(lang, "topup_verify_bybit", callback_data="topup_bybit", style="success")],

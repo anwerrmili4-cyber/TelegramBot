@@ -2285,7 +2285,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     if data == "topup_sol":
-        if SOLANA_ALLOWED_USER_ID <= 0 or uid != SOLANA_ALLOWED_USER_ID:
+        if uid != ADMIN_ID and (SOLANA_ALLOWED_USER_ID <= 0 or uid != SOLANA_ALLOWED_USER_ID):
             await q.answer("This deposit method is not available for your account.", show_alert=True)
             return
         PENDING[uid] = ("await_solana_topup_signature", {"created_at": int(time.time())})
