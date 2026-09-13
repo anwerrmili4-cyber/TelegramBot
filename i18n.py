@@ -119,6 +119,14 @@ TRANSLATIONS = {
     "topup_verify_txid": {"fr": "🟡 Binance Pay", "en": "🟡 Binance Pay", "ar": "🟡 دفع Binance"},
     "topup_verify_bybit": {"fr": "🟠 Bybit Pay", "en": "🟠 Bybit Pay", "ar": "🟠 دفع Bybit"},
     "topup_onchain": {"fr": "⛓️ Onchain", "en": "⛓️ Onchain", "ar": "⛓️ على السلسلة"},
+    "topup_sol": {"fr": "◎ Solana (SOL)", "en": "◎ Solana (SOL)", "ar": "◎ سولانا (SOL)"},
+    "topup_sol_instructions": {
+        "fr": "◎ <b>DÉPÔT SOL</b>\n\n<b>Réseau obligatoire : Solana</b>\n\nEnvoyez au moins <b>{minimum} SOL</b> à cette adresse :\n<code>{address}</code>\n\nAprès l’envoi, collez la signature de transaction Solana ici. Après <b>{confirmations} confirmations</b>, le bot lit le montant SOL réel, prend le cours SOL/USDT en direct et crédite automatiquement votre portefeuille en USDT.\n\n⚠️ Utilisez uniquement le réseau <b>Solana</b>.",
+        "en": "◎ <b>SOL DEPOSIT</b>\n\n<b>Required network: Solana</b>\n\nSend at least <b>{minimum} SOL</b> to this address:\n<code>{address}</code>\n\nAfter sending, paste the Solana transaction signature here. After <b>{confirmations} confirmations</b>, the bot reads the actual SOL amount, locks the live SOL/USDT rate, and automatically credits your wallet in USDT.\n\n⚠️ Use only the <b>Solana</b> network.",
+        "ar": "◎ <b>إيداع SOL</b>\n\n<b>الشبكة المطلوبة: Solana</b>\n\nأرسل ما لا يقل عن <b>{minimum} SOL</b> إلى هذا العنوان:\n<code>{address}</code>\n\nبعد الإرسال، الصق توقيع معاملة Solana هنا. بعد <b>{confirmations} تأكيدات</b>، يقرأ البوت مبلغ SOL الفعلي ويثبت سعر SOL/USDT المباشر ثم يضيف الرصيد تلقائياً إلى محفظتك بعملة USDT.\n\n⚠️ استخدم شبكة <b>Solana</b> فقط.",
+    },
+    "topup_sol_pending": {"fr": "⏳ Le dépôt SOL attend encore des confirmations ou le cours est momentanément indisponible. Renvoyez la même signature dans quelques instants.", "en": "⏳ The SOL deposit is still confirming or the live rate is temporarily unavailable. Send the same signature again shortly.", "ar": "⏳ لا يزال إيداع SOL بانتظار التأكيدات أو أن السعر المباشر غير متاح مؤقتاً. أرسل التوقيع نفسه مجدداً بعد قليل."},
+    "topup_sol_approved": {"fr": "✅ <b>Dépôt SOL converti</b>\n\nReçu : <b>{sol_amount} SOL</b>\nCours bloqué : <b>1 SOL = {rate} USDT</b>\nCrédité : <b>{amount} USDT</b>\nNouveau solde : <b>{balance} USDT</b>", "en": "✅ <b>SOL deposit converted</b>\n\nReceived: <b>{sol_amount} SOL</b>\nLocked rate: <b>1 SOL = {rate} USDT</b>\nCredited: <b>{amount} USDT</b>\nNew balance: <b>{balance} USDT</b>", "ar": "✅ <b>تم تحويل إيداع SOL</b>\n\nالمستلم: <b>{sol_amount} SOL</b>\nالسعر المثبت: <b>1 SOL = {rate} USDT</b>\nالمضاف: <b>{amount} USDT</b>\nالرصيد الجديد: <b>{balance} USDT</b>"},
     "topup_bsc": {
         "fr": "🟨 USDT - BEP20",
         "en": "🟨 USDT - BEP20",

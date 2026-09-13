@@ -12,6 +12,8 @@ import database as db
 from config import USDT_EVM_ADDRESS
 from onchain_verifier import verify_onchain_usdt
 from payment_verifier import verify_bybit_incoming_transfer, verify_incoming_transfer
+from config import SOLANA_DEPOSIT_ADDRESS
+from solana_verifier import fetch_sol_usdt_quote, verify_solana_deposit
 
 
 def balance_cents(user_id: int) -> int:
@@ -143,6 +145,37 @@ def convert_token_amount_to_usdt_cents(token_amount: float, usdt_rate: float) ->
     if amount_cents < 1:
         raise ValueError("Converted amount is below 0.01 USDT.")
     return amount_cents
+
+
+def submit_solana_topup(user_id: int, signature: str) -> dict[str, Any]:
+    """Verify native SOL, lock the live SOL/USDT quote, and credit once."""
+    signature = str(signature or "").strip()
+    conn = db.get_conn()
+    if conn.wallet_topups.find_one({"txid": signature}) or conn.orders.find_one({"txid": signature}):
+        return {"status": "failed", "code": "already_used", "message": "This transaction has already been credited."}
+    verification = verify_solana_deposit(signature, SOLANA_DEPOSIT_ADDRESS)
+    if verification["status"] != "confirmed":
+        return {"status": verification["status"], "code": verification.get("code"), "message": verification.get("reason")}
+    quote = fetch_sol_usdt_quote()
+    if quote["status"] != "confirmed":
+        return {"status": quote["status"], "code": quote.get("code"), "message": quote.get("reason")}
+    sol_amount = float(verification["sol_amount"])
+    rate = float(quote["price"])
+    try:
+        amount_cents = convert_token_amount_to_usdt_cents(sol_amount, rate)
+    except ValueError as exc:
+        return {"status": "failed", "code": "amount_too_small", "message": str(exc)}
+    topup_id = db._next_id("wallet_topups")
+    if not db.claim_onchain_transaction(signature, "solana", user_id, "wallet_topup", topup_id, amount_cents / 100):
+        return {"status": "failed", "code": "already_used", "message": "This transaction has already been submitted."}
+    try:
+        conn.wallet_topups.insert_one({"id": topup_id, "txid": signature, "user_id": int(user_id), "amount_cents": amount_cents, "currency": "USDT", "source_currency": "SOL", "source_amount": sol_amount, "conversion_rate": rate, "quote_source": quote["source"], "quote_at": int(time.time()), "network": "solana", "confirmations": int(verification.get("confirmations") or 0), "verification_method": "automatic_solana_sol", "status": "confirmed", "created_at": int(time.time())})
+    except DuplicateKeyError:
+        return {"status": "failed", "code": "already_used", "message": "This transaction has already been submitted."}
+    conn.wallets.update_one({"user_id": int(user_id)}, {"$inc": {"balance_cents": amount_cents}}, upsert=True)
+    balance = balance_cents(user_id) / 100
+    db.audit_event("wallet.topup_confirmed_solana", actor_id=user_id, details={"topup_id": topup_id, "txid": signature, "sol_amount": sol_amount, "sol_usdt_rate": rate, "amount_cents": amount_cents})
+    return {"status": "confirmed", "id": topup_id, "txid": signature, "sol_amount": sol_amount, "rate": rate, "amount": amount_cents / 100, "balance": balance, "user_id": int(user_id)}
 
 
 def approve_onchain_topup(topup_id: int, admin_id: int) -> dict[str, Any] | None:

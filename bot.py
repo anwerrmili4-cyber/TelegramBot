@@ -58,6 +58,9 @@ from config import (
     MEMBERSHIP_CACHE_SECONDS,
     REQUIRED_CHANNEL,
     SHOP_NAME,
+    SOLANA_DEPOSIT_ADDRESS,
+    SOLANA_MIN_CONFIRMATIONS,
+    SOLANA_MIN_DEPOSIT,
     SUPPORT_TICKET_CHANNEL_ID,
     USDT_EVM_ADDRESS,
     configuration_issues,
@@ -179,6 +182,7 @@ def _interaction_button_name(query):
         "topup_txid": "Verify Binance top-up", "topup_bybit": "Verify Bybit top-up",
         "topup_bsc": "Top up with BSC",
         "topup_polygon": "Top up with Polygon",
+        "topup_sol": "Top up with Solana",
         "verify_channel_join": "Verify membership",
         "paid": "Verify payment with TXID",
         "paid_chain": "Submit blockchain TXID", "continue_pay": "Continue payment",
@@ -2279,6 +2283,15 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb.topup_onchain_keyboard(lang),
         )
         return
+    if data == "topup_sol":
+        PENDING[uid] = ("await_solana_topup_signature", {"created_at": int(time.time())})
+        await show_callback_screen(
+            q,
+            t(lang, "topup_sol_instructions", address=SOLANA_DEPOSIT_ADDRESS, minimum=f"{SOLANA_MIN_DEPOSIT:.9f}".rstrip("0").rstrip("."), confirmations=SOLANA_MIN_CONFIRMATIONS),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb.topup_provider_keyboard(lang, "solana", SOLANA_DEPOSIT_ADDRESS),
+        )
+        return
     if data in {"topup_bsc", "topup_polygon"}:
         network = "bsc" if data == "topup_bsc" else "polygon"
         network_label = "BSC (BEP20)" if network == "bsc" else "Polygon"
@@ -3398,6 +3411,23 @@ async def handle_pending_input(update, context, lang):
             ),
             parse_mode=ParseMode.MARKDOWN,
         )
+        return
+
+    if kind == "await_solana_topup_signature":
+        await update.message.reply_text(premium_customer_text(lang, "verifying"), parse_mode=ParseMode.HTML)
+        result = await asyncio.to_thread(wallet_service.submit_solana_topup, uid, text)
+        if result["status"] == "pending":
+            await update.message.reply_text(t(lang, "topup_sol_pending"))
+            return
+        if result.get("code") == "already_used":
+            PENDING.pop(uid, None)
+            await update.message.reply_text(premium_customer_text(lang, "topup_already_confirmed"), parse_mode=ParseMode.HTML, reply_markup=kb.home_keyboard(lang, uid))
+            return
+        if result["status"] != "confirmed":
+            await update.message.reply_text(result.get("message") or "Invalid Solana transaction signature.")
+            return
+        PENDING.pop(uid, None)
+        await update.message.reply_text(t(lang, "topup_sol_approved", sol_amount=f"{result['sol_amount']:.9f}".rstrip("0").rstrip("."), rate=f"{result['rate']:.4f}".rstrip("0").rstrip("."), amount=f"{result['amount']:.2f}", balance=f"{result['balance']:.2f}"), parse_mode=ParseMode.HTML, reply_markup=kb.home_keyboard(lang, uid))
         return
 
     if kind == "await_onchain_topup_txid":
