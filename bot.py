@@ -1673,6 +1673,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "await_topup_txid",
         "await_onchain_topup_amount",
         "await_onchain_topup_txid",
+        "await_solana_topup_check",
         "await_withdraw_amount",
         "await_withdraw_method",
         "await_withdraw_destination",
