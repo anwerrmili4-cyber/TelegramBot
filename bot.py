@@ -2311,7 +2311,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result = await asyncio.to_thread(wallet_service.submit_solana_scan, uid, since)
             if result["status"] == "confirmed":
                 PENDING.pop(uid, None)
-                await q.edit_message_text(t(lang, "topup_sol_approved", sol_amount=f"{result['sol_amount']:.9f}".rstrip("0").rstrip("."), rate=f"{result['rate']:.4f}".rstrip("0").rstrip("."), amount=f"{result['amount']:.2f}", balance=f"{result['balance']:.2f}"), parse_mode=ParseMode.HTML, reply_markup=kb.home_keyboard(lang, uid))
+                await q.edit_message_text(t(lang, "topup_sol_approved", sol_amount=f"{result['sol_amount']:.9f}".rstrip("0").rstrip("."), rate=f"{result['rate']:.4f}".rstrip("0").rstrip("."), source=result.get("quote_source", "Binance SOL/USDT"), amount=f"{result['amount']:.2f}", balance=f"{result['balance']:.2f}"), parse_mode=ParseMode.HTML, reply_markup=kb.home_keyboard(lang, uid))
                 return
             if result.get("code") == "already_used":
                 PENDING.pop(uid, None)

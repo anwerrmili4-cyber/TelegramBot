@@ -216,7 +216,7 @@ def submit_solana_scan(user_id: int, since: int) -> dict[str, Any]:
     except DuplicateKeyError:
         return {"status": "failed", "code": "already_used", "message": "This payment has already been submitted."}
     conn.wallets.update_one({"user_id": int(user_id)}, {"$inc": {"balance_cents": amount_cents}}, upsert=True)
-    return {"status": "confirmed", "id": topup_id, "txid": signature, "sol_amount": verification["sol_amount"], "rate": quote["price"], "amount": amount_cents / 100, "balance": balance_cents(user_id) / 100, "user_id": int(user_id)}
+    return {"status": "confirmed", "id": topup_id, "txid": signature, "sol_amount": verification["sol_amount"], "rate": quote["price"], "quote_source": quote["source"], "quote_at": int(time.time()), "amount": amount_cents / 100, "balance": balance_cents(user_id) / 100, "user_id": int(user_id)}
 
 
 def approve_onchain_topup(topup_id: int, admin_id: int) -> dict[str, Any] | None:
