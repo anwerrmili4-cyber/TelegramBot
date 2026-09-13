@@ -226,7 +226,6 @@ def user_activity_keyboard():
 def customize_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✨ Alertes stocks & flash", callback_data="adm_alert_design")],
-        [InlineKeyboardButton("🛍 Emoji à l’ouverture du Shop", callback_data="adm_shop_emoji")],
         [InlineKeyboardButton("✏️ Textes du bot", callback_data="adm_texts")],
         [InlineKeyboardButton("🔘 Boutons du bot", callback_data="adm_buttons")],
         [InlineKeyboardButton("🎨 Design des tickets", callback_data="adm_ticket_style")],

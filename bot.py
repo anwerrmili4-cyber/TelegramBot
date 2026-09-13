@@ -1735,7 +1735,6 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "adm_addoff_price",
         "adm_offimage",
         "adm_text_override",
-        "adm_shop_emoji",
         "adm_ticket_style",
         "adm_btn_add",
         "adm_inventory",
@@ -2053,7 +2052,6 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_main_menu(update, context, lang)
         return
     if data == "catalog":
-        asyncio.create_task(send_shop_click_emoji(context, uid))
         await show_callback_screen(
             q,
             t(lang, "catalog_flat_title", shop=SHOP_NAME),
@@ -3159,23 +3157,6 @@ async def handle_pending_input(update, context, lang):
             )
         return
 
-    if kind == "adm_shop_emoji" and uid == ADMIN_ID:
-        emoji_id = custom_emoji_from_message(update.message)
-        emoji = "" if emoji_id else text.strip()
-        if not emoji_id and not _is_single_emoji(emoji):
-            await update.message.reply_text(
-                "⚠️ Send exactly one Unicode emoji or one Telegram Premium custom emoji."
-            )
-            return
-        db.set_setting("shop_click_emoji", emoji)
-        db.set_setting("shop_click_custom_emoji_id", emoji_id or "")
-        PENDING.pop(uid, None)
-        await update.message.reply_text(
-            "✅ Shop opening emoji saved. It will be sent briefly and deleted when customers open Shop.",
-            reply_markup=admin.customize_keyboard(),
-        )
-        return
-
     if kind == "adm_addoff_period" and uid == ADMIN_ID:
         try:
             period_days = int(text.strip())
@@ -4153,22 +4134,6 @@ def supplier_delivery_problem_text(order_id, result):
         "Utilisez les boutons ci-dessous pour informer l’acheteur ou effectuer "
         "une livraison manuelle."
     )
-
-
-async def send_shop_click_emoji(context, chat_id):
-    """Send the admin-selected Shop emoji briefly, then remove it."""
-    emoji = str(db.get_setting("shop_click_emoji", "") or "").strip()
-    emoji_id = str(db.get_setting("shop_click_custom_emoji_id", "") or "").strip()
-    if emoji_id and emoji_id.isascii():
-        emoji = f'<tg-emoji emoji-id="{html.escape(emoji_id)}">{html.escape(emoji or "🛍️")}</tg-emoji>'
-    elif not _is_single_emoji(emoji):
-        return
-    try:
-        sent = await context.bot.send_message(chat_id, emoji, parse_mode=ParseMode.HTML)
-        await asyncio.sleep(1.0)
-        await context.bot.delete_message(chat_id=chat_id, message_id=sent.message_id)
-    except Exception:
-        log.debug("Shop click emoji could not be sent/deleted", exc_info=True)
 
 
 _DELIVERY_WATCHERS = set()
@@ -5203,17 +5168,6 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=admin.customize_keyboard(),
         )
-        return
-    if data == "adm_shop_emoji":
-        current_emoji = db.get_setting("shop_click_emoji", "") or "(not set)"
-        await q.message.reply_text(
-            "🛍 <b>Shop opening emoji</b>\n\n"
-            f"Current: {html.escape(str(current_emoji))}\n\n"
-            "Send one Unicode emoji or one Telegram Premium custom emoji. "
-            "It will be shown briefly and deleted automatically when a customer opens Shop.",
-            parse_mode=ParseMode.HTML,
-        )
-        PENDING[uid] = ("adm_shop_emoji", 0)
         return
     if data == "adm_texts":
         await q.edit_message_text(
