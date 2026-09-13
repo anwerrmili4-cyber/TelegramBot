@@ -4165,7 +4165,7 @@ async def send_shop_click_emoji(context, chat_id):
         return
     try:
         sent = await context.bot.send_message(chat_id, emoji, parse_mode=ParseMode.HTML)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.0)
         await context.bot.delete_message(chat_id=chat_id, message_id=sent.message_id)
     except Exception:
         log.debug("Shop click emoji could not be sent/deleted", exc_info=True)
