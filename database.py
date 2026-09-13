@@ -1253,11 +1253,14 @@ def add_offer(
 
 
 def offer_sold_count(offer_id):
-    """Return the quantity sold from confirmed, paid, or delivered orders."""
+    """Return customer sales, excluding administrator/test purchases."""
+    from config import ADMIN_ID
+
     pipeline = [
         {"$match": {
             "offer_id": offer_id,
             "status": {"$in": ["paid", "payment_confirmed", "delivered"]},
+            **({"user_id": {"$ne": int(ADMIN_ID)}} if ADMIN_ID else {}),
         }},
         {"$group": {"_id": None, "total": {"$sum": "$qty"}}},
     ]
