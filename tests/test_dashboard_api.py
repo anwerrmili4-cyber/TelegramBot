@@ -56,12 +56,35 @@ def test_pending_onchain_topups_include_customer_and_explorer(mock_mongodb):
         },
     ])
 
-    result = dashboard_api.list_wallet_topups({})
+    result = dashboard_api.list_wallet_topups({"status": ["manual_review"]})
 
     assert result["total"] == 1
     assert result["items"][0]["username"] == "buyer"
     assert result["items"][0]["amount"] == 12.5
     assert result["items"][0]["explorer_url"].startswith("https://bscscan.com/tx/")
+
+
+def test_wallet_topup_history_includes_every_provider_and_paginates(mock_mongodb):
+    mock_mongodb.users.insert_many([
+        {"telegram_id": 10, "username": "alice"},
+        {"telegram_id": 20, "first_name": "Bob"},
+    ])
+    mock_mongodb.wallet_topups.insert_many([
+        {"txid": "BINANCE-ONE", "user_id": 10, "amount_cents": 500, "currency": "USDT", "provider": "binance", "created_at": 10},
+        {"id": 2, "txid": "SOLANA-TWO", "user_id": 20, "amount_cents": 750, "currency": "USDT", "source_currency": "SOL", "source_amount": 0.05, "network": "solana", "status": "confirmed", "created_at": 20},
+        {"id": 3, "txid": "POLYGON-THREE", "user_id": 20, "amount_cents": 900, "network": "polygon", "status": "rejected", "created_at": 30},
+    ])
+
+    first_page = dashboard_api.list_wallet_topups({"status": ["all"], "page": ["1"], "per_page": ["2"]})
+    confirmed = dashboard_api.list_wallet_topups({"status": ["confirmed"]})
+    alice = dashboard_api.list_wallet_topups({"search": ["alice"], "search_field": ["customer"]})
+
+    assert first_page["total"] == 3
+    assert first_page["pages"] == 2
+    assert [item["provider"] for item in first_page["items"]] == ["polygon", "solana"]
+    assert confirmed["summary"]["confirmed_amount"] == 12.5
+    assert {item["provider"] for item in confirmed["items"]} == {"binance", "solana"}
+    assert alice["items"][0]["username"] == "alice"
 
 
 def test_customer_filters_and_metric_sort(mock_mongodb):

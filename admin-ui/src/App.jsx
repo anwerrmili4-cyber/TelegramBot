@@ -43,6 +43,7 @@ const BOT_NAV_ITEMS = [
   { id: "api-clients", label: "Clients API", icon: KeyRound },
   { id: "inventory", label: "Inventaire", icon: Boxes },
   { id: "customers", label: "Clients", icon: Users },
+  { id: "deposits", label: "Dépôts", icon: CircleDollarSign },
   { id: "support", label: "Support", icon: Headphones },
   { id: "interactions", label: "Interactions", icon: MessageSquareText },
   { id: "activity", label: "Activité", icon: Activity },

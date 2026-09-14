@@ -178,8 +178,8 @@ td:first-child { display: grid; gap: 3px; }
 td:first-child span { color: #65788e; font-size: 9px; }
 td strong { color: #e6edf6; }
 .status { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 10px; color: var(--amber); background: rgba(251,191,36,.09); font-size: 8px; font-weight: 700; }
-.status.delivered, .status.paid, .status.payment_confirmed { color: var(--green); background: rgba(52,211,153,.09); }
-.status.cancelled { color: var(--red); background: rgba(251,113,133,.09); }
+.status.delivered, .status.paid, .status.payment_confirmed, .status.confirmed { color: var(--green); background: rgba(52,211,153,.09); }
+.status.cancelled, .status.rejected { color: var(--red); background: rgba(251,113,133,.09); }
 .empty-cell { padding: 34px !important; color: var(--muted); text-align: center; }
 .service-list { padding: 8px 12px 14px; }
 .service-row { width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px 7px; border: 0; border-bottom: 1px solid rgba(28,43,61,.75); color: inherit; background: transparent; text-align: left; cursor: pointer; }
@@ -566,6 +566,10 @@ html[data-admin-theme="light"] .api-usage-classifier button,html[data-admin-them
 .pending-topup-count { min-width:30px; height:30px; display:grid; place-items:center; border-radius:10px; color:#fcd34d; background:rgba(251,191,36,.1); font-size:11px; font-weight:800; }
 .txid-link { color:#67e8f9; font-family:monospace; font-size:9px; text-decoration:none; }.txid-link:hover { text-decoration:underline; }
 .topup-actions { display:flex; gap:6px; }.topup-actions .action-button { min-height:31px; padding:0 9px; font-size:8px; }
+.deposit-provider { display:inline-flex; padding:5px 8px; border-radius:9px; color:#c4b5fd; background:rgba(124,58,237,.09); font-size:8px; font-weight:700; white-space:nowrap; }
+.txid-text { color:var(--muted); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:9px; }
+.topup-actions .row-action.approve { color:var(--green); border-color:rgba(52,211,153,.2); }
+.topup-actions .row-action.reject { color:var(--red); border-color:rgba(251,113,133,.2); }
 .ticket-thread { max-height:330px; display:flex; flex-direction:column; gap:8px; margin-bottom:14px; overflow-y:auto; }
 .ticket-message { max-width:82%; align-self:flex-start; padding:10px 12px; border:1px solid var(--line); border-radius:12px 12px 12px 3px; background:#0a1624; }
 .ticket-message.admin { align-self:flex-end; border-color:rgba(167,139,250,.18); border-radius:12px 12px 3px 12px; background:rgba(124,58,237,.1); }

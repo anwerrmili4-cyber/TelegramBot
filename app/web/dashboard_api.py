@@ -508,25 +508,62 @@ def list_reseller_clients(params: dict[str, list[str]]) -> dict[str, Any]:
 
 
 def list_wallet_topups(params: dict[str, list[str]]) -> dict[str, Any]:
-    """Return manual on-chain top-ups awaiting an administrator decision."""
-    status = _first(params, "status") or "manual_review"
-    allowed_statuses = {"manual_review", "confirmed", "rejected"}
-    if status not in allowed_statuses:
-        status = "manual_review"
-    query: dict[str, Any] = {
-        "verification_method": "manual_onchain",
-        "status": status,
-    }
+    """Return the complete, filtered wallet-deposit history for every customer."""
+    page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
+    per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
+    status = _first(params, "status") or "all"
+    provider = _first(params, "provider") or "all"
+    query_parts: list[dict[str, Any]] = []
+    if status == "confirmed":
+        # Older Binance/Bybit deposits predate the explicit status field, but
+        # they were only stored after successful verification and crediting.
+        query_parts.append({"$or": [
+            {"status": "confirmed"},
+            {"status": {"$exists": False}},
+        ]})
+    elif status in {"manual_review", "rejected"}:
+        query_parts.append({"status": status})
+    if provider in {"binance", "bybit"}:
+        query_parts.append({"provider": provider})
+    elif provider in {"bsc", "polygon", "solana"}:
+        query_parts.append({"network": provider})
+
+    conn = db.get_conn()
     search = _first(params, "search")
     if search:
         pattern = {"$regex": re.escape(search), "$options": "i"}
-        clauses: list[dict[str, Any]] = [{"txid": pattern}, {"network": pattern}]
-        if search.isdigit():
-            clauses.extend(({"id": int(search)}, {"user_id": int(search)}))
-        query["$or"] = clauses
+        search_field = _first(params, "search_field") or "all"
+        clauses: list[dict[str, Any]] = []
+        if search_field in {"all", "txid"}:
+            clauses.append({"txid": pattern})
+        if search_field in {"all", "provider"}:
+            clauses.extend(({"network": pattern}, {"provider": pattern}))
+        if search.isdigit() and search_field in {"all", "deposit_id"}:
+            clauses.append({"id": int(search)})
+        if search.isdigit() and search_field in {"all", "user_id"}:
+            clauses.append({"user_id": int(search)})
+        if search_field in {"all", "customer"}:
+            user_ids = list(conn.users.distinct("telegram_id", {"$or": [
+                {"username": pattern},
+                {"first_name": pattern},
+                {"full_name": pattern},
+            ]}))
+            if user_ids:
+                clauses.append({"user_id": {"$in": user_ids}})
+        if clauses:
+            query_parts.append({"$or": clauses})
 
-    conn = db.get_conn()
-    rows = conn.wallet_topups.find(query).sort("created_at", DESCENDING).limit(100)
+    query: dict[str, Any] = {"$and": query_parts} if query_parts else {}
+    collection = conn.wallet_topups
+    total = collection.count_documents(query)
+    sort_field = "amount_cents" if _first(params, "sort") == "amount" else "created_at"
+    direction = 1 if _first(params, "direction") == "asc" else DESCENDING
+    rows = (
+        collection.find(query)
+        .sort([(sort_field, direction), ("_id", direction)])
+        .skip((page - 1) * per_page)
+        .limit(per_page)
+    )
     items = []
     for row in rows:
         item = db._public(row)
@@ -536,12 +573,37 @@ def list_wallet_topups(params: dict[str, list[str]]) -> dict[str, Any]:
         ) or {}
         item["username"] = user.get("username") or ""
         item["first_name"] = user.get("first_name") or ""
+        item["full_name"] = user.get("full_name") or ""
         item["amount"] = round(float(item.get("amount_cents") or 0) / 100, 2)
+        item["status"] = item.get("status") or "confirmed"
+        item["provider"] = item.get("provider") or item.get("network") or "unknown"
         txid = str(item.get("txid") or "")
-        explorer = "https://bscscan.com/tx/" if item.get("network") == "bsc" else "https://polygonscan.com/tx/"
-        item["explorer_url"] = f"{explorer}{txid}"
+        explorer = {
+            "bsc": "https://bscscan.com/tx/",
+            "polygon": "https://polygonscan.com/tx/",
+            "solana": "https://solscan.io/tx/",
+        }.get(item.get("network"))
+        item["explorer_url"] = f"{explorer}{txid}" if explorer and txid else ""
         items.append(item)
-    return {"items": items, "total": len(items), "status": status}
+
+    summary = {"count": 0, "confirmed": 0, "manual_review": 0, "rejected": 0, "confirmed_amount": 0.0}
+    for row in collection.find(query, {"status": 1, "amount_cents": 1}):
+        row_status = str(row.get("status") or "confirmed")
+        summary["count"] += 1
+        if row_status in {"confirmed", "manual_review", "rejected"}:
+            summary[row_status] += 1
+        if row_status == "confirmed":
+            summary["confirmed_amount"] += float(row.get("amount_cents") or 0) / 100
+    summary["confirmed_amount"] = round(summary["confirmed_amount"], 2)
+    return {
+        "items": items,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": max(1, (total + per_page - 1) // per_page),
+        "status": status,
+        "summary": summary,
+    }
 
 
 def _customer_summary(user: dict[str, Any]) -> dict[str, Any]:

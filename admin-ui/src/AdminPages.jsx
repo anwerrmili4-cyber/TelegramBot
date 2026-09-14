@@ -54,6 +54,7 @@ const STATUS_LABELS = {
   expired: "Expirée",
   paid: "Payée",
   stock_issue: "Problème de stock",
+  confirmed: "Confirmé",
   rejected: "Refusée",
   open: "Ouvert",
   waiting_admin: "Attente admin",
@@ -273,6 +274,7 @@ function useRemoteList(endpoint, filters) {
       .then((payload) => {
         if (!active) return;
         setResult({
+          ...payload,
           items: Array.isArray(payload?.items) ? payload.items : [],
           page: Number(payload?.page) || 1,
           pages: Math.max(1, Number(payload?.pages) || 1),
@@ -2512,6 +2514,118 @@ function PendingWalletTopups({ onAction }) {
   );
 }
 
+const DEPOSIT_PROVIDER_LABELS = {
+  binance: "Binance Pay",
+  bybit: "Bybit",
+  bsc: "BSC (BEP20)",
+  polygon: "Polygon",
+  solana: "Solana",
+  unknown: "Autre",
+};
+
+function DepositsPage({ data, onAction }) {
+  const [search, setSearch] = useState("");
+  const [searchField, setSearchField] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [provider, setProvider] = useState("all");
+  const [sort, setSort] = useState("newest");
+  const [page, setPage] = useState(1);
+  const [busyId, setBusyId] = useState(null);
+  const [result, loading] = useRemoteList("/admin/api/wallet-topups", {
+    search,
+    search_field: searchField,
+    status,
+    provider,
+    sort: sort === "amount" ? "amount" : "created_at",
+    direction: sort === "oldest" ? "asc" : "desc",
+    page,
+    per_page: 25,
+  });
+  const summary = result.summary || {};
+  const decide = async (topup, approved) => {
+    setBusyId(topup.id);
+    try {
+      await onAction({
+        action: approved ? "approve_wallet_topup" : "reject_wallet_topup",
+        topup_id: topup.id,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+  const customerName = (topup) => topup.username
+    ? `@${topup.username}`
+    : topup.full_name || topup.first_name || `Client ${topup.user_id}`;
+  return (
+    <>
+      <PageHeader
+        eyebrow="Portefeuilles clients"
+        title="Historique des dépôts"
+        description="Tous les dépôts effectués par tous les clients, quel que soit le moyen de paiement."
+      />
+      <div className="order-kpis deposit-kpis">
+        <article><div className="order-kpi-icon violet"><Database size={19} /></div><div><small>Dépôts affichés</small><strong>{summary.count || 0}</strong><em>selon les filtres actifs</em></div></article>
+        <article><div className="order-kpi-icon green"><CircleDollarSign size={19} /></div><div><small>Montant confirmé</small><strong>{money(summary.confirmed_amount, data.currency || "USDT")}</strong><em>{summary.confirmed || 0} dépôt(s)</em></div></article>
+        <article><div className="order-kpi-icon amber"><Clock3 size={19} /></div><div><small>À vérifier</small><strong>{summary.manual_review || 0}</strong><em>validation manuelle</em></div></article>
+        <article><div className="order-kpi-icon cyan"><X size={19} /></div><div><small>Refusés</small><strong>{summary.rejected || 0}</strong><em>dépôts non crédités</em></div></article>
+      </div>
+      <FilterBar
+        search={search}
+        searchField={searchField}
+        setSearchField={(value) => { setSearchField(value); setPage(1); }}
+        options={[["all", "Tout"], ["customer", "Client"], ["user_id", "Telegram ID"], ["txid", "TXID"], ["deposit_id", "N° dépôt"]]}
+        resultCount={result.total}
+        setSearch={(value) => { setSearch(value); setPage(1); }}
+        placeholder="Client, Telegram ID, TXID ou numéro de dépôt…"
+      >
+        <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Filtrer par statut">
+          <option value="all">Tous les statuts</option>
+          <option value="confirmed">Confirmés</option>
+          <option value="manual_review">À vérifier</option>
+          <option value="rejected">Refusés</option>
+        </select>
+        <select value={provider} onChange={(event) => { setProvider(event.target.value); setPage(1); }} aria-label="Filtrer par moyen de paiement">
+          <option value="all">Tous les moyens</option>
+          <option value="binance">Binance Pay</option>
+          <option value="bybit">Bybit</option>
+          <option value="bsc">BSC (BEP20)</option>
+          <option value="polygon">Polygon</option>
+          <option value="solana">Solana</option>
+        </select>
+        <select value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }} aria-label="Trier les dépôts">
+          <option value="newest">Plus récents</option>
+          <option value="oldest">Plus anciens</option>
+          <option value="amount">Montant le plus élevé</option>
+        </select>
+      </FilterBar>
+      <section className="data-panel">
+        <div className="responsive-table">
+          <table>
+            <thead><tr><th>Dépôt</th><th>Client</th><th>Moyen</th><th>Montant crédité</th><th>Montant reçu</th><th>TXID</th><th>Statut</th><th>Date</th><th /></tr></thead>
+            <tbody>
+              {result.items.map((topup, index) => (
+                <tr key={topup.id ?? `${topup.txid}-${index}`}>
+                  <td><strong>{topup.id ? `#${topup.id}` : "—"}</strong></td>
+                  <td><strong>{customerName(topup)}</strong><small>{topup.user_id}</small></td>
+                  <td><span className="deposit-provider">{DEPOSIT_PROVIDER_LABELS[topup.provider] || topup.provider}</span></td>
+                  <td><strong>{money(topup.amount, topup.currency || data.currency || "USDT")}</strong></td>
+                  <td>{topup.source_amount ? `${topup.source_amount} ${topup.source_currency || ""}` : "—"}</td>
+                  <td>{topup.explorer_url ? <a className="txid-link" href={topup.explorer_url} target="_blank" rel="noreferrer" title={topup.txid}>{`${topup.txid.slice(0, 9)}…${topup.txid.slice(-6)}`}</a> : <span className="txid-text" title={topup.txid}>{topup.txid ? `${topup.txid.slice(0, 9)}…${topup.txid.slice(-6)}` : "—"}</span>}</td>
+                  <td><span className={`status ${topup.status}`}>{STATUS_LABELS[topup.status] || topup.status}</span></td>
+                  <td>{date(topup.created_at)}</td>
+                  <td>{topup.status === "manual_review" && <div className="topup-actions"><button className="row-action approve" disabled={busyId === topup.id} onClick={() => decide(topup, true)} title="Accepter"><Check size={15} /></button><button className="row-action reject" disabled={busyId === topup.id} onClick={() => decide(topup, false)} title="Refuser"><X size={15} /></button></div>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {loading ? <div className="table-loading">Chargement de l’historique…</div> : !result.items.length && <Empty icon={CircleDollarSign} title="Aucun dépôt" text="Aucun dépôt ne correspond aux filtres sélectionnés." />}
+        <Pagination value={result} onChange={setPage} />
+      </section>
+    </>
+  );
+}
+
 function CustomersPage({ data, onAction }) {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
@@ -3596,6 +3710,7 @@ export default function AdminPage({
   if (page === "api-clients") return <ResellerClientsPage {...props} />;
   if (page === "inventory") return <InventoryPage {...props} />;
   if (page === "customers") return <CustomersPage {...props} />;
+  if (page === "deposits") return <DepositsPage {...props} />;
   if (page === "support") return <SupportPage {...props} />;
   if (page === "interactions") return <InteractionsPage {...props} />;
   if (page === "activity") return <ActivityPage {...props} />;
