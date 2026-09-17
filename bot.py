@@ -5536,18 +5536,18 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("adm_off:") or data.startswith("adm_off_back:"):
         oid = int(data.split(":")[1])
         off = db.get_offer(oid)
-        service = db.get_service(off.get("service_id")) or {}
-        price = "—" if off["price"] is None else f"{off['price']:.2f} {CURRENCY}"
-        method_details = "" if str(service.get("name") or "").strip().lower() == "methods" else (
-            f"🛡 Garantie : {warranty_service.offer_warranty_label(off, lang='en') or 'NW'}\n"
-            f"📅 Période : {int(off.get('period_days') or 30)} j\n"
-        )
+        if not off:
+            await q.answer("Offre introuvable.", show_alert=True)
+            return
+
+        # Keep the admin preview identical to the public product card.  Reusing
+        # the customer formatter also makes future display changes visible here
+        # automatically instead of letting the two screens drift apart.
+        preview_text = compact_offer_text(off, lang_of(uid))
         await q.edit_message_text(
-            f"🧩 *{off['name']}*\n💵 Prix : {price}\n"
-            f"📦 Stock : {'♾ Illimité' if off.get('unlimited_stock') else off['stock']}\n"
-            f"🚚 Livraison : {'Admin' if off.get('manual_stock') else 'Automatique'}\n"
-            f"{method_details}",
-            parse_mode=ParseMode.MARKDOWN,
+            preview_text,
+            parse_mode=ParseMode.HTML,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
             reply_markup=admin.offer_admin_keyboard(oid))
         return
     if data.startswith(("adm_offname:", "adm_offemoji:", "adm_offnote:", "adm_offperiod:", "adm_offdesc:", "adm_offdelay:")):
