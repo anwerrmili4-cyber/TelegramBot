@@ -285,7 +285,12 @@ def products(key: dict[str, Any]) -> dict[str, Any]:
             "product_name": str(offer.get("name") or offer["id"]),
             "description": str(offer.get("description") or offer.get("note") or ""),
             "warranty": warranty_service.offer_warranty_label(offer),
+            "warrantyValue": int(offer.get("warranty_value") if offer.get("warranty_value") is not None else (offer.get("warranty_days") or 0)),
+            "warrantyUnit": str(offer.get("warranty_unit") or "days"),
             "periodDays": int(offer.get("period_days") or 0),
+            "periodValue": int(offer.get("period_value") if offer.get("period_value") is not None else (offer.get("period_days") or 0)),
+            "periodUnit": str(offer.get("period_unit") or "days"),
+            "periodLabel": warranty_service.offer_period_label(offer),
             "service": {
                 "id": str(service.get("id") or ""),
                 "name": str(service.get("name") or ""),

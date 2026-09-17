@@ -120,6 +120,11 @@ def create_order(
                 "Your balance could not be charged. Please try again."
             )
     service = db.get_service(offer["service_id"])
+    warranty_label = warranty_service.offer_warranty_label(offer)
+    warranty_snapshot = (
+        "FW" if warranty_label == "FW"
+        else str(offer.get("note") or "").strip() or warranty_label
+    )
 
     order_id = db._next_id("orders")
     order_doc: dict[str, Any] = {
@@ -128,8 +133,13 @@ def create_order(
         "offer_id": offer["id"],
         "service_name": service["name"] if service else "",
         "offer_name": offer["name"],
-        "warranty": str(offer.get("note") or "").strip(),
+        "warranty": warranty_snapshot,
+        "warranty_days": int(offer.get("warranty_days") or 0),
+        "warranty_value": offer.get("warranty_value"),
+        "warranty_unit": offer.get("warranty_unit", "days"),
         "period_days": int(offer.get("period_days") or 0),
+        "period_value": offer.get("period_value"),
+        "period_unit": offer.get("period_unit", "days"),
         "qty": qty,
         "is_preorder": bool(preorder),
         "preorder_surcharge_percent": 10 if preorder else 0,

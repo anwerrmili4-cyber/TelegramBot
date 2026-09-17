@@ -365,6 +365,7 @@ html[data-admin-theme="light"] .api-usage-classifier button,html[data-admin-them
 .field.wide { grid-column:1/-1; }
 .field input,.field select,.field textarea { width:100%; }
 .field textarea { min-height:92px; padding:10px 11px; resize:vertical; }
+.duration-input { display:grid; grid-template-columns:minmax(80px,1fr) minmax(105px,.8fr); gap:8px; }
 .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 .dialog-actions.wrap { flex-wrap:wrap; }
 .detail-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-bottom:17px; }

@@ -750,8 +750,10 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
     bulk_unit_price: offer?.bulk_unit_price ?? "",
     description: offer?.description || "",
     note: offer?.note || "",
-    period_days: offer?.period_days ?? 30,
-    warranty_days: offer?.warranty_days ?? (offer?.note === "NW" ? 0 : (Number((offer?.note || "").match(/\d+/)?.[0]) || 0)),
+    period_value: offer?.period_value ?? offer?.period_days ?? 30,
+    period_unit: offer?.period_unit || "days",
+    warranty_value: offer?.warranty_value ?? offer?.warranty_days ?? (offer?.note === "NW" ? 0 : (Number((offer?.note || "").match(/\d+/)?.[0]) || 0)),
+    warranty_unit: offer?.warranty_unit || "days",
     delivery_delay: offer?.delivery_delay || "Instantané après confirmation",
     low_stock_threshold: offer?.low_stock_threshold ?? 5,
     auto_delivery: offer?.auto_delivery !== false,
@@ -765,11 +767,14 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
   const submit = async (event) => {
     event.preventDefault();
     const action = offer ? "update_offer" : "add_offer";
-    const wdays = Number(form.warranty_days || 0);
+    const factors = { days: 1, months: 30, years: 365 };
+    const periodDays = Number(form.period_value || 0) * factors[form.period_unit];
+    const warrantyDays = Number(form.warranty_value || 0) * factors[form.warranty_unit];
     const payload = {
       ...form,
-      warranty_days: wdays,
-      note: wdays === 0 ? "NW" : `${wdays} days`,
+      period_days: periodDays,
+      warranty_days: warrantyDays,
+      note: warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`,
       action,
       custom_emoji_id: form.emoji,
       ...(offer
@@ -871,27 +876,21 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
           <Field label="Description arabe" wide>
             <textarea dir="rtl" value={form.description_ar} onChange={(event) => set("description_ar", event.target.value)} placeholder="وصف المنتج بالعربية" />
           </Field>
-          <Field label="Période (jours)">
-            <input
-              type="number"
-              min="1"
-              max="3650"
-              value={form.period_days}
-              onChange={(event) => set("period_days", event.target.value)}
-              placeholder="Ex: 30"
-              required
-            />
+          <Field label="Période">
+            <div className="duration-input">
+              <input type="number" min="1" value={form.period_value} onChange={(event) => set("period_value", event.target.value)} required />
+              <select value={form.period_unit} onChange={(event) => set("period_unit", event.target.value)}>
+                <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
+              </select>
+            </div>
           </Field>
-          <Field label="Garantie (jours, 0 = NW)">
-            <input
-              type="number"
-              min="0"
-              max="3650"
-              value={form.warranty_days}
-              onChange={(event) => set("warranty_days", event.target.value)}
-              placeholder="0 = NW"
-              required
-            />
+          <Field label="Garantie (0 = NW)">
+            <div className="duration-input">
+              <input type="number" min="0" value={form.warranty_value} onChange={(event) => set("warranty_value", event.target.value)} required />
+              <select value={form.warranty_unit} onChange={(event) => set("warranty_unit", event.target.value)}>
+                <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
+              </select>
+            </div>
           </Field>
           {!offer && (
             <Field label="Stock initial" wide>
@@ -1954,8 +1953,10 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
     enabled: Boolean(product.enabled),
     description: product.description || "",
     warranty: product.warranty || "",
-    period_days: product.period_days ?? 30,
-    warranty_days: product.warranty_days ?? (product.warranty === "NW" ? 0 : (Number((product.warranty || "").match(/\d+/)?.[0]) || 0)),
+    period_value: product.period_value ?? product.period_days ?? 30,
+    period_unit: product.period_unit || "days",
+    warranty_value: product.warranty_value ?? product.warranty_days ?? (product.warranty === "NW" ? 0 : (Number((product.warranty || "").match(/\d+/)?.[0]) || 0)),
+    warranty_unit: product.warranty_unit || "days",
     delivery_delay: product.delivery_delay || "Instantané après confirmation",
     low_stock_threshold: product.low_stock_threshold || 5,
   });
@@ -1994,15 +1995,18 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
       }
       setCreatingSvc(false);
     }
-    const wdays = Number(form.warranty_days || 0);
+    const factors = { days: 1, months: 30, years: 365 };
+    const periodDays = Number(form.period_value || 0) * factors[form.period_unit];
+    const warrantyDays = Number(form.warranty_value || 0) * factors[form.warranty_unit];
     if (
       await onAction({
         action: "save_reseller_product",
         provider,
         product_id: product.id,
         ...form,
-        warranty_days: wdays,
-        warranty: wdays === 0 ? "NW" : `${wdays} days`,
+        period_days: periodDays,
+        warranty_days: warrantyDays,
+        warranty: warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`,
         service_id: serviceId,
         service_emoji: activeEmoji,
         custom_emoji_id: activeEmoji,
@@ -2109,27 +2113,21 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
             onChange={(event) => set("description", event.target.value)}
           />
         </Field>
-        <Field label="Période (jours)">
-          <input
-            type="number"
-            min="1"
-            max="3650"
-            value={form.period_days}
-            onChange={(event) => set("period_days", event.target.value)}
-            placeholder="Ex: 30"
-            required
-          />
+        <Field label="Période">
+          <div className="duration-input">
+            <input type="number" min="1" value={form.period_value} onChange={(event) => set("period_value", event.target.value)} required />
+            <select value={form.period_unit} onChange={(event) => set("period_unit", event.target.value)}>
+              <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
+            </select>
+          </div>
         </Field>
-        <Field label="Garantie (jours, 0 = NW)">
-          <input
-            type="number"
-            min="0"
-            max="3650"
-            value={form.warranty_days}
-            onChange={(event) => set("warranty_days", event.target.value)}
-            placeholder="0 = NW"
-            required
-          />
+        <Field label="Garantie (0 = NW)">
+          <div className="duration-input">
+            <input type="number" min="0" value={form.warranty_value} onChange={(event) => set("warranty_value", event.target.value)} required />
+            <select value={form.warranty_unit} onChange={(event) => set("warranty_unit", event.target.value)}>
+              <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
+            </select>
+          </div>
         </Field>
         <Field label="Délai de livraison">
           <input

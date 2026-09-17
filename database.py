@@ -901,6 +901,10 @@ def update_offer(
     delivery_url=None,
     bulk_quantity=None,
     bulk_unit_price=None,
+    period_value=None,
+    period_unit=None,
+    warranty_value=None,
+    warranty_unit=None,
 ):
     existing = get_conn().offers.find_one({"id": offer_id}, {"service_id": 1}) or {}
     if service_id is not None and int(service_id) != int(existing.get("service_id") or 0):
@@ -953,6 +957,10 @@ def update_offer(
             "delivery_url": delivery_url,
             "bulk_quantity": int(bulk_quantity) if bulk_quantity is not None else None,
             "bulk_unit_price": float(bulk_unit_price) if bulk_unit_price is not None else None,
+            "period_value": int(period_value) if period_value is not None else None,
+            "period_unit": warranty_service.normalize_duration_unit(period_unit) if period_unit is not None else None,
+            "warranty_value": int(warranty_value) if warranty_value is not None else None,
+            "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit) if warranty_unit is not None else None,
         }.items()
         if value is not None
     }
@@ -1213,6 +1221,10 @@ def add_offer(
     warranty_days=0,
     bulk_quantity=0,
     bulk_unit_price=None,
+    period_value=None,
+    period_unit="days",
+    warranty_value=None,
+    warranty_unit="days",
 ):
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
@@ -1253,6 +1265,10 @@ def add_offer(
         "site_featured": bool(site_featured),
         "period_days": int(period_days or 30),
         "warranty_days": int(warranty_days or 0),
+        "period_value": int(period_value if period_value is not None else (period_days or 30)),
+        "period_unit": warranty_service.normalize_duration_unit(period_unit),
+        "warranty_value": int(warranty_value if warranty_value is not None else (warranty_days or 0)),
+        "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit),
         "bulk_quantity": max(0, int(bulk_quantity or 0)),
         "bulk_unit_price": (
             round(float(bulk_unit_price), 2)
@@ -1309,6 +1325,10 @@ def duplicate_offer(offer_id):
         warranty_days=source.get("warranty_days", 0),
         bulk_quantity=source.get("bulk_quantity", 0),
         bulk_unit_price=source.get("bulk_unit_price"),
+        period_value=source.get("period_value"),
+        period_unit=source.get("period_unit", "days"),
+        warranty_value=source.get("warranty_value"),
+        warranty_unit=source.get("warranty_unit", "days"),
     )
 
 
@@ -1366,7 +1386,7 @@ def create_order(user_id, offer, qty):
         pass
     service = get_service(offer["service_id"])
     oid = _next_id("orders")
-    get_conn().orders.insert_one({"id": oid, "user_id": user_id, "offer_id": offer["id"], "service_name": service["name"] if service else "", "offer_name": offer["name"], "warranty": warranty_service.offer_warranty_label(offer), "warranty_days": int(offer.get("warranty_days") or 0), "period_days": int(offer.get("period_days") or 0), "qty": qty, "unit_price": unit, "total_price": round(unit * qty, 2), "status": "pending_payment", "txid": "", "verify_method": "", "delivery_text": "", "created_at": now, "updated_at": now})
+    get_conn().orders.insert_one({"id": oid, "user_id": user_id, "offer_id": offer["id"], "service_name": service["name"] if service else "", "offer_name": offer["name"], "warranty": warranty_service.offer_warranty_label(offer), "warranty_days": int(offer.get("warranty_days") or 0), "warranty_value": offer.get("warranty_value"), "warranty_unit": offer.get("warranty_unit", "days"), "period_days": int(offer.get("period_days") or 0), "period_value": offer.get("period_value"), "period_unit": offer.get("period_unit", "days"), "qty": qty, "unit_price": unit, "total_price": round(unit * qty, 2), "status": "pending_payment", "txid": "", "verify_method": "", "delivery_text": "", "created_at": now, "updated_at": now})
     return oid
 
 
@@ -1693,6 +1713,10 @@ def save_reseller_product_config(
     warranty="Produit API MailReader",
     period_days=30,
     warranty_days=0,
+    period_value=None,
+    period_unit="days",
+    warranty_value=None,
+    warranty_unit="days",
     delivery_delay="Instantané après confirmation",
     sort_order=0,
     low_stock_threshold=5,
@@ -1725,6 +1749,10 @@ def save_reseller_product_config(
                 "warranty": str(warranty or "")[:250],
                 "period_days": int(period_days or 30),
                 "warranty_days": int(warranty_days or 0),
+                "period_value": int(period_value if period_value is not None else (period_days or 30)),
+                "period_unit": warranty_service.normalize_duration_unit(period_unit),
+                "warranty_value": int(warranty_value if warranty_value is not None else (warranty_days or 0)),
+                "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit),
                 "delivery_delay": str(delivery_delay or "")[:120],
                 "sort_order": max(0, int(sort_order or 0)),
                 "low_stock_threshold": max(0, int(low_stock_threshold or 0)),

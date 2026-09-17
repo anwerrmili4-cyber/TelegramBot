@@ -642,6 +642,23 @@ def test_admin_service_can_configure_both_button_emojis(monkeypatch):
     assert "adm_svcsuffix:52" in callbacks
 
 
+def test_admin_service_products_are_arranged_two_per_row(monkeypatch):
+    monkeypatch.setattr(admin.db, "get_service", lambda _service_id: {
+        "id": 52, "name": "Subscriptions", "active": 1,
+    })
+    monkeypatch.setattr(admin.db, "list_offers", lambda *_args, **_kwargs: [
+        {"id": offer_id, "name": f"Offer {offer_id}", "active": 1}
+        for offer_id in range(1, 6)
+    ])
+
+    rows = admin.service_admin_keyboard(52).inline_keyboard
+
+    assert [len(row) for row in rows[:3]] == [2, 2, 1]
+    assert [button.callback_data for button in rows[0]] == ["adm_off:1", "adm_off:2"]
+    assert all(len(row) == 2 for row in rows[3:-1])
+    assert rows[-1][0].callback_data == "adm_catalog"
+
+
 def test_admin_cannot_manually_modify_offer_stock(monkeypatch):
     monkeypatch.setattr(admin.db, "get_offer", lambda _offer_id: {
         "id": 4, "service_id": 1, "active": 1,
@@ -698,6 +715,22 @@ def test_admin_offer_panel_can_start_and_stop_flash_sale(monkeypatch):
         for button in row
     }
     assert "adm_flash_stop:4" in callbacks
+
+
+def test_admin_offer_options_are_arranged_two_per_row(monkeypatch):
+    monkeypatch.setattr(admin.db, "get_offer", lambda _offer_id: {
+        "id": 4, "service_id": 1, "active": 1,
+        "unlimited_stock": False, "flash_sale_active": False,
+    })
+    monkeypatch.setattr(admin.db, "get_service", lambda _service_id: {
+        "id": 1, "name": "Subscriptions",
+    })
+
+    rows = admin.offer_admin_keyboard(4).inline_keyboard
+
+    assert all(len(row) == 2 for row in rows[:-1])
+    assert len(rows[-1]) == 1
+    assert rows[-1][0].callback_data == "adm_svc:1"
 
 
 def test_admin_panel_has_custom_announcement_button():
@@ -826,6 +859,17 @@ def test_bot_like_mine_configuration_survives_feature_refresh(mock_mongodb):
     assert "رابط خاص للشيفرة المصدرية الكاملة" in refreshed["description_ar"]
 
 
+def test_customize_menu_has_global_product_card_editor():
+    callbacks = {
+        button.callback_data
+        for row in admin.customize_keyboard().inline_keyboard
+        for button in row
+    }
+
+    assert "adm_text_key:offer_card_template" in callbacks
+    assert admin.text_category_for_key("offer_card_template") == "catalog"
+
+
 def test_reseller_api_stays_in_profile_and_dashboard(mock_mongodb):
     home_callbacks = {
         button.callback_data
@@ -884,8 +928,8 @@ def test_admin_panel_has_user_activity_option(mock_mongodb):
 
     assert "adm_user_activity" in callbacks
     assert [
-        row[0].callback_data
-        for row in admin.user_activity_keyboard().inline_keyboard
+        button.callback_data
+        for button in admin.user_activity_keyboard().inline_keyboard[0]
     ] == ["adm_user_activity", "adm_panel"]
 
 

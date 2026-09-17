@@ -3041,8 +3041,8 @@ def render_dashboard(
                 </div>
                 <div class="form-group"><label>Quantité en gros (0 = désactivé)</label><input type="number" name="bulk_quantity" step="1" min="0" value="0"></div>
                 <div class="form-group"><label>Prix en gros par unité</label><input type="number" name="bulk_unit_price" step="0.01" min="0"></div>
-                <div class="form-group"><label>Période (jours)</label><input type="number" name="period_days" min="1" max="3650" value="30" required></div>
-                <div class="form-group"><label>Garantie (jours, 0 = NW)</label><input type="number" name="warranty_days" min="0" max="3650" value="0" required></div>
+                <div class="form-group"><label>Période</label><input type="number" name="period_value" min="1" value="30" required><select name="period_unit"><option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option></select></div>
+                <div class="form-group"><label>Garantie (0 = NW)</label><input type="number" name="warranty_value" min="0" value="0" required><select name="warranty_unit"><option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option></select></div>
                 <div class="form-group"><label>Description détaillée</label><textarea name="description"></textarea></div>
                 <div class="form-group"><label>Comptes initiaux — stock automatique (# = 1 produit)</label><textarea name="initial_inventory" placeholder="#1&#10;Email: compte1@example.com&#10;Password: secret&#10;&#10;#2&#10;Code: produit-2"></textarea></div>
                 <div class="form-group"><label>Délai de livraison</label><input name="delivery_delay" value="Instantané après confirmation"></div>
@@ -3060,8 +3060,8 @@ def render_dashboard(
                 <input type="hidden" name="offer_id" id="edit-offer-id">
                 <div class="form-group"><label>Nom</label><input name="name" id="edit-offer-name" required></div>
                 <div class="form-group"><label>Description du produit</label><textarea name="description" id="edit-offer-description"></textarea></div>
-                <div class="form-group"><label>Période (jours)</label><input type="number" name="period_days" id="edit-offer-period-days" min="1" max="3650" required></div>
-                <div class="form-group"><label>Garantie (jours, 0 = NW)</label><input type="number" name="warranty_days" id="edit-offer-warranty-days" min="0" max="3650" required></div>
+                <div class="form-group"><label>Période</label><input type="number" name="period_value" id="edit-offer-period-value" min="1" required><select name="period_unit" id="edit-offer-period-unit"><option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option></select></div>
+                <div class="form-group"><label>Garantie (0 = NW)</label><input type="number" name="warranty_value" id="edit-offer-warranty-value" min="0" required><select name="warranty_unit" id="edit-offer-warranty-unit"><option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option></select></div>
                 <div class="form-group"><label>Prix</label><input type="number" step="0.01" min="0" name="price" id="edit-offer-price" required></div>
                 <div class="form-group"><label>Quantité en gros (0 = désactivé)</label><input type="number" step="1" min="0" name="bulk_quantity" id="edit-offer-bulk-quantity"></div>
                 <div class="form-group"><label>Prix en gros par unité</label><input type="number" step="0.01" min="0" name="bulk_unit_price" id="edit-offer-bulk-price"></div>
@@ -4689,8 +4689,10 @@ def render_dashboard(
             document.getElementById("edit-offer-id").value = offer.id;
             document.getElementById("edit-offer-name").value = offer.name || "";
             document.getElementById("edit-offer-description").value = offer.description || "";
-            document.getElementById("edit-offer-period-days").value = offer.period_days || 30;
-            document.getElementById("edit-offer-warranty-days").value = offer.warranty_days ?? (offer.note === "NW" ? 0 : (Number((offer.note || "").match(/\\d+/)?.[0]) || 0));
+            document.getElementById("edit-offer-period-value").value = offer.period_value ?? offer.period_days ?? 30;
+            document.getElementById("edit-offer-period-unit").value = offer.period_unit || "days";
+            document.getElementById("edit-offer-warranty-value").value = offer.warranty_value ?? offer.warranty_days ?? (offer.note === "NW" ? 0 : (Number((offer.note || "").match(/\\d+/)?.[0]) || 0));
+            document.getElementById("edit-offer-warranty-unit").value = offer.warranty_unit || "days";
             document.getElementById("edit-offer-price").value = offer.price ?? 0;
             document.getElementById("edit-offer-bulk-quantity").value = offer.bulk_quantity ?? 0;
             document.getElementById("edit-offer-bulk-price").value = offer.bulk_unit_price ?? "";

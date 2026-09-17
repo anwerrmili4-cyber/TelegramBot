@@ -44,6 +44,7 @@ from app.domain import (
     reseller_service,
     support_service,
     wallet_service,
+    warranty_service,
 )
 from app.web import dashboard_api
 from bot import (
@@ -70,6 +71,19 @@ MAX_WEBHOOK_BODY_BYTES = 1_000_000
 ADMIN_UI_DIST = Path(__file__).resolve().parent.parent / "admin-ui" / "dist"
 ADMIN_SESSION_COOKIE = "blackmarket_admin_session"
 ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60
+
+
+def _duration_form_values(form, prefix: str, default_days: int, *, allow_zero: bool):
+    """Read a value/unit pair while remaining compatible with old day-only forms."""
+    unit = warranty_service.normalize_duration_unit(form.get(f"{prefix}_unit", "days"))
+    raw_value = form.get(f"{prefix}_value")
+    if raw_value is None or str(raw_value).strip() == "":
+        raw_value = form.get(f"{prefix}_days", str(default_days))
+        unit = "days"
+    value = int(str(raw_value).strip())
+    if value < 0 or (not allow_zero and value < 1):
+        raise ValueError(f"{prefix} invalide")
+    return value, unit, warranty_service.duration_to_days(value, unit)
 
 
 def health_payload() -> dict:
@@ -1275,10 +1289,15 @@ class handler(BaseHTTPRequestHandler):
                     raise ValueError("Le prix en gros doit être inférieur au prix normal")
                 delivery_delay = form.get("delivery_delay", "").strip()[:120]
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
-                warranty_days = int(form.get("warranty_days", "0").strip() or 0)
+                period_value, period_unit, period_days = _duration_form_values(
+                    form, "period", 30, allow_zero=False,
+                )
+                warranty_value, warranty_unit, warranty_days = _duration_form_values(
+                    form, "warranty", 0, allow_zero=True,
+                )
                 note = form.get("note", "").strip()[:250]
                 if not note or note.isdigit() or note == "0":
-                    note = "NW" if warranty_days == 0 else f"{warranty_days} days"
+                    note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
                 oid = db.add_offer(
                     sid,
                     name,
@@ -1293,8 +1312,12 @@ class handler(BaseHTTPRequestHandler):
                     sales_channels=["bot"],
                     name_ar=form.get("name_ar", "").strip(),
                     description_ar=form.get("description_ar", "").strip(),
-                    period_days=int(form.get("period_days", "30").strip()),
+                    period_days=period_days,
                     warranty_days=warranty_days,
+                    period_value=period_value,
+                    period_unit=period_unit,
+                    warranty_value=warranty_value,
+                    warranty_unit=warranty_unit,
                     bulk_quantity=bulk_quantity,
                     bulk_unit_price=bulk_unit_price,
                 )
@@ -1323,11 +1346,15 @@ class handler(BaseHTTPRequestHandler):
                     raise ValueError("Le prix en gros ne peut pas être négatif")
                 if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= effective_price):
                     raise ValueError("Le prix en gros doit être inférieur au prix normal")
-                warranty_days_raw = form.get("warranty_days")
-                warranty_days = int(warranty_days_raw.strip()) if warranty_days_raw and warranty_days_raw.strip().isdigit() else None
+                period_value, period_unit, period_days = _duration_form_values(
+                    form, "period", int(previous_offer.get("period_days") or 30), allow_zero=False,
+                )
+                warranty_value, warranty_unit, warranty_days = _duration_form_values(
+                    form, "warranty", int(previous_offer.get("warranty_days") or 0), allow_zero=True,
+                )
                 note = form.get("note", "").strip()[:250]
-                if warranty_days is not None and (not note or note.isdigit() or note == "0"):
-                    note = "NW" if warranty_days == 0 else f"{warranty_days} days"
+                if not note or note.isdigit() or note == "0":
+                    note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
                 db.update_offer(
                     oid,
@@ -1344,8 +1371,12 @@ class handler(BaseHTTPRequestHandler):
                     sales_channels=["bot"],
                     name_ar=form.get("name_ar", "").strip(),
                     description_ar=form.get("description_ar", "").strip(),
-                    period_days=int(form.get("period_days", "30").strip()),
+                    period_days=period_days,
                     warranty_days=warranty_days,
+                    period_value=period_value,
+                    period_unit=period_unit,
+                    warranty_value=warranty_value,
+                    warranty_unit=warranty_unit,
                     bulk_quantity=bulk_quantity,
                     bulk_unit_price=bulk_unit_price if bulk_unit_price is not None else 0,
                 )
@@ -1754,6 +1785,12 @@ class handler(BaseHTTPRequestHandler):
                 product_id = form.get("product_id", "").strip()
                 retail_price = float(form.get("retail_price", "0"))
                 enabled = form.get("enabled", "") == "1"
+                period_value, period_unit, period_days = _duration_form_values(
+                    form, "period", 30, allow_zero=False,
+                )
+                warranty_value, warranty_unit, warranty_days = _duration_form_values(
+                    form, "warranty", 0, allow_zero=True,
+                )
                 raw_service_id = form.get("service_id", "").strip()
                 saved = reseller_service.save_catalog_product(
                     product_id,
@@ -1766,7 +1803,12 @@ class handler(BaseHTTPRequestHandler):
                     display_name=form.get("display_name", "").strip(),
                     description=form.get("description", "").strip(),
                     warranty=form.get("warranty", "").strip(),
-                    period_days=int(form.get("period_days", "30").strip()),
+                    period_days=period_days,
+                    warranty_days=warranty_days,
+                    period_value=period_value,
+                    period_unit=period_unit,
+                    warranty_value=warranty_value,
+                    warranty_unit=warranty_unit,
                     delivery_delay=form.get(
                         "delivery_delay", "Instantané après confirmation"
                     ).strip(),

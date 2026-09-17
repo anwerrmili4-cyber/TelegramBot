@@ -1114,6 +1114,11 @@ def save_catalog_product(
     description: str = "",
     warranty: str = "Produit API MailReader",
     period_days: int = 30,
+    warranty_days: int = 0,
+    period_value: int | None = None,
+    period_unit: str = "days",
+    warranty_value: int | None = None,
+    warranty_unit: str = "days",
     delivery_delay: str = "Instantané après confirmation",
     sort_order: int = 0,
     low_stock_threshold: int = 5,
@@ -1206,6 +1211,11 @@ def save_catalog_product(
             supplier_provider=provider,
             supplier_product_id=product["id"],
             period_days=period_days,
+            warranty_days=warranty_days,
+            period_value=period_value,
+            period_unit=period_unit,
+            warranty_value=warranty_value,
+            warranty_unit=warranty_unit,
         )
         if int(local_offer.get("service_id")) != int(service_id):
             db.get_conn().offers.update_one(
@@ -1231,6 +1241,11 @@ def save_catalog_product(
             supplier_provider=provider,
             supplier_product_id=product["id"],
             period_days=period_days,
+            warranty_days=warranty_days,
+            period_value=period_value,
+            period_unit=period_unit,
+            warranty_value=warranty_value,
+            warranty_unit=warranty_unit,
         )
         db.update_offer(local_offer_id, sort_order=sort_order)
 
@@ -1250,6 +1265,11 @@ def save_catalog_product(
         description=description,
         warranty=warranty,
         period_days=period_days,
+        warranty_days=warranty_days,
+        period_value=period_value,
+        period_unit=period_unit,
+        warranty_value=warranty_value,
+        warranty_unit=warranty_unit,
         delivery_delay=delivery_delay,
         sort_order=sort_order,
         low_stock_threshold=low_stock_threshold,

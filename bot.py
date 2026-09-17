@@ -424,14 +424,23 @@ def offer_detail_fields(description: str, note: str) -> dict[str, str]:
     return fields
 
 
+def parse_duration_input(value: str, *, allow_zero: bool = False) -> tuple[int, str, int]:
+    """Parse durations such as ``30``, ``3 months`` or ``2 years``."""
+    match = re.fullmatch(r"\s*(\d+)\s*([\w\u0600-\u06fféû]*)\s*", str(value or ""), re.I)
+    if not match:
+        raise ValueError("invalid duration")
+    amount = int(match.group(1))
+    if amount < 0 or (not allow_zero and amount < 1):
+        raise ValueError("invalid duration")
+    raw_unit = match.group(2).lower()
+    month_units = {"m", "mo", "month", "months", "mois", "شهر", "أشهر", "اشهر"}
+    year_units = {"y", "yr", "year", "years", "an", "ans", "année", "années", "سنة", "سنوات"}
+    unit = "months" if raw_unit in month_units else "years" if raw_unit in year_units else "days"
+    return amount, unit, warranty_service.duration_to_days(amount, unit)
+
+
 def compact_offer_text(offer: dict, lang: str) -> str:
     """Build the compact public offer card used with or without an image."""
-    labels = {
-        "fr": ("PRIX", "STOCK", "VENDUS", "GARANTIE", "DESCRIPTION"),
-        "en": ("PRICE", "STOCK", "SOLD", "WARRANTY", "DESCRIPTION"),
-        "ar": ("السعر", "المخزون", "تم البيع", "الضمان", "الوصف"),
-    }
-    price_label, stock_label, sold_label, warranty_label, description_label = labels.get(lang, labels["en"])
     description = (
         offer.get("description_ar") if lang == "ar" and offer.get("description_ar")
         else offer.get("description")
@@ -458,22 +467,65 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             )
     except (TypeError, ValueError):
         pass
-    return (
-        f"🏷 <b>{html.escape(str(offer.get('name') or ''))}</b>\n\n"
-        f"💎 <b>{price_label}:</b> {price} {html.escape(currency)}\n"
-        f"{bulk_line}"
-        f"📦 <b>{stock_label}:</b> {stock_val}\n"
-        f"🛒 <b>{sold_label}:</b> {sold}\n"
-        f"🛡 <b>{warranty_label}:</b> {html.escape(str(warranty)[:120])}\n\n"
-        f"💬 <b>{description_label}:</b>\n{render_stored_rich_text(description, parse_legacy_markdown=False)}"
-    )
+    template = db.get_text_override("offer_card_template", lang)
+    if not template:
+        template = (
+            TRANSLATIONS.get("offer_card_template", {}).get(lang)
+            or TRANSLATIONS["offer_card_template"]["en"]
+        )
+    replacements = {
+        "name": html.escape(str(offer.get("name") or "")),
+        "price": html.escape(str(price)),
+        "currency": html.escape(currency),
+        "stock": html.escape(str(stock_val)),
+        "sold": html.escape(str(sold)),
+        "warranty": html.escape(str(warranty)[:120]),
+        "description": render_stored_rich_text(description, parse_legacy_markdown=False),
+        "bulk_price_line": bulk_line,
+        "bulk_price": html.escape(str(offer.get("bulk_unit_price") or "—")),
+        "bulk_quantity": html.escape(str(offer.get("bulk_quantity") or "—")),
+    }
+    # Protect placeholders while parsing Telegram/legacy formatting. Otherwise
+    # underscores in names such as ``{bulk_price_line}`` look like italics.
+    tokens = {}
+    protected_template = str(template)
+    for index, (key, value) in enumerate(replacements.items()):
+        token = f"OFCARDTOKEN{index}X"
+        protected_template = protected_template.replace(f"{{{key}}}", token)
+        tokens[token] = value
+    rendered = render_stored_rich_text(protected_template)
+    for token, value in tokens.items():
+        rendered = rendered.replace(token, value)
+    return rendered
+
+
+OFFER_CARD_TEMPLATE_VARIABLES = (
+    "name", "price", "currency", "stock", "sold", "warranty", "description",
+    "bulk_price", "bulk_quantity", "bulk_price_line",
+)
+
+
+def render_admin_text_preview(key: str, value: str) -> str:
+    """Render editor previews without treating template underscores as Markdown."""
+    if key != "offer_card_template":
+        return render_stored_rich_text(value)
+    protected = str(value)
+    tokens = {}
+    for index, variable in enumerate(OFFER_CARD_TEMPLATE_VARIABLES):
+        token = f"OFCARDPREVIEWTOKEN{index}X"
+        protected = protected.replace(f"{{{variable}}}", token)
+        tokens[token] = f"<code>{{{variable}}}</code>"
+    rendered = render_stored_rich_text(protected)
+    for token, placeholder in tokens.items():
+        rendered = rendered.replace(token, placeholder)
+    return rendered
 
 
 def admin_text_preview(key: str) -> str:
     en_current = db.get_text_override(key, "en") or TRANSLATIONS.get(key, {}).get("en") or "—"
     ar_current = db.get_text_override(key, "ar") or TRANSLATIONS.get(key, {}).get("ar") or "—"
-    rendered_en = render_stored_rich_text(en_current)
-    rendered_ar = render_stored_rich_text(ar_current)
+    rendered_en = render_admin_text_preview(key, en_current)
+    rendered_ar = render_admin_text_preview(key, ar_current)
     return (
         f"✏️ <b>{html.escape(key)}</b>\n\n"
         f"🇬🇧 <b>English Preview :</b>\n{rendered_en}\n\n"
@@ -2443,7 +2495,12 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not order or order.get("user_id") != uid:
             await q.answer(t(lang, "not_for_you"), show_alert=True)
             return
-        warranty = str(order.get("warranty") or "").strip() or "—"
+        warranty = (
+            "FW" if warranty_service.has_full_warranty(order)
+            else str(order.get("warranty") or "").strip()
+            or warranty_service.order_warranty_label(order, lang=lang)
+            or "—"
+        )
         await q.message.reply_text(
             t(lang, "order_card", oid=oid, offer=order["offer_name"], qty=order["qty"],
               total=f"{order['total_price']:.2f}", cur=CURRENCY,
@@ -3170,7 +3227,7 @@ async def handle_pending_input(update, context, lang):
         data["name"] = clean_name
         service = db.get_service(int(data["service_id"])) or {}
         if str(service.get("name") or "").strip().lower() == "methods":
-            data.update({"period_days": 0, "warranty_days": 0, "warranty_type": "days"})
+            data.update({"period_days": 0, "period_value": 0, "period_unit": "days", "warranty_days": 0, "warranty_value": 0, "warranty_unit": "days"})
             PENDING[uid] = ("adm_addoff_description", data)
             await update.message.reply_text(
                 "📝 *Étape 3/4* — envoyez la description de la méthode :",
@@ -3179,39 +3236,38 @@ async def handle_pending_input(update, context, lang):
         else:
             PENDING[uid] = ("adm_addoff_period", data)
             await update.message.reply_text(
-                "📅 *Étape 3/5* — envoyez la période en jours (ex: 30) :",
+                "📅 *Étape 3/5* — envoyez la période (ex: `30 days`, `3 months` ou `1 year`) :",
                 parse_mode=ParseMode.MARKDOWN,
             )
         return
 
     if kind == "adm_addoff_period" and uid == ADMIN_ID:
         try:
-            period_days = int(text.strip())
-            if period_days < 1:
-                raise ValueError
+            period_value, period_unit, period_days = parse_duration_input(text)
         except (TypeError, ValueError):
-            await update.message.reply_text("⚠️ Envoyez un nombre de jours valide (minimum 1).")
+            await update.message.reply_text("⚠️ Durée invalide. Exemple : 30 days, 3 months ou 1 year.")
             return
         data = dict(ref)
         data["period_days"] = period_days
+        data["period_value"] = period_value
+        data["period_unit"] = period_unit
         PENDING[uid] = ("adm_addoff_warranty", data)
         await update.message.reply_text(
-            "🛡️ *Étape 4/6* — envoyez la garantie en jours (0 = aucune garantie) :",
+            "🛡️ *Étape 4/6* — envoyez la garantie (`0` = aucune, ou ex: `6 months`, `1 year`) :",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     if kind == "adm_addoff_warranty" and uid == ADMIN_ID:
         try:
-            warranty_days = int(text.strip())
-            if warranty_days < 0 or warranty_days > 3650:
-                raise ValueError
+            warranty_value, warranty_unit, warranty_days = parse_duration_input(text, allow_zero=True)
         except (TypeError, ValueError):
-            await update.message.reply_text("⚠️ Envoyez un nombre de jours valide (0 à 3650).")
+            await update.message.reply_text("⚠️ Durée invalide. Exemple : 0, 30 days, 6 months ou 1 year.")
             return
         data = dict(ref)
         data["warranty_days"] = warranty_days
-        data["warranty_type"] = "days"
+        data["warranty_value"] = warranty_value
+        data["warranty_unit"] = warranty_unit
         PENDING[uid] = ("adm_addoff_description", data)
         await update.message.reply_text(
             "📝 *Étape 5/6* — envoyez la description de l’offre :",
@@ -3246,9 +3302,12 @@ async def handle_pending_input(update, context, lang):
         is_method_offer = str(service.get("name") or "").strip().lower() == "methods"
         offer_id = db.add_offer(
             data["service_id"], data["name"], price, 0,
-            warranty_type=data["warranty_type"],
             warranty_days=data["warranty_days"],
             period_days=data["period_days"],
+            warranty_value=data["warranty_value"],
+            warranty_unit=data["warranty_unit"],
+            period_value=data["period_value"],
+            period_unit=data["period_unit"],
             description=data["description"],
             instructions="",
             photo_file_id=data["photo_file_id"],
@@ -3645,28 +3704,29 @@ async def handle_pending_input(update, context, lang):
             try:
                 raw_text = text.strip().upper()
                 if raw_text == "NW":
-                    wdays = 0
+                    warranty_value, warranty_unit, wdays = 0, "days", 0
                 else:
-                    wdays = int(text.strip())
-                    if wdays < 0:
-                        raise ValueError
+                    warranty_value, warranty_unit, wdays = parse_duration_input(text, allow_zero=True)
             except (TypeError, ValueError):
-                await update.message.reply_text("⚠️ Envoyez un nombre de jours (0 pour NW).")
+                await update.message.reply_text("⚠️ Envoyez 0/NW, 30 days, 6 months ou 1 year.")
                 return
             db.update_offer(
                 ref,
                 warranty_days=wdays,
-                note="NW" if wdays == 0 else f"{wdays} days",
+                warranty_value=warranty_value,
+                warranty_unit=warranty_unit,
+                note="NW" if wdays == 0 else warranty_service.format_duration(warranty_value, warranty_unit),
             )
         elif kind == "adm_offperiod":
             try:
-                period_days = int(text.strip())
-                if period_days < 1:
-                    raise ValueError
+                period_value, period_unit, period_days = parse_duration_input(text)
             except (TypeError, ValueError):
-                await update.message.reply_text("⚠️ Envoyez un nombre de jours valide (minimum 1).")
+                await update.message.reply_text("⚠️ Envoyez 30 days, 3 months ou 1 year.")
                 return
-            db.update_offer(ref, period_days=period_days)
+            db.update_offer(
+                ref, period_days=period_days,
+                period_value=period_value, period_unit=period_unit,
+            )
         elif kind == "adm_offdesc":
             db.update_offer(ref, description=rich_text_from_message(update.message))
         else:
@@ -4724,9 +4784,16 @@ def orders_text_export(lang, orders, title):
             else unit_price * qty if unit_price else paid_total
         )
         offer = db.get_offer(order.get("offer_id")) if order.get("offer_id") else None
-        warranty = str(order.get("warranty") or "").strip()
-        if not warranty:
-            warranty = str((offer or {}).get("note") or "").strip()
+        warranty = (
+            "FW" if warranty_service.has_full_warranty(order)
+            else str(order.get("warranty") or "").strip()
+        )
+        if not warranty and offer:
+            warranty = (
+                "FW" if warranty_service.has_full_warranty(offer)
+                else str(offer.get("note") or "").strip()
+                or warranty_service.offer_warranty_label(offer, lang=lang)
+            )
         warranty = warranty or "No warranty information recorded"
         delivered_content = order_service.delivery_content_for_order(order)
         payment_method = str(
@@ -5248,12 +5315,21 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if current is None:
             current = TRANSLATIONS.get(key, {}).get(selected_lang, "—")
         PENDING[uid] = ("adm_text_override", f"{key}|{selected_lang}")
-        rendered_current = render_stored_rich_text(current)
+        rendered_current = render_admin_text_preview(key, current)
+        template_help = (
+            "\n\n<b>Variables disponibles :</b>\n"
+            "<code>{name}</code> <code>{price}</code> <code>{currency}</code> "
+            "<code>{stock}</code> <code>{sold}</code> <code>{warranty}</code> "
+            "<code>{description}</code> <code>{bulk_price}</code> "
+            "<code>{bulk_quantity}</code> <code>{bulk_price_line}</code>"
+            if key == "offer_card_template" else ""
+        )
         prompt = (
             f"✏️ <b>Modifier {html.escape(key)}</b> "
             f"(<code>{html.escape(selected_lang)}</code>)\n\n"
             f"<b>Aperçu actuel :</b>\n\n{rendered_current}\n\n"
-            "Envoyez maintenant le nouveau texte. La mise en forme et les emojis Telegram seront conservés."
+            "Envoyez maintenant le nouveau texte. La mise en forme et les emojis Telegram Premium seront conservés."
+            f"{template_help}"
         )
         await q.message.reply_text(
             prompt[:4000],
@@ -5583,8 +5659,8 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompts = {
             "adm_offname": "✏️ Envoyez le nouveau nom :",
             "adm_offemoji": "🎨 Envoyez un emoji Telegram Premium animé :",
-            "adm_offnote": "🛡 Envoyez la garantie en jours (0 pour NW) :",
-            "adm_offperiod": "📅 Envoyez la période en jours (minimum 1) :",
+            "adm_offnote": "🛡 Envoyez 0/NW, 30 days, 6 months ou 1 year :",
+            "adm_offperiod": "📅 Envoyez 30 days, 3 months ou 1 year :",
             "adm_offdesc": "📄 Envoyez la description complète :",
             "adm_offdelay": "🚚 Envoyez le délai de livraison affiché :",
         }
