@@ -1023,7 +1023,7 @@ def detect_restock_events() -> dict[str, Any]:
 
 
 def detect_supplier_price_changes() -> dict[str, Any]:
-    """Refresh API prices while preserving each configured markup percentage."""
+    """Refresh API prices while preserving each configured profit amount."""
     configured = {
         PROVIDER: bool(MAILREADER_API_KEY),
         SHAMEKH_PROVIDER: bool(SHAMEKH_API_KEY),

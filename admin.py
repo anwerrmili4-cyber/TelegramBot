@@ -21,6 +21,11 @@ def _service_button_text(service):
     return " ".join(part for part in (left, name, right) if part)[:64]
 
 
+def _two_column_rows(buttons):
+    """Arrange admin products/actions in a compact two-button grid."""
+    return [buttons[index:index + 2] for index in range(0, len(buttons), 2)]
+
+
 TEXT_CATEGORIES = [
     ("menus", "🏠 Menus et navigation"),
     ("payments", "💳 Dépôts, paiements et portefeuille"),
@@ -59,9 +64,10 @@ def text_categories_keyboard():
     counts = {slug: 0 for slug, _label in TEXT_CATEGORIES}
     for key in TRANSLATIONS:
         counts[text_category_for_key(key)] += 1
-    rows = [[InlineKeyboardButton(
+    buttons = [InlineKeyboardButton(
         f"{label} ({counts[slug]})", callback_data=f"adm_text_cat:{slug}:0"
-    )] for slug, label in TEXT_CATEGORIES if counts[slug]]
+    ) for slug, label in TEXT_CATEGORIES if counts[slug]]
+    rows = _two_column_rows(buttons)
     rows.append([InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")])
     return InlineKeyboardMarkup(rows)
 
@@ -107,7 +113,10 @@ def texts_category_keyboard(category, page=0, page_size=8):
     total_pages = max(1, (len(keys) + page_size - 1) // page_size)
     page = max(0, min(int(page), total_pages - 1))
     visible = keys[page * page_size:(page + 1) * page_size]
-    rows = [[InlineKeyboardButton(f"✏️ {text_entry_label(key)}", callback_data=f"adm_text_key:{key}")] for key in visible]
+    rows = _two_column_rows([
+        InlineKeyboardButton(f"✏️ {text_entry_label(key)}", callback_data=f"adm_text_key:{key}")
+        for key in visible
+    ])
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"adm_text_cat:{category}:{page - 1}"))
@@ -126,38 +135,36 @@ def admin_panel_keyboard():
         if maintenance_enabled
         else "🟢 Full maintenance lock: OFF"
     )
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💸 Retraits en attente", callback_data="adm_withdrawals", style="danger")],
-        [InlineKeyboardButton("✅ Commandes payées", callback_data="adm_list:paid", style="success")],
-        [InlineKeyboardButton("🎫 Tickets support", callback_data="adm_tickets", style="primary")],
-        [InlineKeyboardButton("📦 Catalogue", callback_data="adm_catalog", style="primary")],
-        [InlineKeyboardButton("👥 Activité utilisateurs", callback_data="adm_user_activity", style="primary")],
-        [
-            InlineKeyboardButton("📢 Créer une annonce", callback_data="adm_broadcast_message", style="primary"),
-            InlineKeyboardButton("🧹 Historique annonces", callback_data="adm_broadcast_history", style="primary"),
-        ],
-        [
-            InlineKeyboardButton(maintenance_label, callback_data="adm_maintenance_toggle", style="danger" if maintenance_enabled else "success"),
-            InlineKeyboardButton("🎛 Personnaliser", callback_data="adm_customize", style="primary"),
-        ],
-    ])
+    buttons = [
+        InlineKeyboardButton("💸 Retraits en attente", callback_data="adm_withdrawals", style="danger"),
+        InlineKeyboardButton("✅ Commandes payées", callback_data="adm_list:paid", style="success"),
+        InlineKeyboardButton("🎫 Tickets support", callback_data="adm_tickets", style="primary"),
+        InlineKeyboardButton("📦 Catalogue", callback_data="adm_catalog", style="primary"),
+        InlineKeyboardButton("👥 Activité utilisateurs", callback_data="adm_user_activity", style="primary"),
+        InlineKeyboardButton("📢 Créer une annonce", callback_data="adm_broadcast_message", style="primary"),
+        InlineKeyboardButton("🧹 Historique annonces", callback_data="adm_broadcast_history", style="primary"),
+        InlineKeyboardButton(maintenance_label, callback_data="adm_maintenance_toggle", style="danger" if maintenance_enabled else "success"),
+        InlineKeyboardButton("🎛 Personnaliser", callback_data="adm_customize", style="primary"),
+    ]
+    return InlineKeyboardMarkup(_two_column_rows(buttons))
 
 
 def withdrawals_keyboard(withdrawals):
-    rows = []
+    buttons = []
     for withdrawal in withdrawals:
         amount = int(withdrawal.get("amount_cents") or 0) / 100
         destination = str(withdrawal.get("destination") or "")[:24]
-        rows.append([InlineKeyboardButton(
+        buttons.append(InlineKeyboardButton(
             f"#{withdrawal['id']} · {amount:.2f} USDT · {withdrawal.get('method')} · {destination}",
             callback_data=f"adm_withdraw_done:{withdrawal['id']}",
             style="success",
-        )])
-    if not rows:
-        rows.append([InlineKeyboardButton("✅ Aucun retrait en attente", callback_data="adm_text_noop")])
-    rows.extend([
-        [InlineKeyboardButton("🔄 Actualiser", callback_data="adm_withdrawals")],
-        [InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel")],
+        ))
+    if not buttons:
+        buttons.append(InlineKeyboardButton("✅ Aucun retrait en attente", callback_data="adm_text_noop"))
+    rows = _two_column_rows(buttons)
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data="adm_withdrawals"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -175,19 +182,20 @@ def broadcast_kind_label(kind):
 
 
 def broadcast_history_keyboard(history):
-    rows = []
+    buttons = []
     for job in history:
         active = int(job.get("active_message_count") or 0)
         status = "🗑" if active == 0 else "🟢"
-        rows.append([InlineKeyboardButton(
+        buttons.append(InlineKeyboardButton(
             f"{status} {broadcast_kind_label(job.get('kind'))} · {active}/{int(job.get('tracked_count') or 0)}",
             callback_data=f"adm_broadcast_view:{job['id']}",
-        )])
-    if not rows:
-        rows.append([InlineKeyboardButton("Aucune annonce suivie", callback_data="adm_text_noop")])
-    rows.extend([
-        [InlineKeyboardButton("🔄 Actualiser", callback_data="adm_broadcast_history")],
-        [InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel")],
+        ))
+    if not buttons:
+        buttons.append(InlineKeyboardButton("Aucune annonce suivie", callback_data="adm_text_noop"))
+    rows = _two_column_rows(buttons)
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data="adm_broadcast_history"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -211,46 +219,54 @@ def broadcast_delete_confirmation_keyboard(job_id):
             "✅ Confirmer la suppression partout",
             callback_data=f"adm_broadcast_delete:{int(job_id)}",
             style="danger",
-        )],
-        [InlineKeyboardButton("❌ Annuler", callback_data=f"adm_broadcast_view:{int(job_id)}")],
+        ), InlineKeyboardButton("❌ Annuler", callback_data=f"adm_broadcast_view:{int(job_id)}")],
     ])
 
 
 def user_activity_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Actualiser", callback_data="adm_user_activity")],
-        [InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")],
+        [InlineKeyboardButton("🔄 Actualiser", callback_data="adm_user_activity"),
+         InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")],
     ])
 
 
 def customize_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✨ Alertes stocks & flash", callback_data="adm_alert_design")],
-        [InlineKeyboardButton("✏️ Textes du bot", callback_data="adm_texts")],
-        [InlineKeyboardButton("🔘 Boutons du bot", callback_data="adm_buttons")],
-        [InlineKeyboardButton("🎨 Design des tickets", callback_data="adm_ticket_style")],
-        [InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")],
+    rows = _two_column_rows([
+        InlineKeyboardButton("✨ Alertes stocks & flash", callback_data="adm_alert_design"),
+        InlineKeyboardButton("✏️ Textes du bot", callback_data="adm_texts"),
+        InlineKeyboardButton("🔘 Boutons du bot", callback_data="adm_buttons"),
+        InlineKeyboardButton("🎨 Design des tickets", callback_data="adm_ticket_style"),
     ])
+    rows.append(
+        [InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")],
+    )
+    return InlineKeyboardMarkup(rows)
 
 
 def alert_design_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✨ Nouveau stock (un produit)", callback_data="adm_text_key:channel_stock_announcement")],
-        [InlineKeyboardButton("✨ Offre remise en avant", callback_data="adm_text_key:offer_stock_announcement")],
-        [InlineKeyboardButton("🔥 Vente flash", callback_data="adm_text_key:flash_sale_announcement")],
-        [InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")],
+    rows = _two_column_rows([
+        InlineKeyboardButton("✨ Nouveau stock (un produit)", callback_data="adm_text_key:channel_stock_announcement"),
+        InlineKeyboardButton("✨ Offre remise en avant", callback_data="adm_text_key:offer_stock_announcement"),
+        InlineKeyboardButton("🔥 Vente flash", callback_data="adm_text_key:flash_sale_announcement"),
     ])
+    rows.append(
+        [InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")],
+    )
+    return InlineKeyboardMarkup(rows)
 
 
 def ticket_style_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Modifier le titre", callback_data="adm_ticket_style_edit:title")],
-        [InlineKeyboardButton("↩️ Modifier l’instruction de réponse", callback_data="adm_ticket_style_edit:reply_hint")],
-        [InlineKeyboardButton("🏷️ Modifier la signature", callback_data="adm_ticket_style_edit:footer")],
-        [InlineKeyboardButton("👁 Aperçu", callback_data="adm_ticket_style_preview")],
-        [InlineKeyboardButton("♻️ Restaurer le design", callback_data="adm_ticket_style_reset")],
-        [InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")],
+    rows = _two_column_rows([
+        InlineKeyboardButton("✏️ Modifier le titre", callback_data="adm_ticket_style_edit:title"),
+        InlineKeyboardButton("↩️ Modifier l’instruction de réponse", callback_data="adm_ticket_style_edit:reply_hint"),
+        InlineKeyboardButton("🏷️ Modifier la signature", callback_data="adm_ticket_style_edit:footer"),
+        InlineKeyboardButton("👁 Aperçu", callback_data="adm_ticket_style_preview"),
+        InlineKeyboardButton("♻️ Restaurer le design", callback_data="adm_ticket_style_reset"),
     ])
+    rows.append(
+        [InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")],
+    )
+    return InlineKeyboardMarkup(rows)
 
 
 def texts_editor_keyboard(page=0, page_size=8):
@@ -258,7 +274,10 @@ def texts_editor_keyboard(page=0, page_size=8):
     total_pages = max(1, (len(keys) + page_size - 1) // page_size)
     page = max(0, min(int(page), total_pages - 1))
     visible = keys[page * page_size:(page + 1) * page_size]
-    rows = [[InlineKeyboardButton(f"✏️ {text_entry_label(key)}", callback_data=f"adm_text_key:{key}")] for key in visible]
+    rows = _two_column_rows([
+        InlineKeyboardButton(f"✏️ {text_entry_label(key)}", callback_data=f"adm_text_key:{key}")
+        for key in visible
+    ])
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton("⬅️", callback_data=f"adm_text_page:{page - 1}"))
@@ -307,34 +326,39 @@ def buttons_editor_keyboard():
         ("warranty", "Warranty"), ("support", "Support"),
         ("language", "Language"),
     ]
-    rows = [[InlineKeyboardButton(
+    rows = _two_column_rows([InlineKeyboardButton(
         f"{'❌ Masqué' if action in hidden else '✅ Visible'} — {label}",
         callback_data=f"adm_btn_toggle:{action}",
-    )] for action, label in standard]
-    rows.append([InlineKeyboardButton("➕ Ajouter un bouton URL", callback_data="adm_btn_add")])
-    for button in db.list_custom_buttons(active_only=False):
-        rows.append([InlineKeyboardButton(
+    ) for action, label in standard])
+    custom_buttons = [InlineKeyboardButton(
             f"🗑 {button.get('label_en') or button.get('label_ar') or 'Button'}",
             callback_data=f"adm_btn_del:{button['id']}",
-        )])
-    rows.append([InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")])
+        ) for button in db.list_custom_buttons(active_only=False)]
+    rows.extend(_two_column_rows(custom_buttons))
+    rows.append([
+        InlineKeyboardButton("➕ Ajouter un bouton URL", callback_data="adm_btn_add"),
+        InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize"),
+    ])
     return InlineKeyboardMarkup(rows)
 
 
 def tickets_keyboard():
     tickets = db.list_tickets(limit=50)
-    rows = [[InlineKeyboardButton("🎨 Design des tickets", callback_data="adm_ticket_style")]]
-    rows.extend([[InlineKeyboardButton(f"#{x['id']} • utilisateur {x['user_id']}", callback_data=f"adm_ticket:{x['id']}")] for x in tickets])
+    buttons = [InlineKeyboardButton("🎨 Design des tickets", callback_data="adm_ticket_style")]
+    buttons.extend(InlineKeyboardButton(
+        f"#{x['id']} • utilisateur {x['user_id']}", callback_data=f"adm_ticket:{x['id']}"
+    ) for x in tickets)
+    rows = _two_column_rows(buttons)
     rows.append([InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")])
     return InlineKeyboardMarkup(rows), tickets
 
 
 def orders_list_keyboard(status):
     orders = db.list_orders(status=status, limit=50)
-    rows = [[InlineKeyboardButton(
+    rows = _two_column_rows([InlineKeyboardButton(
         f"#{o['id']} • {o['offer_name']} • {o['total_price']:.2f} {CURRENCY}",
         callback_data=f"adm_order:{o['id']}",
-    )] for o in orders]
+    ) for o in orders])
     rows.append([InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")])
     return InlineKeyboardMarkup(rows), orders
 

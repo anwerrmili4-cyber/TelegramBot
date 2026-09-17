@@ -440,6 +440,11 @@ TRANSLATIONS = {
         "en": "✏️ *Enter quantity to buy (1-{stock}):*\n\nProduct: *{offer}*\nAvailable stock: *{stock}*\nUnit price: *{price} {cur}*",
         "ar": "✏️ *أدخل الكمية المطلوبة (1-{stock}):*\n\nالمنتج: *{offer}*\nالمخزون المتاح: *{stock}*\nسعر الوحدة: *{price} {cur}*",
     },
+    "bulk_price_line": {
+        "fr": "📦 Prix en gros dès *{quantity} unités* : *{price} {cur} / unité*",
+        "en": "📦 Bulk price from *{quantity} units*: *{price} {cur} / unit*",
+        "ar": "📦 سعر الجملة ابتداءً من *{quantity} وحدات*: *{price} {cur} / للوحدة*",
+    },
     "choose_preorder_quantity": {
         "fr": "⏳ *Précommande (+10 %)*\n\nProduit : *{offer}*\nPrix unitaire avec supplément : *{price} {cur}*\n🚚 Livraison sous *2 heures maximum*.\n\nChoisissez une quantité (1-{max_qty}) :",
         "en": "⏳ *Pre-order (+10%)*\n\nProduct: *{offer}*\nUnit price including surcharge: *{price} {cur}*\n🚚 Delivery within *2 hours maximum*.\n\nChoose a quantity (1-{max_qty}):",

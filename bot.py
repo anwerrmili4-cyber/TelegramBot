@@ -446,9 +446,22 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     sold = db.offer_sold_count(offer.get("id", 0))
     currency = str(offer.get("currency") or CURRENCY)
     stock_val = "∞" if offer.get("unlimited_stock") else int(offer.get("stock") or 0)
+    bulk_line = ""
+    try:
+        bulk_quantity = int(offer.get("bulk_quantity") or 0)
+        bulk_price = float(offer.get("bulk_unit_price"))
+        if bulk_quantity > 0 and 0 <= bulk_price < float(offer.get("price")):
+            bulk_labels = {"fr": "PRIX EN GROS", "en": "BULK PRICE", "ar": "سعر الجملة"}
+            bulk_line = (
+                f"📦 <b>{bulk_labels.get(lang, bulk_labels['en'])}:</b> "
+                f"{bulk_price:.2f} {html.escape(currency)} × {bulk_quantity}+\n"
+            )
+    except (TypeError, ValueError):
+        pass
     return (
         f"🏷 <b>{html.escape(str(offer.get('name') or ''))}</b>\n\n"
         f"💎 <b>{price_label}:</b> {price} {html.escape(currency)}\n"
+        f"{bulk_line}"
         f"📦 <b>{stock_label}:</b> {stock_val}\n"
         f"🛒 <b>{sold_label}:</b> {sold}\n"
         f"🛡 <b>{warranty_label}:</b> {html.escape(str(warranty)[:120])}\n\n"
@@ -2762,15 +2775,29 @@ async def handle_quantity_selection(update, context, lang):
     PENDING[q.from_user.id] = ("await_quantity", offer_id)
     send_quantity_prompt = q.message.reply_text if (q.message and q.message.photo) else q.edit_message_text
     stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
-    await send_quantity_prompt(
-        t(
+    bulk_line = ""
+    try:
+        bulk_quantity = int(offer.get("bulk_quantity") or 0)
+        bulk_price = float(offer.get("bulk_unit_price"))
+        if bulk_quantity > 0 and 0 <= bulk_price < float(offer["price"]):
+            bulk_line = t(
+                lang, "bulk_price_line", quantity=bulk_quantity,
+                price=f"{bulk_price:.2f}", cur=CURRENCY,
+            )
+    except (TypeError, ValueError):
+        pass
+    quantity_text = t(
             lang,
             "choose_quantity",
             offer=offer["name"],
             stock=stock_display,
             price=f"{offer['price']:.2f}",
             cur=CURRENCY,
-        ),
+        )
+    if bulk_line:
+        quantity_text += f"\n{bulk_line}"
+    await send_quantity_prompt(
+        quantity_text,
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=kb.quantity_keyboard(lang, offer, page=0),
     )
@@ -2819,7 +2846,7 @@ async def send_buy_confirmation(send, uid, offer_id, qty, lang, preorder=False):
     elif not db.offer_has_stock(offer, qty):
         return False
     svc = db.get_service(offer["service_id"])
-    unit_price = order_service.preorder_unit_price(offer["price"]) if preorder else offer["price"]
+    unit_price = order_service.unit_price_for_quantity(offer, qty, preorder=preorder)
     gross_total = round(unit_price * qty, 2)
     referral_discount = loyalty_service.discount_for_order(uid, gross_total)
     discount_line = ""

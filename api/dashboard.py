@@ -3039,6 +3039,8 @@ def render_dashboard(
                     <label>Prix</label>
                     <input type="number" name="price" step="0.01" min="0" required>
                 </div>
+                <div class="form-group"><label>Quantité en gros (0 = désactivé)</label><input type="number" name="bulk_quantity" step="1" min="0" value="0"></div>
+                <div class="form-group"><label>Prix en gros par unité</label><input type="number" name="bulk_unit_price" step="0.01" min="0"></div>
                 <div class="form-group"><label>Période (jours)</label><input type="number" name="period_days" min="1" max="3650" value="30" required></div>
                 <div class="form-group"><label>Garantie (jours, 0 = NW)</label><input type="number" name="warranty_days" min="0" max="3650" value="0" required></div>
                 <div class="form-group"><label>Description détaillée</label><textarea name="description"></textarea></div>
@@ -3061,6 +3063,8 @@ def render_dashboard(
                 <div class="form-group"><label>Période (jours)</label><input type="number" name="period_days" id="edit-offer-period-days" min="1" max="3650" required></div>
                 <div class="form-group"><label>Garantie (jours, 0 = NW)</label><input type="number" name="warranty_days" id="edit-offer-warranty-days" min="0" max="3650" required></div>
                 <div class="form-group"><label>Prix</label><input type="number" step="0.01" min="0" name="price" id="edit-offer-price" required></div>
+                <div class="form-group"><label>Quantité en gros (0 = désactivé)</label><input type="number" step="1" min="0" name="bulk_quantity" id="edit-offer-bulk-quantity"></div>
+                <div class="form-group"><label>Prix en gros par unité</label><input type="number" step="0.01" min="0" name="bulk_unit_price" id="edit-offer-bulk-price"></div>
                 <div class="form-group"><label>Ordre</label><input type="number" min="0" name="sort_order" id="edit-offer-sort"></div>
                 <div class="form-group"><label>Délai de livraison</label><input name="delivery_delay" id="edit-offer-delay"></div>
                 <div class="form-group"><label>Seuil de stock faible</label><input type="number" min="0" name="low_stock_threshold" id="edit-offer-threshold"></div>
@@ -3635,6 +3639,7 @@ def render_dashboard(
                                 ${offer.description ? `<div style="color:var(--text-muted);font-size:13px;margin-bottom:6px;">${escapeHtml(offer.description)}</div>` : ''}
                                 <div class="offer-meta">
                                     <span>💵 Prix : ${offer.price !== null ? offer.price.toFixed(2) : '—'} ${dashboardData.currency}</span>
+                                    ${Number(offer.bulk_quantity || 0) > 0 && offer.bulk_unit_price != null ? `<span>📦 Gros : ${Number(offer.bulk_unit_price).toFixed(2)} ${dashboardData.currency} / unité dès ${offer.bulk_quantity}</span>` : ''}
                                     <span>📦 Stock : ${offer.stock}</span>
                                     <span>📝 Note : ${offer.note || '—'}</span>
                                     <span>Livraison : ${offer.delivery_delay || '-'}</span>
@@ -4687,6 +4692,8 @@ def render_dashboard(
             document.getElementById("edit-offer-period-days").value = offer.period_days || 30;
             document.getElementById("edit-offer-warranty-days").value = offer.warranty_days ?? (offer.note === "NW" ? 0 : (Number((offer.note || "").match(/\\d+/)?.[0]) || 0));
             document.getElementById("edit-offer-price").value = offer.price ?? 0;
+            document.getElementById("edit-offer-bulk-quantity").value = offer.bulk_quantity ?? 0;
+            document.getElementById("edit-offer-bulk-price").value = offer.bulk_unit_price ?? "";
             document.getElementById("edit-offer-sort").value = offer.sort_order ?? 0;
             document.getElementById("edit-offer-delay").value = offer.delivery_delay || "";
             document.getElementById("edit-offer-threshold").value = offer.low_stock_threshold ?? 5;

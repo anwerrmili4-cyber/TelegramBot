@@ -746,6 +746,8 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
     name: offer?.name || "",
     emoji: offer?.custom_emoji_id || offer?.emoji || "",
     price: offer?.price ?? "",
+    bulk_quantity: offer?.bulk_quantity ?? 0,
+    bulk_unit_price: offer?.bulk_unit_price ?? "",
     description: offer?.description || "",
     note: offer?.note || "",
     period_days: offer?.period_days ?? 30,
@@ -825,6 +827,26 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
               type="number"
               value={form.price}
               onChange={(event) => set("price", event.target.value)}
+            />
+          </Field>
+          <Field label="Quantité en gros">
+            <input
+              min="0"
+              step="1"
+              type="number"
+              value={form.bulk_quantity}
+              onChange={(event) => set("bulk_quantity", event.target.value)}
+              placeholder="0 = désactivé"
+            />
+          </Field>
+          <Field label="Prix en gros / unité">
+            <input
+              min="0"
+              step="0.01"
+              type="number"
+              value={form.bulk_unit_price}
+              onChange={(event) => set("bulk_unit_price", event.target.value)}
+              placeholder="Prix réduit par unité"
             />
           </Field>
           <Field label="Seuil de stock">
@@ -1101,6 +1123,9 @@ function CatalogPage({ data, onAction }) {
                       {money(item.price, data.currency)} · Stock{" "}
                       {item.stock || 0}
                     </span>
+                    {Number(item.bulk_quantity || 0) > 0 && item.bulk_unit_price != null && (
+                      <span>Gros: {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}</span>
+                    )}
                     <span className="offer-channel">
                       Bot
                     </span>

@@ -1114,7 +1114,7 @@ def test_restock_detection_baselines_then_reports_only_increases(monkeypatch, mo
     assert reseller_service.detect_restock_events()["events"] == []
 
 
-def test_supplier_price_drop_preserves_markup_and_creates_flash_event(
+def test_supplier_price_drop_preserves_profit_amount_and_creates_flash_event(
     monkeypatch, mock_mongodb,
 ):
     service_id = db.add_service("API prices", "🔥")
@@ -1132,6 +1132,11 @@ def test_supplier_price_drop_preserves_markup_and_creates_flash_event(
         enabled=True,
         service_id=service_id,
         local_offer_id=offer_id,
+    )
+    # Simulate a product configured before fixed profit amounts were stored.
+    mock_mongodb.reseller_products.update_one(
+        {"provider": "mailreader", "product_id": "sku-price"},
+        {"$unset": {"profit_amount": ""}},
     )
     wholesale = {"value": 10.0}
 
@@ -1163,10 +1168,20 @@ def test_supplier_price_drop_preserves_markup_and_creates_flash_event(
     result = reseller_service.detect_supplier_price_changes()
 
     assert len(result["flash_sales"]) == 1
-    assert result["flash_sales"][0]["markup_percent"] == 50.0
+    assert result["flash_sales"][0]["profit_amount"] == 5.0
     assert result["flash_sales"][0]["previous_price"] == 15.0
-    assert result["flash_sales"][0]["price"] == 12.0
-    assert db.get_offer(offer_id)["price"] == 12.0
+    assert result["flash_sales"][0]["price"] == 13.0
+    assert db.get_offer(offer_id)["price"] == 13.0
+
+    config = db.list_reseller_product_configs("mailreader")[0]
+    assert config["profit_amount"] == 5.0
+
+    wholesale["value"] = 9.0
+    increase = reseller_service.detect_supplier_price_changes()
+
+    assert increase["changes"][0]["profit_amount"] == 5.0
+    assert increase["changes"][0]["price"] == 14.0
+    assert db.get_offer(offer_id)["price"] == 14.0
 
 
 def test_all_supplier_bot_usernames_are_registered():

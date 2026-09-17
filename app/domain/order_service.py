@@ -24,6 +24,21 @@ def preorder_unit_price(price: float) -> float:
     return round(float(price) * (1 + PREORDER_SURCHARGE_RATE), 2)
 
 
+def unit_price_for_quantity(offer: dict, qty: int, *, preorder: bool = False) -> float:
+    """Return the regular, bulk, or pre-order unit price for a quantity."""
+    regular_price = float(offer["price"])
+    if preorder:
+        return preorder_unit_price(regular_price)
+    try:
+        threshold = int(offer.get("bulk_quantity") or 0)
+        bulk_price = float(offer.get("bulk_unit_price"))
+    except (TypeError, ValueError):
+        return regular_price
+    if threshold > 0 and int(qty) >= threshold and 0 <= bulk_price < regular_price:
+        return round(bulk_price, 2)
+    return regular_price
+
+
 # ---------------------------------------------------------------------------
 # Création de commande
 # ---------------------------------------------------------------------------
@@ -87,7 +102,7 @@ def create_order(
         raise ValueError("This offer is back in stock. Buy it at the regular price.")
 
     now = int(time.time())
-    unit_price = preorder_unit_price(offer["price"]) if preorder else offer["price"]
+    unit_price = unit_price_for_quantity(offer, qty, preorder=preorder)
     gross_total = round(unit_price * qty, 2)
     discount = loyalty_service.discount_for_order(user_id, gross_total)
     discount_amount = discount["amount"]
@@ -119,6 +134,10 @@ def create_order(
         "is_preorder": bool(preorder),
         "preorder_surcharge_percent": 10 if preorder else 0,
         "unit_price": unit_price,
+        "regular_unit_price": float(offer["price"]),
+        "bulk_pricing_applied": bool(
+            not preorder and unit_price < float(offer["price"])
+        ),
         "gross_total": gross_total,
         "loyalty_level": discount["level"],
         "loyalty_discount_percent": discount["discount_percent"],

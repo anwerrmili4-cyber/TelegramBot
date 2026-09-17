@@ -1266,6 +1266,13 @@ class handler(BaseHTTPRequestHandler):
                 description = form.get("description", "").strip()[:1000]
                 auto_delivery = form.get("auto_delivery", "") == "on"
                 low_stock_threshold = max(0, int(form.get("low_stock_threshold", 5)))
+                bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
+                bulk_price_raw = form.get("bulk_unit_price", "").strip()
+                bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
+                if bulk_unit_price is not None and bulk_unit_price < 0:
+                    raise ValueError("Le prix en gros ne peut pas être négatif")
+                if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= price):
+                    raise ValueError("Le prix en gros doit être inférieur au prix normal")
                 delivery_delay = form.get("delivery_delay", "").strip()[:120]
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
                 warranty_days = int(form.get("warranty_days", "0").strip() or 0)
@@ -1288,6 +1295,8 @@ class handler(BaseHTTPRequestHandler):
                     description_ar=form.get("description_ar", "").strip(),
                     period_days=int(form.get("period_days", "30").strip()),
                     warranty_days=warranty_days,
+                    bulk_quantity=bulk_quantity,
+                    bulk_unit_price=bulk_unit_price,
                 )
                 if emoji_val and sid:
                     db.update_service(sid, emoji=emoji_val)
@@ -1306,6 +1315,14 @@ class handler(BaseHTTPRequestHandler):
                 target_service_id = int(form.get("service_id") or previous_offer["service_id"])
                 name = form["name"].strip()[:120]
                 price = None if form.get("price", "") == "" else float(form["price"])
+                bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
+                bulk_price_raw = form.get("bulk_unit_price", "").strip()
+                bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
+                effective_price = price if price is not None else float(previous_offer.get("price") or 0)
+                if bulk_unit_price is not None and bulk_unit_price < 0:
+                    raise ValueError("Le prix en gros ne peut pas être négatif")
+                if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= effective_price):
+                    raise ValueError("Le prix en gros doit être inférieur au prix normal")
                 warranty_days_raw = form.get("warranty_days")
                 warranty_days = int(warranty_days_raw.strip()) if warranty_days_raw and warranty_days_raw.strip().isdigit() else None
                 note = form.get("note", "").strip()[:250]
@@ -1329,6 +1346,8 @@ class handler(BaseHTTPRequestHandler):
                     description_ar=form.get("description_ar", "").strip(),
                     period_days=int(form.get("period_days", "30").strip()),
                     warranty_days=warranty_days,
+                    bulk_quantity=bulk_quantity,
+                    bulk_unit_price=bulk_unit_price if bulk_unit_price is not None else 0,
                 )
                 existing_offer = db.get_offer(oid)
                 if emoji_val and existing_offer and existing_offer.get("service_id"):

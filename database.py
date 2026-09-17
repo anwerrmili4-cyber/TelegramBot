@@ -899,6 +899,8 @@ def update_offer(
     benefits_document_file_id=None,
     benefits_document_name=None,
     delivery_url=None,
+    bulk_quantity=None,
+    bulk_unit_price=None,
 ):
     existing = get_conn().offers.find_one({"id": offer_id}, {"service_id": 1}) or {}
     if service_id is not None and int(service_id) != int(existing.get("service_id") or 0):
@@ -949,6 +951,8 @@ def update_offer(
             "benefits_document_file_id": benefits_document_file_id,
             "benefits_document_name": benefits_document_name,
             "delivery_url": delivery_url,
+            "bulk_quantity": int(bulk_quantity) if bulk_quantity is not None else None,
+            "bulk_unit_price": float(bulk_unit_price) if bulk_unit_price is not None else None,
         }.items()
         if value is not None
     }
@@ -1207,6 +1211,8 @@ def add_offer(
     site_featured=False,
     period_days=30,
     warranty_days=0,
+    bulk_quantity=0,
+    bulk_unit_price=None,
 ):
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
@@ -1247,6 +1253,12 @@ def add_offer(
         "site_featured": bool(site_featured),
         "period_days": int(period_days or 30),
         "warranty_days": int(warranty_days or 0),
+        "bulk_quantity": max(0, int(bulk_quantity or 0)),
+        "bulk_unit_price": (
+            round(float(bulk_unit_price), 2)
+            if bulk_unit_price is not None and str(bulk_unit_price).strip() != ""
+            else None
+        ),
         **special_values,
     })
     return oid
@@ -1295,6 +1307,8 @@ def duplicate_offer(offer_id):
         site_featured=source.get("site_featured", False),
         period_days=source.get("period_days", 30),
         warranty_days=source.get("warranty_days", 0),
+        bulk_quantity=source.get("bulk_quantity", 0),
+        bulk_unit_price=source.get("bulk_unit_price"),
     )
 
 
@@ -1342,7 +1356,14 @@ def mark_order_paid(order_id, verify_method):
 
 def create_order(user_id, offer, qty):
     now = int(time.time())
-    unit = offer.get("price") or 0
+    unit = float(offer.get("price") or 0)
+    try:
+        bulk_quantity = int(offer.get("bulk_quantity") or 0)
+        bulk_unit_price = float(offer.get("bulk_unit_price"))
+        if bulk_quantity > 0 and int(qty) >= bulk_quantity and 0 <= bulk_unit_price < unit:
+            unit = round(bulk_unit_price, 2)
+    except (TypeError, ValueError):
+        pass
     service = get_service(offer["service_id"])
     oid = _next_id("orders")
     get_conn().orders.insert_one({"id": oid, "user_id": user_id, "offer_id": offer["id"], "service_name": service["name"] if service else "", "offer_name": offer["name"], "warranty": warranty_service.offer_warranty_label(offer), "warranty_days": int(offer.get("warranty_days") or 0), "period_days": int(offer.get("period_days") or 0), "qty": qty, "unit_price": unit, "total_price": round(unit * qty, 2), "status": "pending_payment", "txid": "", "verify_method": "", "delivery_text": "", "created_at": now, "updated_at": now})
@@ -1556,7 +1577,7 @@ def observe_reseller_stock(provider, product_id, stock):
 
 
 def sync_reseller_supplier_price(provider, product_id, wholesale_price):
-    """Keep the configured markup percentage when a supplier price changes."""
+    """Keep the configured profit amount when a supplier price changes."""
     collection = get_conn().reseller_products
     config = collection.find_one({
         "provider": str(provider),
@@ -1576,15 +1597,19 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
         if config.get("supplier_price_seen") is not None
         else config.get("wholesale_price") or 0
     )
-    previous_retail = float(config.get("retail_price") or offer.get("price") or 0)
-    markup_percent = config.get("profit_markup_percent")
-    if markup_percent is None:
-        markup_percent = (
-            ((previous_retail / previous_wholesale) - 1) * 100
-            if previous_wholesale > 0
-            else 0.0
-        )
-    markup_percent = max(0.0, float(markup_percent))
+    configured_retail = float(config.get("retail_price") or 0)
+    previous_retail = float(
+        offer.get("price")
+        if offer.get("price") is not None
+        else configured_retail
+    )
+    # Supplier discounts must not discount our profit as well.  Older records
+    # do not have ``profit_amount`` yet, so migrate them from the last known
+    # retail and wholesale prices on their first synchronization.
+    profit_amount = config.get("profit_amount")
+    if profit_amount is None or abs(previous_retail - configured_retail) >= 0.005:
+        profit_amount = previous_retail - previous_wholesale
+    profit_amount = max(0.0, float(profit_amount))
     now = int(time.time())
 
     # Supplier adapters normalize missing/malformed prices to zero. Never turn
@@ -1597,26 +1622,39 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
         return None
 
     if previous_wholesale == new_wholesale:
+        effective_markup_percent = (
+            (profit_amount / new_wholesale) * 100
+            if new_wholesale > 0
+            else 0.0
+        )
         collection.update_one(
             {"_id": config["_id"]},
             {"$set": {
                 "supplier_price_seen": new_wholesale,
                 "supplier_price_checked_at": now,
-                "profit_markup_percent": markup_percent,
+                "profit_amount": profit_amount,
+                "profit_markup_percent": effective_markup_percent,
+                "retail_price": previous_retail,
             }},
         )
         return None
 
-    new_retail = round(new_wholesale * (1 + markup_percent / 100), 2)
+    new_retail = round(new_wholesale + profit_amount, 2)
     if new_wholesale > 0 and new_retail <= new_wholesale:
         new_retail = round(new_wholesale + 0.01, 2)
+    effective_markup_percent = (
+        ((new_retail / new_wholesale) - 1) * 100
+        if new_wholesale > 0
+        else 0.0
+    )
     collection.update_one(
         {"_id": config["_id"]},
         {"$set": {
             "wholesale_price": new_wholesale,
             "supplier_price_seen": new_wholesale,
             "supplier_price_checked_at": now,
-            "profit_markup_percent": markup_percent,
+            "profit_amount": profit_amount,
+            "profit_markup_percent": effective_markup_percent,
             "retail_price": new_retail,
             "updated_at": now,
         }},
@@ -1631,7 +1669,8 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
         "wholesale_price": new_wholesale,
         "previous_price": previous_retail,
         "price": new_retail,
-        "markup_percent": markup_percent,
+        "profit_amount": profit_amount,
+        "markup_percent": effective_markup_percent,
         "decreased": new_wholesale < previous_wholesale and new_retail < previous_retail,
     }
 
@@ -1665,6 +1704,7 @@ def save_reseller_product_config(
         if float(wholesale_price) > 0
         else 0.0
     )
+    profit_amount = max(0.0, float(retail_price) - float(wholesale_price))
     get_conn().reseller_products.update_one(
         {"provider": str(provider), "product_id": str(product_id)},
         {
@@ -1673,6 +1713,7 @@ def save_reseller_product_config(
                 "wholesale_price": float(wholesale_price),
                 "currency": str(currency or "USDT")[:12],
                 "retail_price": float(retail_price),
+                "profit_amount": profit_amount,
                 "profit_markup_percent": markup_percent,
                 "enabled": bool(enabled),
                 "service_id": int(service_id) if service_id is not None else None,

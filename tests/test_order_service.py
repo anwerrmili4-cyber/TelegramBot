@@ -29,6 +29,39 @@ def test_create_order_success(mock_mongodb):
     assert order["expires_at"] > order["created_at"]
 
 
+def test_bulk_unit_price_applies_at_configured_quantity(mock_mongodb):
+    service_id = db.add_service("Streaming", "📺")
+    offer_id = db.add_offer(
+        service_id, "Premium", 10.0, 20,
+        bulk_quantity=5, bulk_unit_price=7.5,
+    )
+
+    regular = order_service.create_order(10, db.get_offer(offer_id), qty=4)
+    bulk = order_service.create_order(11, db.get_offer(offer_id), qty=5)
+
+    assert regular["unit_price"] == 10.0
+    assert regular["gross_total"] == 40.0
+    assert bulk["unit_price"] == 7.5
+    assert bulk["regular_unit_price"] == 10.0
+    assert bulk["bulk_pricing_applied"] is True
+    assert bulk["gross_total"] == 37.5
+
+
+def test_preorder_does_not_use_bulk_price(mock_mongodb):
+    service_id = db.add_service("Streaming", "📺")
+    offer_id = db.add_offer(
+        service_id, "Premium", 10.0, 0,
+        bulk_quantity=5, bulk_unit_price=7.5,
+    )
+
+    order = order_service.create_order(
+        12, db.get_offer(offer_id), qty=5, preorder=True,
+    )
+
+    assert order["unit_price"] == 11.0
+    assert order["gross_total"] == 55.0
+
+
 def test_order_snapshots_warranty_at_purchase(mock_mongodb):
     service_id = db.add_service("AI", "T")
     offer_id = db.add_offer(
