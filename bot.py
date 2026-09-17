@@ -441,6 +441,23 @@ def parse_duration_input(value: str, *, allow_zero: bool = False) -> tuple[int, 
 
 def compact_offer_text(offer: dict, lang: str) -> str:
     """Build the compact public offer card used with or without an image."""
+    service = None
+    if not offer.get("service_name") and offer.get("service_id") is not None:
+        service = db.get_service(offer.get("service_id"))
+    catalog_name = str(
+        offer.get("service_name_ar") if lang == "ar" and offer.get("service_name_ar")
+        else offer.get("service_name")
+        or ((service or {}).get("name_ar") if lang == "ar" else "")
+        or (service or {}).get("name")
+        or ""
+    ).strip()
+    product_name = str(
+        offer.get("name_ar") if lang == "ar" and offer.get("name_ar")
+        else offer.get("name") or ""
+    ).strip()
+    display_name = product_name
+    if catalog_name and not product_name.casefold().startswith(catalog_name.casefold()):
+        display_name = f"{catalog_name} — {product_name}"
     description = (
         offer.get("description_ar") if lang == "ar" and offer.get("description_ar")
         else offer.get("description")
@@ -463,7 +480,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             bulk_labels = {"fr": "PRIX EN GROS", "en": "BULK PRICE", "ar": "سعر الجملة"}
             bulk_line = (
                 f"📦 <b>{bulk_labels.get(lang, bulk_labels['en'])}:</b> "
-                f"{bulk_price:.2f} {html.escape(currency)} × {bulk_quantity}+\n"
+                f"<b>{bulk_price:.2f} {html.escape(currency)} × {bulk_quantity}+</b>\n"
             )
     except (TypeError, ValueError):
         pass
@@ -474,21 +491,35 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             or TRANSLATIONS["offer_card_template"]["en"]
         )
     replacements = {
-        "name": html.escape(str(offer.get("name") or "")),
-        "price": html.escape(str(price)),
-        "currency": html.escape(currency),
-        "stock": html.escape(str(stock_val)),
-        "sold": html.escape(str(sold)),
-        "warranty": html.escape(str(warranty)[:120]),
+        "name": html.escape(display_name),
+        "catalog_name": html.escape(catalog_name),
+        "product_name": html.escape(product_name),
+        "price": f"<b>{html.escape(str(price))}</b>",
+        "currency": f"<b>{html.escape(currency)}</b>",
+        "stock": f"<b>{html.escape(str(stock_val))}</b>",
+        "sold": f"<b>{html.escape(str(sold))}</b>",
+        "warranty": f"<b>{html.escape(str(warranty)[:120])}</b>",
         "description": render_stored_rich_text(description, parse_legacy_markdown=False),
         "bulk_price_line": bulk_line,
-        "bulk_price": html.escape(str(offer.get("bulk_unit_price") or "—")),
-        "bulk_quantity": html.escape(str(offer.get("bulk_quantity") or "—")),
+        "bulk_price": f"<b>{html.escape(str(offer.get('bulk_unit_price') or '—'))}</b>",
+        "bulk_quantity": f"<b>{html.escape(str(offer.get('bulk_quantity') or '—'))}</b>",
     }
     # Protect placeholders while parsing Telegram/legacy formatting. Otherwise
     # underscores in names such as ``{bulk_price_line}`` look like italics.
     tokens = {}
     protected_template = str(template)
+    value_placeholders = "price|currency|stock|sold|warranty|bulk_price|bulk_quantity"
+    # Old customized templates may wrap values in Telegram's monospace/code
+    # style. Remove only code wrappers containing response-value variables so
+    # the new regular bold typeface is applied consistently.
+    protected_template = re.sub(
+        rf"<code>([^<]*(?:\{{(?:{value_placeholders})\}})[^<]*)</code>",
+        r"\1", protected_template, flags=re.I,
+    )
+    protected_template = re.sub(
+        rf"`([^`\n]*(?:\{{(?:{value_placeholders})\}})[^`\n]*)`",
+        r"\1", protected_template,
+    )
     for index, (key, value) in enumerate(replacements.items()):
         token = f"OFCARDTOKEN{index}X"
         protected_template = protected_template.replace(f"{{{key}}}", token)
@@ -500,7 +531,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
 
 
 OFFER_CARD_TEMPLATE_VARIABLES = (
-    "name", "price", "currency", "stock", "sold", "warranty", "description",
+    "name", "catalog_name", "product_name", "price", "currency", "stock", "sold", "warranty", "description",
     "bulk_price", "bulk_quantity", "bulk_price_line",
 )
 

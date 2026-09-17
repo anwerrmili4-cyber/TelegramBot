@@ -32,10 +32,10 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
     preview = compact_offer_text(offer, "fr")
 
     assert "Perplexity Pro" in preview
-    assert "<b>PRIX:</b> 10.00 USDT" in preview
-    assert "<b>STOCK:</b> 12" in preview
-    assert "<b>VENDUS:</b> 7" in preview
-    assert "<b>GARANTIE:</b> NW" in preview
+    assert "<b>PRIX:</b> <b>10.00</b> <b>USDT</b>" in preview
+    assert "<b>STOCK:</b> <b>12</b>" in preview
+    assert "<b>VENDUS:</b> <b>7</b>" in preview
+    assert "<b>GARANTIE:</b> <b>NW</b>" in preview
     assert "<b>DESCRIPTION:</b>\nCompte premium prêt à utiliser" in preview
 
 
@@ -59,8 +59,8 @@ def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypat
     }, "en")
 
     assert '<tg-emoji emoji-id="premium-product">💠</tg-emoji>' in preview
-    assert "<b>Pro &amp; Plus</b> · 14.00 USDT" in preview
-    assert "Available: 7 · Purchased: 4" in preview
+    assert "<b>Pro &amp; Plus</b> · <b>14.00</b> <b>USDT</b>" in preview
+    assert "Available: <b>7</b> · Purchased: <b>4</b>" in preview
     assert "Ready &lt;b&gt;today&lt;/b&gt;" in preview
 
 
@@ -69,3 +69,29 @@ def test_product_card_admin_preview_preserves_variable_names(mock_mongodb):
 
     assert "<code>{bulk_price_line}</code>" in preview
     assert "bulk<i>price</i>line" not in preview
+
+
+def test_product_card_prefixes_catalog_and_restyles_code_values(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 2)
+    bot.db.set_text_override(
+        "offer_card_template", "en",
+        "[[HTML]]<b>{name}</b>\nPRICE: <code>{price} {currency}</code>\n"
+        "STOCK: `{stock}`\nWARRANTY: <code>{warranty}</code>",
+    )
+
+    preview = compact_offer_text({
+        "id": 8,
+        "name": "Premium",
+        "service_name": "QuillBot",
+        "price": 2,
+        "currency": "USDT",
+        "stock": 27,
+        "period_days": 30,
+        "warranty_days": 30,
+    }, "en")
+
+    assert "QuillBot — Premium" in preview
+    assert "<b>2.00</b> <b>USDT</b>" in preview
+    assert "<b>27</b>" in preview
+    assert "<b>FW</b>" in preview
+    assert "<code>" not in preview
