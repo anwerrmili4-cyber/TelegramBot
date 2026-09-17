@@ -605,7 +605,7 @@ def test_admin_catalog_button_uses_premium_emoji(monkeypatch):
 
     button = admin.catalog_admin_keyboard().inline_keyboard[0][0]
 
-    assert button.text == "Chat GPT"
+    assert button.text == "𝐂𝐡𝐚𝐭 𝐆𝐏𝐓"
     assert button.icon_custom_emoji_id == "admin-premium-id"
 
 
@@ -624,6 +624,7 @@ def test_admin_service_ignores_unicode_stored_as_custom_emoji_id(monkeypatch):
 
     assert button.callback_data == "adm_off:84"
     assert button.icon_custom_emoji_id is None
+    assert button.text == "📦 𝐂𝐮𝐫𝐬𝐨𝐫 𝐏𝐫𝐨 𝟏𝟐𝐦"
 
 
 def test_admin_service_can_configure_both_button_emojis(monkeypatch):

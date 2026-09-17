@@ -451,6 +451,12 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         or (service or {}).get("name")
         or ""
     ).strip()
+    catalog_emoji = str(
+        offer.get("service_emoji")
+        or (service or {}).get("emoji")
+        or offer.get("emoji")
+        or "📦"
+    ).strip()
     product_name = str(
         offer.get("name_ar") if lang == "ar" and offer.get("name_ar")
         else offer.get("name") or ""
@@ -458,6 +464,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     display_name = product_name
     if catalog_name and not product_name.casefold().startswith(catalog_name.casefold()):
         display_name = f"{catalog_name} — {product_name}"
+    display_name = " ".join(part for part in (catalog_emoji, display_name) if part)
     description = (
         offer.get("description_ar") if lang == "ar" and offer.get("description_ar")
         else offer.get("description")
@@ -491,8 +498,9 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             or TRANSLATIONS["offer_card_template"]["en"]
         )
     replacements = {
-        "name": html.escape(display_name),
+        "name": f"<b>{html.escape(display_name)}</b>",
         "catalog_name": html.escape(catalog_name),
+        "catalog_emoji": html.escape(catalog_emoji),
         "product_name": html.escape(product_name),
         "price": f"<b>{html.escape(str(price))}</b>",
         "currency": f"<b>{html.escape(currency)}</b>",
@@ -508,6 +516,13 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     # underscores in names such as ``{bulk_price_line}`` look like italics.
     tokens = {}
     protected_template = str(template)
+    # The complete emoji/catalog/product title is always bold. Remove legacy
+    # wrappers around {name} before injecting the canonical bold title.
+    for wrapped_name in (
+        "<b>{name}</b>", "<strong>{name}</strong>", "<code>{name}</code>",
+        "**{name}**", "*{name}*", "`{name}`",
+    ):
+        protected_template = protected_template.replace(wrapped_name, "{name}")
     value_placeholders = "price|currency|stock|sold|warranty|bulk_price|bulk_quantity"
     # Old customized templates may wrap values in Telegram's monospace/code
     # style. Remove only code wrappers containing response-value variables so
@@ -531,7 +546,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
 
 
 OFFER_CARD_TEMPLATE_VARIABLES = (
-    "name", "catalog_name", "product_name", "price", "currency", "stock", "sold", "warranty", "description",
+    "name", "catalog_name", "catalog_emoji", "product_name", "price", "currency", "stock", "sold", "warranty", "description",
     "bulk_price", "bulk_quantity", "bulk_price_line",
 )
 
@@ -541,11 +556,35 @@ def render_admin_text_preview(key: str, value: str) -> str:
     if key != "offer_card_template":
         return render_stored_rich_text(value)
     protected = str(value)
+    for wrapped_name in (
+        "<b>{name}</b>", "<strong>{name}</strong>", "<code>{name}</code>",
+        "**{name}**", "*{name}*", "`{name}`",
+    ):
+        protected = protected.replace(wrapped_name, "{name}")
+    value_placeholders = "price|currency|stock|sold|warranty|bulk_price|bulk_quantity"
+    protected = re.sub(
+        rf"<code>([^<]*(?:\{{(?:{value_placeholders})\}})[^<]*)</code>",
+        r"\1", protected, flags=re.I,
+    )
+    protected = re.sub(
+        rf"`([^`\n]*(?:\{{(?:{value_placeholders})\}})[^`\n]*)`",
+        r"\1", protected,
+    )
     tokens = {}
     for index, variable in enumerate(OFFER_CARD_TEMPLATE_VARIABLES):
         token = f"OFCARDPREVIEWTOKEN{index}X"
         protected = protected.replace(f"{{{variable}}}", token)
-        tokens[token] = f"<code>{{{variable}}}</code>"
+        if variable == "name":
+            placeholder = "<b>{catalog_emoji} {catalog_name} — {product_name}</b>"
+        elif variable in {
+            "catalog_name", "catalog_emoji", "product_name", "price", "currency",
+            "stock", "sold", "warranty", "bulk_price", "bulk_quantity",
+            "bulk_price_line",
+        }:
+            placeholder = f"<b>{{{variable}}}</b>"
+        else:
+            placeholder = f"<code>{{{variable}}}</code>"
+        tokens[token] = placeholder
     rendered = render_stored_rich_text(protected)
     for token, placeholder in tokens.items():
         rendered = rendered.replace(token, placeholder)
@@ -5349,10 +5388,13 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rendered_current = render_admin_text_preview(key, current)
         template_help = (
             "\n\n<b>Variables disponibles :</b>\n"
-            "<code>{name}</code> <code>{price}</code> <code>{currency}</code> "
+            "<code>{name}</code> <code>{catalog_emoji}</code> "
+            "<code>{catalog_name}</code> <code>{product_name}</code> "
+            "<code>{price}</code> <code>{currency}</code> "
             "<code>{stock}</code> <code>{sold}</code> <code>{warranty}</code> "
             "<code>{description}</code> <code>{bulk_price}</code> "
             "<code>{bulk_quantity}</code> <code>{bulk_price_line}</code>"
+            "\n<i>{name} inclut automatiquement l’emoji, le catalogue et le produit en gras.</i>"
             if key == "offer_card_template" else ""
         )
         prompt = (

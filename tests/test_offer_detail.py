@@ -21,6 +21,8 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
     offer = {
         "id": 42,
         "name": "Perplexity Pro",
+        "service_name": "AI Tools",
+        "service_emoji": "🤖",
         "price": 10,
         "currency": "USDT",
         "stock": 12,
@@ -31,7 +33,7 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
 
     preview = compact_offer_text(offer, "fr")
 
-    assert "Perplexity Pro" in preview
+    assert "<b>🤖 AI Tools — Perplexity Pro</b>" in preview
     assert "<b>PRIX:</b> <b>10.00</b> <b>USDT</b>" in preview
     assert "<b>STOCK:</b> <b>12</b>" in preview
     assert "<b>VENDUS:</b> <b>7</b>" in preview
@@ -59,7 +61,7 @@ def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypat
     }, "en")
 
     assert '<tg-emoji emoji-id="premium-product">💠</tg-emoji>' in preview
-    assert "<b>Pro &amp; Plus</b> · <b>14.00</b> <b>USDT</b>" in preview
+    assert "<b>📦 Pro &amp; Plus</b> · <b>14.00</b> <b>USDT</b>" in preview
     assert "Available: <b>7</b> · Purchased: <b>4</b>" in preview
     assert "Ready &lt;b&gt;today&lt;/b&gt;" in preview
 
@@ -67,7 +69,9 @@ def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypat
 def test_product_card_admin_preview_preserves_variable_names(mock_mongodb):
     preview = admin_text_preview("offer_card_template")
 
-    assert "<code>{bulk_price_line}</code>" in preview
+    assert "<b>{catalog_emoji} {catalog_name} — {product_name}</b>" in preview
+    assert "<b>{bulk_price_line}</b>" in preview
+    assert "<b>{price}</b>" in preview
     assert "bulk<i>price</i>line" not in preview
 
 
@@ -83,6 +87,7 @@ def test_product_card_prefixes_catalog_and_restyles_code_values(monkeypatch, moc
         "id": 8,
         "name": "Premium",
         "service_name": "QuillBot",
+        "service_emoji": "🪶",
         "price": 2,
         "currency": "USDT",
         "stock": 27,
@@ -90,7 +95,7 @@ def test_product_card_prefixes_catalog_and_restyles_code_values(monkeypatch, moc
         "warranty_days": 30,
     }, "en")
 
-    assert "QuillBot — Premium" in preview
+    assert "<b>🪶 QuillBot — Premium</b>" in preview
     assert "<b>2.00</b> <b>USDT</b>" in preview
     assert "<b>27</b>" in preview
     assert "<b>FW</b>" in preview

@@ -7,6 +7,20 @@ from config import ADMIN_ID, CURRENCY
 from i18n import TRANSLATIONS
 
 
+_BOLD_SOURCE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+_BOLD_TARGET = (
+    "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
+    "𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳"
+    "𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗"
+)
+_BOLD_TRANSLATION = str.maketrans(_BOLD_SOURCE, _BOLD_TARGET)
+
+
+def _button_bold(value):
+    """Simulate bold in Telegram buttons, which do not support HTML markup."""
+    return str(value or "").translate(_BOLD_TRANSLATION)
+
+
 def _safe_custom_emoji_id(value):
     """Ignore regular Unicode emoji accidentally stored as Premium icon IDs."""
     normalized = str(value or "").strip()
@@ -16,7 +30,7 @@ def _safe_custom_emoji_id(value):
 def _service_button_text(service):
     icon_id = _safe_custom_emoji_id(service.get("custom_emoji_id"))
     left = "" if icon_id else str(service.get("emoji") or "").strip()
-    name = service.get("name") or f"Service #{service['id']}"
+    name = _button_bold(service.get("name") or f"Service #{service['id']}")
     right = str(service.get("suffix_emoji") or "").strip()
     return " ".join(part for part in (left, name, right) if part)[:64]
 
@@ -564,12 +578,17 @@ def catalog_admin_keyboard():
 
 def service_admin_keyboard(service_id):
     svc = db.get_service(service_id)
-    offer_buttons = [InlineKeyboardButton(
-        o.get("name") or f"Offre #{o['id']}",
-        callback_data=f"adm_off:{o['id']}",
-        icon_custom_emoji_id=_safe_custom_emoji_id(o.get("custom_emoji_id")),
-        style="success" if o["active"] else "danger",
-    ) for o in db.list_offers(service_id, active_only=False)]
+    offer_buttons = []
+    for offer in db.list_offers(service_id, active_only=False):
+        icon_id = _safe_custom_emoji_id(offer.get("custom_emoji_id"))
+        emoji = "" if icon_id else str(offer.get("emoji") or svc.get("emoji") or "📦").strip()
+        name = _button_bold(offer.get("name") or f"Offre #{offer['id']}")
+        offer_buttons.append(InlineKeyboardButton(
+            " ".join(part for part in (emoji, name) if part)[:64],
+            callback_data=f"adm_off:{offer['id']}",
+            icon_custom_emoji_id=icon_id,
+            style="success" if offer["active"] else "danger",
+        ))
     rows = _two_column_rows(offer_buttons)
     rows.extend([
         [InlineKeyboardButton("➕ Ajouter une offre", callback_data=f"adm_addoff:{service_id}"),
