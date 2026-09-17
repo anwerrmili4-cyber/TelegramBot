@@ -283,9 +283,9 @@ TRANSLATIONS = {
     },
     # ---------------- Catalogue ----------------
     "offer_card_template": {
-        "fr": "🏷 *{name}*\n\n💎 *PRIX:* {price} {currency}\n{bulk_price_line}📦 *STOCK:* {stock}\n🛒 *VENDUS:* {sold}\n🛡 *GARANTIE:* {warranty}\n\n💬 *DESCRIPTION:*\n{description}",
-        "en": "🏷 *{name}*\n\n💎 *PRICE:* {price} {currency}\n{bulk_price_line}📦 *STOCK:* {stock}\n🛒 *SOLD:* {sold}\n🛡 *WARRANTY:* {warranty}\n\n💬 *DESCRIPTION:*\n{description}",
-        "ar": "🏷 *{name}*\n\n💎 *السعر:* {price} {currency}\n{bulk_price_line}📦 *المخزون:* {stock}\n🛒 *تم البيع:* {sold}\n🛡 *الضمان:* {warranty}\n\n💬 *الوصف:*\n{description}",
+        "fr": "🏷 *{name}*\n\n💎 *PRIX:* {price} {currency}\n📦 *PRIX EN GROS:* {bulk_price} {currency} × {bulk_quantity}+\n📦 *STOCK:* {stock}\n🛒 *VENDUS:* {sold}\n🛡 *GARANTIE:* {warranty}\n\n💬 *DESCRIPTION:*\n{description}",
+        "en": "🏷 *{name}*\n\n💎 *PRICE:* {price} {currency}\n📦 *BULK PRICE:* {bulk_price} {currency} × {bulk_quantity}+\n📦 *STOCK:* {stock}\n🛒 *SOLD:* {sold}\n🛡 *WARRANTY:* {warranty}\n\n💬 *DESCRIPTION:*\n{description}",
+        "ar": "🏷 *{name}*\n\n💎 *السعر:* {price} {currency}\n📦 *سعر الجملة:* {bulk_price} {currency} × {bulk_quantity}+\n📦 *المخزون:* {stock}\n🛒 *تم البيع:* {sold}\n🛡 *الضمان:* {warranty}\n\n💬 *الوصف:*\n{description}",
     },
     "channel_affiliate_reward": {
         "fr": "🎉 *AFFILIATE REWARD UNLOCKED!*\n\n🏆 A community member reached *{count} valid referrals*\n💰 *{reward} USDT* was added instantly to their wallet\n\n🔥 Share your referral link, grow the community and unlock your own rewards!",

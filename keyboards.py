@@ -138,6 +138,14 @@ def offer_period_label(lang, offer):
 
 def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
     price = offer.get("price")
+    try:
+        regular_price = float(price)
+        bulk_quantity = int(offer.get("bulk_quantity") or 0)
+        bulk_price = float(offer.get("bulk_unit_price"))
+        if bulk_quantity > 0 and 0 <= bulk_price < regular_price:
+            price = bulk_price
+    except (TypeError, ValueError):
+        pass
     if price is None:
         price_text = price_tbd if price_tbd is not None else t(lang, "price_tbd")
     else:
@@ -145,8 +153,6 @@ def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
         currency = str(offer.get("currency") or "USDT").upper()
         price_text = f"${amount}" if currency in {"USD", "USDT"} else f"{amount} {currency}"
 
-    label = stock_label if stock_label is not None else t(lang, "stock_label")
-    lbl = str(label or "Stock").title()
     period = offer_period_label(lang, offer)
 
     icon_id = str(
@@ -166,16 +172,7 @@ def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
                     emoji = str(svc.get("emoji") or "").strip()
     clean_name = clean_button_name(offer["name"])
 
-    if offer.get("unlimited_stock"):
-        suffix_parts = [p for p in (period, price_text, f"{lbl}: ∞") if p]
-        suffix = " | ".join(suffix_parts)
-        max_name_length = max(8, 64 - len(suffix) - 3)
-        name = compact_offer_name(clean_name, max_name_length - len(emoji) - int(bool(emoji)))
-        display_name = " ".join(part for part in (emoji, name) if part)
-        return f"{display_name} | {suffix}"
-
-    stock = int(offer.get("stock") or 0)
-    suffix_parts = [p for p in (period, price_text, f"{lbl}: {stock}") if p]
+    suffix_parts = [p for p in (period, price_text) if p]
     suffix = " | ".join(suffix_parts)
     max_name_length = max(8, 64 - len(suffix) - 3)
     name = compact_offer_name(clean_name, max_name_length - len(emoji) - int(bool(emoji)))

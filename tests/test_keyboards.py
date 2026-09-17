@@ -168,7 +168,7 @@ def test_offer_button_label_uses_store_style():
         },
     )
 
-    assert label == "SuperGrok 12 Months | 365 days | $30 | Stock: 12"
+    assert label == "SuperGrok 12 Months | 365 days | $30"
 
 
 def test_offer_button_label_uses_sky_blue_for_low_stock():
@@ -181,7 +181,7 @@ def test_offer_button_label_uses_sky_blue_for_low_stock():
         },
     )
 
-    assert label == "Low Stock Product | 30 days | $5 | Stock: 2"
+    assert label == "Low Stock Product | 30 days | $5"
 
 
 def test_offer_button_keeps_non_dollar_currency_visible():
@@ -190,7 +190,7 @@ def test_offer_button_keeps_non_dollar_currency_visible():
         {"name": "European plan", "price": 4.5, "currency": "EUR", "stock": 3},
     )
 
-    assert label == "European plan | 30 days | 4.5 EUR | Stock: 3"
+    assert label == "European plan | 30 days | 4.5 EUR"
 
 
 def test_offer_button_places_unicode_emoji_and_period_before_price():
@@ -205,25 +205,25 @@ def test_offer_button_places_unicode_emoji_and_period_before_price():
         },
     )
 
-    assert label == "⭐ Premium | 30 days | $5 | Stock: 4"
+    assert label == "⭐ Premium | 30 days | $5"
 
 
-def test_offer_button_always_keeps_price_and_live_stock_visible_with_long_name():
+def test_offer_button_always_keeps_price_visible_with_long_name():
     label = offer_button_label(
         "en", {"name": "A" * 100, "price": 2.5, "stock": 35},
     )
 
-    assert label.endswith("| $2.5 | Stock: 35")
+    assert label.endswith("| $2.5")
     assert len(label) <= 64
 
 
-def test_unlimited_offer_displays_infinity_and_remains_buyable():
+def test_unlimited_offer_hides_stock_and_remains_buyable():
     offer = {
         "id": 9, "service_id": 1, "name": "Managed accounts",
         "price": 5.0, "stock": 0, "unlimited_stock": True,
     }
 
-    assert "Stock: ∞" in offer_button_label("en", offer)
+    assert "Stock" not in offer_button_label("en", offer)
     callbacks = [
         button.callback_data
         for row in kb.offer_detail_keyboard("en", offer).inline_keyboard
@@ -231,6 +231,16 @@ def test_unlimited_offer_displays_infinity_and_remains_buyable():
     ]
     assert "buy:9" in callbacks
     assert any(c in callbacks for c in ("catalog", "svc:1"))
+
+
+def test_offer_button_uses_bulk_unit_price_when_configured():
+    label = offer_button_label("en", {
+        "name": "Bulk plan", "period_days": 30, "price": 5.0, "stock": 20,
+        "bulk_quantity": 5, "bulk_unit_price": 3.25,
+    })
+
+    assert label == "Bulk plan | 30 days | $3.25"
+    assert "Stock" not in label
 
 
 def test_preorder_checkout_keeps_flag_in_every_payment_callback():
@@ -513,7 +523,7 @@ def test_offer_button_uses_admin_selected_animated_emoji(monkeypatch):
 
     button = kb.offers_keyboard("en", 1).inline_keyboard[0][0]
 
-    assert button.text == "Premium | 30 days | $5 | Stock: 2"
+    assert button.text == "Premium | 30 days | $5"
     assert button.icon_custom_emoji_id == "admin-selected-id"
 
 
@@ -1046,7 +1056,7 @@ def test_premium_service_icon_replaces_unicode_emoji_in_catalog_button(monkeypat
 
     button = kb.catalog_offers_keyboard("en").inline_keyboard[0][0]
 
-    assert button.text == "Chat GPT Plus | 30 days | $5 | Stock: 8"
+    assert button.text == "Chat GPT Plus | 30 days | $5"
     assert button.callback_data == "off:11"
     assert button.icon_custom_emoji_id == "premium-chatgpt"
 
@@ -1062,7 +1072,7 @@ def test_premium_offer_icon_replaces_unicode_emoji_in_offer_button(monkeypatch):
 
     button = kb.offers_keyboard("en", 3).inline_keyboard[0][0]
 
-    assert button.text == "Chat GPT Plus | 30 days | $5 | Stock: 8"
+    assert button.text == "Chat GPT Plus | 30 days | $5"
     assert button.icon_custom_emoji_id == "premium-chatgpt"
 
 

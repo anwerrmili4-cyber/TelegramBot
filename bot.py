@@ -439,6 +439,22 @@ def parse_duration_input(value: str, *, allow_zero: bool = False) -> tuple[int, 
     return amount, unit, warranty_service.duration_to_days(amount, unit)
 
 
+def decomposed_bulk_price_template(lang: str = "en") -> str:
+    """Return the editable bulk-price row used by product card templates."""
+    labels = {"fr": "PRIX EN GROS", "en": "BULK PRICE", "ar": "سعر الجملة"}
+    return (
+        f"📦 *{labels.get(lang, labels['en'])}:* "
+        "{bulk_price} {currency} × {bulk_quantity}+"
+    )
+
+
+def decompose_legacy_bulk_line(template: str, lang: str = "en") -> str:
+    """Upgrade the retired all-in-one bulk placeholder into editable fields."""
+    return str(template).replace(
+        "{bulk_price_line}", f"{decomposed_bulk_price_template(lang)}\n",
+    )
+
+
 def compact_offer_text(offer: dict, lang: str) -> str:
     """Build the compact public offer card used with or without an image."""
     service = None
@@ -470,6 +486,14 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         else offer.get("description")
     )
     description = (description or "").strip() or "—"
+    rendered_description = render_stored_rich_text(
+        description, parse_legacy_markdown=False,
+    )
+    # Product descriptions are prose, not source code. Older saved content may
+    # contain code/pre wrappers that Telegram renders in blue monospace.
+    rendered_description = re.sub(
+        r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered_description, flags=re.I,
+    )
     warranty = warranty_service.offer_warranty_label(offer, lang=lang) or "NW"
     try:
         raw_price = offer.get("price")
@@ -479,16 +503,14 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     sold = db.offer_sold_count(offer.get("id", 0))
     currency = str(offer.get("currency") or CURRENCY)
     stock_val = "∞" if offer.get("unlimited_stock") else int(offer.get("stock") or 0)
-    bulk_line = ""
+    bulk_enabled = False
+    bulk_quantity = 0
+    bulk_price = 0.0
     try:
         bulk_quantity = int(offer.get("bulk_quantity") or 0)
         bulk_price = float(offer.get("bulk_unit_price"))
         if bulk_quantity > 0 and 0 <= bulk_price < float(offer.get("price")):
-            bulk_labels = {"fr": "PRIX EN GROS", "en": "BULK PRICE", "ar": "سعر الجملة"}
-            bulk_line = (
-                f"📦 <b>{bulk_labels.get(lang, bulk_labels['en'])}:</b> "
-                f"<b>{bulk_price:.2f} {html.escape(currency)} × {bulk_quantity}+</b>\n"
-            )
+            bulk_enabled = True
     except (TypeError, ValueError):
         pass
     template = db.get_text_override("offer_card_template", lang)
@@ -507,15 +529,22 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         "stock": f"<b>{html.escape(str(stock_val))}</b>",
         "sold": f"<b>{html.escape(str(sold))}</b>",
         "warranty": f"<b>{html.escape(str(warranty)[:120])}</b>",
-        "description": render_stored_rich_text(description, parse_legacy_markdown=False),
-        "bulk_price_line": bulk_line,
-        "bulk_price": f"<b>{html.escape(str(offer.get('bulk_unit_price') or '—'))}</b>",
-        "bulk_quantity": f"<b>{html.escape(str(offer.get('bulk_quantity') or '—'))}</b>",
+        "description": rendered_description,
+        "bulk_price": f"<b>{bulk_price:.2f}</b>",
+        "bulk_quantity": f"<b>{bulk_quantity}</b>",
     }
     # Protect placeholders while parsing Telegram/legacy formatting. Otherwise
     # underscores in names such as ``{bulk_price_line}`` look like italics.
     tokens = {}
     protected_template = str(template)
+    if bulk_enabled:
+        protected_template = decompose_legacy_bulk_line(protected_template, lang)
+    else:
+        protected_template = protected_template.replace("{bulk_price_line}", "")
+        protected_template = "\n".join(
+            line for line in protected_template.splitlines()
+            if "{bulk_price}" not in line and "{bulk_quantity}" not in line
+        )
     # The complete emoji/catalog/product title is always bold. Remove legacy
     # wrappers around {name} before injecting the canonical bold title.
     for wrapped_name in (
@@ -547,15 +576,15 @@ def compact_offer_text(offer: dict, lang: str) -> str:
 
 OFFER_CARD_TEMPLATE_VARIABLES = (
     "name", "catalog_name", "catalog_emoji", "product_name", "price", "currency", "stock", "sold", "warranty", "description",
-    "bulk_price", "bulk_quantity", "bulk_price_line",
+    "bulk_price", "bulk_quantity",
 )
 
 
-def render_admin_text_preview(key: str, value: str) -> str:
+def render_admin_text_preview(key: str, value: str, lang: str = "en") -> str:
     """Render editor previews without treating template underscores as Markdown."""
     if key != "offer_card_template":
         return render_stored_rich_text(value)
-    protected = str(value)
+    protected = decompose_legacy_bulk_line(value, lang)
     for wrapped_name in (
         "<b>{name}</b>", "<strong>{name}</strong>", "<code>{name}</code>",
         "**{name}**", "*{name}*", "`{name}`",
@@ -579,9 +608,10 @@ def render_admin_text_preview(key: str, value: str) -> str:
         elif variable in {
             "catalog_name", "catalog_emoji", "product_name", "price", "currency",
             "stock", "sold", "warranty", "bulk_price", "bulk_quantity",
-            "bulk_price_line",
         }:
             placeholder = f"<b>{{{variable}}}</b>"
+        elif variable == "description":
+            placeholder = "{description}"
         else:
             placeholder = f"<code>{{{variable}}}</code>"
         tokens[token] = placeholder
@@ -594,8 +624,8 @@ def render_admin_text_preview(key: str, value: str) -> str:
 def admin_text_preview(key: str) -> str:
     en_current = db.get_text_override(key, "en") or TRANSLATIONS.get(key, {}).get("en") or "—"
     ar_current = db.get_text_override(key, "ar") or TRANSLATIONS.get(key, {}).get("ar") or "—"
-    rendered_en = render_admin_text_preview(key, en_current)
-    rendered_ar = render_admin_text_preview(key, ar_current)
+    rendered_en = render_admin_text_preview(key, en_current, "en")
+    rendered_ar = render_admin_text_preview(key, ar_current, "ar")
     return (
         f"✏️ <b>{html.escape(key)}</b>\n\n"
         f"🇬🇧 <b>English Preview :</b>\n{rendered_en}\n\n"
@@ -5385,7 +5415,13 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if current is None:
             current = TRANSLATIONS.get(key, {}).get(selected_lang, "—")
         PENDING[uid] = ("adm_text_override", f"{key}|{selected_lang}")
-        rendered_current = render_admin_text_preview(key, current)
+        if key == "offer_card_template" and "{bulk_price_line}" in current:
+            current = decompose_legacy_bulk_line(current, selected_lang)
+            db.set_text_override(
+                key, selected_lang, current,
+                db.get_text_override_icon(key, selected_lang),
+            )
+        rendered_current = render_admin_text_preview(key, current, selected_lang)
         template_help = (
             "\n\n<b>Variables disponibles :</b>\n"
             "<code>{name}</code> <code>{catalog_emoji}</code> "
@@ -5393,7 +5429,7 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<code>{price}</code> <code>{currency}</code> "
             "<code>{stock}</code> <code>{sold}</code> <code>{warranty}</code> "
             "<code>{description}</code> <code>{bulk_price}</code> "
-            "<code>{bulk_quantity}</code> <code>{bulk_price_line}</code>"
+            "<code>{bulk_quantity}</code>"
             "\n<i>{name} inclut automatiquement l’emoji, le catalogue et le produit en gras.</i>"
             if key == "offer_card_template" else ""
         )
