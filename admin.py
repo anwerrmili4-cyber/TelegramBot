@@ -719,44 +719,40 @@ def build_order_table(rows, max_val_len=24):
     return "\n".join(lines)
 
 
+def order_report(o):
+    """Return the complete copyable order report, including decrypted delivery."""
+    if not o:
+        return "Commande introuvable."
+    context = _full_order_context(int(o.get("id") or 0))
+    if not context["order"]:
+        context["order"] = dict(o)
+    content = context["delivery_items"]
+    report = _context_table(context, heading="ORDER FULL INFORMATION")
+    report += "\n\nREAL DELIVERED CONTENT\n"
+    report += "\n\n".join(content) if content else "[no decrypted delivery content persisted]"
+    return report
+
+
 def order_detail_text(o):
     if not o:
         return "Commande introuvable."
     status = str(o.get("status") or "").strip().lower()
     is_delivered = status in {"delivered", "completed"} or bool(o.get("delivered_at"))
-
     if is_delivered:
-        statut_val = "LIVRÉE"
-        livraison_val = "OUI (Délivrée)"
-        delivery_badge = "✅ *DÉLIVRÉE*"
+        statut_val, livraison_val, delivery_badge = "LIVRÉE", "OUI (Délivrée)", "✅ DÉLIVRÉE"
     elif status in {"paid", "payment_confirmed", "confirmed_no_delivery"}:
-        statut_val = "PAYÉE"
-        livraison_val = "NON (Manuelle)"
-        delivery_badge = "⏳ *NON DÉLIVRÉE*"
+        statut_val, livraison_val, delivery_badge = "PAYÉE", "NON (Manuelle)", "⏳ NON DÉLIVRÉE"
     elif status == "pending_payment":
-        statut_val = "IMPAYÉE"
-        livraison_val = "NON (En attente)"
-        delivery_badge = "⏳ *NON DÉLIVRÉE*"
+        statut_val, livraison_val, delivery_badge = "IMPAYÉE", "NON (En attente)", "⏳ NON DÉLIVRÉE"
     elif status == "cancelled":
-        statut_val = "ANNULÉE"
-        livraison_val = "NON (Annulée)"
-        delivery_badge = "❌ *ANNULÉE*"
+        statut_val, livraison_val, delivery_badge = "ANNULÉE", "NON (Annulée)", "❌ ANNULÉE"
     else:
-        statut_val = status.upper() or "INCONNU"
-        livraison_val = "NON"
-        delivery_badge = "❓ *EN COURS*"
+        statut_val, livraison_val, delivery_badge = status.upper() or "INCONNU", "NON", "❓ EN COURS"
 
-    warranty = warranty_service.order_warranty_label(o) or "—"
     user_id = str(o.get("user_id") or "—")
-    user_display = user_id
-    try:
-        user_doc = db.get_conn().users.find_one({"telegram_id": int(user_id)})
-        if user_doc and user_doc.get("username"):
-            user_display = f"{user_id} (@{user_doc['username']})"
-    except Exception:
-        pass
-
-    rows = [
+    user_doc = db.get_conn().users.find_one({"telegram_id": int(user_id)}) if user_id.isdigit() else None
+    user_display = f"{user_id} (@{user_doc['username']})" if user_doc and user_doc.get("username") else user_id
+    legacy = build_order_table([
         ("Champ", "Détail"),
         ("Commande", f"#{o.get('id', '—')}"),
         ("Statut", statut_val),
@@ -765,46 +761,15 @@ def order_detail_text(o):
         ("Service", str(o.get("service_name") or "—")),
         ("Offre", str(o.get("offer_name") or "—")),
         ("Quantité", str(o.get("qty") or 1)),
-        ("Total", f"{float(o.get('total_price') or 0):.2f} {CURRENCY}"),
-        ("Garantie", str(warranty)),
-    ]
-    pay_method = str(o.get("verify_method") or o.get("payment_method") or "")
-    if pay_method and pay_method != "—":
-        rows.append(("Paiement", pay_method))
-    txid = str(o.get("txid") or "")
-    if txid:
-        rows.append(("TXID", txid))
-
-    table_str = build_order_table(rows)
-    preorder = "\n⏳ *Pre-order (+10%)*" if o.get("is_preorder") else ""
-
-    extra = ""
-    if not is_delivered and status in {"paid", "payment_confirmed", "confirmed_no_delivery"}:
-        extra = "\n⚠️ *Livraison manuelle requise pour cette commande.*"
-    elif is_delivered:
-        extra = "\n✅ *Produit délivré avec succès au client.*"
-
-    delivered_preview = ""
-    try:
-        if is_delivered:
-            raw_text = str(o.get("delivery_text") or "").strip()
-            if raw_text and raw_text != "[encrypted reseller delivery]":
-                delivered_preview = f"\n\n📦 *Contenu livré :*\n`{raw_text}`"
-            elif raw_text == "[encrypted reseller delivery]":
-                fulfillment = db.get_conn().reseller_fulfillments.find_one({"order_id": int(o["id"])})
-                if fulfillment and fulfillment.get("encrypted_items"):
-                    cipher = db._fernet()
-                    items = [cipher.decrypt(x.encode()).decode() for x in fulfillment.get("encrypted_items", [])]
-                    if items:
-                        lines = "\n".join(f"`{item}`" for item in items[:5])
-                        delivered_preview = f"\n\n📦 *Comptes livrés (API) :*\n{lines}"
-    except Exception:
-        pass
-
-    return (
-        f"🧾 *COMMANDE #{o.get('id')}* • {delivery_badge}{preorder}\n\n"
-        f"```\n{table_str}\n```{extra}{delivered_preview}"
-    )
+        ("Total", f"{db.order_charge_total(o):.2f} {o.get('currency') or CURRENCY}"),
+        ("Garantie", str(warranty_service.order_warranty_label(o) or "—")),
+        ("Paiement", str(o.get("verify_method") or o.get("payment_method") or "—")),
+        ("TXID", str(o.get("txid") or "—")),
+    ])
+    report = f"{delivery_badge}\n\n{legacy}\n\n{order_report(o)}"
+    # Telegram Markdown code blocks are copyable; neutralize embedded backticks.
+    safe_report = report.replace("```", "'''")
+    return f"🧾 COMMANDE #{o.get('id')}\n\n```\n{safe_report}\n```"
 
 
 def order_detail_keyboard(o):
@@ -818,6 +783,12 @@ def order_detail_keyboard(o):
                 rows.extend(codex_number_request_keyboard(o["id"]).inline_keyboard)
         else:
             rows.extend(manual_delivery_request_keyboard(o["id"]).inline_keyboard)
+    if o:
+        rows.append([InlineKeyboardButton(
+            "📄 Full copyable report",
+            callback_data=f"adm_order_report:{int(o['id'])}",
+            style="primary",
+        )])
     rows.append([InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")])
     return InlineKeyboardMarkup(rows)
 

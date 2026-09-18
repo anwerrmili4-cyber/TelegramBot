@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import database as db
 from admin import notify_manual_delivery_request, notify_new_order, post_purchase_to_channel
 
 
@@ -90,3 +91,32 @@ def test_order_detail_text_renders_table_format_when_not_delivered():
     assert "NON (Manuelle)" in text
     assert "NON DÉLIVRÉE" in text
 
+
+def test_order_detail_text_includes_decrypted_automatic_delivery(mock_mongodb):
+    mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer"})
+    mock_mongodb.services.insert_one({"id": 1, "name": "Mails", "active": 1})
+    mock_mongodb.offers.insert_one({
+        "id": 7, "service_id": 1, "name": "Education USA",
+        "supplier_provider": "", "supplier_product_id": "",
+    })
+    mock_mongodb.orders.insert_one({
+        "id": 569, "user_id": 42, "offer_id": 7,
+        "service_name": "Mails", "offer_name": "Education USA",
+        "status": "delivered", "unit_price": 5.0,
+        "wallet_amount": 4.4, "total_price": 0,
+        "currency": "USDT", "delivery_text": "[encrypted automatic delivery]",
+        "delivered_at": 100, "paid_at": 100, "created_at": 100,
+    })
+    mock_mongodb.inventory.insert_one({
+        "id": 513, "offer_id": 7, "delivered_order_id": 569,
+        "status": "delivered",
+        "payload": db._fernet().encrypt(b"real-mail@example.com:real-password").decode(),
+    })
+
+    from admin import order_detail_text
+    text = order_detail_text(db.get_order(569))
+
+    assert "real-mail@example.com:real-password" in text
+    assert "[encrypted automatic delivery]" not in text
+    assert "Wallet paid" in text
+    assert "Inventory IDs" in text

@@ -3339,7 +3339,24 @@ async def handle_pending_input(update, context, lang):
         await update.message.reply_text("✅ Bouton ajouté au menu principal.", reply_markup=admin.buttons_editor_keyboard())
         return
     if kind == "adm_addoff_image" and uid == ADMIN_ID:
-        await update.message.reply_text("🖼 Envoyez une image (photo), pas un message texte.")
+        if text.casefold() in {"skip", "pass", "none", "no image"}:
+            service_id = int(ref)
+            service = db.get_service(service_id) or {}
+            is_method = str(service.get("name") or "").strip().lower() == "methods"
+            PENDING[uid] = ("adm_addoff_name", {
+                "service_id": service_id,
+                "photo_file_id": "",
+            })
+            await update.message.reply_text(
+                f"✏️ *New {'method' if is_method else 'offer'} — step 2/{5 if is_method else 6}*\n\n"
+                f"Send the {'method' if is_method else 'offer'} name:",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+        await update.message.reply_text(
+            "🖼 Send an image, or type `skip` to continue without one.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
         return
 
     if kind == "adm_offimage" and uid == ADMIN_ID:
@@ -3358,7 +3375,7 @@ async def handle_pending_input(update, context, lang):
             data.update({"period_days": 0, "period_value": 0, "period_unit": "days", "warranty_days": 0, "warranty_value": 0, "warranty_unit": "days"})
             PENDING[uid] = ("adm_addoff_description", data)
             await update.message.reply_text(
-                "📝 *Étape 3/4* — envoyez la description de la méthode :",
+                "📝 *New method — step 2/4*\n\nSend the public sales description:",
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
@@ -3411,8 +3428,14 @@ async def handle_pending_input(update, context, lang):
         data = dict(ref)
         data["description"] = description
         PENDING[uid] = ("adm_addoff_price", data)
+        service = db.get_service(int(data["service_id"])) or {}
+        is_method = str(service.get("name") or "").strip().lower() == "methods"
         await update.message.reply_text(
-            "💵 *Étape 6/6* — envoyez le prix unitaire en USDT (exemple : 4.99) :",
+            (
+                "💵 *New method — step 3/4*\n\nSend the selling price in USDT (example: `4.99`):"
+                if is_method else
+                "💵 *Étape 6/6* — envoyez le prix unitaire en USDT (exemple : 4.99) :"
+            ),
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -3439,18 +3462,32 @@ async def handle_pending_input(update, context, lang):
             description=data["description"],
             instructions="",
             photo_file_id=data["photo_file_id"],
-            unlimited_stock=is_method_offer,
+            unlimited_stock=False if is_method_offer else False,
+            auto_delivery=True,
+            active=not is_method_offer,
         )
-        PENDING.pop(uid, None)
-        confirmation = (
-            "✅ Method offer created.\n\nUse ‘Method content’ to upload the videos, images, and documents delivered after payment."
-            if is_method_offer else
-            "✅ Offre créée.\n\n📦 Le stock sera calculé automatiquement à partir des comptes ajoutés.\n"
-            "🛒 Les ventes seront calculées automatiquement à partir des commandes confirmées.\n\n"
-            "Ajoutez maintenant les comptes pour alimenter le stock."
-        )
+        if is_method_offer:
+            PENDING[uid] = ("adm_method_media", offer_id)
+            confirmation = (
+                "🎬 *New method — step 4/4*\n\n"
+                "Send everything the customer must receive after payment. You can send:\n"
+                "• text instructions or links\n"
+                "• photos\n"
+                "• videos\n"
+                "• documents\n\n"
+                "Send multiple items in the required delivery order, then type `done`.\n"
+                "The method remains hidden and cannot be purchased until content is saved."
+            )
+        else:
+            PENDING.pop(uid, None)
+            confirmation = (
+                "✅ Offre créée.\n\n📦 Le stock sera calculé automatiquement à partir des comptes ajoutés.\n"
+                "🛒 Les ventes seront calculées automatiquement à partir des commandes confirmées.\n\n"
+                "Ajoutez maintenant les comptes pour alimenter le stock."
+            )
         await update.message.reply_text(
             confirmation,
+            parse_mode=ParseMode.MARKDOWN if is_method_offer else None,
             reply_markup=admin.offer_admin_keyboard(offer_id),
         )
         return
@@ -3545,14 +3582,38 @@ async def handle_pending_input(update, context, lang):
         return
 
     if kind == "adm_method_media" and uid == ADMIN_ID:
-        if text.lower() in {"done", "finish", "finished"}:
+        offer = db.get_offer(int(ref))
+        media = list((offer or {}).get("method_media") or [])
+        if text.casefold() in {"done", "finish", "finished"}:
+            if not media:
+                await update.message.reply_text(
+                    "⚠️ Add at least one text, photo, video, or document before finishing the method."
+                )
+                return
+            db.update_offer(
+                int(ref), active=1, unlimited_stock=True, auto_delivery=True,
+            )
             PENDING.pop(uid, None)
             await update.message.reply_text(
-                "✅ Method content saved.",
+                f"✅ Method content saved ({len(media)} item(s)). The method is now active and ready for sale.",
                 reply_markup=admin.offer_admin_keyboard(int(ref)),
             )
+        elif text.casefold() in {"clear", "clear all", "delete all"}:
+            db.update_offer(int(ref), method_media=[], active=0, unlimited_stock=False)
+            await update.message.reply_text(
+                "🧹 Method content cleared. The method is hidden until you add content and send `done`."
+            )
         else:
-            await update.message.reply_text("Send media, or send `done` when finished.", parse_mode=ParseMode.MARKDOWN)
+            if not offer:
+                PENDING.pop(uid, None)
+                await update.message.reply_text("⚠️ Method offer not found.")
+                return
+            media.append({"type": "text", "text": text[:4000], "caption": ""})
+            db.update_offer(int(ref), method_media=media, unlimited_stock=False, active=0)
+            await update.message.reply_text(
+                f"✅ Text content item {len(media)} saved. Send more content or `done`.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
         return
 
     if kind == "adm_bot_package_doc" and uid == ADMIN_ID:
@@ -4450,6 +4511,11 @@ async def send_method_media(bot, customer_id, media):
     for item in media or []:
         kind = str(item.get("type") or "document")
         file_id = item.get("file_id")
+        if kind == "text":
+            content = str(item.get("text") or item.get("caption") or "").strip()
+            if content:
+                await bot.send_message(customer_id, text=content)
+            continue
         if not file_id:
             continue
         caption = str(item.get("caption") or "")[:900] or None
@@ -4914,12 +4980,15 @@ async def handle_pending_photo(update, context):
         return
     service_id = pending[1]
     photo_file_id = update.message.photo[-1].file_id
+    service = db.get_service(int(service_id)) or {}
+    is_method = str(service.get("name") or "").strip().lower() == "methods"
     PENDING[uid] = ("adm_addoff_name", {
         "service_id": service_id,
         "photo_file_id": photo_file_id,
     })
     await update.message.reply_text(
-        "✏️ *Nouvelle offre — étape 2/6*\n\nEnvoyez le nom de l’offre :",
+        f"✏️ *New {'method' if is_method else 'offer'} — step 2/{5 if is_method else 6}*\n\n"
+        f"Send the {'method' if is_method else 'offer'} name:",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -5701,6 +5770,22 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                   parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
         return
 
+    if data.startswith("adm_order_report:"):
+        oid = int(data.split(":", 1)[1])
+        order = db.get_order(oid)
+        if not order:
+            await q.message.reply_text("⚠️ Commande introuvable.")
+            return
+        report = admin.order_report(order)
+        await q.message.reply_document(
+            document=InputFile(
+                io.BytesIO(report.encode("utf-8")),
+                filename=f"order-{oid}-full-report.txt",
+            ),
+            caption="Full copyable order report with the real delivered content.",
+        )
+        return
+
     if data.startswith("adm_order:"):
         oid = int(data.split(":")[1])
         o = db.get_order(oid)
@@ -5876,10 +5961,22 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("adm_addoff:"):
         sid = int(data.split(":")[1])
+        service = db.get_service(sid) or {}
+        is_method = str(service.get("name") or "").strip().lower() == "methods"
+        if is_method:
+            PENDING[uid] = ("adm_addoff_name", {
+                "service_id": sid,
+                "photo_file_id": "",
+            })
+            await q.message.reply_text(
+                "✏️ *New method — step 1/4*\n\nSend the method name:",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
         PENDING[uid] = ("adm_addoff_image", sid)
         await q.message.reply_text(
-            "🖼 *Nouvelle offre — étape 1/6*\n\n"
-            "Envoyez l’image publicitaire de l’offre. Elle sera affichée aux clients.",
+            f"🖼 *New offer — step 1/6*\n\n"
+            "Send the advertising image, or type `skip` to continue without one.",
             parse_mode=ParseMode.MARKDOWN,
         )
         return

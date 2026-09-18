@@ -987,6 +987,12 @@ def offer_has_stock(offer, qty=1):
     """Return whether an offer can fulfill a quantity, including unlimited offers."""
     if not offer or int(qty or 0) < 1:
         return False
+    service = get_service(offer.get("service_id")) if offer.get("service_id") is not None else None
+    if (
+        str((service or {}).get("name") or "").strip().lower() == "methods"
+        and not offer.get("method_media")
+    ):
+        return False
     return bool(offer.get("unlimited_stock")) or int(offer.get("stock") or 0) >= int(qty)
 
 
@@ -1361,6 +1367,7 @@ def add_offer(
     period_unit="days",
     warranty_value=None,
     warranty_unit="days",
+    active=True,
 ):
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
@@ -1386,7 +1393,7 @@ def add_offer(
         "supplier_provider": str(supplier_provider or ""),
         "supplier_product_id": str(supplier_product_id or ""),
         "sort_order": (last or {}).get("sort_order", 0) + 1,
-        "active": 1,
+        "active": 1 if active else 0,
         "sales_channels": list(sales_channels or ["bot"]),
         "tn_price_millimes": tn_price_millimes,
         "name_ar": str(name_ar or "")[:200],
@@ -1399,9 +1406,13 @@ def add_offer(
         "site_badge": str(site_badge or "")[:60],
         "site_badge_ar": str(site_badge_ar or "")[:60],
         "site_featured": bool(site_featured),
-        "period_days": int(period_days or 30),
+        "period_days": int(30 if period_days is None else period_days),
         "warranty_days": int(warranty_days or 0),
-        "period_value": int(period_value if period_value is not None else (period_days or 30)),
+        "period_value": int(
+            period_value
+            if period_value is not None
+            else (30 if period_days is None else period_days)
+        ),
         "period_unit": warranty_service.normalize_duration_unit(period_unit),
         "warranty_value": int(warranty_value if warranty_value is not None else (warranty_days or 0)),
         "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit),

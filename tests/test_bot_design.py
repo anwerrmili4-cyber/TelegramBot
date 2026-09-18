@@ -341,6 +341,110 @@ def test_warranty_submission_sends_supplier_and_real_content_report(mock_mongodb
     assert "real delivered content" in telegram_bot.send_document.await_args.kwargs["caption"]
 
 
+def test_admin_can_create_method_without_image_and_activate_only_after_content(
+    mock_mongodb, monkeypatch,
+):
+    admin_id = 9001
+    monkeypatch.setattr("bot.ADMIN_ID", admin_id)
+    service_id = db.ensure_methods_service()
+    admin_message = SimpleNamespace(reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data=f"adm_addoff:{service_id}",
+        from_user=SimpleNamespace(id=admin_id),
+        message=admin_message,
+        answer=AsyncMock(),
+    )
+
+    asyncio.run(cb_admin(
+        SimpleNamespace(callback_query=query),
+        SimpleNamespace(),
+    ))
+    assert PENDING.get(admin_id) == ("adm_addoff_image", service_id)
+
+    def send_text(value):
+        message = SimpleNamespace(text=value, reply_text=AsyncMock())
+        asyncio.run(handle_pending_input(
+            SimpleNamespace(effective_user=SimpleNamespace(id=admin_id), message=message),
+            SimpleNamespace(),
+            "en",
+        ))
+        return message
+
+    send_text("skip")
+    assert PENDING.get(admin_id)[0] == "adm_addoff_name"
+    send_text("Python automation method")
+    assert PENDING.get(admin_id)[0] == "adm_addoff_description"
+    send_text("Step-by-step automation instructions")
+    assert PENDING.get(admin_id)[0] == "adm_addoff_price"
+    send_text("4.99")
+
+    pending = PENDING.get(admin_id)
+    assert pending[0] == "adm_method_media"
+    offer_id = int(pending[1])
+    offer = db.get_offer(offer_id)
+    assert offer["active"] == 0
+    assert offer["unlimited_stock"] is False
+    assert offer["period_days"] == 0
+    assert db.offer_has_stock(offer) is False
+
+    send_text("Open this private guide: https://example.com/method")
+    offer = db.get_offer(offer_id)
+    assert offer["method_media"][0]["type"] == "text"
+    assert offer["active"] == 0
+
+    send_text("done")
+    offer = db.get_offer(offer_id)
+    assert PENDING.get(admin_id) is None
+    assert offer["active"] == 1
+    assert offer["unlimited_stock"] is True
+    assert db.offer_has_stock(offer) is True
+
+
+def test_empty_method_cannot_be_finished_and_text_delivery_is_supported(mock_mongodb, monkeypatch):
+    from app.domain import payment_service
+
+    monkeypatch.setattr(
+        payment_service,
+        "verify_payment",
+        lambda *_args, **_kwargs: {"status": "confirmed", "reason": "test"},
+    )
+
+    service_id = db.ensure_methods_service()
+    offer_id = db.add_offer(
+        service_id, "Empty method", 4.0, 0,
+        period_days=0, warranty_days=0, unlimited_stock=True, active=True,
+    )
+    offer = db.get_offer(offer_id)
+    assert db.offer_has_stock(offer) is False
+
+    db.update_offer(
+        offer_id,
+        method_media=[{"type": "text", "text": "Private method steps"}],
+        active=True,
+        unlimited_stock=True,
+    )
+    offer = db.get_offer(offer_id)
+    assert db.offer_has_stock(offer) is True
+    now = int(time.time())
+    db.get_conn().orders.insert_one({
+        "id": 999,
+        "user_id": 42,
+        "offer_id": offer_id,
+        "service_name": "Methods",
+        "offer_name": "Empty method",
+        "qty": 1,
+        "total_price": 4.0,
+        "status": "pending_payment",
+        "txid": "",
+        "created_at": now - 10,
+        "expires_at": now + 1800,
+    })
+    result = payment_service.submit_payment(999, "METHOD_TXID_123", 42)
+    assert result["status"] == "delivered"
+    assert result["delivered_content"] == ["__method_media__"]
+    assert db.get_order(999)["status"] == "delivered"
+
+
 def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb):
     service_id = db.add_service("Chat GPT", "🤖")
     offer_id = db.add_offer(service_id, "Premium 30 days", 5.0, 3)
