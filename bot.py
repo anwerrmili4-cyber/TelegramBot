@@ -984,6 +984,31 @@ def _announcement_plain(value):
     return str(value or "").replace("*", "").replace("_", " ").replace("`", "").strip()
 
 
+def _method_announcement_description(value):
+    """Render a method description without leaking HTML source into adverts.
+
+    Descriptions captured from Telegram carry the ``[[HTML]]`` marker, which
+    lets :func:`render_stored_rich_text` preserve formatting and Premium
+    ``tg-emoji`` entities.  Older dashboard values may contain bare HTML;
+    those tags are removed (rather than escaped into visible ``<...>`` text),
+    while the normal custom-emoji token format remains supported.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(("[[HTML]]", "[HTML]", "[[TGEMOJI:")):
+        rendered = render_stored_rich_text(raw, parse_legacy_markdown=False)
+    else:
+        # Treat unmarked HTML as legacy source, not as trusted Telegram HTML.
+        # Keep its readable text and let the token renderer restore Premium
+        # emoji placeholders where present.
+        cleaned = re.sub(r"</?[^>]+>", "", raw)
+        rendered = render_stored_rich_text(cleaned, parse_legacy_markdown=False)
+    # Product prose must never be shown in monospace just because an old
+    # description was saved inside code/pre wrappers.
+    return re.sub(r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered, flags=re.I).strip()
+
+
 def _method_announcement_text(text, service, offer=None, lang="en"):
     """Replace period/warranty rows with the saved method description."""
     if str((service or {}).get("name") or "").strip().casefold() != "methods":
@@ -992,7 +1017,7 @@ def _method_announcement_text(text, service, offer=None, lang="en"):
         (offer or {}).get("description_ar") if lang == "ar" and (offer or {}).get("description_ar")
         else (offer or {}).get("description")
     )
-    description = html.escape(str(raw_description or "").strip())
+    description = _method_announcement_description(raw_description)
     label = {"fr": "Description", "ar": "الوصف"}.get(lang, "Description")
     description_row = f"💬 <b>{label}:</b> {description}" if description else ""
     rows = []

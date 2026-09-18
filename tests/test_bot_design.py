@@ -40,6 +40,7 @@ from bot import (
     handle_pending_input,
     handle_ticket_attachment,
     monitor_codex_number_deadlines,
+    _method_announcement_text,
     notify_admin_interaction,
     notify_successful_referral,
     numbered_delivery_content,
@@ -1586,6 +1587,39 @@ def test_premium_channel_html_also_renders_admin_markdown_markers(mock_mongodb):
     assert "<b>NEW STOCK</b>" in rendered
     assert "<i>limited</i>" in rendered
     assert "*NEW STOCK*" not in rendered
+
+
+def test_methods_announcement_strips_legacy_html_but_keeps_premium_description_emoji():
+    text = "💫 <b>NEW DROP</b>\n📅 Period: <b>30 Days</b>\n🛡 Warranty: <b>Full</b>\n📦 Stock: <b>1</b>"
+    description = (
+        '[[HTML]]<tg-emoji emoji-id="premium-method">💡</tg-emoji> '
+        '<b>Instant access</b> <code>legacy-wrapper</code>'
+    )
+
+    rendered = _method_announcement_text(
+        text,
+        {"name": "Methods"},
+        {"description": description},
+    )
+
+    assert "Period:" not in rendered
+    assert "Warranty:" not in rendered
+    assert "Stock:" not in rendered
+    assert '💬 <b>Description:</b> <tg-emoji emoji-id="premium-method">💡</tg-emoji>' in rendered
+    assert "<b>Instant access</b>" in rendered
+    assert "<code>legacy-wrapper</code>" not in rendered
+
+
+def test_methods_announcement_removes_unmarked_html_source():
+    rendered = _method_announcement_text(
+        "📅 Period: 30 Days\n🛡 Warranty: Full",
+        {"name": "Methods"},
+        {"description": "<p>Use <strong>this</strong> method</p>"},
+    )
+
+    assert "Use this method" in rendered
+    assert "<p>" not in rendered
+    assert "<strong>" not in rendered
 
 def test_offer_description_preserves_telegram_rich_formatting(monkeypatch):
     message = SimpleNamespace(
