@@ -28,6 +28,7 @@ from bot import (
     broadcast_maintenance_notice,
     cb_admin,
     cb_navigation,
+    cmd_replacement,
     cmd_start,
     compact_offer_text,
     custom_emoji_from_message,
@@ -141,6 +142,125 @@ def test_warranty_route_lists_active_products_and_explains_expired_warranty(mock
     assert "Active subscription" in notice
     assert "Product period: <b>30 days</b>" in notice
     assert PENDING.get(42) is None
+
+
+def test_warranty_replacement_prompts_admin_and_delivers_content(mock_mongodb, monkeypatch):
+    admin_id = 9001
+    customer_id = 42
+    monkeypatch.setattr("bot.ADMIN_ID", admin_id)
+    mock_mongodb.users.insert_one({"telegram_id": customer_id, "lang": "en"})
+    mock_mongodb.warranty_requests.insert_one({
+        "id": 3,
+        "user_id": customer_id,
+        "order_id": 280,
+        "status": "accepted",
+        "refund_amount": 1.0,
+    })
+    query_message = SimpleNamespace(reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data="adm_warranty_resolve:replacement:3",
+        from_user=SimpleNamespace(id=admin_id),
+        message=query_message,
+        answer=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
+    )
+    telegram_bot = SimpleNamespace(send_message=AsyncMock())
+
+    asyncio.run(cb_admin(
+        SimpleNamespace(callback_query=query),
+        SimpleNamespace(bot=telegram_bot),
+    ))
+
+    assert PENDING.get(admin_id) == ("adm_warranty_replacement", 3)
+    assert mock_mongodb.warranty_requests.find_one({"id": 3})["status"] == "replacement_pending"
+    assert "Send the replacement account" in query_message.reply_text.await_args.args[0]
+
+    admin_message = SimpleNamespace(
+        text="new@example.com | replacement-password",
+        reply_text=AsyncMock(),
+    )
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(
+            effective_user=SimpleNamespace(id=admin_id),
+            message=admin_message,
+        ),
+        SimpleNamespace(bot=telegram_bot),
+        "en",
+    ))
+
+    delivered_call = telegram_bot.send_message.await_args_list[-1]
+    assert delivered_call.kwargs["chat_id"] == customer_id
+    assert "new@example.com" in delivered_call.kwargs["text"]
+    request = mock_mongodb.warranty_requests.find_one({"id": 3})
+    assert request["status"] == "replacement_delivered"
+    assert request["replacement_delivered_at"]
+    assert PENDING.get(admin_id) is None
+    assert "Replacement sent" in admin_message.reply_text.await_args.args[0]
+
+
+def test_replacement_command_resumes_stuck_request(mock_mongodb, monkeypatch):
+    admin_id = 9001
+    monkeypatch.setattr("bot.ADMIN_ID", admin_id)
+    mock_mongodb.warranty_requests.insert_one({
+        "id": 3,
+        "user_id": 42,
+        "order_id": 280,
+        "status": "replacement_pending",
+    })
+    message = SimpleNamespace(reply_text=AsyncMock())
+
+    asyncio.run(cmd_replacement(
+        SimpleNamespace(
+            effective_user=SimpleNamespace(id=admin_id),
+            effective_message=message,
+        ),
+        SimpleNamespace(args=["3"]),
+    ))
+
+    assert PENDING.get(admin_id) == ("adm_warranty_replacement", 3)
+    assert "Your next text message" in message.reply_text.await_args.args[0]
+
+
+def test_admin_update_sections_render_live_lists(mock_mongodb, monkeypatch):
+    admin_id = 9001
+    monkeypatch.setattr("bot.ADMIN_ID", admin_id)
+    mock_mongodb.offers.insert_one({
+        "id": 7,
+        "supplier_provider": "mailreader",
+        "supplier_product_id": "sku-7",
+    })
+    mock_mongodb.orders.insert_one({
+        "id": 81, "user_id": 42, "offer_id": 7,
+        "offer_name": "API plan", "status": "paid",
+        "total_price": 5.0, "paid_at": 100, "updated_at": 101,
+    })
+    mock_mongodb.warranty_requests.insert_one({
+        "id": 3, "user_id": 42, "order_id": 81,
+        "status": "pending_admin_check", "created_at": 100, "updated_at": 101,
+    })
+    mock_mongodb.reseller_fulfillments.insert_one({
+        "provider": "mailreader", "external_order_id": "BM-81",
+        "order_id": 81, "status": "delivery_pending",
+        "created_at": 100, "updated_at": 101,
+    })
+
+    for callback, heading in [
+        ("adm_warranties:0", "Warranty updates"),
+        ("adm_payments:0", "Payment Confirmed"),
+        ("adm_api_pending:0", "Livraison API en attente"),
+    ]:
+        query = SimpleNamespace(
+            data=callback,
+            from_user=SimpleNamespace(id=admin_id),
+            message=SimpleNamespace(text="Admin panel", reply_text=AsyncMock()),
+            answer=AsyncMock(),
+            edit_message_text=AsyncMock(),
+        )
+        asyncio.run(cb_admin(
+            SimpleNamespace(callback_query=query),
+            SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock())),
+        ))
+        assert heading in query.edit_message_text.await_args.args[0]
 
 
 def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb):

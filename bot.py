@@ -1730,6 +1730,33 @@ async def cmd_privacy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 
+async def cmd_replacement(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Resume sending content for a warranty replacement awaiting delivery."""
+    uid = update.effective_user.id
+    if uid != ADMIN_ID:
+        return
+    if not context.args or not str(context.args[0]).isdigit():
+        await update.effective_message.reply_text(
+            "Usage: /replacement <warranty request ID>\nExample: /replacement 3"
+        )
+        return
+    request_id = int(context.args[0])
+    request = db.get_conn().warranty_requests.find_one({
+        "id": request_id,
+        "status": "replacement_pending",
+    })
+    if not request:
+        await update.effective_message.reply_text(
+            "⚠️ This warranty request is not awaiting replacement delivery."
+        )
+        return
+    PENDING[uid] = ("adm_warranty_replacement", request_id)
+    await update.effective_message.reply_text(
+        f"🔁 Send the replacement content for warranty request #{request_id} now.\n\n"
+        "Your next text message will be delivered to the customer."
+    )
+
+
 async def show_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     lang = lang_of(uid)
@@ -1875,6 +1902,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "await_withdraw_destination",
         "warranty_reason",
         "adm_warranty_refuse_reason",
+        "adm_warranty_replacement",
         "adm_method_media",
         "adm_bot_package_doc",
         "adm_bot_package_link",
@@ -3466,6 +3494,56 @@ async def handle_pending_input(update, context, lang):
         await update.message.reply_text(f"✅ Warranty request #{int(ref)} refused and customer notified.")
         return
 
+    if kind == "adm_warranty_replacement" and uid == ADMIN_ID:
+        replacement = update.message.text.strip()
+        if not replacement:
+            await update.message.reply_text("Please send the replacement content.")
+            return
+        request_id = int(ref)
+        request = db.get_conn().warranty_requests.find_one({
+            "id": request_id,
+            "status": "replacement_pending",
+        })
+        if not request:
+            PENDING.pop(uid, None)
+            await update.message.reply_text(
+                "⚠️ This warranty request is no longer awaiting replacement delivery."
+            )
+            return
+        customer_id = int(request["user_id"])
+        order_id = int(request["order_id"])
+        delivery_text = (
+            "🔁 <b>Your warranty replacement is ready</b>\n\n"
+            f"Order: <code>#{order_id}</code>\n"
+            f"Warranty request: <code>#{request_id}</code>\n\n"
+            f"<blockquote>{html.escape(replacement)}</blockquote>"
+        )
+        try:
+            await _send_manual_delivery(
+                context.bot,
+                customer_id=customer_id,
+                delivery_text=delivery_text,
+                raw_content=replacement,
+                reply_markup=kb.home_keyboard(lang_of(customer_id), customer_id),
+            )
+        except Exception as exc:
+            await update.message.reply_text(
+                f"⚠️ Failed to send the replacement: {exc}\n"
+                "The request is still pending; send the message again to retry."
+            )
+            return
+        completed = db.complete_warranty_replacement(request_id)
+        PENDING.pop(uid, None)
+        if not completed:
+            await update.message.reply_text(
+                "⚠️ The replacement was sent, but the warranty status changed before it could be completed."
+            )
+            return
+        await update.message.reply_text(
+            f"✅ Replacement sent to the customer. Warranty request #{request_id} is complete."
+        )
+        return
+
     if kind == "adm_method_media" and uid == ADMIN_ID:
         if text.lower() in {"done", "finish", "finished"}:
             PENDING.pop(uid, None)
@@ -4964,6 +5042,94 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith("adm_warranties:"):
+        page = int(data.split(":", 1)[1])
+        markup, requests, total = admin.warranty_requests_keyboard(page)
+        active = sum(
+            1 for request in requests
+            if request.get("status") in {"pending_admin_check", "accepted", "replacement_pending"}
+        )
+        await show_callback_screen(
+            q,
+            "🛡 <b>Warranty updates</b>\n\n"
+            f"Total requests: <b>{total}</b>\n"
+            f"Actionable on this page: <b>{active}</b>\n\n"
+            "Select a request to view its latest status and available actions.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+        )
+        return
+
+    if data.startswith("adm_warranty_view:"):
+        request_id = int(data.split(":", 1)[1])
+        request = db.get_conn().warranty_requests.find_one({"id": request_id})
+        await show_callback_screen(
+            q,
+            admin.warranty_request_text(request),
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin.warranty_request_keyboard(request),
+        )
+        return
+
+    if data.startswith("adm_warranty_send:"):
+        request_id = int(data.split(":", 1)[1])
+        request = db.get_conn().warranty_requests.find_one({
+            "id": request_id,
+            "status": "replacement_pending",
+        })
+        if not request:
+            await q.message.reply_text("⚠️ This request is not awaiting replacement delivery.")
+            return
+        PENDING[uid] = ("adm_warranty_replacement", request_id)
+        await q.message.reply_text(
+            f"📨 Send the replacement account or message for warranty request #{request_id}.\n\n"
+            "Your next text message will be delivered directly to the customer."
+        )
+        return
+
+    if data.startswith("adm_payments:"):
+        page = int(data.split(":", 1)[1])
+        markup, orders, total = admin.confirmed_payments_keyboard(page)
+        awaiting_delivery = sum(
+            1 for order in orders
+            if order.get("status") in {"paid", "payment_confirmed"}
+        )
+        await show_callback_screen(
+            q,
+            "✅ <b>Payment Confirmed</b>\n\n"
+            f"Confirmed orders: <b>{total}</b>\n"
+            f"Awaiting delivery on this page: <b>{awaiting_delivery}</b>\n\n"
+            "Select an order to view payment and delivery details.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+        )
+        return
+
+    if data.startswith("adm_api_pending_view:"):
+        order_id = int(data.split(":", 1)[1])
+        fulfillment = db.get_pending_api_delivery(order_id)
+        await show_callback_screen(
+            q,
+            admin.pending_api_delivery_text(fulfillment),
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin.pending_api_delivery_keyboard(order_id),
+        )
+        return
+
+    if data.startswith("adm_api_pending:"):
+        page = int(data.split(":", 1)[1])
+        markup, _fulfillments, total = admin.pending_api_deliveries_keyboard(page)
+        await show_callback_screen(
+            q,
+            "⏳ <b>Livraison API en attente</b>\n\n"
+            f"Orders requiring attention: <b>{total}</b>\n\n"
+            "This list includes supplier purchases still processing, delivery pending, "
+            "failed/review-required purchases, and paid API orders missing fulfillment.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+        )
+        return
+
     if data.startswith("adm_warranty_accept:"):
         request_id = int(data.split(":", 1)[1])
         changed = db.get_conn().warranty_requests.find_one_and_update(
@@ -4974,7 +5140,7 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not changed:
             await q.message.reply_text("⚠️ This warranty request has already been processed.")
             return
-        await q.edit_message_reply_markup(reply_markup=kb.warranty_resolution_keyboard(request_id))
+        await q.edit_message_reply_markup(reply_markup=admin.warranty_request_keyboard(changed))
         await q.message.reply_text("✅ Accepted. Choose replacement or refund:")
         return
 
@@ -4992,6 +5158,11 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, resolution, raw_id = data.split(":", 2)
         request_id = int(raw_id)
         request = db.resolve_warranty_request(request_id, resolution)
+        if resolution == "replacement" and not request:
+            request = db.get_conn().warranty_requests.find_one({
+                "id": request_id,
+                "status": "replacement_pending",
+            })
         if not request:
             await q.message.reply_text("⚠️ This warranty request has already been processed.")
             return
@@ -5004,7 +5175,16 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with contextlib.suppress(Exception):
             await context.bot.send_message(customer_id, customer_text, parse_mode=ParseMode.HTML, reply_markup=kb.home_keyboard(lang_of(customer_id), customer_id))
         await q.edit_message_reply_markup(reply_markup=None)
-        await q.message.reply_text(f"✅ Warranty request #{request_id} resolved: {resolution}.")
+        if resolution == "replacement":
+            PENDING[uid] = ("adm_warranty_replacement", request_id)
+            await q.message.reply_text(
+                f"🔁 Replacement approved for request #{request_id}.\n\n"
+                "Send the replacement account or message now. Your next text message "
+                "will be delivered directly to the customer.\n\n"
+                f"To resume later, use /replacement {request_id}."
+            )
+        else:
+            await q.message.reply_text(f"✅ Warranty request #{request_id} resolved: refund.")
         return
 
     if data.startswith("adm_method_media:"):
@@ -6050,6 +6230,7 @@ def build_app():
     app.add_handler(CommandHandler("resellerapi", show_reseller_api))
     app.add_handler(CommandHandler("terms", cmd_terms))
     app.add_handler(CommandHandler("privacy", cmd_privacy))
+    app.add_handler(CommandHandler("replacement", cmd_replacement))
     app.add_handler(CallbackQueryHandler(cb_lang, pattern=r"^lang:"))
     app.add_handler(CallbackQueryHandler(cb_admin, pattern=r"^adm_"))
     app.add_handler(CallbackQueryHandler(cb_navigation))  # reste

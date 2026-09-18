@@ -621,6 +621,117 @@ def create_warranty_request(user_id, order_id, days_used, refund_amount):
     return _public(row)
 
 
+def list_warranty_requests(*, page=0, page_size=10):
+    """Return warranty activity newest first, including completed requests."""
+    page = max(0, int(page))
+    page_size = max(1, min(50, int(page_size)))
+    cursor = (
+        get_conn().warranty_requests.find({})
+        .sort([("updated_at", DESCENDING), ("created_at", DESCENDING), ("id", DESCENDING)])
+        .skip(page * page_size)
+        .limit(page_size)
+    )
+    return [_public(row) for row in cursor], get_conn().warranty_requests.count_documents({})
+
+
+def list_confirmed_orders(*, page=0, page_size=10):
+    """Return every successfully confirmed order, including delivered orders."""
+    page = max(0, int(page))
+    page_size = max(1, min(50, int(page_size)))
+    query = {"status": {"$in": ["paid", "payment_confirmed", "delivered"]}}
+    cursor = (
+        get_conn().orders.find(query)
+        .sort([("paid_at", DESCENDING), ("updated_at", DESCENDING), ("id", DESCENDING)])
+        .skip(page * page_size)
+        .limit(page_size)
+    )
+    return [_public(row) for row in cursor], get_conn().orders.count_documents(query)
+
+
+def list_pending_api_deliveries(*, page=0, page_size=10):
+    """Return supplier orders that still require delivery or administrator review."""
+    page = max(0, int(page))
+    page_size = max(1, min(50, int(page_size)))
+    conn = get_conn()
+    unresolved = {"purchasing", "delivery_pending", "review_required", "not_created"}
+    rows = [_public(row) for row in conn.reseller_fulfillments.find({
+        "status": {"$in": sorted(unresolved)},
+    })]
+    seen_order_ids = {int(row["order_id"]) for row in rows if row.get("order_id") is not None}
+
+    # Also surface paid supplier orders whose fulfillment record was never created,
+    # plus completed supplier records whose local order was not marked delivered.
+    paid_orders = list(conn.orders.find({
+        "status": {"$in": ["paid", "payment_confirmed", "preparing_delivery"]},
+    }))
+    for order in paid_orders:
+        order_id = int(order["id"])
+        offer = conn.offers.find_one({"id": order.get("offer_id")}) or {}
+        provider = str(offer.get("supplier_provider") or "").strip()
+        if not provider or order_id in seen_order_ids:
+            continue
+        fulfillment = conn.reseller_fulfillments.find_one({"order_id": order_id})
+        if fulfillment:
+            row = _public(fulfillment)
+            if row.get("status") == "completed":
+                row["status"] = "completed_not_delivered"
+        else:
+            row = {
+                "order_id": order_id,
+                "external_order_id": f"BM-{order_id}",
+                "provider": provider,
+                "supplier_product_id": str(offer.get("supplier_product_id") or ""),
+                "status": "fulfillment_missing",
+                "created_at": order.get("paid_at") or order.get("created_at"),
+                "updated_at": order.get("updated_at") or order.get("paid_at"),
+            }
+        rows.append(row)
+        seen_order_ids.add(order_id)
+
+    rows.sort(
+        key=lambda row: (
+            row.get("updated_at") or row.get("created_at") or 0,
+            row.get("order_id") or 0,
+        ),
+        reverse=True,
+    )
+    total = len(rows)
+    start = page * page_size
+    return rows[start:start + page_size], total
+
+
+def get_pending_api_delivery(order_id):
+    """Resolve one unresolved supplier fulfillment for the admin detail view."""
+    conn = get_conn()
+    order_id = int(order_id)
+    order = conn.orders.find_one({"id": order_id}) or {}
+    fulfillment = conn.reseller_fulfillments.find_one({"order_id": order_id})
+    unresolved = {"purchasing", "delivery_pending", "review_required", "not_created"}
+    if fulfillment:
+        row = _public(fulfillment)
+        if row.get("status") in unresolved:
+            return row
+        if row.get("status") == "completed" and order.get("status") != "delivered":
+            row["status"] = "completed_not_delivered"
+            return row
+        return None
+    if order.get("status") not in {"paid", "payment_confirmed", "preparing_delivery"}:
+        return None
+    offer = conn.offers.find_one({"id": order.get("offer_id")}) or {}
+    provider = str(offer.get("supplier_provider") or "").strip()
+    if not provider:
+        return None
+    return {
+        "order_id": order_id,
+        "external_order_id": f"BM-{order_id}",
+        "provider": provider,
+        "supplier_product_id": str(offer.get("supplier_product_id") or ""),
+        "status": "fulfillment_missing",
+        "created_at": order.get("paid_at") or order.get("created_at"),
+        "updated_at": order.get("updated_at") or order.get("paid_at"),
+    }
+
+
 def resolve_warranty_request(request_id, resolution, admin_note=""):
     """Resolve an accepted warranty request and optionally credit a refund."""
     conn = get_conn()
@@ -645,6 +756,30 @@ def resolve_warranty_request(request_id, resolution, admin_note=""):
             {"user_id": int(request["user_id"])},
             {"$inc": {"balance_cents": int(round(float(request.get("refund_amount") or 0) * 100))}},
             upsert=True,
+        )
+    return _public(row) if row else None
+
+
+def complete_warranty_replacement(request_id):
+    """Mark replacement content as delivered after Telegram accepted the message."""
+    now = datetime.now(UTC)
+    row = get_conn().warranty_requests.find_one_and_update(
+        {"id": int(request_id), "status": "replacement_pending"},
+        {"$set": {
+            "status": "replacement_delivered",
+            "replacement_delivered_at": now,
+            "updated_at": now,
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+    if row:
+        audit_event(
+            "warranty.replacement_delivered",
+            details={
+                "request_id": int(request_id),
+                "order_id": int(row["order_id"]),
+                "user_id": int(row["user_id"]),
+            },
         )
     return _public(row) if row else None
 

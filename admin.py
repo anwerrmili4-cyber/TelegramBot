@@ -1,4 +1,7 @@
 """Vues et actions du panneau administrateur."""
+import html
+from datetime import UTC, datetime
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 import database as db
@@ -145,6 +148,13 @@ def texts_category_keyboard(category, page=0, page_size=8):
 
 def admin_panel_keyboard():
     maintenance_enabled = db.shop_settings()["maintenance_enabled"]
+    active_warranties = db.get_conn().warranty_requests.count_documents({
+        "status": {"$in": ["pending_admin_check", "accepted", "replacement_pending"]},
+    })
+    confirmed_payments = db.get_conn().orders.count_documents({
+        "status": {"$in": ["paid", "payment_confirmed", "delivered"]},
+    })
+    _pending_api_rows, pending_api_count = db.list_pending_api_deliveries(page_size=1)
     maintenance_label = (
         "🔴 Full maintenance lock: ON"
         if maintenance_enabled
@@ -152,7 +162,9 @@ def admin_panel_keyboard():
     )
     buttons = [
         InlineKeyboardButton("💸 Retraits en attente", callback_data="adm_withdrawals", style="danger"),
-        InlineKeyboardButton("✅ Commandes payées", callback_data="adm_list:paid", style="success"),
+        InlineKeyboardButton(f"🛡 Warranty ({active_warranties})", callback_data="adm_warranties:0", style="danger" if active_warranties else "success"),
+        InlineKeyboardButton(f"✅ Payment Confirmed ({confirmed_payments})", callback_data="adm_payments:0", style="success"),
+        InlineKeyboardButton(f"⏳ Livraison API en attente ({pending_api_count})", callback_data="adm_api_pending:0", style="danger" if pending_api_count else "success"),
         InlineKeyboardButton("🎫 Tickets support", callback_data="adm_tickets", style="primary"),
         InlineKeyboardButton("📦 Catalogue", callback_data="adm_catalog", style="primary"),
         InlineKeyboardButton("👥 Activité utilisateurs", callback_data="adm_user_activity", style="primary"),
@@ -162,6 +174,169 @@ def admin_panel_keyboard():
         InlineKeyboardButton("🎛 Personnaliser", callback_data="adm_customize", style="primary"),
     ]
     return InlineKeyboardMarkup(_two_column_rows(buttons))
+
+
+def _admin_page_navigation(prefix, page, total, page_size):
+    total_pages = max(1, (int(total) + int(page_size) - 1) // int(page_size))
+    page = max(0, min(int(page), total_pages - 1))
+    row = []
+    if page > 0:
+        row.append(InlineKeyboardButton("⬅️", callback_data=f"{prefix}:{page - 1}"))
+    row.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="adm_text_noop"))
+    if page < total_pages - 1:
+        row.append(InlineKeyboardButton("➡️", callback_data=f"{prefix}:{page + 1}"))
+    return row
+
+
+def _admin_timestamp(value):
+    if isinstance(value, datetime):
+        stamp = value.astimezone(UTC)
+    else:
+        try:
+            stamp = datetime.fromtimestamp(float(value), UTC)
+        except (TypeError, ValueError, OverflowError):
+            return "—"
+    return stamp.strftime("%d/%m %H:%M UTC")
+
+
+def warranty_requests_keyboard(page=0, page_size=10):
+    requests, total = db.list_warranty_requests(page=page, page_size=page_size)
+    icons = {
+        "pending_admin_check": "🟠",
+        "accepted": "🔵",
+        "replacement_pending": "🟣",
+        "replacement_delivered": "✅",
+        "refunded": "💰",
+        "refused": "❌",
+    }
+    buttons = []
+    for request in requests:
+        status = str(request.get("status") or "unknown")
+        buttons.append(InlineKeyboardButton(
+            f"{icons.get(status, '•')} #{request['id']} · Order #{request.get('order_id')} · {status}"[:64],
+            callback_data=f"adm_warranty_view:{request['id']}",
+        ))
+    if not buttons:
+        buttons.append(InlineKeyboardButton("Aucune demande de garantie", callback_data="adm_text_noop"))
+    rows = [[button] for button in buttons]
+    rows.append(_admin_page_navigation("adm_warranties", page, total, page_size))
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_warranties:{int(page)}"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
+    ])
+    return InlineKeyboardMarkup(rows), requests, total
+
+
+def warranty_request_text(request):
+    if not request:
+        return "Warranty request not found."
+    order = db.get_order(int(request.get("order_id") or 0)) or {}
+    user = db.get_conn().users.find_one({"telegram_id": int(request.get("user_id") or 0)}) or {}
+    username = f"@{user['username']}" if user.get("username") else "—"
+    return (
+        f"🛡 <b>Warranty request #{int(request['id'])}</b>\n\n"
+        f"Status: <code>{html.escape(str(request.get('status') or '—'))}</code>\n"
+        f"Order: <b>#{int(request.get('order_id') or 0)}</b>\n"
+        f"Customer: <code>{int(request.get('user_id') or 0)}</code> ({html.escape(username)})\n"
+        f"Product: <b>{html.escape(str(order.get('offer_name') or order.get('service_name') or '—'))}</b>\n"
+        f"Days used: <b>{int(request.get('days_used') or 0)}</b>\n"
+        f"Refund: <b>{float(request.get('refund_amount') or 0):.2f} {CURRENCY}</b>\n"
+        f"Created: <b>{_admin_timestamp(request.get('created_at'))}</b>\n"
+        f"Updated: <b>{_admin_timestamp(request.get('updated_at'))}</b>"
+    )
+
+
+def warranty_request_keyboard(request):
+    rows = []
+    status = str((request or {}).get("status") or "")
+    request_id = int((request or {}).get("id") or 0)
+    if status == "pending_admin_check":
+        rows.append([
+            InlineKeyboardButton("✅ Accept", callback_data=f"adm_warranty_accept:{request_id}", style="success"),
+            InlineKeyboardButton("❌ Refuse", callback_data=f"adm_warranty_refuse:{request_id}", style="danger"),
+        ])
+    elif status == "accepted":
+        rows.append([
+            InlineKeyboardButton("🔁 Replacement", callback_data=f"adm_warranty_resolve:replacement:{request_id}", style="primary"),
+            InlineKeyboardButton("💰 Refund", callback_data=f"adm_warranty_resolve:refund:{request_id}", style="success"),
+        ])
+    elif status == "replacement_pending":
+        rows.append([InlineKeyboardButton(
+            "📨 Send replacement",
+            callback_data=f"adm_warranty_send:{request_id}",
+            style="success",
+        )])
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_warranty_view:{request_id}"),
+        InlineKeyboardButton("⬅️ Warranty", callback_data="adm_warranties:0"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def confirmed_payments_keyboard(page=0, page_size=10):
+    orders, total = db.list_confirmed_orders(page=page, page_size=page_size)
+    buttons = []
+    for order in orders:
+        amount = db.order_charge_total(order)
+        delivered = "📦" if order.get("status") == "delivered" else "⏳"
+        buttons.append(InlineKeyboardButton(
+            f"{delivered} #{order['id']} · {amount:.2f} {CURRENCY} · {order.get('offer_name') or order.get('service_name') or 'Product'}"[:64],
+            callback_data=f"adm_order:{order['id']}",
+        ))
+    if not buttons:
+        buttons.append(InlineKeyboardButton("Aucun paiement confirmé", callback_data="adm_text_noop"))
+    rows = [[button] for button in buttons]
+    rows.append(_admin_page_navigation("adm_payments", page, total, page_size))
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_payments:{int(page)}"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
+    ])
+    return InlineKeyboardMarkup(rows), orders, total
+
+
+def pending_api_deliveries_keyboard(page=0, page_size=10):
+    fulfillments, total = db.list_pending_api_deliveries(page=page, page_size=page_size)
+    buttons = [InlineKeyboardButton(
+        f"⏳ #{row.get('order_id')} · {row.get('provider') or 'API'} · {row.get('status') or 'pending'}"[:64],
+        callback_data=f"adm_api_pending_view:{int(row.get('order_id') or 0)}",
+    ) for row in fulfillments]
+    if not buttons:
+        buttons.append(InlineKeyboardButton("✅ Aucune livraison API en attente", callback_data="adm_text_noop"))
+    rows = [[button] for button in buttons]
+    rows.append(_admin_page_navigation("adm_api_pending", page, total, page_size))
+    rows.append([
+        InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_api_pending:{int(page)}"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
+    ])
+    return InlineKeyboardMarkup(rows), fulfillments, total
+
+
+def pending_api_delivery_text(fulfillment):
+    if not fulfillment:
+        return "Pending API delivery not found."
+    order_id = int(fulfillment.get("order_id") or 0)
+    order = db.get_order(order_id) or {}
+    return (
+        f"⏳ <b>Livraison API en attente — Order #{order_id}</b>\n\n"
+        f"Supplier: <b>{html.escape(str(fulfillment.get('provider') or '—'))}</b>\n"
+        f"Status: <code>{html.escape(str(fulfillment.get('status') or '—'))}</code>\n"
+        f"Reference: <code>{html.escape(str(fulfillment.get('external_order_id') or '—'))}</code>\n"
+        f"Supplier order: <code>{html.escape(str(fulfillment.get('supplier_order_id') or '—'))}</code>\n"
+        f"Supplier product: <code>{html.escape(str(fulfillment.get('supplier_product_id') or '—'))}</code>\n"
+        f"Local order status: <code>{html.escape(str(order.get('status') or '—'))}</code>\n"
+        f"Customer: <code>{int(order.get('user_id') or 0)}</code>\n"
+        f"Product: <b>{html.escape(str(order.get('offer_name') or order.get('service_name') or '—'))}</b>\n"
+        f"Updated: <b>{_admin_timestamp(fulfillment.get('updated_at'))}</b>"
+    )
+
+
+def pending_api_delivery_keyboard(order_id):
+    order_id = int(order_id)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🧾 Open order", callback_data=f"adm_order:{order_id}", style="primary")],
+        [InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_api_pending_view:{order_id}"),
+         InlineKeyboardButton("⬅️ Pending API", callback_data="adm_api_pending:0")],
+    ])
 
 
 def withdrawals_keyboard(withdrawals):

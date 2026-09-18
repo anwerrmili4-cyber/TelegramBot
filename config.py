@@ -212,6 +212,14 @@ UPIBOT_API_BASE: str = os.environ.get(
 ).rstrip("/")
 
 # ---------------------------------------------------------------------------
+# Fournisseur revendeur ToolOraX Store Bot
+# ---------------------------------------------------------------------------
+TOOLORAX_API_KEY: str = env_value("HP_TOOLORAX_API_KEY")
+TOOLORAX_API_BASE: str = os.environ.get(
+    "HP_TOOLORAX_API_BASE", "https://shopbot.00969600.xyz/shop-api/v1"
+).rstrip("/")
+
+# ---------------------------------------------------------------------------
 # Fonctions IA de l’administration (API externe configurable)
 # ---------------------------------------------------------------------------
 AI_COMPARISON_API_URL: str = env_value(

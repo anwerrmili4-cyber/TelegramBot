@@ -32,6 +32,8 @@ from config import (
     SHAMEKH_API_BASE,
     SHAMEKH_API_KEY,
     SHOP_CRON_API_KEY,
+    TOOLORAX_API_BASE,
+    TOOLORAX_API_KEY,
     UPIBOT_API_BASE,
     UPIBOT_API_KEY,
     VEX_API_BASE,
@@ -47,6 +49,7 @@ CANBOSO_PROVIDER = "canboso"
 GPT_CHEAP_PROVIDER = "gpt_cheap"
 SHOP_CRON_PROVIDER = "shop_cron"
 UPIBOT_PROVIDER = "upibot"
+TOOLORAX_PROVIDER = "toolorax"
 CGPT_ACTIVE_PROVIDER = "cgpt_active"
 CGPT_ACTIVE_DISPLAY_NAME = "Rich AI Store"
 PROVIDER_DISPLAY_NAMES = {
@@ -59,6 +62,7 @@ PROVIDER_DISPLAY_NAMES = {
     GPT_CHEAP_PROVIDER: "GPT Cheap",
     SHOP_CRON_PROVIDER: "Shop Cron",
     UPIBOT_PROVIDER: "UPIBot Shop",
+    TOOLORAX_PROVIDER: "ToolOraX Store Bot",
     CGPT_ACTIVE_PROVIDER: CGPT_ACTIVE_DISPLAY_NAME,
 }
 PROVIDER_BOT_USERNAMES = {
@@ -71,6 +75,7 @@ PROVIDER_BOT_USERNAMES = {
     GPT_CHEAP_PROVIDER: "GPTCheapChat_bot",
     SHOP_CRON_PROVIDER: "shop_cron191_en_bot",
     UPIBOT_PROVIDER: "scanupigptbot",
+    TOOLORAX_PROVIDER: "TooloraXbot",
     CGPT_ACTIVE_PROVIDER: "RichAIStoreBot",
 }
 SUPPORTED_PROVIDERS = {
@@ -83,6 +88,7 @@ SUPPORTED_PROVIDERS = {
     GPT_CHEAP_PROVIDER,
     SHOP_CRON_PROVIDER,
     UPIBOT_PROVIDER,
+    TOOLORAX_PROVIDER,
     CGPT_ACTIVE_PROVIDER,
 }
 CANBOSO_PROVIDERS = {
@@ -574,6 +580,60 @@ def _upibot_request_json(
     return payload
 
 
+def _toolorax_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call ToolOraX's Shop API without exposing its wallet-spending key."""
+    if not TOOLORAX_API_KEY:
+        raise ResellerApiError(
+            "ToolOraX Store Bot n’est pas configuré. Ajoutez HP_TOOLORAX_API_KEY "
+            "dans les variables d’environnement."
+        )
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        f"{TOOLORAX_API_BASE}{path}",
+        headers={
+            "X-Shop-API-Key": TOOLORAX_API_KEY,
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+            "User-Agent": "BlackMarket-Reseller/1.0",
+        },
+        data=payload_bytes,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        messages = {
+            400: "Commande ToolOraX invalide.",
+            401: "Clé API ToolOraX refusée. Remplacez-la par une clé active.",
+            404: "Produit ou commande ToolOraX introuvable.",
+            409: "Produit ToolOraX en rupture de stock ou sans prix.",
+        }
+        error_type = (
+            ResellerOrderNotCreatedError
+            if exc.code in {400, 404, 409}
+            else ResellerApiError
+        )
+        raise error_type(
+            messages.get(exc.code, f"ToolOraX a répondu avec l’erreur HTTP {exc.code}.")
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ResellerApiError("ToolOraX est temporairement indisponible.") from exc
+    if not isinstance(payload, dict):
+        raise ResellerApiError("Réponse ToolOraX invalide.")
+    if payload.get("ok") is False:
+        message = str(
+            payload.get("message") or payload.get("error") or "Requête ToolOraX refusée."
+        )[:300]
+        raise ResellerApiError(message)
+    return payload
+
+
 def _cgpt_active_request_json(
     path: str,
     *,
@@ -692,6 +752,12 @@ def provider_summaries() -> list[dict[str, Any]]:
             "documentation_url": "https://upibot.00969600.xyz/shop-api/docs",
         },
         {
+            "id": TOOLORAX_PROVIDER,
+            "name": "ToolOraX Store Bot",
+            "configured": bool(TOOLORAX_API_KEY),
+            "documentation_url": "https://shopbot.00969600.xyz/shop-api/docs",
+        },
+        {
             "id": CGPT_ACTIVE_PROVIDER,
             "name": CGPT_ACTIVE_DISPLAY_NAME,
             "configured": bool(CGPT_ACTIVE_API_KEY),
@@ -763,6 +829,11 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         account = _upibot_request_json("/me")
         reseller = {"balance": account.get("deposit_balance", 0)}
         supplier_name = "UPIBot Shop"
+    elif provider == TOOLORAX_PROVIDER:
+        payload = _toolorax_request_json("/products")
+        account = _toolorax_request_json("/me")
+        reseller = {"balance": account.get("balance", 0)}
+        supplier_name = "ToolOraX Store Bot"
     elif provider == CGPT_ACTIVE_PROVIDER:
         payload = _cgpt_active_request_json("/v1/products")
         account = _cgpt_active_request_json("/v1/me")
@@ -816,6 +887,8 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                         if provider in {SHAMEKH_PROVIDER, KAKAO_PROVIDER, VEX_PROVIDER}
                         else raw.get("sell_price")
                         if provider == UPIBOT_PROVIDER
+                        else raw.get("unit_price")
+                        if provider == TOOLORAX_PROVIDER
                         else raw.get("your_unit_price")
                         if provider == CGPT_ACTIVE_PROVIDER
                         else raw.get("wholesale_price", "0")
@@ -831,7 +904,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         )
         unlimited_stock = (
             (provider == CGPT_ACTIVE_PROVIDER and raw.get("stock") is None)
-            or (provider == UPIBOT_PROVIDER and raw.get("stock_count") is None)
+            or (provider in {UPIBOT_PROVIDER, TOOLORAX_PROVIDER} and raw.get("stock_count") is None)
             or (provider == PROVIDER and raw.get("stock") is None)
             or raw.get("stock") == -1
             or bool(raw.get("unlimited_stock") or raw.get("unlimited"))
@@ -841,7 +914,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             if provider in CANBOSO_PROVIDERS
             else (
                 (raw.get("stock_count") or 0)
-                if provider in {SHAMEKH_PROVIDER, UPIBOT_PROVIDER}
+                if provider in {SHAMEKH_PROVIDER, UPIBOT_PROVIDER, TOOLORAX_PROVIDER}
                 else raw.get("stock") or 0
             )
         ))
@@ -980,6 +1053,7 @@ def detect_restock_events() -> dict[str, Any]:
         GPT_CHEAP_PROVIDER: bool(GPT_CHEAP_API_KEY),
         SHOP_CRON_PROVIDER: bool(SHOP_CRON_API_KEY),
         UPIBOT_PROVIDER: bool(UPIBOT_API_KEY),
+        TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
     }
     events: list[dict[str, Any]] = []
@@ -1034,6 +1108,7 @@ def detect_supplier_price_changes() -> dict[str, Any]:
         GPT_CHEAP_PROVIDER: bool(GPT_CHEAP_API_KEY),
         SHOP_CRON_PROVIDER: bool(SHOP_CRON_API_KEY),
         UPIBOT_PROVIDER: bool(UPIBOT_API_KEY),
+        TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
     }
     changes: list[dict[str, Any]] = []
@@ -1145,6 +1220,7 @@ def save_catalog_product(
         GPT_CHEAP_PROVIDER: "Produit API GPT Cheap",
         SHOP_CRON_PROVIDER: "Produit API Shop Cron",
         UPIBOT_PROVIDER: "Produit API UPIBot Shop",
+        TOOLORAX_PROVIDER: "Produit API ToolOraX Store Bot",
         CGPT_ACTIVE_PROVIDER: "Produit API Rich AI Store",
     }.get(provider, "Produit API MailReader")
     warranty = str(warranty or default_warranty).strip()[:250]
@@ -1482,6 +1558,15 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                     "quantity": int(order.get("qty") or 1),
                     "customer_name": f"telegram_user_{int(order['user_id'])}",
                     "idempotency_key": external_order_id,
+                },
+            )
+        elif provider == TOOLORAX_PROVIDER:
+            response = _toolorax_request_json(
+                "/orders",
+                method="POST",
+                body={
+                    "product_id": int(str(offer["supplier_product_id"])),
+                    "quantity": int(order.get("qty") or 1),
                 },
             )
         elif provider == CGPT_ACTIVE_PROVIDER:

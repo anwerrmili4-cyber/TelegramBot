@@ -72,6 +72,7 @@ const PROVIDERS = [
   ["gpt_cheap", "GPT Cheap"],
   ["shop_cron", "Shop Cron"],
   ["upibot", "UPIBot Shop"],
+  ["toolorax", "ToolOraX Store Bot"],
   ["cgpt_active", "Rich AI Store"],
 ];
 

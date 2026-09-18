@@ -754,6 +754,74 @@ def test_admin_panel_has_custom_announcement_button():
     assert "adm_broadcast_message" in callbacks
 
 
+def test_admin_panel_has_live_warranty_payment_and_pending_api_sections(mock_mongodb):
+    mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer"})
+    mock_mongodb.offers.insert_one({
+        "id": 7,
+        "service_id": 1,
+        "name": "API product",
+        "supplier_provider": "mailreader",
+        "supplier_product_id": "product-7",
+    })
+    mock_mongodb.orders.insert_many([
+        {
+            "id": 80, "user_id": 42, "offer_id": 7,
+            "offer_name": "Delivered product", "service_name": "API",
+            "status": "delivered", "wallet_amount": 4.0, "total_price": 0,
+            "paid_at": 100, "updated_at": 101,
+        },
+        {
+            "id": 81, "user_id": 42, "offer_id": 7,
+            "offer_name": "Pending product", "service_name": "API",
+            "status": "paid", "wallet_amount": 0, "total_price": 5.0,
+            "paid_at": 102, "updated_at": 103,
+        },
+    ])
+    mock_mongodb.warranty_requests.insert_one({
+        "id": 3, "user_id": 42, "order_id": 80,
+        "status": "replacement_pending", "refund_amount": 1.0,
+        "created_at": 100, "updated_at": 104,
+    })
+    mock_mongodb.reseller_fulfillments.insert_one({
+        "provider": "mailreader", "external_order_id": "BM-81",
+        "order_id": 81, "supplier_product_id": "product-7",
+        "status": "delivery_pending", "created_at": 102, "updated_at": 103,
+    })
+
+    panel = {
+        button.callback_data: button.text
+        for row in admin.admin_panel_keyboard().inline_keyboard
+        for button in row
+    }
+    assert "Warranty (1)" in panel["adm_warranties:0"]
+    assert "Payment Confirmed (2)" in panel["adm_payments:0"]
+    assert "Livraison API en attente (1)" in panel["adm_api_pending:0"]
+
+    warranty_keyboard, requests, warranty_total = admin.warranty_requests_keyboard()
+    assert warranty_total == 1
+    assert requests[0]["id"] == 3
+    assert warranty_keyboard.inline_keyboard[0][0].callback_data == "adm_warranty_view:3"
+    warranty_actions = {
+        button.callback_data
+        for row in admin.warranty_request_keyboard(requests[0]).inline_keyboard
+        for button in row
+    }
+    assert "adm_warranty_send:3" in warranty_actions
+
+    payment_keyboard, orders, payment_total = admin.confirmed_payments_keyboard()
+    assert payment_total == 2
+    assert {order["id"] for order in orders} == {80, 81}
+    assert any(
+        button.callback_data == "adm_order:81"
+        for row in payment_keyboard.inline_keyboard for button in row
+    )
+
+    api_keyboard, fulfillments, api_total = admin.pending_api_deliveries_keyboard()
+    assert api_total == 1
+    assert fulfillments[0]["order_id"] == 81
+    assert api_keyboard.inline_keyboard[0][0].callback_data == "adm_api_pending_view:81"
+
+
 def test_admin_can_customize_and_preview_ticket_design():
     customize_callbacks = {
         button.callback_data
