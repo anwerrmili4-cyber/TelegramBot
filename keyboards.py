@@ -66,13 +66,18 @@ def clean_translated_button_text(value):
     return " ".join(html.unescape(value).split())[:64]
 
 
-def translated_button(lang, key, *, callback_data=None, url=None, style=None, switch_inline_query=None):
+def translated_button(
+    lang, key, *, callback_data=None, url=None, style=None,
+    switch_inline_query=None, icon_custom_emoji_id=None,
+):
     """Build an inline button with the admin-selected Premium emoji icon."""
     return InlineKeyboardButton(
         clean_translated_button_text(t(lang, key)),
         callback_data=callback_data, url=url, style=style,
         switch_inline_query=switch_inline_query,
-        icon_custom_emoji_id=db.get_text_override_icon(key, lang) or None,
+        icon_custom_emoji_id=(
+            icon_custom_emoji_id or db.get_text_override_icon(key, lang) or None
+        ),
     )
 
 
