@@ -611,10 +611,11 @@ def update_withdrawal(withdrawal_id, status, admin_note=""):
     return _public(row) if row else None
 
 
-def create_warranty_request(user_id, order_id, days_used, refund_amount):
+def create_warranty_request(user_id, order_id, days_used, refund_amount, reason=""):
     row = {
         "id": _next_id("warranty_requests"), "user_id": int(user_id), "order_id": int(order_id),
         "days_used": int(days_used), "refund_amount": round(float(refund_amount), 2),
+        "reason": str(reason or "").strip(),
         "status": "pending_admin_check", "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC),
     }
     get_conn().warranty_requests.insert_one(row)

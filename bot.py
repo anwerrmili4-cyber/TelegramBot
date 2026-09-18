@@ -3585,7 +3585,7 @@ async def handle_pending_input(update, context, lang):
             return
         order_id = int(ref["order_id"])
         request = db.create_warranty_request(
-            uid, order_id, int(ref["days_used"]), float(ref["refund"]),
+            uid, order_id, int(ref["days_used"]), float(ref["refund"]), reason,
         )
         PENDING.pop(uid, None)
         await update.message.reply_text(
@@ -3593,18 +3593,23 @@ async def handle_pending_input(update, context, lang):
             reply_markup=kb.home_keyboard(lang, uid),
         )
         with contextlib.suppress(Exception):
-            user = update.effective_user
-            customer_name = html.escape(str(getattr(user, "full_name", "") or "—"))
+            report = admin.warranty_request_report(request)
             await context.bot.send_message(
                 ADMIN_ID,
-                f"🛡️ <b>Warranty request #{request['id']}</b>\n"
-                f"Name: <b>{customer_name}</b>\nUser: <code>{uid}</code>\n"
-                f"Order: <code>#{order_id}</code>\nDays used: <b>{int(ref['days_used'])}</b>\n"
-                f"Calculated refund: <b>{float(ref['refund']):.2f} {CURRENCY}</b>\n"
-                f"Customer message: <blockquote>{html.escape(reason)}</blockquote>\n"
-                "Choose replacement or refund after testing.",
+                admin.warranty_request_text(request),
                 parse_mode=ParseMode.HTML,
-                reply_markup=kb.warranty_review_keyboard(request["id"]),
+                reply_markup=admin.warranty_request_keyboard(request),
+            )
+            await context.bot.send_document(
+                chat_id=ADMIN_ID,
+                document=InputFile(
+                    io.BytesIO(report.encode("utf-8")),
+                    filename=f"warranty-{int(request['id'])}-order-{order_id}.txt",
+                ),
+                caption=(
+                    f"Full warranty report #{int(request['id'])}: supplier, payment, "
+                    "inventory, customer message and real delivered content."
+                ),
             )
         return
 
@@ -5071,6 +5076,22 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith("adm_warranty_report:"):
+        request_id = int(data.split(":", 1)[1])
+        request = db.get_conn().warranty_requests.find_one({"id": request_id})
+        if not request:
+            await q.message.reply_text("⚠️ Warranty request not found.")
+            return
+        report = admin.warranty_request_report(request)
+        await q.message.reply_document(
+            document=InputFile(
+                io.BytesIO(report.encode("utf-8")),
+                filename=f"warranty-{request_id}-order-{int(request.get('order_id') or 0)}.txt",
+            ),
+            caption="Full warranty report with supplier details and real delivered content.",
+        )
+        return
+
     if data.startswith("adm_warranty_send:"):
         request_id = int(data.split(":", 1)[1])
         request = db.get_conn().warranty_requests.find_one({
@@ -5113,6 +5134,22 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             admin.pending_api_delivery_text(fulfillment),
             parse_mode=ParseMode.HTML,
             reply_markup=admin.pending_api_delivery_keyboard(order_id),
+        )
+        return
+
+    if data.startswith("adm_api_pending_report:"):
+        order_id = int(data.split(":", 1)[1])
+        fulfillment = db.get_pending_api_delivery(order_id)
+        if not fulfillment:
+            await q.message.reply_text("⚠️ Pending API delivery not found.")
+            return
+        report = admin.pending_api_delivery_report(fulfillment)
+        await q.message.reply_document(
+            document=InputFile(
+                io.BytesIO(report.encode("utf-8")),
+                filename=f"api-delivery-order-{order_id}.txt",
+            ),
+            caption="Full API delivery table with order, payment, supplier and content details.",
         )
         return
 

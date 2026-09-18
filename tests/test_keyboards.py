@@ -780,7 +780,15 @@ def test_admin_panel_has_live_warranty_payment_and_pending_api_sections(mock_mon
     mock_mongodb.warranty_requests.insert_one({
         "id": 3, "user_id": 42, "order_id": 80,
         "status": "replacement_pending", "refund_amount": 1.0,
+        "reason": "The delivered account stopped working",
         "created_at": 100, "updated_at": 104,
+    })
+    mock_mongodb.inventory.insert_one({
+        "id": 900,
+        "offer_id": 7,
+        "delivered_order_id": 80,
+        "status": "delivered",
+        "payload": db._fernet().encrypt(b"real-user@example.com | real-password").decode(),
     })
     mock_mongodb.reseller_fulfillments.insert_one({
         "provider": "mailreader", "external_order_id": "BM-81",
@@ -807,6 +815,11 @@ def test_admin_panel_has_live_warranty_payment_and_pending_api_sections(mock_mon
         for button in row
     }
     assert "adm_warranty_send:3" in warranty_actions
+    assert "adm_warranty_report:3" in warranty_actions
+    warranty_report = admin.warranty_request_report(requests[0])
+    assert "mailreader" in warranty_report
+    assert "The delivered account stopped working" in warranty_report
+    assert "real-user@example.com | real-password" in warranty_report
 
     payment_keyboard, orders, payment_total = admin.confirmed_payments_keyboard()
     assert payment_total == 2
@@ -820,6 +833,10 @@ def test_admin_panel_has_live_warranty_payment_and_pending_api_sections(mock_mon
     assert api_total == 1
     assert fulfillments[0]["order_id"] == 81
     assert api_keyboard.inline_keyboard[0][0].callback_data == "adm_api_pending_view:81"
+    api_report = admin.pending_api_delivery_report(fulfillments[0])
+    assert "DELIVERY REQUEST" in api_report
+    assert "delivery_pending" in api_report
+    assert "mailreader" in api_report
 
 
 def test_admin_can_customize_and_preview_ticket_design():

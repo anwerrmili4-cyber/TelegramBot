@@ -199,6 +199,113 @@ def _admin_timestamp(value):
     return stamp.strftime("%d/%m %H:%M UTC")
 
 
+def _full_order_context(order_id):
+    """Collect every persisted order, customer, supplier, inventory and delivery field."""
+    conn = db.get_conn()
+    order = db.get_order(int(order_id)) or {}
+    user = conn.users.find_one({"telegram_id": int(order.get("user_id") or 0)}) or {}
+    offer = conn.offers.find_one({"id": order.get("offer_id")}) or {}
+    service = conn.services.find_one({"id": offer.get("service_id")}) or {}
+    fulfillment = conn.reseller_fulfillments.find_one({"order_id": int(order_id)}) or {}
+    inventory = list(conn.inventory.find({
+        "$or": [
+            {"delivered_order_id": int(order_id)},
+            {"reserved_order_id": int(order_id)},
+            {"order_id": int(order_id)},
+            {"source_external_order_id": f"BM-{int(order_id)}"},
+        ],
+    }).sort("id", 1))
+    delivery_items = []
+    cipher = db._fernet()
+    for item in inventory:
+        payload = item.get("payload")
+        if not payload:
+            continue
+        try:
+            delivery_items.append(cipher.decrypt(str(payload).encode()).decode())
+        except Exception:
+            delivery_items.append("[encrypted content could not be decrypted]")
+    if not delivery_items:
+        for payload in fulfillment.get("encrypted_items") or []:
+            try:
+                delivery_items.append(cipher.decrypt(str(payload).encode()).decode())
+            except Exception:
+                delivery_items.append("[encrypted content could not be decrypted]")
+    stored_delivery = str(order.get("delivery_text") or "").strip()
+    if not delivery_items and stored_delivery and not stored_delivery.startswith("[encrypted "):
+        delivery_items.append(stored_delivery)
+    return {
+        "order": order,
+        "user": user,
+        "offer": offer,
+        "service": service,
+        "fulfillment": fulfillment,
+        "inventory": inventory,
+        "delivery_items": delivery_items,
+    }
+
+
+def _context_table(context, *, heading="DETAIL", fulfillment_override=None):
+    order = context["order"]
+    user = context["user"]
+    offer = context["offer"]
+    service = context["service"]
+    fulfillment = fulfillment_override or context["fulfillment"]
+    inventory = context["inventory"]
+    username = f"@{user['username']}" if user.get("username") else "—"
+    inventory_ids = ", ".join(str(item.get("id") or "—") for item in inventory) or "—"
+    inventory_states = ", ".join(
+        f"#{item.get('id', '—')}:{item.get('status', '—')}" for item in inventory
+    ) or "—"
+    rows = [
+        (heading, "FULL INFORMATION"),
+        ("Order", f"#{order.get('id', '—')}"),
+        ("Order status", order.get("status") or "—"),
+        ("Customer ID", order.get("user_id") or "—"),
+        ("Customer name", user.get("first_name") or "—"),
+        ("Username", username),
+        ("Language", user.get("lang") or "—"),
+        ("Service", order.get("service_name") or service.get("name") or "—"),
+        ("Offer", order.get("offer_name") or offer.get("name") or "—"),
+        ("Offer ID", order.get("offer_id") or "—"),
+        ("Quantity", order.get("qty") or 1),
+        ("Unit price", f"{float(order.get('unit_price') or 0):.2f} {order.get('currency') or CURRENCY}"),
+        ("Wallet paid", f"{float(order.get('wallet_amount') or 0):.2f} {order.get('currency') or CURRENCY}"),
+        ("External paid", f"{float(order.get('total_price') or 0):.2f} {order.get('currency') or CURRENCY}"),
+        ("Total charged", f"{db.order_charge_total(order):.2f} {order.get('currency') or CURRENCY}"),
+        ("Payment method", order.get("verify_method") or order.get("payment_method") or "—"),
+        ("TXID", order.get("txid") or "—"),
+        ("Created", _admin_timestamp(order.get("created_at"))),
+        ("Paid", _admin_timestamp(order.get("paid_at"))),
+        ("Delivered", _admin_timestamp(order.get("delivered_at"))),
+        ("Updated", _admin_timestamp(order.get("updated_at"))),
+        ("Warranty", order.get("warranty") or warranty_service.order_warranty_label(order) or "—"),
+        ("Warranty days", order.get("warranty_days") if order.get("warranty_days") is not None else offer.get("warranty_days", "—")),
+        ("Product period", order.get("period_days") if order.get("period_days") is not None else offer.get("period_days", "—")),
+        ("Supplier", fulfillment.get("provider") or offer.get("supplier_provider") or "—"),
+        ("Supplier status", fulfillment.get("status") or "fulfillment missing"),
+        ("Local reference", fulfillment.get("external_order_id") or order.get("supplier_external_order_id") or f"BM-{order.get('id', '—')}"),
+        ("Supplier order", fulfillment.get("supplier_order_id") or "—"),
+        ("Supplier product", fulfillment.get("supplier_product_id") or offer.get("supplier_product_id") or "—"),
+        ("Supplier created", _admin_timestamp(fulfillment.get("created_at"))),
+        ("Supplier updated", _admin_timestamp(fulfillment.get("updated_at"))),
+        ("Inventory IDs", inventory_ids),
+        ("Inventory status", inventory_states),
+        ("Admin note", order.get("admin_note") or "—"),
+    ]
+    return build_order_table(rows, max_val_len=48)
+
+
+def _html_report_preview(title, report, *, max_escaped=3500):
+    body = str(report or "")
+    truncated = False
+    while len(html.escape(body)) > max_escaped and len(body) > 200:
+        body = body[:int(len(body) * 0.85)]
+        truncated = True
+    note = "\n\n<i>Preview truncated. Tap Full report for every field and complete content.</i>" if truncated else ""
+    return f"{title}\n\n<pre>{html.escape(body)}</pre>{note}"
+
+
 def warranty_requests_keyboard(page=0, page_size=10):
     requests, total = db.list_warranty_requests(page=page, page_size=page_size)
     icons = {
@@ -227,22 +334,40 @@ def warranty_requests_keyboard(page=0, page_size=10):
     return InlineKeyboardMarkup(rows), requests, total
 
 
+def warranty_request_report(request):
+    if not request:
+        return "Warranty request not found."
+    context = _full_order_context(int(request.get("order_id") or 0))
+    request_rows = [
+        ("WARRANTY REQUEST", "FULL INFORMATION"),
+        ("Request ID", f"#{int(request['id'])}"),
+        ("Request status", request.get("status") or "—"),
+        ("Resolution", request.get("resolution") or "—"),
+        ("Days used", int(request.get("days_used") or 0)),
+        ("Calculated refund", f"{float(request.get('refund_amount') or 0):.2f} {CURRENCY}"),
+        ("Request created", _admin_timestamp(request.get("created_at"))),
+        ("Request updated", _admin_timestamp(request.get("updated_at"))),
+        ("Replacement sent", _admin_timestamp(request.get("replacement_delivered_at"))),
+        ("Admin note", request.get("admin_note") or "—"),
+    ]
+    report = [
+        build_order_table(request_rows, max_val_len=48),
+        _context_table(context, heading="ORDER / SUPPLIER"),
+        "CUSTOMER WARRANTY MESSAGE\n" + (str(request.get("reason") or "[not stored for this legacy request]")),
+        "REAL DELIVERED CONTENT\n" + (
+            "\n\n".join(context["delivery_items"])
+            if context["delivery_items"] else "[no delivered content persisted]"
+        ),
+    ]
+    return "\n\n".join(report)
+
+
 def warranty_request_text(request):
     if not request:
         return "Warranty request not found."
-    order = db.get_order(int(request.get("order_id") or 0)) or {}
-    user = db.get_conn().users.find_one({"telegram_id": int(request.get("user_id") or 0)}) or {}
-    username = f"@{user['username']}" if user.get("username") else "—"
-    return (
-        f"🛡 <b>Warranty request #{int(request['id'])}</b>\n\n"
-        f"Status: <code>{html.escape(str(request.get('status') or '—'))}</code>\n"
-        f"Order: <b>#{int(request.get('order_id') or 0)}</b>\n"
-        f"Customer: <code>{int(request.get('user_id') or 0)}</code> ({html.escape(username)})\n"
-        f"Product: <b>{html.escape(str(order.get('offer_name') or order.get('service_name') or '—'))}</b>\n"
-        f"Days used: <b>{int(request.get('days_used') or 0)}</b>\n"
-        f"Refund: <b>{float(request.get('refund_amount') or 0):.2f} {CURRENCY}</b>\n"
-        f"Created: <b>{_admin_timestamp(request.get('created_at'))}</b>\n"
-        f"Updated: <b>{_admin_timestamp(request.get('updated_at'))}</b>"
+    return _html_report_preview(
+        f"🛡 <b>Warranty request #{int(request['id'])}</b>",
+        warranty_request_report(request),
     )
 
 
@@ -266,6 +391,11 @@ def warranty_request_keyboard(request):
             callback_data=f"adm_warranty_send:{request_id}",
             style="success",
         )])
+    rows.append([InlineKeyboardButton(
+        "📄 Full report + real content",
+        callback_data=f"adm_warranty_report:{request_id}",
+        style="primary",
+    )])
     rows.append([
         InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_warranty_view:{request_id}"),
         InlineKeyboardButton("⬅️ Warranty", callback_data="adm_warranties:0"),
@@ -311,22 +441,30 @@ def pending_api_deliveries_keyboard(page=0, page_size=10):
     return InlineKeyboardMarkup(rows), fulfillments, total
 
 
+def pending_api_delivery_report(fulfillment):
+    if not fulfillment:
+        return "Pending API delivery not found."
+    order_id = int(fulfillment.get("order_id") or 0)
+    context = _full_order_context(order_id)
+    report = [_context_table(
+        context,
+        heading="DELIVERY REQUEST",
+        fulfillment_override=fulfillment,
+    )]
+    report.append("REAL DELIVERY CONTENT\n" + (
+        "\n\n".join(context["delivery_items"])
+        if context["delivery_items"] else "[supplier has not delivered content yet]"
+    ))
+    return "\n\n".join(report)
+
+
 def pending_api_delivery_text(fulfillment):
     if not fulfillment:
         return "Pending API delivery not found."
     order_id = int(fulfillment.get("order_id") or 0)
-    order = db.get_order(order_id) or {}
-    return (
-        f"⏳ <b>Livraison API en attente — Order #{order_id}</b>\n\n"
-        f"Supplier: <b>{html.escape(str(fulfillment.get('provider') or '—'))}</b>\n"
-        f"Status: <code>{html.escape(str(fulfillment.get('status') or '—'))}</code>\n"
-        f"Reference: <code>{html.escape(str(fulfillment.get('external_order_id') or '—'))}</code>\n"
-        f"Supplier order: <code>{html.escape(str(fulfillment.get('supplier_order_id') or '—'))}</code>\n"
-        f"Supplier product: <code>{html.escape(str(fulfillment.get('supplier_product_id') or '—'))}</code>\n"
-        f"Local order status: <code>{html.escape(str(order.get('status') or '—'))}</code>\n"
-        f"Customer: <code>{int(order.get('user_id') or 0)}</code>\n"
-        f"Product: <b>{html.escape(str(order.get('offer_name') or order.get('service_name') or '—'))}</b>\n"
-        f"Updated: <b>{_admin_timestamp(fulfillment.get('updated_at'))}</b>"
+    return _html_report_preview(
+        f"⏳ <b>Livraison API en attente — Order #{order_id}</b>",
+        pending_api_delivery_report(fulfillment),
     )
 
 
@@ -334,6 +472,11 @@ def pending_api_delivery_keyboard(order_id):
     order_id = int(order_id)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🧾 Open order", callback_data=f"adm_order:{order_id}", style="primary")],
+        [InlineKeyboardButton(
+            "📄 Full delivery report",
+            callback_data=f"adm_api_pending_report:{order_id}",
+            style="primary",
+        )],
         [InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_api_pending_view:{order_id}"),
          InlineKeyboardButton("⬅️ Pending API", callback_data="adm_api_pending:0")],
     ])

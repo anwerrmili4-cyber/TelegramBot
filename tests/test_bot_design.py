@@ -263,6 +263,84 @@ def test_admin_update_sections_render_live_lists(mock_mongodb, monkeypatch):
         assert heading in query.edit_message_text.await_args.args[0]
 
 
+def test_warranty_submission_sends_supplier_and_real_content_report(mock_mongodb, monkeypatch):
+    admin_id = 9001
+    customer_id = 42
+    monkeypatch.setattr("bot.ADMIN_ID", admin_id)
+    mock_mongodb.users.insert_one({
+        "telegram_id": customer_id,
+        "first_name": "Buyer",
+        "username": "buyer42",
+        "lang": "en",
+    })
+    mock_mongodb.offers.insert_one({
+        "id": 7,
+        "service_id": 1,
+        "name": "Supplier product",
+        "supplier_provider": "mailreader",
+        "supplier_product_id": "sku-7",
+    })
+    mock_mongodb.orders.insert_one({
+        "id": 280,
+        "user_id": customer_id,
+        "offer_id": 7,
+        "service_name": "Canva",
+        "offer_name": "Canva panel",
+        "status": "delivered",
+        "unit_price": 9.0,
+        "wallet_amount": 9.0,
+        "total_price": 0,
+        "currency": "USDT",
+        "delivery_text": "[encrypted reseller delivery]",
+        "delivered_at": 100,
+    })
+    mock_mongodb.reseller_fulfillments.insert_one({
+        "provider": "mailreader",
+        "external_order_id": "BM-280",
+        "order_id": 280,
+        "supplier_order_id": "SUP-99",
+        "supplier_product_id": "sku-7",
+        "status": "completed",
+    })
+    mock_mongodb.inventory.insert_one({
+        "id": 90,
+        "offer_id": 7,
+        "delivered_order_id": 280,
+        "status": "delivered",
+        "payload": db._fernet().encrypt(b"real@example.com | secret").decode(),
+    })
+    PENDING[customer_id] = ("warranty_reason", {
+        "order_id": 280,
+        "days_used": 2,
+        "refund": 1.25,
+    })
+    customer_message = SimpleNamespace(
+        text="The supplier account no longer works",
+        reply_text=AsyncMock(),
+    )
+    telegram_bot = SimpleNamespace(
+        send_message=AsyncMock(),
+        send_document=AsyncMock(),
+    )
+
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(
+            effective_user=SimpleNamespace(id=customer_id, full_name="Buyer"),
+            message=customer_message,
+        ),
+        SimpleNamespace(bot=telegram_bot),
+        "en",
+    ))
+
+    request = mock_mongodb.warranty_requests.find_one({"order_id": 280})
+    assert request["reason"] == "The supplier account no longer works"
+    admin_report = telegram_bot.send_message.await_args.args[1]
+    assert "mailreader" in admin_report
+    assert "real@example.com | secret" in admin_report
+    telegram_bot.send_document.assert_awaited_once()
+    assert "real delivered content" in telegram_bot.send_document.await_args.kwargs["caption"]
+
+
 def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb):
     service_id = db.add_service("Chat GPT", "🤖")
     offer_id = db.add_offer(service_id, "Premium 30 days", 5.0, 3)
