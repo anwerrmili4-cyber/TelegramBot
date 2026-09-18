@@ -545,6 +545,14 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             line for line in protected_template.splitlines()
             if "{bulk_price}" not in line and "{bulk_quantity}" not in line
         )
+    if catalog_name.casefold() == "methods":
+        protected_template = "\n".join(
+            line for line in protected_template.splitlines()
+            if not any(
+                placeholder in line
+                for placeholder in ("{stock}", "{sold}", "{warranty}")
+            )
+        )
     # The complete emoji/catalog/product title is always bold. Remove legacy
     # wrappers around {name} before injecting the canonical bold title.
     for wrapped_name in (

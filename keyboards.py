@@ -154,6 +154,10 @@ def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
         price_text = f"${amount}" if currency in {"USD", "USDT"} else f"{amount} {currency}"
 
     period = offer_period_label(lang, offer)
+    service = db.get_service(offer.get("service_id")) or {}
+    service_name = service.get("name") or offer.get("service_name") or ""
+    if str(service_name).strip().casefold() == "methods":
+        period = ""
 
     icon_id = str(
         offer.get("custom_emoji_id") or offer.get("service_custom_emoji_id") or ""
