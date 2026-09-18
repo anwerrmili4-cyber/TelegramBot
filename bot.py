@@ -976,6 +976,31 @@ def _announcement_plain(value):
     return str(value or "").replace("*", "").replace("_", " ").replace("`", "").strip()
 
 
+def _method_announcement_text(text, service, offer=None, lang="en"):
+    """Replace period/warranty rows with the saved method description."""
+    if str((service or {}).get("name") or "").strip().casefold() != "methods":
+        return text
+    raw_description = (
+        (offer or {}).get("description_ar") if lang == "ar" and (offer or {}).get("description_ar")
+        else (offer or {}).get("description")
+    )
+    description = html.escape(str(raw_description or "").strip())
+    label = {"fr": "Description", "ar": "الوصف"}.get(lang, "Description")
+    description_row = f"💬 <b>{label}:</b> {description}" if description else ""
+    rows = []
+    inserted = False
+    for line in str(text or "").splitlines():
+        if line.lstrip().startswith(("📅", "🛡")):
+            if description_row and not inserted:
+                rows.append(description_row)
+                inserted = True
+            continue
+        rows.append(line)
+    if description_row and not inserted:
+        rows.append(description_row)
+    return "\n".join(rows)
+
+
 def top_selling_products_text(lang: str) -> str:
     """Build the main-menu Top 5 from real paid catalogue orders."""
     titles = {
@@ -1103,7 +1128,9 @@ async def announce_supplier_change_admin(context, event, change_type):
     await _send_broadcast_message_safe(
         context,
         chat_id=ADMIN_ID,
-        text=premium_customer_text(lang, key, **values),
+        text=_method_announcement_text(
+            premium_customer_text(lang, key, **values), service, offer, lang,
+        ),
         reply_markup=kb.offer_detail_keyboard(lang, offer),
     )
     return 1
@@ -1148,7 +1175,9 @@ async def announce_channel_restock(
         await _send_broadcast_message_safe(
             context,
             chat_id=user_id,
-            text=premium_customer_text(lang, message_key, **values),
+            text=_method_announcement_text(
+                premium_customer_text(lang, message_key, **values), service, offer, lang,
+            ),
             reply_markup=kb.offer_detail_keyboard(lang, offer),
         )
     return await _broadcast_in_batches(
@@ -1183,19 +1212,21 @@ async def announce_flash_sale(context, offer_id):
         await _send_broadcast_message_safe(
             context,
             chat_id=user_id,
-            text=premium_customer_text(
-                lang,
-                "flash_sale_announcement",
-                emoji=_announcement_service_emoji(service, "🎁"),
-                service=_announcement_plain(service.get("name") or SHOP_NAME),
-                offer=_announcement_plain(offer.get("name") or f"Offer #{offer_id}"),
-                period=kb.offer_period_label(lang, offer),
-                warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-                old_price=f"{old_price:.2f}",
-                price=f"{new_price:.2f}",
-                cur=CURRENCY,
-                discount=discount_percent,
-                remaining=remaining,
+            text=_method_announcement_text(
+                premium_customer_text(
+                    lang,
+                    "flash_sale_announcement",
+                    emoji=_announcement_service_emoji(service, "🎁"),
+                    service=_announcement_plain(service.get("name") or SHOP_NAME),
+                    offer=_announcement_plain(offer.get("name") or f"Offer #{offer_id}"),
+                    period=kb.offer_period_label(lang, offer),
+                    warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
+                    old_price=f"{old_price:.2f}",
+                    price=f"{new_price:.2f}",
+                    cur=CURRENCY,
+                    discount=discount_percent,
+                    remaining=remaining,
+                ), service, offer, lang,
             ),
             reply_markup=kb.offer_detail_keyboard(lang, offer),
         )
@@ -1226,19 +1257,21 @@ async def announce_api_flash_sale(context, event):
         await _send_broadcast_message_safe(
             context,
             chat_id=user_id,
-            text=premium_customer_text(
-                lang,
-                "flash_sale_announcement",
-                emoji=_announcement_service_emoji(service, "🔥"),
-                service=_announcement_plain(service.get("name") or SHOP_NAME),
-                offer=_announcement_plain(offer.get("name") or f"Offer #{offer['id']}"),
-                period=kb.offer_period_label(lang, offer),
-                warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-                old_price=f"{old_price:.2f}",
-                price=f"{new_price:.2f}",
-                cur=CURRENCY,
-                discount=discount_percent,
-                remaining=remaining,
+            text=_method_announcement_text(
+                premium_customer_text(
+                    lang,
+                    "flash_sale_announcement",
+                    emoji=_announcement_service_emoji(service, "🔥"),
+                    service=_announcement_plain(service.get("name") or SHOP_NAME),
+                    offer=_announcement_plain(offer.get("name") or f"Offer #{offer['id']}"),
+                    period=kb.offer_period_label(lang, offer),
+                    warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
+                    old_price=f"{old_price:.2f}",
+                    price=f"{new_price:.2f}",
+                    cur=CURRENCY,
+                    discount=discount_percent,
+                    remaining=remaining,
+                ), service, offer, lang,
             ),
             reply_markup=kb.offer_detail_keyboard(lang, offer),
         )
