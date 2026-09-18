@@ -990,7 +990,11 @@ def _method_announcement_text(text, service, offer=None, lang="en"):
     rows = []
     inserted = False
     for line in str(text or "").splitlines():
-        if line.lstrip().startswith(("📅", "🛡")):
+        normalized_line = line.casefold()
+        is_stock_row = line.lstrip().startswith("📦") and any(
+            marker in normalized_line for marker in ("stock", "المخزون")
+        )
+        if line.lstrip().startswith(("📅", "🛡")) or is_stock_row:
             if description_row and not inserted:
                 rows.append(description_row)
                 inserted = True
@@ -999,6 +1003,14 @@ def _method_announcement_text(text, service, offer=None, lang="en"):
     if description_row and not inserted:
         rows.append(description_row)
     return "\n".join(rows)
+
+
+def _is_methods_offer(offer):
+    """Return whether an offer belongs to the single-unit Methods service."""
+    if not offer:
+        return False
+    service = db.get_service(offer.get("service_id")) or {}
+    return str(service.get("name") or "").strip().casefold() == "methods"
 
 
 def top_selling_products_text(lang: str) -> str:
@@ -2778,7 +2790,18 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     if data.startswith("buy:"):
-        await handle_quantity_selection(update, context, lang)
+        offer_id = int(data.split(":", 1)[1])
+        offer = db.get_offer(offer_id)
+        if _is_methods_offer(offer):
+            send_confirmation = (
+                q.message.reply_text if q.message and q.message.photo else q.edit_message_text
+            )
+            if not await send_buy_confirmation(
+                send_confirmation, uid, offer_id, 1, lang,
+            ):
+                await q.answer(t(lang, "out_of_stock"), show_alert=True)
+        else:
+            await handle_quantity_selection(update, context, lang)
         return
     if data.startswith("preorder:"):
         await show_callback_screen(
@@ -3058,6 +3081,9 @@ async def send_buy_confirmation(send, uid, offer_id, qty, lang, preorder=False):
     offer = db.get_offer(offer_id)
     if not offer or offer.get("price") is None:
         return False
+    if _is_methods_offer(offer):
+        qty = 1
+        preorder = False
     if preorder:
         if db.offer_has_stock(offer) or qty < 1 or qty > 100:
             return False
@@ -3096,8 +3122,14 @@ async def handle_buy_confirmation(update, context, lang, preorder=False):
     parts = q.data.split(":")
     offer_id = int(parts[1])
     qty = int(parts[2]) if len(parts) > 2 else 1
+    offer = db.get_offer(offer_id)
+    if _is_methods_offer(offer):
+        qty = 1
+    send_confirmation = (
+        q.message.reply_text if q.message and q.message.photo else q.edit_message_text
+    )
     if not await send_buy_confirmation(
-        q.edit_message_text, uid, offer_id, qty, lang, preorder=preorder,
+        send_confirmation, uid, offer_id, qty, lang, preorder=preorder,
     ):
         await q.message.reply_text(t(lang, "out_of_stock"))
 
@@ -3127,6 +3159,9 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
     qty = int(parts[2]) if len(parts) > 2 else 1
     preorder = len(parts) > 3 and parts[3] == "preorder"
     offer = db.get_offer(offer_id)
+    if _is_methods_offer(offer):
+        qty = 1
+        preorder = False
 
     if not offer or offer["price"] is None or (
         not preorder and not db.offer_has_stock(offer, qty)

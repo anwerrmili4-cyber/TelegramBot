@@ -882,6 +882,10 @@ def list_catalog_offers():
     }):
         offer = _resolve_flash_sale(_public(row))
         service = service_by_id[offer["service_id"]]
+        # Methods have their own dedicated menu and must not appear in the
+        # general product catalogue.
+        if str(service.get("name") or "").strip().casefold() == "methods":
+            continue
         if service.get("dedicated_home"):
             continue
         if is_otp_service_name(service.get("name")):
