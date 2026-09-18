@@ -274,12 +274,15 @@ def main_menu_keyboard(lang, user_id):
 
 def home_keyboard(lang, user_id):
     hidden = set(filter(None, (db.get_setting("hidden_home_actions", "") or "").split(",")))
+    bot_like_service = db.get_conn().services.find_one({"feature_key": "bot_like_mine"}) or {}
+    bot_like_icon = str(bot_like_service.get("custom_emoji_id") or "").strip()
     candidate_rows = [
         [translated_button(lang, "menu_catalog", callback_data="catalog", style="success")],
         [
             translated_button(lang, "menu_methods", callback_data="methods", style="primary"),
             translated_button(
                 lang, "menu_bot_like_mine", callback_data="bot_like_mine", style="success",
+                icon_custom_emoji_id=bot_like_icon or None,
             ),
         ],
         [

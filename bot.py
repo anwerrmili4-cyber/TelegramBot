@@ -1021,6 +1021,11 @@ def _is_methods_offer(offer):
     return str(service.get("name") or "").strip().casefold() == "methods"
 
 
+def _is_single_unit_offer(offer):
+    """Offers that must always be purchased as exactly one unit."""
+    return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
+
+
 def top_selling_products_text(lang: str) -> str:
     """Build the main-menu Top 5 from real paid catalogue orders."""
     titles = {
@@ -2800,7 +2805,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("buy:"):
         offer_id = int(data.split(":", 1)[1])
         offer = db.get_offer(offer_id)
-        if _is_methods_offer(offer):
+        if _is_single_unit_offer(offer):
             send_confirmation = (
                 q.message.reply_text if q.message and q.message.photo else q.edit_message_text
             )
@@ -3089,7 +3094,7 @@ async def send_buy_confirmation(send, uid, offer_id, qty, lang, preorder=False):
     offer = db.get_offer(offer_id)
     if not offer or offer.get("price") is None:
         return False
-    if _is_methods_offer(offer):
+    if _is_single_unit_offer(offer):
         qty = 1
         preorder = False
     if preorder:
@@ -3131,7 +3136,7 @@ async def handle_buy_confirmation(update, context, lang, preorder=False):
     offer_id = int(parts[1])
     qty = int(parts[2]) if len(parts) > 2 else 1
     offer = db.get_offer(offer_id)
-    if _is_methods_offer(offer):
+    if _is_single_unit_offer(offer):
         qty = 1
     send_confirmation = (
         q.message.reply_text if q.message and q.message.photo else q.edit_message_text
@@ -3167,7 +3172,7 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
     qty = int(parts[2]) if len(parts) > 2 else 1
     preorder = len(parts) > 3 and parts[3] == "preorder"
     offer = db.get_offer(offer_id)
-    if _is_methods_offer(offer):
+    if _is_single_unit_offer(offer):
         qty = 1
         preorder = False
 
