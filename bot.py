@@ -737,6 +737,11 @@ def render_stored_rich_text(value, *, parse_legacy_markdown=True):
 
     def close_unfinished_tags(rendered):
         """Close formatting tags left open when dashboard fields truncate HTML."""
+        # Dashboard text fields can cut content in the middle of an HTML tag
+        # (for example ``<tg-emoji emoji-id=\"496...``). Telegram rejects the
+        # entire message in that case, so discard only the incomplete tail
+        # before balancing the formatting tags that were fully opened.
+        rendered = re.sub(r"<[^>]*\Z", "", rendered)
         supported = {
             "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
             "span", "tg-spoiler", "a", "code", "pre", "blockquote", "tg-emoji",

@@ -1968,6 +1968,26 @@ def test_compact_offer_repairs_dashboard_truncated_html(monkeypatch):
     assert rendered.endswith("<i>Delivery i</i>")
     assert rendered.count("<blockquote>") == rendered.count("</blockquote>")
 
+
+def test_compact_offer_removes_tag_truncated_mid_attribute(monkeypatch):
+    monkeypatch.setattr("bot.db.offer_sold_count", lambda _offer_id: 0)
+    offer = {
+        "id": 43,
+        "name": "Creative Cloud Pro",
+        "price": 6.0,
+        "stock": 1,
+        "description": (
+            '[[HTML]]<blockquote><b>Adobe apps</b>\n'
+            '<b><tg-emoji emoji-id="4960958'
+        ),
+    }
+
+    rendered = compact_offer_text(offer, "en")
+
+    assert '<tg-emoji emoji-id="4960958' not in rendered
+    assert rendered.endswith("<b></b></blockquote>")
+    assert rendered.count("<blockquote>") == rendered.count("</blockquote>")
+
 def test_single_offer_service_from_photo_opens_offer_without_editing_photo(monkeypatch):
     message = SimpleNamespace(text=None, reply_text=AsyncMock())
     query = SimpleNamespace(
