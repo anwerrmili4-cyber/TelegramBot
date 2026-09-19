@@ -204,6 +204,15 @@ GPT_CHEAP_API_KEY: str = env_value("HP_GPT_CHEAP_API_KEY")
 SHOP_CRON_API_KEY: str = env_value("HP_SHOP_CRON_API_KEY")
 
 # ---------------------------------------------------------------------------
+# Fournisseur revendeur VenteBot
+# ---------------------------------------------------------------------------
+VENTEBOT_API_KEY: str = env_value("HP_VENTEBOT_API_KEY")
+VENTEBOT_API_BASE: str = normalized_http_url(first_env_value(
+    "HP_VENTEBOT_API_BASE",
+    default="https://ventetelegrambotrailway-production.up.railway.app",
+))
+
+# ---------------------------------------------------------------------------
 # Fournisseur revendeur UPIBot Shop
 # ---------------------------------------------------------------------------
 UPIBOT_API_KEY: str = env_value("HP_UPIBOT_API_KEY")

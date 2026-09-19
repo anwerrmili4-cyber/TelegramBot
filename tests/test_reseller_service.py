@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import uuid
 from io import BytesIO
 from urllib.error import HTTPError
-import uuid
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -1054,6 +1054,133 @@ def test_cgpt_active_purchase_uses_uuid_and_delivers_instructions(
     assert fulfillment["idempotency_key"] == kwargs["idempotency_key"]
 
 
+def test_ventebot_request_uses_reseller_header_without_exposing_key(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"success":true,"products":[]}'
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(reseller_service, "VENTEBOT_API_KEY", "vbr_test_secret")
+    monkeypatch.setattr(reseller_service, "VENTEBOT_API_BASE", "https://vente.example")
+    monkeypatch.setattr(reseller_service, "urlopen", fake_urlopen)
+
+    reseller_service._ventebot_request_json("/api/reseller/products?lang=en")
+
+    request, timeout = requests[0]
+    assert timeout == 20
+    assert request.full_url == "https://vente.example/api/reseller/products?lang=en"
+    assert request.get_header("X-reseller-key") == "vbr_test_secret"
+    assert request.get_header("Authorization") is None
+
+
+def test_ventebot_catalog_maps_immediate_products_and_skips_activation(
+    monkeypatch, mock_mongodb,
+):
+    def fake_request(path, **_kwargs):
+        if path == "/api/reseller/me":
+            return {"success": True, "wallet_balance": 12.5}
+        return {
+            "success": True,
+            "products": [{
+                "id": 16,
+                "name": "Gemini 18 months",
+                "description": "Instant account",
+                "price_usd": 0.55,
+                "warranty_days": 7,
+                "delivery_type": "stock",
+                "stock": 101,
+            }, {
+                "id": 17,
+                "name": "Manual activation",
+                "price_usd": 2.0,
+                "delivery_type": "activation",
+                "stock": None,
+            }, {
+                "id": 999,
+                "name": "Synthetic API test",
+                "price_usd": 0.01,
+                "delivery_type": "api_test",
+                "api_test": True,
+                "stock": 1,
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_ventebot_request_json", fake_request)
+
+    result = reseller_service.catalog("ventebot")
+
+    assert result["provider"] == "ventebot"
+    assert result["supplier_name"] == "VenteBot"
+    assert result["balance"] == 12.5
+    assert len(result["products"]) == 1
+    assert result["products"][0]["id"] == "16"
+    assert result["products"][0]["wholesale_price"] == 0.55
+    assert result["products"][0]["stock"] == 101
+    assert result["products"][0]["warranty"] == "7 day warranty"
+    assert reseller_service.provider_bot_username("ventebot") == "storeBatmanBot"
+
+
+def test_ventebot_purchase_is_idempotent_and_delivers_order_items(
+    monkeypatch, mock_mongodb,
+):
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append((path, kwargs))
+        return {
+            "success": True,
+            "order": {
+                "id": 712,
+                "status": "COMPLETED",
+                "items": [{"id": 1, "account_data": "user@example.com:password"}],
+            },
+        }
+
+    monkeypatch.setattr(reseller_service, "_ventebot_request_json", fake_request)
+    offer_id = db.add_offer(
+        db.add_service("VenteBot", "📦"),
+        "Gemini account",
+        1.0,
+        1,
+        supplier_provider="ventebot",
+        supplier_product_id="16",
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 101,
+        "user_id": 456,
+        "offer_id": offer_id,
+        "qty": 1,
+        "status": "payment_confirmed",
+    })
+
+    first = reseller_service.fulfill_paid_order(101)
+    second = reseller_service.fulfill_paid_order(101)
+
+    assert first == second == ["user@example.com:password"]
+    assert calls == [("/api/reseller/orders", {
+        "method": "POST",
+        "body": {
+            "product_id": 16,
+            "quantity": 1,
+            "customer_reference": "telegram_user_456",
+            "idempotency_key": "BM-101",
+        },
+    })]
+    fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 101})
+    assert fulfillment["supplier_order_id"] == "712"
+
+
 def test_restock_detection_baselines_then_reports_only_increases(monkeypatch, mock_mongodb):
     offer_id = db.add_offer(
         service_id=db.add_service("API stock", "📦"),
@@ -1097,7 +1224,9 @@ def test_restock_detection_baselines_then_reports_only_increases(monkeypatch, mo
     monkeypatch.setattr(reseller_service, "GPT_CHEAP_API_KEY", "")
     monkeypatch.setattr(reseller_service, "SHOP_CRON_API_KEY", "")
     monkeypatch.setattr(reseller_service, "UPIBOT_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "TOOLORAX_API_KEY", "")
     monkeypatch.setattr(reseller_service, "CGPT_ACTIVE_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "VENTEBOT_API_KEY", "")
     monkeypatch.setattr(reseller_service, "catalog", fake_catalog)
 
     assert reseller_service.detect_restock_events()["events"] == []
@@ -1149,7 +1278,9 @@ def test_supplier_price_drop_preserves_profit_amount_and_creates_flash_event(
     monkeypatch.setattr(reseller_service, "GPT_CHEAP_API_KEY", "")
     monkeypatch.setattr(reseller_service, "SHOP_CRON_API_KEY", "")
     monkeypatch.setattr(reseller_service, "UPIBOT_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "TOOLORAX_API_KEY", "")
     monkeypatch.setattr(reseller_service, "CGPT_ACTIVE_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "VENTEBOT_API_KEY", "")
     monkeypatch.setattr(
         reseller_service,
         "catalog",
@@ -1195,7 +1326,9 @@ def test_all_supplier_bot_usernames_are_registered():
         "gpt_cheap": "GPTCheapChat_bot",
         "shop_cron": "shop_cron191_en_bot",
         "upibot": "scanupigptbot",
+        "toolorax": "TooloraXbot",
         "cgpt_active": "RichAIStoreBot",
+        "ventebot": "storeBatmanBot",
     }
 
 

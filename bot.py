@@ -37,6 +37,7 @@ from app import support_bridge
 from app.domain import (
     affiliate_service,
     buyer_api_service,
+    customer_ai_service,
     inventory_service,
     lovable_service,
     loyalty_service,
@@ -58,8 +59,8 @@ from config import (
     MEMBERSHIP_CACHE_SECONDS,
     REQUIRED_CHANNEL,
     SHOP_NAME,
-    SOLANA_DEPOSIT_ADDRESS,
     SOLANA_ALLOWED_USER_ID,
+    SOLANA_DEPOSIT_ADDRESS,
     SOLANA_MIN_CONFIRMATIONS,
     SOLANA_MIN_DEPOSIT,
     SUPPORT_TICKET_CHANNEL_ID,
@@ -1995,7 +1996,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = PENDING.get(uid)
 
     def clear_support_pending():
-        if pending and pending[0].startswith(("support", "ticket_")):
+        if pending and pending[0].startswith(("support", "ticket_", "ai_agent")):
             PENDING.pop(uid, None)
 
     blocking_states = {
@@ -2092,7 +2093,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_support_pending()
         await update.message.reply_text("\U0001f6e0\ufe0f *Panneau Admin*", parse_mode=ParseMode.MARKDOWN,
                                         reply_markup=admin.admin_panel_keyboard())
-    elif pending and pending[0].startswith(("support", "ticket_")):
+    elif pending and pending[0].startswith(("support", "ticket_", "ai_agent")):
         await handle_pending_input(update, context, lang)
     else:
         await send_main_menu(update, context, lang)
@@ -2722,6 +2723,40 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "support":
         await cmd_support(update, context)
         return
+    if data == "ai_agent":
+        if not customer_ai_service.is_configured():
+            await q.message.reply_text(
+                t(lang, "ai_agent_unavailable"),
+                reply_markup=kb.support_category_keyboard(lang),
+            )
+            return
+        customer_ai_service.clear_history(uid)
+        PENDING[uid] = ("ai_agent", "other")
+        await q.message.reply_text(
+            t(lang, "ai_agent_intro"), reply_markup=kb.ai_agent_keyboard(lang),
+        )
+        return
+    if data == "ai_agent_end":
+        customer_ai_service.clear_history(uid)
+        PENDING[uid] = ("ai_agent", "other")
+        await q.message.reply_text(
+            t(lang, "ai_agent_intro"), reply_markup=kb.ai_agent_keyboard(lang),
+        )
+        return
+    if data == "ai_agent_human":
+        pending = PENDING.get(uid)
+        category = str(pending[1]) if pending and pending[0] == "ai_agent" else "other"
+        customer_ai_service.clear_history(uid)
+        if category in {"payment", "delivery", "invalid_content", "order"}:
+            PENDING[uid] = ("support_category", category)
+            await q.message.reply_text(
+                t(lang, "support_choose_order"),
+                reply_markup=kb.support_order_keyboard(lang, db.list_user_orders(uid, limit=8)),
+            )
+        else:
+            PENDING[uid] = ("support", category)
+            await q.message.reply_text(t(lang, "support_prompt"))
+        return
     if data == "language":
         await q.message.reply_text(t(lang, "choose_lang"), reply_markup=kb.lang_keyboard())
         return
@@ -3277,6 +3312,25 @@ async def handle_pending_input(update, context, lang):
     uid = update.effective_user.id
     kind, ref = PENDING.get(uid)
     text = update.message.text.strip()
+
+    if kind == "ai_agent":
+        try:
+            result = await asyncio.to_thread(
+                customer_ai_service.chat, uid, text, lang,
+            )
+        except customer_ai_service.CustomerAIError as exc:
+            log.warning("Customer AI unavailable for user %s: %s", uid, exc)
+            await update.message.reply_text(
+                t(lang, "ai_agent_unavailable"),
+                reply_markup=kb.ai_agent_keyboard(lang, needs_human=True),
+            )
+            return
+        PENDING[uid] = ("ai_agent", result["category"])
+        await update.message.reply_text(
+            result["reply"],
+            reply_markup=kb.ai_agent_keyboard(lang, result["needs_human"]),
+        )
+        return
 
     if kind == "adm_lovable_trial" and uid == ADMIN_ID:
         customer_id = int(ref)

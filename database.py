@@ -321,6 +321,10 @@ def init_db():
     db.support_tickets.create_index("user_id")
     db.ticket_messages.create_index([("ticket_id", ASCENDING), ("created_at", ASCENDING)])
     db.support_tickets.create_index("channel_message_ids")
+    db.customer_ai_messages.create_index([
+        ("user_id", ASCENDING), ("created_at", DESCENDING),
+    ])
+    db.customer_ai_messages.create_index("created_at", expireAfterSeconds=604800)
     if not schema or int(schema.get("version") or 0) < 15:
         _remove_legacy_announcement_overrides(db)
     if not schema or int(schema.get("version") or 0) < 17:

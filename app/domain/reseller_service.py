@@ -15,7 +15,6 @@ from urllib.request import Request, urlopen
 from pymongo.errors import DuplicateKeyError
 
 import database as db
-from app.domain import warranty_service
 from config import (
     CANBOSO_API_BASE,
     CANBOSO_API_KEY,
@@ -36,6 +35,8 @@ from config import (
     TOOLORAX_API_KEY,
     UPIBOT_API_BASE,
     UPIBOT_API_KEY,
+    VENTEBOT_API_BASE,
+    VENTEBOT_API_KEY,
     VEX_API_BASE,
     VEX_API_KEY,
 )
@@ -51,6 +52,7 @@ SHOP_CRON_PROVIDER = "shop_cron"
 UPIBOT_PROVIDER = "upibot"
 TOOLORAX_PROVIDER = "toolorax"
 CGPT_ACTIVE_PROVIDER = "cgpt_active"
+VENTEBOT_PROVIDER = "ventebot"
 CGPT_ACTIVE_DISPLAY_NAME = "Rich AI Store"
 PROVIDER_DISPLAY_NAMES = {
     PROVIDER: "MailReader",
@@ -64,6 +66,7 @@ PROVIDER_DISPLAY_NAMES = {
     UPIBOT_PROVIDER: "UPIBot Shop",
     TOOLORAX_PROVIDER: "ToolOraX Store Bot",
     CGPT_ACTIVE_PROVIDER: CGPT_ACTIVE_DISPLAY_NAME,
+    VENTEBOT_PROVIDER: "VenteBot",
 }
 PROVIDER_BOT_USERNAMES = {
     PROVIDER: "dodistore_bot",
@@ -77,6 +80,7 @@ PROVIDER_BOT_USERNAMES = {
     UPIBOT_PROVIDER: "scanupigptbot",
     TOOLORAX_PROVIDER: "TooloraXbot",
     CGPT_ACTIVE_PROVIDER: "RichAIStoreBot",
+    VENTEBOT_PROVIDER: "storeBatmanBot",
 }
 SUPPORTED_PROVIDERS = {
     PROVIDER,
@@ -90,6 +94,7 @@ SUPPORTED_PROVIDERS = {
     UPIBOT_PROVIDER,
     TOOLORAX_PROVIDER,
     CGPT_ACTIVE_PROVIDER,
+    VENTEBOT_PROVIDER,
 }
 CANBOSO_PROVIDERS = {
     CANBOSO_PROVIDER,
@@ -694,6 +699,79 @@ def _cgpt_active_request_json(
     return payload
 
 
+def _ventebot_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call VenteBot without exposing its wallet-spending reseller key."""
+    if not VENTEBOT_API_KEY:
+        raise ResellerApiError(
+            "VenteBot n’est pas configuré. Ajoutez HP_VENTEBOT_API_KEY "
+            "dans les variables d’environnement."
+        )
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        f"{VENTEBOT_API_BASE}{path}",
+        headers={
+            "X-Reseller-Key": VENTEBOT_API_KEY,
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+            "User-Agent": "BlackMarket-Reseller/1.0",
+        },
+        data=payload_bytes,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        error_payload: dict[str, Any] = {}
+        try:
+            decoded = json.loads(exc.read().decode("utf-8"))
+            if isinstance(decoded, dict):
+                error_payload = decoded
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        code = str(error_payload.get("code") or "").upper()
+        message = str(
+            error_payload.get("message")
+            or error_payload.get("detail")
+            or error_payload.get("error")
+            or ""
+        )[:300]
+        if exc.code in {401, 403}:
+            raise ResellerApiError(
+                "Clé API VenteBot refusée. Remplacez-la par une clé active."
+            ) from exc
+        if code == "INSUFFICIENT_BALANCE" or "balance" in message.lower():
+            raise ResellerOrderNotCreatedError(
+                message
+                or "Solde VenteBot insuffisant : aucune commande fournisseur n’a été créée."
+            ) from exc
+        error_type = (
+            ResellerOrderNotCreatedError
+            if exc.code in {400, 402, 404, 409, 422}
+            else ResellerApiError
+        )
+        raise error_type(
+            message or f"VenteBot a répondu avec l’erreur HTTP {exc.code}."
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ResellerApiError("VenteBot est temporairement indisponible.") from exc
+    if not isinstance(payload, dict):
+        raise ResellerApiError("Réponse VenteBot invalide.")
+    if payload.get("success") is False or payload.get("ok") is False:
+        message = str(
+            payload.get("message") or payload.get("error") or "Requête VenteBot refusée."
+        )[:300]
+        if "balance" in message.lower() or "solde" in message.lower():
+            raise ResellerOrderNotCreatedError(message)
+        raise ResellerApiError(message)
+    return payload
+
+
 def provider_summaries() -> list[dict[str, Any]]:
     """Return safe provider metadata without exposing credentials."""
     return [
@@ -762,6 +840,12 @@ def provider_summaries() -> list[dict[str, Any]]:
             "name": CGPT_ACTIVE_DISPLAY_NAME,
             "configured": bool(CGPT_ACTIVE_API_KEY),
             "documentation_url": f"{CGPT_ACTIVE_API_BASE}/docs",
+        },
+        {
+            "id": VENTEBOT_PROVIDER,
+            "name": "VenteBot",
+            "configured": bool(VENTEBOT_API_KEY),
+            "documentation_url": f"{VENTEBOT_API_BASE}/api/swagger/",
         },
     ]
 
@@ -839,6 +923,11 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         account = _cgpt_active_request_json("/v1/me")
         reseller = {"balance": account.get("balance", 0)}
         supplier_name = CGPT_ACTIVE_DISPLAY_NAME
+    elif provider == VENTEBOT_PROVIDER:
+        payload = _ventebot_request_json("/api/reseller/products?lang=en")
+        account = _ventebot_request_json("/api/reseller/me")
+        reseller = {"balance": account.get("wallet_balance", 0)}
+        supplier_name = "VenteBot"
     else:
         payload = _request_json("/api/reseller/products")
         reseller = payload.get("reseller") if isinstance(payload.get("reseller"), dict) else {}
@@ -861,6 +950,14 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         # asynchronous invite polling yet. Only publish products that return
         # redeemable codes immediately after a successful purchase.
         if provider == CGPT_ACTIVE_PROVIDER and raw.get("product_type") != "cdk":
+            continue
+        if provider == VENTEBOT_PROVIDER and (
+            raw.get("api_test")
+            or str(raw.get("delivery_type") or "") not in {"stock", "supplier_api"}
+        ):
+            # The native checkout can immediately deliver stock/API results.
+            # Activation products require extra customer input and polling, so
+            # keep them out of the publishable catalog for now.
             continue
         raw_product_id = (
             raw.get("_id") or raw.get("productId") or raw.get("id")
@@ -894,6 +991,8 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                         else raw.get("wholesale_price", "0")
                     )
                 )))
+            if provider == VENTEBOT_PROVIDER:
+                wholesale = float(Decimal(str(raw.get("price_usd") or 0)))
         except (InvalidOperation, ValueError):
             wholesale = 0.0
         stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
@@ -904,6 +1003,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         )
         unlimited_stock = (
             (provider == CGPT_ACTIVE_PROVIDER and raw.get("stock") is None)
+            or (provider == VENTEBOT_PROVIDER and raw.get("stock") is None)
             or (provider in {UPIBOT_PROVIDER, TOOLORAX_PROVIDER} and raw.get("stock_count") is None)
             or (provider == PROVIDER and raw.get("stock") is None)
             or raw.get("stock") == -1
@@ -1007,6 +1107,11 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             "warranty": (
                 config.get("warranty")
                 or (native_offer or {}).get("note")
+                or (
+                    f"{int(raw.get('warranty_days') or 0)} day warranty"
+                    if provider == VENTEBOT_PROVIDER and int(raw.get("warranty_days") or 0) > 0
+                    else ""
+                )
                 or f"Produit API {supplier_name}"
             ),
             "period_days": int(
@@ -1055,6 +1160,7 @@ def detect_restock_events() -> dict[str, Any]:
         UPIBOT_PROVIDER: bool(UPIBOT_API_KEY),
         TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
+        VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
     }
     events: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -1110,6 +1216,7 @@ def detect_supplier_price_changes() -> dict[str, Any]:
         UPIBOT_PROVIDER: bool(UPIBOT_API_KEY),
         TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
+        VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
     }
     changes: list[dict[str, Any]] = []
     flash_sales: list[dict[str, Any]] = []
@@ -1222,6 +1329,7 @@ def save_catalog_product(
         UPIBOT_PROVIDER: "Produit API UPIBot Shop",
         TOOLORAX_PROVIDER: "Produit API ToolOraX Store Bot",
         CGPT_ACTIVE_PROVIDER: "Produit API Rich AI Store",
+        VENTEBOT_PROVIDER: "Produit API VenteBot",
     }.get(provider, "Produit API MailReader")
     warranty = str(warranty or default_warranty).strip()[:250]
     delivery_delay = str(delivery_delay or "Instantané après confirmation").strip()[:120]
@@ -1578,6 +1686,17 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                     "quantity": int(order.get("qty") or 1),
                 },
                 idempotency_key=supplier_idempotency_key,
+            )
+        elif provider == VENTEBOT_PROVIDER:
+            response = _ventebot_request_json(
+                "/api/reseller/orders",
+                method="POST",
+                body={
+                    "product_id": int(str(offer["supplier_product_id"])),
+                    "quantity": int(order.get("qty") or 1),
+                    "customer_reference": f"telegram_user_{int(order['user_id'])}",
+                    "idempotency_key": external_order_id,
+                },
             )
         else:
             _mailreader_preflight_purchase(offer, int(order.get("qty") or 1))

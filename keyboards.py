@@ -221,7 +221,8 @@ def channel_join_keyboard(lang):
 
 def support_category_keyboard(lang):
     categories = ("payment", "delivery", "invalid_content", "order", "affiliation", "other")
-    rows = [
+    rows = [[translated_button(lang, "ai_agent_button", callback_data="ai_agent", style="primary")]]
+    rows += [
         [translated_button(lang, f"support_category_{category}", callback_data=f"support_cat:{category}")]
         for category in categories
     ]
@@ -325,6 +326,23 @@ def topup_keyboard(lang, user_id=None):
         [translated_button(lang, "topup_verify_txid", callback_data="topup_txid", style="success")],
         [translated_button(lang, "topup_onchain", callback_data="topup_onchain", style="success")],
         [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def ai_agent_keyboard(lang, needs_human=False):
+    rows = []
+    if needs_human:
+        rows.append([translated_button(
+            lang, "ai_agent_human_button", callback_data="ai_agent_human", style="danger",
+        )])
+    else:
+        rows.append([translated_button(
+            lang, "ai_agent_human_button", callback_data="ai_agent_human",
+        )])
+    rows.append([
+        translated_button(lang, "ai_agent_end_button", callback_data="ai_agent_end"),
+        translated_button(lang, "btn_main_menu_short", callback_data="home"),
     ])
     return InlineKeyboardMarkup(rows)
 
