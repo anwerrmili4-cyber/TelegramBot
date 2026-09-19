@@ -88,6 +88,8 @@ def create_order(
     Raises:
         ValueError: si l'offre est inactive, sans prix, ou en rupture de stock.
     """
+    if payment_method == "bybit":
+        raise ValueError("Bybit payments are disabled.")
     if not offer or offer.get("price") is None or not offer.get("active", 1):
         raise ValueError("Cette offre n'est pas disponible à l'achat.")
     if not preorder and not db.offer_has_stock(offer):

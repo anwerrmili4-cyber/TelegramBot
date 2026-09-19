@@ -118,6 +118,11 @@ TRANSLATIONS = {
     },
     "topup_verify_txid": {"fr": "🟡 Binance Pay", "en": "🟡 Binance Pay", "ar": "🟡 دفع Binance"},
     "topup_verify_bybit": {"fr": "🟠 Bybit Pay", "en": "🟠 Bybit Pay", "ar": "🟠 دفع Bybit"},
+    "bybit_disabled": {
+        "fr": "⛔ Bybit est désactivé. Utilisez Binance Pay ou une méthode on-chain.",
+        "en": "⛔ Bybit is disabled. Use Binance Pay or an on-chain method.",
+        "ar": "⛔ تم تعطيل Bybit. استخدم Binance Pay أو إحدى طرق الدفع على الشبكة.",
+    },
     "topup_onchain": {"fr": "⛓️ Onchain", "en": "⛓️ Onchain", "ar": "⛓️ على السلسلة"},
     "topup_sol": {"fr": "◎ Solana (SOL)", "en": "◎ Solana (SOL)", "ar": "◎ سولانا (SOL)"},
     "topup_sol_check": {"fr": "✅ Vérifier le paiement", "en": "✅ Check payment", "ar": "✅ تحقق من الدفع"},
@@ -215,31 +220,6 @@ TRANSLATIONS = {
         "fr": "🎫 Choisissez la catégorie de votre demande :",
         "en": "🎫 Choose the category of your request:",
         "ar": "🎫 اختر فئة طلبك:",
-    },
-    "ai_agent_button": {
-        "fr": "🤖 Assistant IA",
-        "en": "🤖 AI assistant",
-        "ar": "🤖 المساعد الذكي",
-    },
-    "ai_agent_intro": {
-        "fr": "🤖 Posez votre question sur le catalogue ou vos commandes. L’assistant peut vous renseigner, mais ne peut ni confirmer un paiement, ni modifier une commande, ni effectuer un remboursement.",
-        "en": "🤖 Ask about the catalog or your orders. The assistant can provide information, but cannot confirm payments, change orders, or issue refunds.",
-        "ar": "🤖 اسأل عن الكتالوج أو طلباتك. يمكن للمساعد تقديم المعلومات، لكنه لا يستطيع تأكيد الدفع أو تعديل الطلبات أو إصدار المبالغ المستردة.",
-    },
-    "ai_agent_human_button": {
-        "fr": "👤 Parler au support humain",
-        "en": "👤 Talk to human support",
-        "ar": "👤 التحدث مع الدعم البشري",
-    },
-    "ai_agent_end_button": {
-        "fr": "🗑️ Nouvelle conversation",
-        "en": "🗑️ New conversation",
-        "ar": "🗑️ محادثة جديدة",
-    },
-    "ai_agent_unavailable": {
-        "fr": "L’assistant IA est momentanément indisponible. Vous pouvez continuer avec le support humain.",
-        "en": "The AI assistant is temporarily unavailable. You can continue with human support.",
-        "ar": "المساعد الذكي غير متاح مؤقتًا. يمكنك المتابعة مع الدعم البشري.",
     },
     "support_choose_order": {
         "fr": "Sélectionnez la commande concernée, ou choisissez « Aucune » :",

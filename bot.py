@@ -37,7 +37,6 @@ from app import support_bridge
 from app.domain import (
     affiliate_service,
     buyer_api_service,
-    customer_ai_service,
     inventory_service,
     lovable_service,
     loyalty_service,
@@ -1996,7 +1995,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = PENDING.get(uid)
 
     def clear_support_pending():
-        if pending and pending[0].startswith(("support", "ticket_", "ai_agent")):
+        if pending and pending[0].startswith(("support", "ticket_")):
             PENDING.pop(uid, None)
 
     blocking_states = {
@@ -2093,7 +2092,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_support_pending()
         await update.message.reply_text("\U0001f6e0\ufe0f *Panneau Admin*", parse_mode=ParseMode.MARKDOWN,
                                         reply_markup=admin.admin_panel_keyboard())
-    elif pending and pending[0].startswith(("support", "ticket_", "ai_agent")):
+    elif pending and pending[0].startswith(("support", "ticket_")):
         await handle_pending_input(update, context, lang)
     else:
         await send_main_menu(update, context, lang)
@@ -2501,12 +2500,15 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("withdraw_method:"):
         method = data.split(":", 1)[1]
-        if method not in {"binance", "bybit", "bep20"}:
+        if method == "bybit":
+            await q.message.reply_text(t(lang, "bybit_disabled"))
+            return
+        if method not in {"binance", "bep20"}:
             return
         pending_withdraw = PENDING.get(uid)
         amount = pending_withdraw[1] if pending_withdraw and pending_withdraw[0] == "await_withdraw_method" else 0
         PENDING[uid] = ("await_withdraw_destination", {"method": method, "amount": amount})
-        await q.message.reply_text("Send your Binance ID, Bybit ID, or USDT BEP20 address:")
+        await q.message.reply_text("Send your Binance ID or USDT BEP20 address:")
         return
     if data in {"lovable", "lovable_howto", "lovable_buy", "lovable_trial", "lovable_download"}:
         await q.answer("Ce catalogue n'est plus disponible.", show_alert=True)
@@ -2662,10 +2664,16 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
         )
         return
-    if data in {"topup_txid", "topup_claim", "topup_bybit"}:
+    if data == "topup_bybit":
+        PENDING.pop(uid, None)
+        await q.message.reply_text(
+            t(lang, "bybit_disabled"), reply_markup=kb.topup_keyboard(lang, uid),
+        )
+        return
+    if data in {"topup_txid", "topup_claim"}:
         # Older messages used topup_claim for the removed automatic scan.
         # Keep them useful by routing directly to TXID entry.
-        provider = "bybit" if data == "topup_bybit" else "binance"
+        provider = "binance"
         PENDING[uid] = ("await_topup_txid", provider)
         pay_id = BYBIT_UID if provider == "bybit" else BINANCE_PAY_ID
         await show_callback_screen(
@@ -2722,34 +2730,6 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "support":
         await cmd_support(update, context)
-        return
-    if data == "ai_agent":
-        customer_ai_service.clear_history(uid)
-        PENDING[uid] = ("ai_agent", "other")
-        await q.message.reply_text(
-            t(lang, "ai_agent_intro"), reply_markup=kb.ai_agent_keyboard(lang),
-        )
-        return
-    if data == "ai_agent_end":
-        customer_ai_service.clear_history(uid)
-        PENDING[uid] = ("ai_agent", "other")
-        await q.message.reply_text(
-            t(lang, "ai_agent_intro"), reply_markup=kb.ai_agent_keyboard(lang),
-        )
-        return
-    if data == "ai_agent_human":
-        pending = PENDING.get(uid)
-        category = str(pending[1]) if pending and pending[0] == "ai_agent" else "other"
-        customer_ai_service.clear_history(uid)
-        if category in {"payment", "delivery", "invalid_content", "order"}:
-            PENDING[uid] = ("support_category", category)
-            await q.message.reply_text(
-                t(lang, "support_choose_order"),
-                reply_markup=kb.support_order_keyboard(lang, db.list_user_orders(uid, limit=8)),
-            )
-        else:
-            PENDING[uid] = ("support", category)
-            await q.message.reply_text(t(lang, "support_prompt"))
         return
     if data == "language":
         await q.message.reply_text(t(lang, "choose_lang"), reply_markup=kb.lang_keyboard())
@@ -2917,6 +2897,9 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith((
         "confirm_buy:", "pay_wallet:", "pay_binance:", "pay_bybit:", "pay_bsc:", "pay_polygon:",
     )):
+        if data.startswith("pay_bybit:"):
+            await q.message.reply_text(t(lang, "bybit_disabled"))
+            return
         payment_method = (
             "wallet" if data.startswith("pay_wallet:")
             else "usdt_bsc" if data.startswith("pay_bsc:")
@@ -3246,6 +3229,9 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
     """Cr?e la commande apr?s confirmation de l'utilisateur."""
     q = update.callback_query
     uid = q.from_user.id
+    if payment_method == "bybit":
+        await q.message.reply_text(t(lang, "bybit_disabled"))
+        return
     parts = q.data.split(":")
     offer_id = int(parts[1])
     qty = int(parts[2]) if len(parts) > 2 else 1
@@ -3306,25 +3292,6 @@ async def handle_pending_input(update, context, lang):
     uid = update.effective_user.id
     kind, ref = PENDING.get(uid)
     text = update.message.text.strip()
-
-    if kind == "ai_agent":
-        try:
-            result = await asyncio.to_thread(
-                customer_ai_service.chat, uid, text, lang,
-            )
-        except customer_ai_service.CustomerAIError as exc:
-            log.warning("Customer AI unavailable for user %s: %s", uid, exc)
-            await update.message.reply_text(
-                t(lang, "ai_agent_unavailable"),
-                reply_markup=kb.ai_agent_keyboard(lang, needs_human=True),
-            )
-            return
-        PENDING[uid] = ("ai_agent", result["category"])
-        await update.message.reply_text(
-            result["reply"],
-            reply_markup=kb.ai_agent_keyboard(lang, result["needs_human"]),
-        )
-        return
 
     if kind == "adm_lovable_trial" and uid == ADMIN_ID:
         customer_id = int(ref)

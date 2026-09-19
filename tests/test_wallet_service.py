@@ -26,34 +26,20 @@ def test_topup_txid_cannot_be_used_twice(mock_mongodb, monkeypatch):
     assert wallet_service.claim_transfer(99, "TXID_UNIQUE_123")["code"] == "already_used"
 
 
-def test_bybit_topup_credits_verified_real_amount(mock_mongodb, monkeypatch):
-    monkeypatch.setattr(
-        wallet_service,
-        "verify_bybit_incoming_transfer",
-        lambda *_args, **_kwargs: {
-            "status": "confirmed", "amount": 7.25, "currency": "USDT",
-        },
-    )
-
+def test_bybit_topup_is_disabled(mock_mongodb):
     result = wallet_service.claim_transfer(
         42, "BYBIT_TOPUP_123", provider="bybit",
     )
 
-    assert result["status"] == "confirmed"
-    assert result["amount"] == 7.25
-    assert result["balance"] == 7.25
-    saved = mock_mongodb.wallet_topups.find_one({"txid": "BYBIT_TOPUP_123"})
-    assert saved["provider"] == "bybit"
+    assert result == {
+        "status": "failed",
+        "code": "provider_disabled",
+        "message": "Bybit deposits are disabled.",
+    }
+    assert mock_mongodb.wallet_topups.count_documents({}) == 0
 
 
-def test_topup_txid_cannot_be_reused_across_providers(mock_mongodb, monkeypatch):
-    monkeypatch.setattr(
-        wallet_service,
-        "verify_bybit_incoming_transfer",
-        lambda *_args, **_kwargs: {
-            "status": "confirmed", "amount": 2.0, "currency": "USDT",
-        },
-    )
+def test_disabled_bybit_does_not_claim_txid(mock_mongodb, monkeypatch):
     monkeypatch.setattr(
         wallet_service,
         "verify_incoming_transfer",
@@ -64,10 +50,10 @@ def test_topup_txid_cannot_be_reused_across_providers(mock_mongodb, monkeypatch)
 
     assert wallet_service.claim_transfer(
         42, "SHARED_TXID_123", provider="bybit",
-    )["status"] == "confirmed"
+    )["code"] == "provider_disabled"
     assert wallet_service.claim_transfer(
         42, "SHARED_TXID_123", provider="binance",
-    )["code"] == "already_used"
+    )["status"] == "confirmed"
 
 
 def test_onchain_topup_is_automatically_verified_and_credited(

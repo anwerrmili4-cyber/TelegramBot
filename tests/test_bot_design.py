@@ -2207,7 +2207,7 @@ def test_topup_keyboard_offers_supported_deposit_methods(mock_mongodb):
         for button in row
     ]
 
-    assert callbacks == ["topup_bybit", "topup_txid", "topup_onchain", "home"]
+    assert callbacks == ["topup_txid", "topup_onchain", "home"]
 
 
 def test_topup_instructions_are_txid_only(mock_mongodb):
@@ -2220,7 +2220,6 @@ def test_topup_instructions_are_txid_only(mock_mongodb):
 def test_every_topup_button_supports_exact_premium_emoji(mock_mongodb):
     overrides = {
         "topup_verify_txid": ("Verify Binance TXID", "premium-topup-txid"),
-        "topup_verify_bybit": ("Verify Bybit TXID", "premium-topup-bybit"),
         "topup_home_button": ("Home", "premium-topup-home"),
     }
     for key, (label, emoji_id) in overrides.items():
@@ -2235,7 +2234,6 @@ def test_every_topup_button_supports_exact_premium_emoji(mock_mongodb):
     }
 
     assert buttons["topup_txid"].icon_custom_emoji_id == "premium-topup-txid"
-    assert buttons["topup_bybit"].icon_custom_emoji_id == "premium-topup-bybit"
     assert buttons["home"].icon_custom_emoji_id == "premium-topup-home"
     assert buttons["topup_txid"].text == "Verify Binance TXID"
 

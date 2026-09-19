@@ -68,7 +68,7 @@ def test_sanitize_actions_allows_only_known_entities_and_actions():
 def test_chat_rejects_model_outside_configured_list(monkeypatch):
     monkeypatch.setattr(service, "AI_COMPARISON_MODELS", ("allowed-model",))
 
-    with pytest.raises(service.AdminAIError, match="Modèle non autorisé"):
+    with pytest.raises(service.AdminAIError, match="Model not allowed"):
         service.chat([{"role": "user", "content": "Résumé"}], "other-model", dashboard_data())
 
 
@@ -90,7 +90,7 @@ def test_agentrouter_unauthorized_client_error_is_explicit():
     assert "Railway" in message
 
 
-def test_chat_returns_sanitized_suggestions(monkeypatch):
+def test_chat_returns_sanitized_suggestions(monkeypatch, mock_mongodb):
     monkeypatch.setattr(service, "AI_COMPARISON_API_URL", "https://ai.example/v1/chat/completions")
     monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "test-token")
     monkeypatch.setattr(service, "AI_COMPARISON_MODELS", ("model-a",))
@@ -105,7 +105,7 @@ def test_chat_returns_sanitized_suggestions(monkeypatch):
 
         def read(self):
             result = {
-                "reply": "Le stock de Canva est faible.",
+                "reply": "Canva stock is low.",
                 "suggested_actions": [
                     {"action": "toggle_offer", "label": "Désactiver Canva", "parameters": {"offer_id": 11}},
                     {"action": "delete_everything", "parameters": {}},
@@ -118,10 +118,74 @@ def test_chat_returns_sanitized_suggestions(monkeypatch):
         return Response()
 
     monkeypatch.setattr(service, "urlopen", fake_urlopen)
-    result = service.chat([{"role": "user", "content": "Analyse le stock"}], "model-a", dashboard_data())
+    result = service.chat([{"role": "user", "content": "Analyze stock"}], "model-a", dashboard_data())
 
-    assert result["reply"] == "Le stock de Canva est faible."
+    assert result["reply"] == "Canva stock is low."
     assert [item["action"] for item in result["suggested_actions"]] == ["toggle_offer"]
     sent = json.dumps(captured["body"])
     assert "secret-delivery" not in sent
     assert "never-send-this" not in sent
+    assert "Always answer in English" in sent
+
+
+def test_database_context_covers_operational_records_but_redacts_credentials(mock_mongodb):
+    mock_mongodb.users.insert_one({
+        "telegram_id": 41, "username": "customer_41", "banned": False,
+    })
+    mock_mongodb.support_tickets.insert_one({
+        "id": 31, "user_id": 41, "status": "waiting_admin", "category": "delivery",
+    })
+    mock_mongodb.ticket_messages.insert_one({
+        "id": 32, "ticket_id": 31, "sender_type": "client",
+        "content": "My delivery has not arrived.",
+    })
+    mock_mongodb.orders.insert_one({
+        "id": 21, "user_id": 41, "status": "paid", "offer_name": "Canva 1m",
+        "delivery_text": "login@example.com:secret-password",
+    })
+    mock_mongodb.external_api_connectors.insert_one({
+        "id": 7, "name": "Partner", "encrypted_secret": "ciphertext-value",
+    })
+
+    context = service.admin_database_context("Tell me about ticket 31 and customer 41")
+    encoded = json.dumps(context)
+
+    assert context["collection_counts"]["users"] == 1
+    assert context["collection_counts"]["orders"] == 1
+    assert "customer_41" in encoded
+    assert "My delivery has not arrived." in encoded
+    assert "login@example.com:secret-password" not in encoded
+    assert "ciphertext-value" not in encoded
+    assert "[REDACTED]" in encoded
+
+
+def test_chat_uses_english_database_fallback_when_provider_is_blocked(
+    monkeypatch, mock_mongodb,
+):
+    mock_mongodb.orders.insert_one({
+        "id": 88, "user_id": 41, "status": "paid", "offer_name": "ChatGPT K12",
+        "total_price": 9,
+    })
+    monkeypatch.setattr(service, "AI_COMPARISON_API_URL", "https://ai.example/chat")
+    monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "test-token")
+    monkeypatch.setattr(service, "AI_COMPARISON_MODELS", ("model-a",))
+
+    def reject(request, timeout):
+        body = BytesIO(json.dumps({
+            "error": {"message": "unauthorized client detected"},
+        }).encode())
+        raise HTTPError(request.full_url, 401, "Unauthorized", {}, body)
+
+    monkeypatch.setattr(service, "urlopen", reject)
+
+    result = service.chat(
+        [{"role": "user", "content": "Tell me about order 88"}],
+        "model-a",
+        dashboard_data(),
+    )
+
+    assert result["ok"] is True
+    assert result["model"] == "database-fallback"
+    assert "direct read-only database lookup" in result["reply"]
+    assert '"id": 88' in result["reply"]
+    assert result["suggested_actions"] == []

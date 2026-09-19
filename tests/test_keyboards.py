@@ -132,9 +132,8 @@ def test_quantity_confirmation_keeps_selected_quantity():
 
     assert keyboard.inline_keyboard[0][0].callback_data == "pay_wallet:9:4"
     assert keyboard.inline_keyboard[1][0].callback_data == "pay_binance:9:4"
-    assert keyboard.inline_keyboard[2][0].callback_data == "pay_bybit:9:4"
-    assert keyboard.inline_keyboard[3][0].callback_data == "pay_bsc:9:4"
-    assert keyboard.inline_keyboard[4][0].callback_data == "pay_polygon:9:4"
+    assert keyboard.inline_keyboard[2][0].callback_data == "pay_bsc:9:4"
+    assert keyboard.inline_keyboard[3][0].callback_data == "pay_polygon:9:4"
 
 
 def test_onchain_payment_keyboard_submits_txid_without_auto_confirmation():

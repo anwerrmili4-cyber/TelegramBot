@@ -221,8 +221,7 @@ def channel_join_keyboard(lang):
 
 def support_category_keyboard(lang):
     categories = ("payment", "delivery", "invalid_content", "order", "affiliation", "other")
-    rows = [[translated_button(lang, "ai_agent_button", callback_data="ai_agent", style="primary")]]
-    rows += [
+    rows = [
         [translated_button(lang, f"support_category_{category}", callback_data=f"support_cat:{category}")]
         for category in categories
     ]
@@ -322,27 +321,9 @@ def topup_keyboard(lang, user_id=None):
         if int(user_id) == ADMIN_ID or (SOLANA_ALLOWED_USER_ID > 0 and int(user_id) == SOLANA_ALLOWED_USER_ID):
             rows.append([translated_button(lang, "topup_sol", callback_data="topup_sol", style="success")])
     rows.extend([
-        [translated_button(lang, "topup_verify_bybit", callback_data="topup_bybit", style="success")],
         [translated_button(lang, "topup_verify_txid", callback_data="topup_txid", style="success")],
         [translated_button(lang, "topup_onchain", callback_data="topup_onchain", style="success")],
         [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
-    ])
-    return InlineKeyboardMarkup(rows)
-
-
-def ai_agent_keyboard(lang, needs_human=False):
-    rows = []
-    if needs_human:
-        rows.append([translated_button(
-            lang, "ai_agent_human_button", callback_data="ai_agent_human", style="danger",
-        )])
-    else:
-        rows.append([translated_button(
-            lang, "ai_agent_human_button", callback_data="ai_agent_human",
-        )])
-    rows.append([
-        translated_button(lang, "ai_agent_end_button", callback_data="ai_agent_end"),
-        translated_button(lang, "btn_main_menu_short", callback_data="home"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -729,9 +710,9 @@ def profile_keyboard(lang):
 
 def withdrawal_methods_keyboard(lang):
     labels = {
-        "fr": [("Binance ID", "binance"), ("Bybit ID", "bybit"), ("Adresse USDT BEP20", "bep20")],
-        "en": [("Binance ID", "binance"), ("Bybit ID", "bybit"), ("USDT BEP20 address", "bep20")],
-        "ar": [("Binance ID", "binance"), ("Bybit ID", "bybit"), ("عنوان USDT BEP20", "bep20")],
+        "fr": [("Binance ID", "binance"), ("Adresse USDT BEP20", "bep20")],
+        "en": [("Binance ID", "binance"), ("USDT BEP20 address", "bep20")],
+        "ar": [("Binance ID", "binance"), ("عنوان USDT BEP20", "bep20")],
     }
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(label, callback_data=f"withdraw_method:{method}")]
@@ -1029,7 +1010,6 @@ def confirm_buy_keyboard(lang, offer_id, qty=1, preorder=False):
     return InlineKeyboardMarkup([
         [translated_button(lang, "btn_pay_wallet", callback_data=f"pay_wallet:{offer_id}:{qty}{suffix}")],
         [translated_button(lang, "btn_pay_binance", callback_data=f"pay_binance:{offer_id}:{qty}{suffix}")],
-        [translated_button(lang, "btn_pay_bybit", callback_data=f"pay_bybit:{offer_id}:{qty}{suffix}")],
         [translated_button(lang, "btn_pay_bsc", callback_data=f"pay_bsc:{offer_id}:{qty}{suffix}")],
         [translated_button(lang, "btn_pay_polygon", callback_data=f"pay_polygon:{offer_id}:{qty}{suffix}")],
         [translated_button(lang, "btn_cancel", callback_data=f"cancel_buy:{offer_id}")],

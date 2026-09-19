@@ -9,14 +9,14 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 import database as db
-from config import USDT_EVM_ADDRESS
-from onchain_verifier import verify_onchain_usdt
-from payment_verifier import verify_bybit_incoming_transfer, verify_incoming_transfer
 from config import (
     SOLANA_CHECK_WINDOW_SECONDS,
     SOLANA_DEPOSIT_ADDRESS,
     SOLANA_INITIAL_BALANCE_LAMPORTS,
+    USDT_EVM_ADDRESS,
 )
+from onchain_verifier import verify_onchain_usdt
+from payment_verifier import verify_bybit_incoming_transfer, verify_incoming_transfer
 from solana_verifier import fetch_sol_usdt_quote, get_recent_balance_increase, verify_solana_deposit
 
 
@@ -28,6 +28,11 @@ def balance_cents(user_id: int) -> int:
 def claim_transfer(user_id: int, txid: str, provider: str = "binance") -> dict[str, Any]:
     txid = (txid or "").strip()
     provider = str(provider or "binance").strip().lower()
+    if provider == "bybit":
+        return {
+            "status": "failed", "code": "provider_disabled",
+            "message": "Bybit deposits are disabled.",
+        }
     if provider not in {"binance", "bybit"}:
         return {"status": "failed", "code": "invalid_provider", "message": "Fournisseur invalide."}
     if not re.fullmatch(r"[A-Za-z0-9_-]{6,128}", txid):
