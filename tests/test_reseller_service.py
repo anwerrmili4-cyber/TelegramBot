@@ -1181,6 +1181,110 @@ def test_ventebot_purchase_is_idempotent_and_delivers_order_items(
     assert fulfillment["supplier_order_id"] == "712"
 
 
+def test_phagia_request_uses_bearer_authentication(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"success":true,"data":[]}'
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(reseller_service, "PHAGIA_API_KEY", "private-test-key")
+    monkeypatch.setattr(reseller_service, "PHAGIA_API_BASE", "https://phagia.example")
+    monkeypatch.setattr(reseller_service, "urlopen", fake_urlopen)
+
+    reseller_service._phagia_request_json("/api/v2/client/products")
+
+    request, timeout = requests[0]
+    assert timeout == 20
+    assert request.full_url == "https://phagia.example/api/v2/client/products"
+    assert request.get_header("Authorization") == "Bearer private-test-key"
+
+
+def test_phagia_catalog_maps_wallet_and_common_product_fields(
+    monkeypatch, mock_mongodb,
+):
+    def fake_request(path, **_kwargs):
+        if path == "/api/v2/client/wallet":
+            return {"success": True, "data": {"balance": 25.75}}
+        return {
+            "success": True,
+            "data": {
+                "products": [{
+                    "id": 81,
+                    "title": "Premium account",
+                    "description": "Instant delivery",
+                    "reseller_price": 1.25,
+                    "stock": 9,
+                    "currency": "USDT",
+                }],
+            },
+        }
+
+    monkeypatch.setattr(reseller_service, "_phagia_request_json", fake_request)
+
+    result = reseller_service.catalog("phagia")
+
+    assert result["provider"] == "phagia"
+    assert result["supplier_name"] == "Shop Phá Giá"
+    assert result["balance"] == 25.75
+    assert result["products"][0]["id"] == "81"
+    assert result["products"][0]["name"] == "Premium account"
+    assert result["products"][0]["wholesale_price"] == 1.25
+    assert result["products"][0]["stock"] == 9
+    assert reseller_service.provider_bot_username("phagia") == "tailieudenphagiabot"
+
+
+def test_phagia_purchase_uses_only_documented_order_fields(
+    monkeypatch, mock_mongodb,
+):
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append((path, kwargs))
+        return {
+            "success": True,
+            "data": {
+                "id": 991,
+                "items": [{"account_data": "login:password"}],
+            },
+        }
+
+    monkeypatch.setattr(reseller_service, "_phagia_request_json", fake_request)
+    offer_id = db.add_offer(
+        db.add_service("Shop Phá Giá", "📦"),
+        "Premium account",
+        2.0,
+        1,
+        supplier_provider="phagia",
+        supplier_product_id="81",
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 102,
+        "user_id": 456,
+        "offer_id": offer_id,
+        "qty": 1,
+        "status": "payment_confirmed",
+    })
+
+    assert reseller_service.fulfill_paid_order(102) == ["login:password"]
+    assert calls == [("/api/v2/client/orders", {
+        "method": "POST",
+        "body": {"product_id": 81, "quantity": 1},
+    })]
+    fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 102})
+    assert fulfillment["supplier_order_id"] == "991"
+
+
 def test_restock_detection_baselines_then_reports_only_increases(monkeypatch, mock_mongodb):
     offer_id = db.add_offer(
         service_id=db.add_service("API stock", "📦"),
@@ -1329,6 +1433,7 @@ def test_all_supplier_bot_usernames_are_registered():
         "toolorax": "TooloraXbot",
         "cgpt_active": "RichAIStoreBot",
         "ventebot": "storeBatmanBot",
+        "phagia": "tailieudenphagiabot",
     }
 
 

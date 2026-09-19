@@ -213,6 +213,12 @@ VENTEBOT_API_BASE: str = normalized_http_url(first_env_value(
 ))
 
 # ---------------------------------------------------------------------------
+# Fournisseur revendeur Shop Phá Giá (API client v2)
+# ---------------------------------------------------------------------------
+PHAGIA_API_KEY: str = env_value("HP_PHAGIA_API_KEY")
+PHAGIA_API_BASE: str = normalized_http_url(env_value("HP_PHAGIA_API_BASE"))
+
+# ---------------------------------------------------------------------------
 # Fournisseur revendeur UPIBot Shop
 # ---------------------------------------------------------------------------
 UPIBOT_API_KEY: str = env_value("HP_UPIBOT_API_KEY")

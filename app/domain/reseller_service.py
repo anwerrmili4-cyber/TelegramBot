@@ -28,6 +28,8 @@ from config import (
     NASTELE_API_BASE,
     NASTELE_API_KEY,
     NASTELE_VND_PER_USDT,
+    PHAGIA_API_BASE,
+    PHAGIA_API_KEY,
     SHAMEKH_API_BASE,
     SHAMEKH_API_KEY,
     SHOP_CRON_API_KEY,
@@ -53,6 +55,7 @@ UPIBOT_PROVIDER = "upibot"
 TOOLORAX_PROVIDER = "toolorax"
 CGPT_ACTIVE_PROVIDER = "cgpt_active"
 VENTEBOT_PROVIDER = "ventebot"
+PHAGIA_PROVIDER = "phagia"
 CGPT_ACTIVE_DISPLAY_NAME = "Rich AI Store"
 PROVIDER_DISPLAY_NAMES = {
     PROVIDER: "MailReader",
@@ -67,6 +70,7 @@ PROVIDER_DISPLAY_NAMES = {
     TOOLORAX_PROVIDER: "ToolOraX Store Bot",
     CGPT_ACTIVE_PROVIDER: CGPT_ACTIVE_DISPLAY_NAME,
     VENTEBOT_PROVIDER: "VenteBot",
+    PHAGIA_PROVIDER: "Shop Phá Giá",
 }
 PROVIDER_BOT_USERNAMES = {
     PROVIDER: "dodistore_bot",
@@ -81,6 +85,7 @@ PROVIDER_BOT_USERNAMES = {
     TOOLORAX_PROVIDER: "TooloraXbot",
     CGPT_ACTIVE_PROVIDER: "RichAIStoreBot",
     VENTEBOT_PROVIDER: "storeBatmanBot",
+    PHAGIA_PROVIDER: "tailieudenphagiabot",
 }
 SUPPORTED_PROVIDERS = {
     PROVIDER,
@@ -95,6 +100,7 @@ SUPPORTED_PROVIDERS = {
     TOOLORAX_PROVIDER,
     CGPT_ACTIVE_PROVIDER,
     VENTEBOT_PROVIDER,
+    PHAGIA_PROVIDER,
 }
 CANBOSO_PROVIDERS = {
     CANBOSO_PROVIDER,
@@ -772,6 +778,84 @@ def _ventebot_request_json(
     return payload
 
 
+def _phagia_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call Shop Phá Giá's documented client-v2 endpoints."""
+    if not PHAGIA_API_KEY:
+        raise ResellerApiError(
+            "Shop Phá Giá n’est pas configuré. Ajoutez HP_PHAGIA_API_KEY."
+        )
+    if not PHAGIA_API_BASE:
+        raise ResellerApiError(
+            "L’adresse API Shop Phá Giá manque. Ajoutez HP_PHAGIA_API_BASE "
+            "sans le chemin /api/v2/client."
+        )
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        f"{PHAGIA_API_BASE}{path}",
+        headers={
+            "Authorization": f"Bearer {PHAGIA_API_KEY}",
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+            "User-Agent": "BlackMarket-Reseller/1.0",
+        },
+        data=payload_bytes,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        error_payload: dict[str, Any] = {}
+        try:
+            decoded = json.loads(exc.read().decode("utf-8"))
+            if isinstance(decoded, dict):
+                error_payload = decoded
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        message = str(
+            error_payload.get("message")
+            or error_payload.get("detail")
+            or error_payload.get("error")
+            or ""
+        )[:300]
+        if exc.code in {401, 403}:
+            raise ResellerApiError(
+                "Clé API Shop Phá Giá refusée. Remplacez-la par une clé active."
+            ) from exc
+        if "balance" in message.lower() or "số dư" in message.lower():
+            raise ResellerOrderNotCreatedError(
+                message
+                or "Solde Shop Phá Giá insuffisant : aucune commande n’a été créée."
+            ) from exc
+        error_type = (
+            ResellerOrderNotCreatedError
+            if exc.code in {400, 402, 404, 409, 422}
+            else ResellerApiError
+        )
+        raise error_type(
+            message or f"Shop Phá Giá a répondu avec l’erreur HTTP {exc.code}."
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ResellerApiError("Shop Phá Giá est temporairement indisponible.") from exc
+    if isinstance(payload, list):
+        payload = {"data": payload}
+    if not isinstance(payload, dict):
+        raise ResellerApiError("Réponse Shop Phá Giá invalide.")
+    if payload.get("success") is False or payload.get("ok") is False:
+        message = str(
+            payload.get("message") or payload.get("error") or "Requête Shop Phá Giá refusée."
+        )[:300]
+        if "balance" in message.lower() or "số dư" in message.lower():
+            raise ResellerOrderNotCreatedError(message)
+        raise ResellerApiError(message)
+    return payload
+
+
 def provider_summaries() -> list[dict[str, Any]]:
     """Return safe provider metadata without exposing credentials."""
     return [
@@ -846,6 +930,15 @@ def provider_summaries() -> list[dict[str, Any]]:
             "name": "VenteBot",
             "configured": bool(VENTEBOT_API_KEY),
             "documentation_url": f"{VENTEBOT_API_BASE}/api/swagger/",
+        },
+        {
+            "id": PHAGIA_PROVIDER,
+            "name": "Shop Phá Giá",
+            "configured": bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
+            "documentation_url": (
+                f"{PHAGIA_API_BASE}/api/v2/client/openapi.json"
+                if PHAGIA_API_BASE else ""
+            ),
         },
     ]
 
@@ -928,11 +1021,33 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         account = _ventebot_request_json("/api/reseller/me")
         reseller = {"balance": account.get("wallet_balance", 0)}
         supplier_name = "VenteBot"
+    elif provider == PHAGIA_PROVIDER:
+        payload = _phagia_request_json("/api/v2/client/products")
+        wallet_payload = _phagia_request_json("/api/v2/client/wallet")
+        wallet_data = (
+            wallet_payload.get("data")
+            if isinstance(wallet_payload.get("data"), dict)
+            else wallet_payload.get("wallet")
+            if isinstance(wallet_payload.get("wallet"), dict)
+            else wallet_payload
+        )
+        reseller = {"balance": wallet_data.get("balance", wallet_data.get("amount", 0))}
+        supplier_name = "Shop Phá Giá"
     else:
         payload = _request_json("/api/reseller/products")
         reseller = payload.get("reseller") if isinstance(payload.get("reseller"), dict) else {}
         supplier_name = str(reseller.get("name") or "MailReader")
     raw_products = payload.get("products")
+    if provider == PHAGIA_PROVIDER and not isinstance(raw_products, list):
+        phagia_data = payload.get("data")
+        if isinstance(phagia_data, dict):
+            raw_products = (
+                phagia_data.get("products")
+                or phagia_data.get("items")
+                or phagia_data.get("data")
+            )
+        elif isinstance(phagia_data, list):
+            raw_products = phagia_data
     if provider in {KAKAO_PROVIDER, VEX_PROVIDER, NASTELE_PROVIDER} and not isinstance(raw_products, list):
         raw_products = payload.get("data")
     if not isinstance(raw_products, list):
@@ -993,6 +1108,18 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 )))
             if provider == VENTEBOT_PROVIDER:
                 wholesale = float(Decimal(str(raw.get("price_usd") or 0)))
+            elif provider == PHAGIA_PROVIDER:
+                phagia_price = (
+                    raw.get("reseller_price")
+                    or raw.get("wholesale_price")
+                    or raw.get("price")
+                    or raw.get("unit_price")
+                    or raw.get("price_usd")
+                    or 0
+                )
+                if isinstance(phagia_price, dict):
+                    phagia_price = phagia_price.get("amount", 0)
+                wholesale = float(Decimal(str(phagia_price)))
         except (InvalidOperation, ValueError):
             wholesale = 0.0
         stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
@@ -1004,6 +1131,11 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         unlimited_stock = (
             (provider == CGPT_ACTIVE_PROVIDER and raw.get("stock") is None)
             or (provider == VENTEBOT_PROVIDER and raw.get("stock") is None)
+            or (
+                provider == PHAGIA_PROVIDER
+                and raw.get("stock") is None
+                and raw.get("stock_count") is None
+            )
             or (provider in {UPIBOT_PROVIDER, TOOLORAX_PROVIDER} and raw.get("stock_count") is None)
             or (provider == PROVIDER and raw.get("stock") is None)
             or raw.get("stock") == -1
@@ -1014,7 +1146,10 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             if provider in CANBOSO_PROVIDERS
             else (
                 (raw.get("stock_count") or 0)
-                if provider in {SHAMEKH_PROVIDER, UPIBOT_PROVIDER, TOOLORAX_PROVIDER}
+                if (
+                    provider in {SHAMEKH_PROVIDER, UPIBOT_PROVIDER, TOOLORAX_PROVIDER}
+                    or (provider == PHAGIA_PROVIDER and raw.get("stock_count") is not None)
+                )
                 else raw.get("stock") or 0
             )
         ))
@@ -1040,6 +1175,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             "name": str(
                 raw.get("name_en")
                 or raw.get("product_name")
+                or raw.get("title")
                 or raw.get("name")
                 or product_id
             )[:200],
@@ -1091,7 +1227,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             "service_id": config.get("service_id"),
             "local_offer_id": local_offer_id,
             "display_name": config.get("display_name") or str(
-                raw.get("product_name") or raw.get("name") or product_id
+                raw.get("product_name") or raw.get("title") or raw.get("name") or product_id
             )[:200],
             "service_name": (
                 (native_service or {}).get("name")
@@ -1161,6 +1297,7 @@ def detect_restock_events() -> dict[str, Any]:
         TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
+        PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
     }
     events: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -1217,6 +1354,7 @@ def detect_supplier_price_changes() -> dict[str, Any]:
         TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
+        PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
     }
     changes: list[dict[str, Any]] = []
     flash_sales: list[dict[str, Any]] = []
@@ -1330,6 +1468,7 @@ def save_catalog_product(
         TOOLORAX_PROVIDER: "Produit API ToolOraX Store Bot",
         CGPT_ACTIVE_PROVIDER: "Produit API Rich AI Store",
         VENTEBOT_PROVIDER: "Produit API VenteBot",
+        PHAGIA_PROVIDER: "Produit API Shop Phá Giá",
     }.get(provider, "Produit API MailReader")
     warranty = str(warranty or default_warranty).strip()[:250]
     delivery_delay = str(delivery_delay or "Instantané après confirmation").strip()[:120]
@@ -1696,6 +1835,20 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                     "quantity": int(order.get("qty") or 1),
                     "customer_reference": f"telegram_user_{int(order['user_id'])}",
                     "idempotency_key": external_order_id,
+                },
+            )
+        elif provider == PHAGIA_PROVIDER:
+            supplier_product_id = str(offer["supplier_product_id"])
+            response = _phagia_request_json(
+                "/api/v2/client/orders",
+                method="POST",
+                body={
+                    "product_id": (
+                        int(supplier_product_id)
+                        if supplier_product_id.isdigit()
+                        else supplier_product_id
+                    ),
+                    "quantity": int(order.get("qty") or 1),
                 },
             )
         else:
