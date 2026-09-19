@@ -5316,9 +5316,8 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if data.startswith("adm_stock_products:"):
-        page = int(data.split(":", 1)[1])
-        text, markup = admin.available_products_screen(page)
+    if data == "adm_stock_products" or data.startswith("adm_stock_products:"):
+        text, markup = admin.available_products_screen()
         await show_callback_screen(
             q,
             text,

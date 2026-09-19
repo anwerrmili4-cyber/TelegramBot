@@ -772,7 +772,7 @@ def test_admin_panel_has_available_products_button(mock_mongodb):
         for button in row
     ]
 
-    assert "adm_stock_products:0" in callbacks
+    assert "adm_stock_products" in callbacks
 
 
 def test_available_products_screen_uses_catalog_premium_emoji(monkeypatch):
@@ -798,7 +798,7 @@ def test_available_products_screen_uses_catalog_premium_emoji(monkeypatch):
         },
     ])
 
-    text, keyboard = admin.available_products_screen(0)
+    text, keyboard = admin.available_products_screen()
 
     assert '<tg-emoji emoji-id="4960958119057295483">🔥</tg-emoji>' in text
     assert "<b>Adobe - Creative Cloud Pro</b> | 1 month | <b>$6</b>" in text
