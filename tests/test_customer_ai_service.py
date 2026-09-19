@@ -2,6 +2,8 @@ import json
 from io import BytesIO
 from urllib.error import HTTPError
 
+import pytest
+
 from app.domain import customer_ai_service as service
 
 
@@ -10,17 +12,26 @@ def seed_customer_context(mock_mongodb):
     mock_mongodb.offers.insert_one({
         "id": 11,
         "service_id": 1,
-        "name": "Pro plan",
+        "name": "ChatGPT K12",
+        "description": "Private ChatGPT workspace with managed access.",
         "price": 8,
         "stock": 2,
         "active": 1,
+        "currency": "USDT",
+        "period_value": 30,
+        "period_unit": "days",
+        "warranty_value": 7,
+        "warranty_unit": "days",
+        "delivery_delay": "Within one hour",
+        "bulk_quantity": 5,
+        "bulk_unit_price": 6.5,
         "inventory": ["catalog-secret"],
     })
     mock_mongodb.orders.insert_many([
         {
             "id": 21,
             "user_id": 42,
-            "offer_name": "Pro plan",
+            "offer_name": "ChatGPT K12",
             "service_name": "AI",
             "status": "paid",
             "qty": 1,
@@ -50,6 +61,8 @@ def test_safe_context_contains_only_requesting_customers_sanitized_orders(mock_m
     assert "other-customer-secret" not in encoded
     assert "private-txid" not in encoded
     assert "catalog-secret" not in encoded
+    assert "Private ChatGPT workspace" in encoded
+    assert '"delivery_delay": "Within one hour"' in encoded
 
 
 def test_chat_uses_short_memory_and_returns_sanitized_handoff(monkeypatch, mock_mongodb):
@@ -155,3 +168,45 @@ def test_chat_falls_back_to_private_order_summary_without_api_key(monkeypatch, m
     assert "#21" in result["reply"]
     assert "#22" not in result["reply"]
     assert "private-txid" not in result["reply"]
+
+
+def test_local_fallback_returns_complete_named_product_information(monkeypatch, mock_mongodb):
+    seed_customer_context(mock_mongodb)
+    monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "")
+
+    result = service.chat(42, "whats the description of chatgpt k12", "en")
+
+    assert result["needs_human"] is False
+    assert "ChatGPT K12" in result["reply"]
+    assert "Private ChatGPT workspace with managed access." in result["reply"]
+    assert "8 USDT" in result["reply"]
+    assert "Stock: 2" in result["reply"]
+    assert "Duration: 30 days" in result["reply"]
+    assert "Warranty: 7 days" in result["reply"]
+    assert "Delivery: Within one hour" in result["reply"]
+    assert "6.5 USDT × 5+" in result["reply"]
+    assert "catalog-secret" not in result["reply"]
+
+
+@pytest.mark.parametrize(("message", "preferred", "expected"), [
+    ("Hello, show me the products", "en", "en"),
+    ("Bonjour, montrez-moi les produits", "en", "fr"),
+    ("مرحبا، أريد رؤية المنتجات", "en", "ar"),
+    ("你好，我想查看产品", "en", "zh"),
+    ("Xin chào, tôi muốn xem sản phẩm", "en", "vi"),
+    ("नमस्ते, मुझे उत्पाद देखना है", "en", "hi"),
+    ("السلام علیکم، مجھے مصنوعات دیکھنی ہیں", "en", "ur"),
+])
+def test_detects_supported_customer_language(message, preferred, expected):
+    assert service.detect_language(message, preferred) == expected
+
+
+def test_chinese_order_question_gets_chinese_local_answer(monkeypatch, mock_mongodb):
+    seed_customer_context(mock_mongodb)
+    monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "")
+
+    result = service.chat(42, "我的订单状态", "en")
+
+    assert result["needs_human"] is False
+    assert "您最近的订单" in result["reply"]
+    assert "#21" in result["reply"]
