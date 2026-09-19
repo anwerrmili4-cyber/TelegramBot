@@ -2724,12 +2724,6 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await cmd_support(update, context)
         return
     if data == "ai_agent":
-        if not customer_ai_service.is_configured():
-            await q.message.reply_text(
-                t(lang, "ai_agent_unavailable"),
-                reply_markup=kb.support_category_keyboard(lang),
-            )
-            return
         customer_ai_service.clear_history(uid)
         PENDING[uid] = ("ai_agent", "other")
         await q.message.reply_text(

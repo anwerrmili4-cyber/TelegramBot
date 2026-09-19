@@ -1,4 +1,6 @@
 import json
+from io import BytesIO
+from urllib.error import HTTPError
 
 from app.domain import customer_ai_service as service
 
@@ -121,3 +123,35 @@ def test_chat_rejects_unknown_handoff_category(monkeypatch, mock_mongodb):
 
     assert result["needs_human"] is False
     assert result["category"] == "other"
+
+
+def test_chat_falls_back_locally_when_provider_rejects_client(monkeypatch, mock_mongodb):
+    seed_customer_context(mock_mongodb)
+    monkeypatch.setattr(service, "AI_COMPARISON_API_URL", "https://ai.example/chat")
+    monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "token")
+    monkeypatch.setattr(service, "AI_COMPARISON_MODEL", "model-a")
+    error_body = BytesIO(json.dumps({
+        "error": {"message": "unauthorized client detected"},
+    }).encode())
+
+    def reject(request, timeout):
+        raise HTTPError(request.full_url, 401, "Unauthorized", {}, error_body)
+
+    monkeypatch.setattr(service, "urlopen", reject)
+
+    result = service.chat(42, "hello", "en")
+
+    assert result["needs_human"] is False
+    assert "Hello" in result["reply"]
+
+
+def test_chat_falls_back_to_private_order_summary_without_api_key(monkeypatch, mock_mongodb):
+    seed_customer_context(mock_mongodb)
+    monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "")
+
+    result = service.chat(42, "What is my order status?", "en")
+
+    assert result["needs_human"] is False
+    assert "#21" in result["reply"]
+    assert "#22" not in result["reply"]
+    assert "private-txid" not in result["reply"]

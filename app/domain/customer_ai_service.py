@@ -8,6 +8,7 @@ cannot execute purchases, payments, refunds, deliveries, or account changes.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -31,6 +32,8 @@ MAX_MESSAGE_CHARS = 2_000
 ALLOWED_CATEGORIES = {
     "payment", "delivery", "invalid_content", "order", "affiliation", "other",
 }
+
+log = logging.getLogger(__name__)
 
 
 class CustomerAIError(RuntimeError):
@@ -148,17 +151,108 @@ def _provider_error(exc: HTTPError) -> str:
     return "The AI assistant could not answer right now. Please try human support."
 
 
+def _local_fallback(context: dict[str, Any], text: str, lang: str) -> dict[str, Any]:
+    """Provide useful, read-only help when the remote model is unavailable."""
+    normalized = text.casefold()
+    words = set(re.findall(r"[\w-]{3,}", normalized, flags=re.UNICODE))
+    greetings = {"hello", "hey", "hi", "bonjour", "salut", "مرحبا", "السلام"}
+    payment_words = {"payment", "paid", "pay", "txid", "refund", "paiement", "remboursement", "دفع", "استرداد"}
+    delivery_words = {"delivery", "deliver", "missing", "livraison", "reçu", "recu", "تسليم", "استلام"}
+    invalid_words = {"invalid", "wrong", "password", "login", "invalide", "incorrect", "خاطئ", "صالح"}
+    order_words = {"order", "orders", "status", "commande", "commandes", "statut", "طلب", "طلبات", "حالة"}
+    catalog_words = {"catalog", "product", "products", "price", "stock", "catalogue", "produit", "prix", "منتج", "سعر", "مخزون"}
+
+    translations = {
+        "en": {
+            "hello": "Hello! I can help you check products, prices, stock, and the status of your orders. What would you like to know?",
+            "human": "This needs a human support agent. Tap “Talk to human support” below so the team can review it safely.",
+            "no_orders": "I could not find any orders on your account.",
+            "orders": "Your recent orders:\n{items}",
+            "catalog": "Available products:\n{items}\n\nOpen the catalog for the full list and purchase options.",
+            "unknown": "I can help with product prices, stock, and your order status. For payment, delivery, refund, or account changes, use human support.",
+        },
+        "fr": {
+            "hello": "Bonjour ! Je peux vous aider à vérifier les produits, les prix, le stock et le statut de vos commandes. Que souhaitez-vous savoir ?",
+            "human": "Cette demande nécessite le support humain. Appuyez sur « Parler au support humain » ci-dessous afin que l’équipe puisse la vérifier.",
+            "no_orders": "Je n’ai trouvé aucune commande sur votre compte.",
+            "orders": "Vos commandes récentes :\n{items}",
+            "catalog": "Produits disponibles :\n{items}\n\nOuvrez le catalogue pour voir la liste complète et les options d’achat.",
+            "unknown": "Je peux vous renseigner sur les prix, le stock et le statut de vos commandes. Pour un paiement, une livraison, un remboursement ou une modification, utilisez le support humain.",
+        },
+        "ar": {
+            "hello": "مرحبًا! يمكنني مساعدتك في معرفة المنتجات والأسعار والمخزون وحالة طلباتك. ماذا تريد أن تعرف؟",
+            "human": "هذه المشكلة تحتاج إلى الدعم البشري. اضغط على «التحدث مع الدعم البشري» أدناه ليتمكن الفريق من مراجعتها بأمان.",
+            "no_orders": "لم أجد أي طلبات في حسابك.",
+            "orders": "طلباتك الأخيرة:\n{items}",
+            "catalog": "المنتجات المتاحة:\n{items}\n\nافتح الكتالوج لرؤية القائمة الكاملة وخيارات الشراء.",
+            "unknown": "يمكنني مساعدتك في الأسعار والمخزون وحالة الطلب. لمشاكل الدفع أو التسليم أو الاسترداد أو تعديل الحساب، استخدم الدعم البشري.",
+        },
+    }
+    copy = translations.get(lang, translations["en"])
+
+    if words & invalid_words:
+        return {"reply": copy["human"], "needs_human": True, "category": "invalid_content"}
+    if words & payment_words:
+        return {"reply": copy["human"], "needs_human": True, "category": "payment"}
+    if words & delivery_words:
+        return {"reply": copy["human"], "needs_human": True, "category": "delivery"}
+    if words & order_words:
+        orders = context.get("customer_orders") or []
+        if not orders:
+            reply = copy["no_orders"]
+        else:
+            items = "\n".join(
+                f"• #{order['id']} — {order['offer']} — {str(order['status']).replace('_', ' ')}"
+                for order in orders[:5]
+            )
+            reply = copy["orders"].format(items=items)
+        return {"reply": reply, "needs_human": False, "category": "order"}
+    if words & catalog_words:
+        offers = [item for item in context.get("catalog") or [] if item.get("stock") == "available"]
+        meaningful = words - catalog_words
+        matches = [
+            item for item in offers
+            if meaningful & set(re.findall(
+                r"[\w-]{3,}", f"{item.get('service', '')} {item.get('name', '')}".casefold(),
+                flags=re.UNICODE,
+            ))
+        ]
+        selected = (matches or offers)[:8]
+        if selected:
+            currency = context.get("shop", {}).get("currency") or CURRENCY
+            items = "\n".join(
+                f"• {item['service']} — {item['name']}: {item['price']} {currency}"
+                for item in selected
+            )
+            return {
+                "reply": copy["catalog"].format(items=items),
+                "needs_human": False,
+                "category": "other",
+            }
+    if words & greetings or len(words) <= 2:
+        return {"reply": copy["hello"], "needs_human": False, "category": "other"}
+    return {"reply": copy["unknown"], "needs_human": True, "category": "other"}
+
+
+def _remembered_fallback(
+    user_id: int, text: str, context: dict[str, Any], lang: str,
+) -> dict[str, Any]:
+    result = _local_fallback(context, text, lang)
+    _remember(user_id, "user", text)
+    _remember(user_id, "assistant", result["reply"])
+    return result
+
+
 def chat(user_id: int, message: Any, lang: str = "en") -> dict[str, Any]:
     """Answer one customer message and return a safe human-handoff hint."""
     text = str(message or "").strip()[:MAX_MESSAGE_CHARS]
     if not text:
         raise CustomerAIError("Please send a question.")
-    if not is_configured():
-        raise CustomerAIError("The AI assistant is not configured yet.")
-    if not re.fullmatch(r"[A-Za-z0-9-]+", AI_COMPARISON_AUTH_HEADER.strip()):
-        raise CustomerAIError("The AI assistant is temporarily unavailable.")
-
     context = safe_customer_context(int(user_id))
+    if not is_configured():
+        return _remembered_fallback(int(user_id), text, context, lang)
+    if not re.fullmatch(r"[A-Za-z0-9-]+", AI_COMPARISON_AUTH_HEADER.strip()):
+        return _remembered_fallback(int(user_id), text, context, lang)
     language = {"ar": "Arabic", "fr": "French", "en": "English"}.get(lang, "English")
     system = (
         f"You are the read-only customer support assistant for {SHOP_NAME}, a Telegram shop. "
@@ -207,13 +301,14 @@ def chat(user_id: int, message: Any, lang: str = "en") -> dict[str, Any]:
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I)
         result = json.loads(raw)
     except HTTPError as exc:
-        raise CustomerAIError(_provider_error(exc)) from exc
+        log.warning("Customer AI provider rejected request: %s", _provider_error(exc))
+        return _remembered_fallback(int(user_id), text, context, lang)
     except (URLError, TimeoutError) as exc:
-        raise CustomerAIError(
-            "The AI assistant could not connect. Please try again or contact human support."
-        ) from exc
+        log.warning("Customer AI provider connection failed: %s", type(exc).__name__)
+        return _remembered_fallback(int(user_id), text, context, lang)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        raise CustomerAIError("The AI assistant returned an invalid response.") from exc
+        log.warning("Customer AI provider returned invalid output: %s", type(exc).__name__)
+        return _remembered_fallback(int(user_id), text, context, lang)
 
     reply = str(result.get("reply") or "").strip()[:4_000]
     if not reply:
