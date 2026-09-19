@@ -765,6 +765,47 @@ def test_admin_panel_has_custom_announcement_button():
     assert "adm_broadcast_message" in callbacks
 
 
+def test_admin_panel_has_available_products_button(mock_mongodb):
+    callbacks = [
+        button.callback_data
+        for row in admin.admin_panel_keyboard().inline_keyboard
+        for button in row
+    ]
+
+    assert "adm_stock_products:0" in callbacks
+
+
+def test_available_products_screen_uses_catalog_premium_emoji(monkeypatch):
+    monkeypatch.setattr(admin.db, "list_catalog_offers", lambda: [
+        {
+            "id": 43,
+            "service_name": "Adobe",
+            "service_emoji": "🔥",
+            "service_custom_emoji_id": "4960958119057295483",
+            "name": "Creative Cloud Pro",
+            "period_value": 1,
+            "period_unit": "months",
+            "price": 6,
+            "currency": "USDT",
+            "stock": 1,
+        },
+        {
+            "id": 44,
+            "service_name": "Adobe",
+            "name": "Out of stock",
+            "price": 2,
+            "stock": 0,
+        },
+    ])
+
+    text, keyboard = admin.available_products_screen(0)
+
+    assert '<tg-emoji emoji-id="4960958119057295483">🔥</tg-emoji>' in text
+    assert "<b>Adobe - Creative Cloud Pro</b> | 1 month | <b>$6</b>" in text
+    assert "Out of stock" not in text
+    assert keyboard.inline_keyboard[-1][0].callback_data == "adm_panel"
+
+
 def test_admin_panel_has_live_warranty_payment_and_pending_api_sections(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer"})
     mock_mongodb.offers.insert_one({

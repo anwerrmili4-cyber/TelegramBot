@@ -5316,6 +5316,17 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith("adm_stock_products:"):
+        page = int(data.split(":", 1)[1])
+        text, markup = admin.available_products_screen(page)
+        await show_callback_screen(
+            q,
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+        )
+        return
+
     if data == "adm_withdrawals":
         withdrawals = db.list_withdrawals(status="pending", limit=50)
         await show_callback_screen(

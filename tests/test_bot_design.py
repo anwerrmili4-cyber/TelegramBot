@@ -2058,6 +2058,31 @@ def test_admin_from_photo_caption_sends_a_new_text_panel(monkeypatch):
     query.edit_message_reply_markup.assert_awaited_once_with(reply_markup=None)
 
 
+def test_admin_available_products_button_opens_stock_screen(monkeypatch):
+    markup = Mock()
+    message = SimpleNamespace(text="Admin panel")
+    query = SimpleNamespace(
+        data="adm_stock_products:2",
+        from_user=SimpleNamespace(id=999),
+        message=message,
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.ADMIN_ID", 999)
+    monkeypatch.setattr(
+        "bot.admin.available_products_screen",
+        lambda page: (f"Available page {page}", markup),
+    )
+
+    asyncio.run(cb_admin(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    query.edit_message_text.assert_awaited_once_with(
+        "Available page 2",
+        parse_mode=ParseMode.HTML,
+        reply_markup=markup,
+    )
+
+
 def test_cancel_payment_button_cancels_the_customers_order(monkeypatch):
     query = SimpleNamespace(
         data="cancel_buy:17",

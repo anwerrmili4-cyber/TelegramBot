@@ -167,6 +167,7 @@ def admin_panel_keyboard():
         InlineKeyboardButton(f"⏳ Livraison API en attente ({pending_api_count})", callback_data="adm_api_pending:0", style="danger" if pending_api_count else "success"),
         InlineKeyboardButton("🎫 Tickets support", callback_data="adm_tickets", style="primary"),
         InlineKeyboardButton("📦 Catalogue", callback_data="adm_catalog", style="primary"),
+        InlineKeyboardButton("📋 Produits en stock", callback_data="adm_stock_products:0", style="success"),
         InlineKeyboardButton("👥 Activité utilisateurs", callback_data="adm_user_activity", style="primary"),
         InlineKeyboardButton("📢 Créer une annonce", callback_data="adm_broadcast_message", style="primary"),
         InlineKeyboardButton("🧹 Historique annonces", callback_data="adm_broadcast_history", style="primary"),
@@ -186,6 +187,47 @@ def _admin_page_navigation(prefix, page, total, page_size):
     if page < total_pages - 1:
         row.append(InlineKeyboardButton("➡️", callback_data=f"{prefix}:{page + 1}"))
     return row
+
+
+def available_products_screen(page=0, page_size=15):
+    """Render active, in-stock offers using their catalog Premium emoji."""
+    offers = [
+        offer for offer in db.list_catalog_offers()
+        if bool(offer.get("unlimited_stock")) or int(offer.get("stock") or 0) > 0
+    ]
+    total = len(offers)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = max(0, min(int(page), total_pages - 1))
+    visible = offers[page * page_size:(page + 1) * page_size]
+    lines = [
+        "📋 <b>Available products (in stock)</b>",
+        f"Total: <b>{total}</b> · Page <b>{page + 1}/{total_pages}</b>",
+        "",
+    ]
+    for offer in visible:
+        fallback = str(offer.get("service_emoji") or "📦").strip() or "📦"
+        icon_id = _safe_custom_emoji_id(offer.get("service_custom_emoji_id"))
+        icon = (
+            f'<tg-emoji emoji-id="{html.escape(icon_id)}">{html.escape(fallback)}</tg-emoji>'
+            if icon_id else html.escape(fallback)
+        )
+        catalog_name = html.escape(str(offer.get("service_name") or "Catalog").strip())
+        offer_name = html.escape(str(offer.get("name") or f"Offer #{offer.get('id')}").strip())
+        duration = html.escape(warranty_service.offer_period_label(offer, "en"))
+        try:
+            amount = f"{float(offer.get('price')):.2f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            amount = str(offer.get("price") or "—")
+        currency = str(offer.get("currency") or CURRENCY).upper()
+        price = f"${amount}" if currency in {"USD", "USDT"} else f"{amount} {html.escape(currency)}"
+        lines.append(
+            f"{icon} <b>{catalog_name} - {offer_name}</b> | {duration} | <b>{price}</b>"
+        )
+    if not visible:
+        lines.append("No active products are currently in stock.")
+    rows = [_admin_page_navigation("adm_stock_products", page, total, page_size)]
+    rows.append([InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel")])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
 def _admin_timestamp(value):
