@@ -137,10 +137,22 @@ def test_quantity_confirmation_keeps_selected_quantity():
 
 
 def test_onchain_payment_keyboard_submits_txid_without_auto_confirmation():
-    keyboard = kb.onchain_payment_keyboard("en", 81)
+    keyboard = kb.onchain_payment_keyboard("en", 81, "0xabc")
 
-    assert keyboard.inline_keyboard[0][0].callback_data == "paid_chain:81"
-    assert keyboard.inline_keyboard[1][0].callback_data == "cancel_buy:81"
+    assert keyboard.inline_keyboard[0][0].text == "📋 Copy address"
+    assert keyboard.inline_keyboard[0][0].copy_text.text == "0xabc"
+    assert keyboard.inline_keyboard[1][0].callback_data == "paid_chain:81"
+    assert keyboard.inline_keyboard[2][0].callback_data == "change_payment:81"
+    assert keyboard.inline_keyboard[3][0].callback_data == "home"
+
+
+def test_onchain_topup_keyboard_copies_address_and_keeps_navigation():
+    keyboard = kb.topup_provider_keyboard("en", "polygon", "0xabc")
+
+    assert keyboard.inline_keyboard[0][0].text == "📋 Copy address"
+    assert keyboard.inline_keyboard[0][0].copy_text.text == "0xabc"
+    assert keyboard.inline_keyboard[1][0].callback_data == "topup"
+    assert keyboard.inline_keyboard[2][0].callback_data == "home"
 
 
 def test_manual_delivery_keyboard_separates_message_from_order_delivery():
@@ -1158,6 +1170,31 @@ def test_premium_offer_icon_replaces_unicode_emoji_in_offer_button(monkeypatch):
 
     assert button.text == "Chat GPT Plus | 30 days | $5"
     assert button.icon_custom_emoji_id == "premium-chatgpt"
+
+
+def test_adobe_creative_cloud_button_falls_back_to_service_icon(monkeypatch):
+    adobe_icon = "4960958119057295483"
+    monkeypatch.setattr(kb.db, "get_service", lambda _service_id: {
+        "id": 33,
+        "name": "Adobe",
+        "emoji": "🔥",
+        "custom_emoji_id": adobe_icon,
+    })
+    monkeypatch.setattr(kb.db, "list_offers", lambda _service_id: [{
+        "id": 43,
+        "service_id": 33,
+        "name": "Creative Cloud Pro",
+        "price": 6.0,
+        "stock": 1,
+        "custom_emoji_id": "🔥",
+    }])
+    monkeypatch.setattr(kb.db, "get_text_override_icon", lambda *_args: "")
+
+    button = kb.offers_keyboard("en", 33).inline_keyboard[0][0]
+
+    assert button.text == "Creative Cloud Pro | 30 days | $6"
+    assert button.callback_data == "off:43"
+    assert button.icon_custom_emoji_id == adobe_icon
 
 
 def test_ticket_conversation_keyboard_can_close_or_go_home():

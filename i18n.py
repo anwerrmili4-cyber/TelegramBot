@@ -123,6 +123,11 @@ TRANSLATIONS = {
         "en": "⛔ Bybit is disabled. Use Binance Pay or an on-chain method.",
         "ar": "⛔ تم تعطيل Bybit. استخدم Binance Pay أو إحدى طرق الدفع على الشبكة.",
     },
+    "payment_order_unavailable": {
+        "fr": "Cette commande ne peut plus changer de méthode de paiement.",
+        "en": "This order can no longer change its payment method.",
+        "ar": "لم يعد من الممكن تغيير طريقة الدفع لهذا الطلب.",
+    },
     "topup_onchain": {"fr": "⛓️ Onchain", "en": "⛓️ Onchain", "ar": "⛓️ على السلسلة"},
     "topup_sol": {"fr": "◎ Solana (SOL)", "en": "◎ Solana (SOL)", "ar": "◎ سولانا (SOL)"},
     "topup_sol_check": {"fr": "✅ Vérifier le paiement", "en": "✅ Check payment", "ar": "✅ تحقق من الدفع"},

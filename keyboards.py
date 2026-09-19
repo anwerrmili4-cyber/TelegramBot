@@ -136,6 +136,15 @@ def clean_button_name(value):
     return pattern.sub("", text).strip()
 
 
+def valid_custom_emoji_id(*values):
+    """Return the first Telegram-compatible custom emoji ID from ``values``."""
+    for value in values:
+        candidate = str(value or "").strip()
+        if candidate and candidate.isascii():
+            return candidate
+    return None
+
+
 def offer_period_label(lang, offer):
     """Return the compact period label shown between name and price."""
     return warranty_service.offer_period_label(offer, lang)
@@ -164,13 +173,16 @@ def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
     if str(service_name).strip().casefold() == "methods":
         period = ""
 
-    icon_id = str(
+    raw_icon_id = str(
         offer.get("custom_emoji_id") or offer.get("service_custom_emoji_id") or ""
     ).strip()
+    icon_id = valid_custom_emoji_id(
+        offer.get("custom_emoji_id"), offer.get("service_custom_emoji_id")
+    )
     emoji = ""
-    if not (icon_id and icon_id.isascii()):
+    if not icon_id:
         emoji = str(
-            (icon_id if icon_id else offer.get("emoji") or offer.get("service_emoji"))
+            (raw_icon_id if raw_icon_id else offer.get("emoji") or offer.get("service_emoji"))
             or ""
         ).strip()
         if not emoji:
@@ -329,8 +341,11 @@ def topup_keyboard(lang, user_id=None):
 
 
 def topup_provider_keyboard(lang, provider, pay_id):
+    copy_label = "📋 Copy address" if provider in {"solana", "bsc", "polygon"} else (
+        "📋 Copy UID" if provider == "bybit" else "📋 Copy ID"
+    )
     rows = [[InlineKeyboardButton(
-            "📋 Copy address" if provider == "solana" else ("📋 Copy UID" if provider == "bybit" else "📋 Copy ID"),
+            copy_label,
             copy_text=CopyTextButton(str(pay_id)), style="primary")]]
     if provider == "solana":
         rows.append([translated_button(lang, "topup_sol_check", callback_data="solana_check_payment", style="success")])
@@ -474,10 +489,9 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
                 )
                 service_name = (offer.get("service_name") or f"Service #{sid}").strip()
                 clean_name = clean_button_name(service_name) or service_name
-                service_icon = (
-                    offer.get("service_custom_emoji_id")
-                    or offer.get("custom_emoji_id")
-                    or None
+                service_icon = valid_custom_emoji_id(
+                    offer.get("service_custom_emoji_id"),
+                    offer.get("custom_emoji_id"),
                 )
                 # Telegram renders the custom icon before the text.  Do not also
                 # put the service's Unicode emoji in the label or two icons appear.
@@ -512,11 +526,10 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
                 ),
                 callback_data=cb_data,
                 style=btn_style,
-                icon_custom_emoji_id=(
-                    stock_icon
-                    or offer.get("custom_emoji_id")
-                    or offer.get("service_custom_emoji_id")
-                    or None
+                icon_custom_emoji_id=valid_custom_emoji_id(
+                    stock_icon,
+                    offer.get("custom_emoji_id"),
+                    offer.get("service_custom_emoji_id"),
                 ),
             )])
 
@@ -590,11 +603,10 @@ def offers_keyboard(lang, service_id):
         safe_offer["service_custom_emoji_id"] = (
             service.get("custom_emoji_id") if service else None
         )
-        button_icon = (
-            db.get_text_override_icon("stock_label", lang)
-            or off.get("custom_emoji_id")
-            or (service.get("custom_emoji_id") if service else None)
-            or None
+        button_icon = valid_custom_emoji_id(
+            db.get_text_override_icon("stock_label", lang),
+            off.get("custom_emoji_id"),
+            service.get("custom_emoji_id") if service else None,
         )
         if emoji and not button_icon and not off_name.startswith(emoji):
             safe_offer["name"] = f"{emoji} {clean_name}"
@@ -1016,18 +1028,24 @@ def confirm_buy_keyboard(lang, offer_id, qty=1, preorder=False):
     ])
 
 
-def onchain_payment_keyboard(lang, order_id):
+def onchain_payment_keyboard(lang, order_id, address=""):
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "📋 Copy address",
+            copy_text=CopyTextButton(str(address)),
+            style="primary",
+        )],
         [translated_button(
             lang, "btn_submit_chain_txid",
             callback_data=f"paid_chain:{int(order_id)}",
             style="success",
         )],
-        [translated_button(
-            lang, "btn_cancel_order",
-            callback_data=f"cancel_buy:{int(order_id)}",
-            style="danger",
+        [InlineKeyboardButton(
+            "🔄 Change Method",
+            callback_data=f"change_payment:{int(order_id)}",
+            style="primary",
         )],
+        [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
     ])
 
 

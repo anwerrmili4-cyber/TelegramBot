@@ -45,6 +45,7 @@ from bot import (
     notify_successful_referral,
     numbered_delivery_content,
     on_text_menu,
+    onchain_payment_screen,
     order_service_groups,
     orders_text_export,
     premium_customer_text,
@@ -56,6 +57,7 @@ from bot import (
     text_with_custom_emoji_tokens,
     text_without_custom_emojis,
     top_selling_products_text,
+    topup_onchain_screen,
 )
 from i18n import t
 
@@ -2216,6 +2218,43 @@ def test_topup_instructions_are_txid_only(mock_mongodb):
     assert "Memo" not in message
     assert "DEPOSIT" in message
     assert "456" not in message
+
+
+@pytest.mark.parametrize(("network", "label", "suffix"), [
+    ("bsc", "BSC (BEP20)", "97955"),
+    ("polygon", "Polygon", "58e8f"),
+])
+def test_onchain_topup_uses_binance_style_card(network, label, suffix):
+    message = topup_onchain_screen("en", network, 6)
+
+    assert f"USDT TOP UP — {label}" in message
+    assert "How to deposit" in message
+    assert "Send exactly <b>6.00 USDT</b>" in message
+    assert "Paste the TXID here in this chat" in message
+    assert "Auto-verify and instant credit" in message
+    assert f"ends in <b>{suffix}</b>" in message
+    assert "within 30 minutes" in message
+
+
+@pytest.mark.parametrize(("method", "label", "suffix"), [
+    ("usdt_bsc", "BSC (BEP20)", "97955"),
+    ("usdt_polygon", "Polygon", "58e8f"),
+])
+def test_onchain_order_payment_uses_binance_style_card(method, label, suffix):
+    message = onchain_payment_screen("en", {
+        "id": 81,
+        "offer_name": "ChatGPT K12",
+        "qty": 1,
+        "total_price": 6,
+        "payment_method": method,
+    })
+
+    assert f"USDT PAYMENT — {label}" in message
+    assert "ChatGPT K12" in message
+    assert "Order</b>\n#81" in message
+    assert "Send exactly <b>6.00 USDT</b>" in message
+    assert "Tap Submit TXID and paste it" in message
+    assert f"ends in <b>{suffix}</b>" in message
 
 def test_every_topup_button_supports_exact_premium_emoji(mock_mongodb):
     overrides = {

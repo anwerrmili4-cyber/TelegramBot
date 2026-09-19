@@ -1817,6 +1817,29 @@ def topup_provider_screen(lang, provider):
     )
 
 
+def topup_onchain_screen(lang, network, amount):
+    """Render BSC/Polygon top-ups in the same compact card style as Binance Pay."""
+    is_bsc = str(network).lower() == "bsc"
+    network_label = "BSC (BEP20)" if is_bsc else "Polygon"
+    contract_suffix = "97955" if is_bsc else "58e8f"
+    return (
+        f"<b>USDT TOP UP — {network_label}</b>\n\n"
+        f"<b>Wallet Address</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
+        "👇 <i>Tap the button below to copy</i>\n\n"
+        "<b>How to deposit</b>\n"
+        "<blockquote>1️⃣ Copy the wallet address above\n"
+        f"2️⃣ Send exactly <b>{float(amount):.2f} USDT</b>\n"
+        f"3️⃣ Select only the <b>{network_label}</b> network\n"
+        "4️⃣ Copy the Transaction ID (TXID/hash)\n"
+        "5️⃣ Paste the TXID here in this chat\n"
+        "6️⃣ Auto-verify and instant credit ⚡</blockquote>\n\n"
+        f"<blockquote>⚠️ <b>{network_label} only:</b> verify that the USDT contract "
+        f"address ends in <b>{contract_suffix}</b>.</blockquote>\n\n"
+        "<blockquote>⏰ Complete payment within 30 minutes of opening this screen "
+        "for auto-credit.</blockquote>"
+    )
+
+
 async def cmd_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_my_orders(update, context, lang_of(update.effective_user.id))
 
@@ -2991,9 +3014,9 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await q.message.reply_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN if onchain else ParseMode.HTML,
+                parse_mode=ParseMode.HTML,
                 reply_markup=(
-                    kb.onchain_payment_keyboard(lang, oid)
+                    kb.onchain_payment_keyboard(lang, oid, USDT_EVM_ADDRESS)
                     if onchain
                     else kb.paid_keyboard(
                         lang, oid, BINANCE_PAY_ID,
@@ -3001,6 +3024,25 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                 ),
             )
+        return
+    if data.startswith("change_payment:"):
+        order_id = int(data.split(":", 1)[1])
+        order = db.get_order(order_id)
+        if not order or int(order.get("user_id") or 0) != uid:
+            await q.message.reply_text(t(lang, "not_for_you"))
+            return
+        if order.get("status") != "pending_payment":
+            await q.message.reply_text(t(lang, "payment_order_unavailable"))
+            return
+        order_service.cancel_order(order_id, reason="Customer changed payment method")
+        await send_buy_confirmation(
+            q.edit_message_text,
+            uid,
+            int(order["offer_id"]),
+            int(order.get("qty") or 1),
+            lang,
+            preorder=bool(order.get("is_preorder")),
+        )
         return
     if data.startswith("delivery_ok:"):
         order_id = int(data.split(":")[1])
@@ -3212,16 +3254,24 @@ async def handle_buy_confirmation(update, context, lang, preorder=False):
 def onchain_payment_screen(lang, order):
     method = order.get("payment_method")
     network = "BSC (BEP20)" if method == "usdt_bsc" else "Polygon"
-    contract_warning = (
-        "Verify that the USDT contract address ends in *97955*."
-        if method == "usdt_bsc"
-        else "Verify that the USDT contract address ends in *58e8f*."
-    )
-    return t(
-        lang, "onchain_order_created",
-        oid=order["id"], offer=order["offer_name"], qty=order["qty"],
-        total=f"{order['total_price']:.2f}", network=network,
-        address=USDT_EVM_ADDRESS, contract_warning=contract_warning,
+    contract_suffix = "97955" if method == "usdt_bsc" else "58e8f"
+    return (
+        f"<b>USDT PAYMENT — {network}</b>\n\n"
+        f"<b>Product</b>\n{html.escape(str(order.get('offer_name') or '—'))}\n"
+        f"<b>Order</b>\n#{int(order['id'])}\n\n"
+        f"<b>Wallet Address</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
+        "👇 <i>Tap the button below to copy</i>\n\n"
+        "<b>How to pay</b>\n"
+        "<blockquote>1️⃣ Copy the wallet address above\n"
+        f"2️⃣ Send exactly <b>{float(order['total_price']):.2f} USDT</b>\n"
+        f"3️⃣ Select only the <b>{network}</b> network\n"
+        "4️⃣ Copy the Transaction ID (TXID/hash)\n"
+        "5️⃣ Tap Submit TXID and paste it in this chat\n"
+        "6️⃣ Auto-verify and begin delivery ⚡</blockquote>\n\n"
+        f"<blockquote>⚠️ <b>{network} only:</b> verify that the USDT contract "
+        f"address ends in <b>{contract_suffix}</b>.</blockquote>\n\n"
+        "<blockquote>⏰ Complete payment within 30 minutes of opening this screen "
+        "for automatic verification.</blockquote>"
     )
 
 
@@ -3267,8 +3317,10 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
     if payment_method in {"usdt_bsc", "usdt_polygon"}:
         await q.edit_message_text(
             onchain_payment_screen(lang, order),
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=kb.onchain_payment_keyboard(lang, order["id"]),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb.onchain_payment_keyboard(
+                lang, order["id"], USDT_EVM_ADDRESS,
+            ),
         )
         return
 
@@ -3926,25 +3978,16 @@ async def handle_pending_input(update, context, lang):
             await update.message.reply_text("⚠️ Enter a valid amount of at least 1 USDT.")
             return
         network = str(ref)
-        network_label = "BSC (BEP20)" if network == "bsc" else "Polygon"
-        contract_warning = (
-            "Verify that the USDT contract address ends in *97955*."
-            if network == "bsc"
-            else "Verify that the USDT contract address ends in *58e8f*."
-        )
         PENDING[uid] = (
             "await_onchain_topup_txid",
             {"network": network, "amount": amount, "created_at": int(time.time())},
         )
         await update.message.reply_text(
-            t(
-                lang, "topup_onchain_instructions",
-                network=network_label,
-                amount=f"{amount:.2f}",
-                address=USDT_EVM_ADDRESS,
-                contract_warning=contract_warning,
+            topup_onchain_screen(lang, network, amount),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb.topup_provider_keyboard(
+                lang, network, USDT_EVM_ADDRESS,
             ),
-            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
