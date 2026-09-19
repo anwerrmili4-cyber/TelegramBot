@@ -123,6 +123,39 @@ def test_product_description_removes_code_font_but_keeps_rich_text(monkeypatch):
     assert "<b>Important</b>" in preview
 
 
+def test_methods_card_hides_duration_warranty_and_stock_with_premium_icons(
+    monkeypatch, mock_mongodb,
+):
+    monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
+    bot.db.set_text_override(
+        "offer_card_template", "en",
+        '[[HTML]]<b>{name}</b>\n'
+        '<tg-emoji emoji-id="duration-icon">📅</tg-emoji> Duration: 30 days\n'
+        '<tg-emoji emoji-id="warranty-icon">🛡</tg-emoji> Warranty: {warranty}\n'
+        '<tg-emoji emoji-id="price-icon">💰</tg-emoji> Price: {price} {currency}\n'
+        '<tg-emoji emoji-id="stock-icon">📦</tg-emoji> Stock: {stock}\n'
+        '💬 Description:\n{description}',
+    )
+
+    preview = compact_offer_text({
+        "id": 10,
+        "name": "PaysafeCard Playstore Purchase",
+        "service_name": "Methods",
+        "price": 3.5,
+        "stock": 1,
+        "period_days": 30,
+        "warranty_days": 0,
+        "description": "Full instructions",
+    }, "en")
+
+    assert "Methods — PaysafeCard Playstore Purchase" in preview
+    assert "Duration:" not in preview
+    assert "Warranty:" not in preview
+    assert "Stock:" not in preview
+    assert "Price: <b>3.50</b> <b>USDT</b>" in preview
+    assert "Full instructions" in preview
+
+
 def test_bulk_row_uses_editable_components_and_hides_when_disabled(monkeypatch, mock_mongodb):
     monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
     template = (

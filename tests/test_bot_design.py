@@ -1590,7 +1590,12 @@ def test_premium_channel_html_also_renders_admin_markdown_markers(mock_mongodb):
 
 
 def test_methods_announcement_strips_legacy_html_but_keeps_premium_description_emoji():
-    text = "💫 <b>NEW DROP</b>\n📅 Period: <b>30 Days</b>\n🛡 Warranty: <b>Full</b>\n📦 Stock: <b>1</b>"
+    text = (
+        "💫 <b>NEW DROP</b>\n"
+        '<tg-emoji emoji-id="premium-duration">📅</tg-emoji> Duration: <b>30 Days</b>\n'
+        '<tg-emoji emoji-id="premium-warranty">🛡</tg-emoji> Warranty: <b>Full</b>\n'
+        '<tg-emoji emoji-id="premium-stock">📦</tg-emoji> Stock: <b>1</b>'
+    )
     description = (
         '[[HTML]]<tg-emoji emoji-id="premium-method">💡</tg-emoji> '
         '<b>Instant access</b> <code>legacy-wrapper</code>'
@@ -1602,7 +1607,7 @@ def test_methods_announcement_strips_legacy_html_but_keeps_premium_description_e
         {"description": description},
     )
 
-    assert "Period:" not in rendered
+    assert "Duration:" not in rendered
     assert "Warranty:" not in rendered
     assert "Stock:" not in rendered
     assert '💬 <b>Description:</b> <tg-emoji emoji-id="premium-method">💡</tg-emoji>' in rendered

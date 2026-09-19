@@ -545,7 +545,8 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             line for line in protected_template.splitlines()
             if "{bulk_price}" not in line and "{bulk_quantity}" not in line
         )
-    if catalog_name.casefold() == "methods":
+    is_methods_catalog = catalog_name.casefold() == "methods"
+    if is_methods_catalog:
         protected_template = "\n".join(
             line for line in protected_template.splitlines()
             if not any(
@@ -579,6 +580,8 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     rendered = render_stored_rich_text(protected_template)
     for token, value in tokens.items():
         rendered = rendered.replace(token, value)
+    if is_methods_catalog:
+        rendered = _without_method_detail_rows(rendered)
     return rendered
 
 
@@ -984,6 +987,32 @@ def _announcement_plain(value):
     return str(value or "").replace("*", "").replace("_", " ").replace("`", "").strip()
 
 
+_METHOD_HIDDEN_DETAIL_LABELS = (
+    "duration", "period", "warranty", "stock",
+    "durée", "duree", "période", "periode", "garantie",
+    "المدة", "الفترة", "الضمان", "المخزون",
+)
+
+
+def _is_method_detail_row(line):
+    """Recognize detail rows even when their icon is a Premium emoji tag."""
+    visible = html.unescape(re.sub(r"<[^>]+>", "", str(line or ""))).strip()
+    # Drop leading Unicode emoji/punctuation and inspect the visible label.
+    visible = re.sub(r"^[^0-9A-Za-zÀ-ÖØ-öø-ÿ\u0600-\u06ff]+", "", visible).casefold()
+    return any(
+        visible == label or visible.startswith(f"{label}:") or visible.startswith(f"{label} :")
+        for label in _METHOD_HIDDEN_DETAIL_LABELS
+    )
+
+
+def _without_method_detail_rows(text):
+    """Remove duration, warranty and stock rows from a Methods message/card."""
+    return "\n".join(
+        line for line in str(text or "").splitlines()
+        if not _is_method_detail_row(line)
+    ).strip()
+
+
 def _method_announcement_description(value):
     """Render a method description without leaking HTML source into adverts.
 
@@ -1023,11 +1052,7 @@ def _method_announcement_text(text, service, offer=None, lang="en"):
     rows = []
     inserted = False
     for line in str(text or "").splitlines():
-        normalized_line = line.casefold()
-        is_stock_row = line.lstrip().startswith("📦") and any(
-            marker in normalized_line for marker in ("stock", "المخزون")
-        )
-        if line.lstrip().startswith(("📅", "🛡")) or is_stock_row:
+        if _is_method_detail_row(line):
             if description_row and not inserted:
                 rows.append(description_row)
                 inserted = True
