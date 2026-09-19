@@ -495,6 +495,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered_description, flags=re.I,
     )
     warranty = warranty_service.offer_warranty_label(offer, lang=lang) or "NW"
+    period = warranty_service.offer_period_label(offer, lang=lang)
     try:
         raw_price = offer.get("price")
         price = "—" if raw_price is None or str(raw_price).strip() == "" else f"{float(raw_price):.2f}"
@@ -528,6 +529,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         "currency": f"<b>{html.escape(currency)}</b>",
         "stock": f"<b>{html.escape(str(stock_val))}</b>",
         "sold": f"<b>{html.escape(str(sold))}</b>",
+        "period": f"<b>{html.escape(str(period))}</b>",
         "warranty": f"<b>{html.escape(str(warranty)[:120])}</b>",
         "description": rendered_description,
         "bulk_price": f"<b>{bulk_price:.2f}</b>",
@@ -537,6 +539,21 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     # underscores in names such as ``{bulk_price_line}`` look like italics.
     tokens = {}
     protected_template = str(template)
+    is_methods_catalog = catalog_name.casefold() == "methods"
+    if "{period}" not in protected_template and not is_methods_catalog:
+        period_label = {"fr": "PÉRIODE", "ar": "المدة"}.get(lang, "PERIOD")
+        period_row = (
+            f"📅 <b>{period_label}:</b> {{period}}"
+            if protected_template.startswith(("[[HTML]]", "[HTML]"))
+            else f"📅 *{period_label}:* {{period}}"
+        )
+        template_lines = protected_template.splitlines()
+        price_index = next(
+            (index for index, line in enumerate(template_lines) if "{price}" in line),
+            0,
+        )
+        template_lines.insert(price_index + 1, period_row)
+        protected_template = "\n".join(template_lines)
     if bulk_enabled:
         protected_template = decompose_legacy_bulk_line(protected_template, lang)
     else:
@@ -545,7 +562,6 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             line for line in protected_template.splitlines()
             if "{bulk_price}" not in line and "{bulk_quantity}" not in line
         )
-    is_methods_catalog = catalog_name.casefold() == "methods"
     if is_methods_catalog:
         protected_template = "\n".join(
             line for line in protected_template.splitlines()
@@ -587,7 +603,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
 
 OFFER_CARD_TEMPLATE_VARIABLES = (
     "name", "catalog_name", "catalog_emoji", "product_name", "price", "currency", "stock", "sold", "warranty", "description",
-    "bulk_price", "bulk_quantity",
+    "period", "bulk_price", "bulk_quantity",
 )
 
 
@@ -618,7 +634,7 @@ def render_admin_text_preview(key: str, value: str, lang: str = "en") -> str:
             placeholder = "<b>{catalog_emoji} {catalog_name} — {product_name}</b>"
         elif variable in {
             "catalog_name", "catalog_emoji", "product_name", "price", "currency",
-            "stock", "sold", "warranty", "bulk_price", "bulk_quantity",
+            "stock", "sold", "period", "warranty", "bulk_price", "bulk_quantity",
         }:
             placeholder = f"<b>{{{variable}}}</b>"
         elif variable == "description":

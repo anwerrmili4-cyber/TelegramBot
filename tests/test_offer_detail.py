@@ -35,6 +35,7 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
 
     assert "<b>🤖 AI Tools — Perplexity Pro</b>" in preview
     assert "<b>PRIX:</b> <b>10.00</b> <b>USDT</b>" in preview
+    assert "<b>PÉRIODE:</b> <b>30 j</b>" in preview
     assert "<b>STOCK:</b> <b>12</b>" in preview
     assert "<b>VENDUS:</b> <b>7</b>" in preview
     assert "<b>GARANTIE:</b> <b>NW</b>" in preview
@@ -63,6 +64,7 @@ def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypat
     assert '<tg-emoji emoji-id="premium-product">💠</tg-emoji>' in preview
     assert "<b>📦 Pro &amp; Plus</b> · <b>14.00</b> <b>USDT</b>" in preview
     assert "Available: <b>7</b> · Purchased: <b>4</b>" in preview
+    assert "<b>PERIOD:</b> <b>30 days</b>" in preview
     assert "Ready &lt;b&gt;today&lt;/b&gt;" in preview
 
 
@@ -74,6 +76,7 @@ def test_product_card_admin_preview_preserves_variable_names(mock_mongodb):
     assert "<b>{bulk_quantity}</b>" in preview
     assert "{bulk_price_line}" not in preview
     assert "<b>{price}</b>" in preview
+    assert "<b>{period}</b>" in preview
     assert "<code>{description}</code>" not in preview
     assert "{description}" in preview
     assert "bulk<i>price</i>line" not in preview
