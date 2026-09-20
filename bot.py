@@ -84,6 +84,10 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 BROADCAST_BATCH_SIZE = max(1, min(20, int(os.environ.get("HP_BROADCAST_BATCH_SIZE", "15"))))
 BROADCAST_BATCH_DELAY = max(0.25, float(os.environ.get("HP_BROADCAST_BATCH_DELAY", "0.55")))
+TERMS_OF_SERVICE_URL = os.environ.get(
+    "HP_TERMS_OF_SERVICE_URL",
+    "https://black-market-terms.cli6u9v0quc9.chatgpt.site",
+).strip()
 _broadcast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="telegram-broadcast")
 _submitted_broadcast_jobs: set[int] = set()
 _broadcast_jobs_lock = threading.Lock()
@@ -1129,6 +1133,27 @@ def top_selling_products_text(lang: str) -> str:
     )
 
 
+def welcome_home_text(user=None) -> str:
+    """Build the text-only storefront welcome shown on every home visit."""
+    first_name = html.escape(str(getattr(user, "first_name", "") or "user").strip())
+    return (
+        "🛍️ <b>Welcome to Black Market!</b>\n\n"
+        f"Hey {first_name}! 👋\n\n"
+        "We offer premium digital products at the best prices. Fast, secure, and fully automated delivery.\n\n"
+        "<blockquote>🏪 <b>Shop</b> — Browse &amp; buy products\n"
+        "🤑 <b>Deposit</b> — Add funds to your wallet\n"
+        "👤 <b>My Profile</b> — Balance, orders &amp; settings\n"
+        "🔧 <b>Developer API</b> — Reseller &amp; automated ordering\n"
+        "⭐️ <b>Refer &amp; Earn</b> — Invite friends &amp; earn rewards</blockquote>\n\n"
+        "📣 Channel: <a href=\"https://t.me/+43XWbtOkISEwNTA1\">Join Channel</a>\n"
+        "📣 Group: <a href=\"https://t.me/+gQVG2lcmJXdkMjFl\">Join Group Chat</a>\n\n"
+        f"<b>Terms of Service:</b> <a href=\"{html.escape(TERMS_OF_SERVICE_URL, quote=True)}\">Read here</a>\n\n"
+        "<blockquote>⚠️ <b>Notification</b>\n"
+        "Support Time is 9:00PM to 12:00AM IST</blockquote>\n\n"
+        "Choose an option below to continue !"
+    )
+
+
 def _track_broadcast_message(context, sent_message, chat_id):
     """Persist an outgoing campaign message for later global deletion."""
     job_id = getattr(context, "broadcast_job_id", None)
@@ -1722,37 +1747,24 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_main_menu(update, context, lang, chat_id=None):
     uid = update.effective_user.id if update.effective_user else chat_id
-    text = top_selling_products_text(lang)
+    text = welcome_home_text(update.effective_user)
     target = update.message or (update.callback_query.message if update.callback_query else None)
     markup = kb.home_keyboard(lang, uid)
-    public_base_url = public_base_url_from_environment()
-    banner_source = (
-        os.environ.get("HP_WELCOME_PHOTO_FILE_ID", "").strip()
-        or f"{public_base_url}/assets/blackmarket-welcome-v2.png"
-    )
     if target:
-        try:
-            await target.reply_photo(
-                photo=banner_source,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=markup,
-            )
-        except Exception:
-            log.exception("Welcome image could not be sent; falling back to text")
-            await target.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        await target.reply_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
     else:
-        try:
-            await context.bot.send_photo(
-                chat_id,
-                photo=banner_source,
-                caption=text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=markup,
-            )
-        except Exception:
-            log.exception("Welcome image could not be sent; falling back to text")
-            await context.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML, reply_markup=markup)
+        await context.bot.send_message(
+            chat_id,
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
 
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -1360,7 +1360,7 @@ def test_main_menu_is_compact_and_actions_match_labels():
         [t("en", "menu_account"), t("en", "menu_affiliate")],
         [t("en", "menu_support"), t("en", "menu_lang")],
     ]
-    assert "account" in t("en", "menu_account").lower()
+    assert "profile" in t("en", "menu_account").lower()
 
 
 def test_admin_custom_emoji_is_extracted_from_telegram_entity():
@@ -1783,17 +1783,10 @@ def test_inline_home_avoids_actions_repeated_in_profile():
     keyboard = kb.home_keyboard("fr", user_id=42)
     callbacks = {button.callback_data for row in keyboard.inline_keyboard for button in row}
 
-    assert {"catalog", "topup", "account", "support", "language"} <= callbacks
+    assert {"catalog", "topup", "account", "reseller_api", "affiliate", "support", "language"} <= callbacks
     assert "lovable" not in callbacks
-    assert {"orders", "affiliate"}.isdisjoint(callbacks)
+    assert "orders" not in callbacks
     assert "help" not in callbacks
-
-
-def test_welcome_banner_is_packaged_with_the_bot():
-    banner = Path(__file__).resolve().parents[1] / "assets" / "blackmarket-welcome-v2.png"
-
-    assert banner.exists()
-    assert banner.stat().st_size > 100_000
 
 
 def test_top_selling_products_are_ranked_and_rendered_with_premium_emoji(monkeypatch):
@@ -1813,23 +1806,24 @@ def test_top_selling_products_are_ranked_and_rendered_with_premium_emoji(monkeyp
     assert '<tg-emoji emoji-id="12345">⭐</tg-emoji>' in text
 
 
-def test_main_menu_sends_welcome_banner_by_cached_url(monkeypatch):
+def test_main_menu_sends_text_only_welcome_with_public_terms(monkeypatch):
     message = SimpleNamespace(reply_photo=AsyncMock(), reply_text=AsyncMock())
     update = SimpleNamespace(
-        effective_user=SimpleNamespace(id=42),
+        effective_user=SimpleNamespace(id=42, first_name="Alex & Co"),
         message=message,
         callback_query=None,
     )
-    monkeypatch.setenv("HP_PUBLIC_BASE_URL", "https://shop.example")
-    monkeypatch.setattr("bot.db.shop_settings", lambda: {"welcome_message": ""})
 
     asyncio.run(send_main_menu(update, SimpleNamespace(), "en"))
 
-    message.reply_photo.assert_awaited_once()
-    assert message.reply_photo.await_args.kwargs["photo"] == (
-        "https://shop.example/assets/blackmarket-welcome-v2.png"
-    )
-    message.reply_text.assert_not_awaited()
+    message.reply_photo.assert_not_awaited()
+    message.reply_text.assert_awaited_once()
+    sent_text = message.reply_text.await_args.args[0]
+    assert "Welcome to Black Market" in sent_text
+    assert "Hey Alex &amp; Co!" in sent_text
+    assert "Developer API" in sent_text
+    assert "Refer &amp; Earn" in sent_text
+    assert "black-market-terms.cli6u9v0quc9.chatgpt.site" in sent_text
 
 
 def test_catalog_button_opens_the_services_catalog(monkeypatch):
