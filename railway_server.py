@@ -9,6 +9,7 @@ import signal
 import threading
 import time
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -28,6 +29,7 @@ class RailwayHTTPServer(ThreadingHTTPServer):
 
 
 _ADMIN_PREFIXES = ("/admin", "/admin-v2", "/admin-legacy")
+_TERMS_PAGE = Path(__file__).resolve().parent / "assets" / "terms.html"
 
 
 class PublicHandler(webhook.handler):
@@ -45,7 +47,15 @@ class PublicHandler(webhook.handler):
         self._reply(404, {"ok": False, "error": "NOT_FOUND"})
 
     def do_GET(self) -> None:
-        if urlsplit(self.path).path.startswith(_ADMIN_PREFIXES):
+        path = urlsplit(self.path).path.rstrip("/")
+        if path == "/terms":
+            self._reply_bytes(
+                200,
+                _TERMS_PAGE.read_bytes(),
+                "text/html; charset=utf-8",
+            )
+            return
+        if path.startswith(_ADMIN_PREFIXES):
             self._block_admin()
             return
         super().do_GET()

@@ -92,6 +92,22 @@ def test_public_port_redirects_admin_to_isolated_domain(monkeypatch):
     assert response.headers["Location"] == "https://admin.trustmarket.tn/admin"
 
 
+def test_public_port_serves_terms_page_from_railway():
+    with running_surface(railway_server.PublicHandler) as port:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("GET", "/terms")
+        response = connection.getresponse()
+        body = response.read()
+        connection.close()
+
+    assert response.status == 200
+    assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+    assert b"Terms of Service" in body
+    assert b"https://t.me/blackmarketBotChannel" in body
+    assert b"https://t.me/Blackmarketgrp" in body
+    assert b"https://t.me/b9hdc2" in body
+
+
 def test_admin_port_root_redirects_to_dashboard():
     with running_surface(railway_server.AdminHandler) as port:
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)

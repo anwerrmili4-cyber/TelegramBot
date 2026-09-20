@@ -86,7 +86,7 @@ BROADCAST_BATCH_SIZE = max(1, min(20, int(os.environ.get("HP_BROADCAST_BATCH_SIZ
 BROADCAST_BATCH_DELAY = max(0.25, float(os.environ.get("HP_BROADCAST_BATCH_DELAY", "0.55")))
 TERMS_OF_SERVICE_URL = os.environ.get(
     "HP_TERMS_OF_SERVICE_URL",
-    "https://black-market-terms.cli6u9v0quc9.chatgpt.site",
+    "https://blackmarket.up.railway.app/terms",
 ).strip()
 _broadcast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="telegram-broadcast")
 _submitted_broadcast_jobs: set[int] = set()

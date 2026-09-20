@@ -1823,7 +1823,7 @@ def test_main_menu_sends_text_only_welcome_with_public_terms(monkeypatch):
     assert "Hey Alex &amp; Co!" in sent_text
     assert "Developer API" in sent_text
     assert "Refer &amp; Earn" in sent_text
-    assert "black-market-terms.cli6u9v0quc9.chatgpt.site" in sent_text
+    assert "https://blackmarket.up.railway.app/terms" in sent_text
     assert "https://t.me/blackmarketBotChannel" in sent_text
     assert "https://t.me/Blackmarketgrp" in sent_text
     assert "https://t.me/b9hdc2" in sent_text
