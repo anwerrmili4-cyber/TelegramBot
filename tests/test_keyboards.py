@@ -946,16 +946,13 @@ def test_home_uses_green_shop_blue_actions_and_red_support(mock_mongodb):
     assert actions["support"].style == "danger"
     assert [len(row) for row in keyboard.inline_keyboard[:4]] == [1, 2, 2, 2]
     assert [button.callback_data for button in keyboard.inline_keyboard[1]] == [
-        "topup", "account",
-    ]
-    assert [button.callback_data for button in keyboard.inline_keyboard[2]] == [
-        "reseller_api", "affiliate",
+        "methods", "bot_like_mine",
     ]
     assert [button.callback_data for button in keyboard.inline_keyboard[3]] == [
         "language", "support",
     ]
-    assert actions["reseller_api"].text == "🔧 Developer API"
-    assert actions["affiliate"].text == "⭐️ Refer & Earn"
+    assert actions["bot_like_mine"].text == "🤖 BOT LIKE MINE"
+    assert actions["bot_like_mine"].style == "success"
     assert "lovable" not in actions
 
     shop = kb.catalog_offers_keyboard("en")
@@ -1022,7 +1019,7 @@ def test_customize_menu_has_global_product_card_editor():
     assert admin.text_category_for_key("offer_card_template") == "catalog"
 
 
-def test_reseller_api_is_available_from_home_profile_and_dashboard(mock_mongodb):
+def test_reseller_api_stays_in_profile_and_dashboard(mock_mongodb):
     home_callbacks = {
         button.callback_data
         for row in kb.home_keyboard("en", 42).inline_keyboard
@@ -1043,7 +1040,7 @@ def test_reseller_api_is_available_from_home_profile_and_dashboard(mock_mongodb)
         if button.callback_data
     }
 
-    assert "reseller_api" in home_callbacks
+    assert "reseller_api" not in home_callbacks
     assert "reseller_api" in profile_callbacks
     assert create_keyboard.inline_keyboard[0][0].callback_data == "reseller_api_create"
     assert create_keyboard.inline_keyboard[1][0].url == "https://shop.example/api/swagger"

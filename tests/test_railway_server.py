@@ -79,17 +79,71 @@ def test_public_port_blocks_admin_without_admin_domain(monkeypatch):
     assert b"NOT_FOUND" in body
 
 
-def test_public_port_redirects_admin_to_isolated_domain(monkeypatch):
+def test_public_port_never_discloses_isolated_admin_domain(monkeypatch):
     monkeypatch.setenv("HP_ADMIN_BASE_URL", "https://admin.trustmarket.tn/")
     with running_surface(railway_server.PublicHandler) as port:
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         connection.request("GET", "/admin/orders")
         response = connection.getresponse()
-        response.read()
+        body = response.read()
         connection.close()
 
-    assert response.status == 302
-    assert response.headers["Location"] == "https://admin.trustmarket.tn/admin"
+    assert response.status == 404
+    assert response.headers.get("Location") is None
+    assert b"admin.trustmarket.tn" not in body
+
+
+def test_public_port_blocks_encoded_and_traversal_admin_paths():
+    paths = (
+        "/terms/../admin",
+        "/terms/%2e%2e/admin",
+        "/%61dmin/api/data",
+        "/public%5c..%5cadmin-v2/orders",
+        "/admin-legacy",
+    )
+    with running_surface(railway_server.PublicHandler) as port:
+        for path in paths:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.request("GET", path)
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+
+            assert response.status == 404
+            assert b"NOT_FOUND" in body
+
+
+def test_public_port_blocks_admin_for_post_and_options():
+    requests = (
+        ("POST", "/admin/api/login", "{}", {"Content-Type": "application/json"}),
+        ("OPTIONS", "/admin/api/data", None, {}),
+    )
+    with running_surface(railway_server.PublicHandler) as port:
+        for method, path, body, headers in requests:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.request(method, path, body=body, headers=headers)
+            response = connection.getresponse()
+            payload = response.read()
+            connection.close()
+
+            assert response.status == 404
+            assert response.headers.get("Location") is None
+            assert response.headers["Cache-Control"] == "no-store"
+            assert b"NOT_FOUND" in payload
+
+
+def test_public_home_does_not_link_to_admin_panel():
+    with running_surface(railway_server.PublicHandler) as port:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        body = response.read()
+        connection.close()
+
+    assert response.status == 200
+    assert b'href="/admin' not in body
+    assert b"Dashboard commandes" not in body
+    assert response.headers["X-Frame-Options"] == "DENY"
 
 
 def test_public_port_serves_terms_page_from_railway():
@@ -102,6 +156,8 @@ def test_public_port_serves_terms_page_from_railway():
 
     assert response.status == 200
     assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert b"Terms of Service" in body
     assert b"https://t.me/blackmarketBotChannel" in body
     assert b"https://t.me/Blackmarketgrp" in body
@@ -118,3 +174,5 @@ def test_admin_port_root_redirects_to_dashboard():
 
     assert response.status == 302
     assert response.headers["Location"] == "/admin"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]

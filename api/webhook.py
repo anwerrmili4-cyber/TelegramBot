@@ -343,7 +343,6 @@ def _legacy_public_site_html() -> str:
         <a class="btn" href="{bot_url}?start=catalog" target="_blank" rel="noopener">Catalogue</a>
         <a class="btn" href="{bot_url}?start=orders" target="_blank" rel="noopener">Mes commandes</a>
         <a class="btn" href="{bot_url}?start=support" target="_blank" rel="noopener">Support</a>
-        <a class="btn" href="/admin/orders">Dashboard commandes</a>
       </div>
     </section>
     <footer>Bot: @{html.escape(bot_username)} - Webhook actif</footer>

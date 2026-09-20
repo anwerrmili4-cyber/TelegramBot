@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import posixpath
 import re
 import signal
 import threading
@@ -11,7 +12,7 @@ import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
 
 import config
@@ -32,43 +33,88 @@ _ADMIN_PREFIXES = ("/admin", "/admin-v2", "/admin-legacy")
 _TERMS_PAGE = Path(__file__).resolve().parent / "assets" / "terms.html"
 
 
+def _normalized_request_path(raw_target: str) -> str:
+    """Decode and normalize a request path before applying route boundaries."""
+    decoded = unquote(urlsplit(raw_target).path).replace("\\", "/")
+    normalized = posixpath.normpath("/" + decoded.lstrip("/"))
+    return normalized.rstrip("/") or "/"
+
+
+def _is_admin_path(raw_target: str) -> bool:
+    path = _normalized_request_path(raw_target)
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in _ADMIN_PREFIXES)
+
+
 class PublicHandler(webhook.handler):
     """Public Telegram and landing-page surface with dashboard routes blocked."""
 
     def _block_admin(self) -> None:
-        admin_url = config.env_value("HP_ADMIN_BASE_URL").rstrip("/")
-        if admin_url:
-            self.send_response(302)
-            self.send_header("Location", admin_url + "/admin")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        self._reply(404, {"ok": False, "error": "NOT_FOUND"})
+        # Never disclose the private dashboard hostname from a public response.
+        self._reply(404, {"ok": False, "error": "NOT_FOUND"}, headers={
+            "Cache-Control": "no-store",
+        })
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        super().end_headers()
 
     def do_GET(self) -> None:
-        path = urlsplit(self.path).path.rstrip("/")
+        path = _normalized_request_path(self.path)
         if path == "/terms":
-            self._reply_bytes(
-                200,
-                _TERMS_PAGE.read_bytes(),
-                "text/html; charset=utf-8",
+            body = _TERMS_PAGE.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+                "font-src 'none'; base-uri 'none'; form-action 'none'; "
+                "frame-ancestors 'none'",
             )
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
-        if path.startswith(_ADMIN_PREFIXES):
+        if _is_admin_path(self.path):
             self._block_admin()
             return
         super().do_GET()
 
     def do_POST(self) -> None:
-        if urlsplit(self.path).path.startswith(_ADMIN_PREFIXES):
+        if _is_admin_path(self.path):
             self._block_admin()
             return
         super().do_POST()
 
+    def do_OPTIONS(self) -> None:
+        if _is_admin_path(self.path):
+            self._block_admin()
+            return
+        super().do_OPTIONS()
+
 
 class AdminHandler(webhook.handler):
     """Administration, Telegram webhook and operational API surface."""
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Content-Security-Policy",
+            "base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
+        )
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        super().end_headers()
 
     def do_GET(self) -> None:
         if urlsplit(self.path).path == "/":
