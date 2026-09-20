@@ -922,11 +922,11 @@ def test_home_menu_hides_channel_and_group_links(mock_mongodb):
         if button.url
     }
 
-    assert "https://t.me/bmcmethods" not in urls
+    assert "https://t.me/blackmarketBotChannel" not in urls
     assert "https://t.me/Blackmarketgrp" not in urls
 
     required_keyboard = kb.channel_join_keyboard("en")
-    assert required_keyboard.inline_keyboard[0][0].url == "https://t.me/bmcmethods"
+    assert required_keyboard.inline_keyboard[0][0].url == "https://t.me/blackmarketBotChannel"
 
 
 def test_home_uses_green_shop_blue_actions_and_red_support(mock_mongodb):

@@ -71,7 +71,7 @@ CLICK_REPORT_CHAT_ID: int = int(
 SUPPORT_TICKET_CHANNEL_ID: int = int(
     os.environ.get("HP_SUPPORT_TICKET_CHANNEL_ID", "-1004326329551")
 )
-REQUIRED_CHANNEL: str = os.environ.get("HP_REQUIRED_CHANNEL", "@bmcmethods").strip()
+REQUIRED_CHANNEL: str = os.environ.get("HP_REQUIRED_CHANNEL", "@blackmarketBotChannel").strip()
 REQUIRED_GROUP: str = os.environ.get("HP_REQUIRED_GROUP", "@Blackmarketgrp").strip()
 
 # ---------------------------------------------------------------------------

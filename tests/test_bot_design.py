@@ -1153,8 +1153,8 @@ def test_start_requires_official_channel_membership(monkeypatch):
     call = message.reply_text.await_args
     assert "MEMBERS-ONLY ACCESS" in call.args[0]
     assert call.kwargs["reply_markup"] is not None
-    assert call.kwargs["reply_markup"].inline_keyboard[0][0].url.endswith("/bmcmethods")
-    bot_client.get_chat_member.assert_awaited_once_with("@bmcmethods", 42)
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].url.endswith("/blackmarketBotChannel")
+    bot_client.get_chat_member.assert_awaited_once_with("@blackmarketBotChannel", 42)
     assert PENDING.get(42) == ("await_channel_join", 0)
 
 
@@ -1209,7 +1209,7 @@ def test_verify_joining_unlocks_marketing_welcome(monkeypatch):
     assert "1 USDT" in rendered
     assert "12% OFF" in rendered
     assert query.edit_message_text.await_args.kwargs["parse_mode"] == ParseMode.HTML
-    bot_client.get_chat_member.assert_awaited_once_with("@bmcmethods", 42)
+    bot_client.get_chat_member.assert_awaited_once_with("@blackmarketBotChannel", 42)
 
 
 def test_only_official_channel_membership_is_required(monkeypatch):
@@ -1824,6 +1824,9 @@ def test_main_menu_sends_text_only_welcome_with_public_terms(monkeypatch):
     assert "Developer API" in sent_text
     assert "Refer &amp; Earn" in sent_text
     assert "black-market-terms.cli6u9v0quc9.chatgpt.site" in sent_text
+    assert "https://t.me/blackmarketBotChannel" in sent_text
+    assert "https://t.me/Blackmarketgrp" in sent_text
+    assert "https://t.me/b9hdc2" in sent_text
 
 
 def test_catalog_button_opens_the_services_catalog(monkeypatch):

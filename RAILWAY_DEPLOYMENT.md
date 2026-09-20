@@ -42,7 +42,7 @@ Required variables:
 - `HP_ADMIN_BASE_URL=https://YOUR-ADMIN-DOMAIN`
 - `HP_INVENTORY_KEY` when encrypted inventory is enabled
 - Provider API keys used by the active catalog
-- `HP_REQUIRED_CHANNEL=@bmcmethods`
+- `HP_REQUIRED_CHANNEL=@blackmarketBotChannel`
 - `HP_BOT_USERNAME=blackmarketa_bot`
 
 Generate independent webhook and cron secrets locally with PowerShell:
