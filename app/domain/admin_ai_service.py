@@ -75,7 +75,7 @@ def _provider_error_message(exc: HTTPError) -> str:
                 "AgentRouter rejects requests from this server (unauthorized client). "
                 "Ask AgentRouter to authorize Railway or use a server-compatible AI API."
             )
-        return "The AI provider rejected the API key (HTTP 401). Check HP_AI_API_URL and HP_AI_API_KEY."
+        return "OpenAI rejected the API key (HTTP 401). Check HP_OPENAI_API_KEY in Railway."
     if exc.code == 403:
         return "The AI provider denied access (HTTP 403). Check the token permissions."
     if exc.code == 429:
@@ -91,6 +91,7 @@ def public_config() -> dict[str, Any]:
         "configured": bool(AI_COMPARISON_API_URL and AI_COMPARISON_API_KEY and AI_COMPARISON_MODELS),
         "models": list(AI_COMPARISON_MODELS),
         "endpoint_host": endpoint_host,
+        "provider": "OpenAI" if endpoint_host == "api.openai.com" else endpoint_host,
     }
 
 
@@ -458,7 +459,7 @@ def chat(messages: Any, model: Any, dashboard_data: dict[str, Any]) -> dict[str,
         raise AdminAIError("Model not allowed.")
     parsed_url = urlsplit(AI_COMPARISON_API_URL)
     if not AI_COMPARISON_API_URL or not AI_COMPARISON_API_KEY:
-        raise AdminAIError("Configure HP_AI_API_URL and HP_AI_API_KEY in Railway.")
+        raise AdminAIError("Configure HP_OPENAI_API_KEY in Railway.")
     if parsed_url.scheme != "https" or not parsed_url.hostname:
         raise AdminAIError("HP_AI_API_URL is invalid. Use a plain HTTPS URL.")
     if not re.fullmatch(r"[A-Za-z0-9-]+", AI_COMPARISON_AUTH_HEADER.strip()):

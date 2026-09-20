@@ -235,19 +235,20 @@ TOOLORAX_API_BASE: str = os.environ.get(
 ).rstrip("/")
 
 # ---------------------------------------------------------------------------
-# Fonctions IA de l’administration (API externe configurable)
+# Fonctions IA de l’administration (OpenAI par défaut, API compatible configurable)
 # ---------------------------------------------------------------------------
-AI_COMPARISON_API_URL: str = env_value(
-    "HP_AI_API_URL", "https://agentrouter.org/v1/chat/completions"
+_OPENAI_ADMIN_API_KEY: str = first_env_value("HP_OPENAI_API_KEY", "OPENAI_API_KEY")
+AI_COMPARISON_API_URL: str = (
+    env_value("HP_OPENAI_API_URL", "https://api.openai.com/v1/chat/completions")
+    if _OPENAI_ADMIN_API_KEY
+    else env_value("HP_AI_API_URL", "https://api.openai.com/v1/chat/completions")
 )
 AI_COMPARISON_API_URL = normalized_http_url(AI_COMPARISON_API_URL)
-AI_COMPARISON_API_KEY: str = env_value("HP_AI_API_KEY")
-_AI_COMPARISON_MODELS_RAW: str = env_value(
-    "HP_AI_MODELS",
-    env_value(
-        "HP_AI_MODEL",
-        "claude-opus-4-8,claude-opus-5,gpt-5.6-sol",
-    ),
+AI_COMPARISON_API_KEY: str = _OPENAI_ADMIN_API_KEY or env_value("HP_AI_API_KEY")
+_AI_COMPARISON_MODELS_RAW: str = (
+    env_value("HP_OPENAI_MODEL", "gpt-5.6-terra")
+    if _OPENAI_ADMIN_API_KEY
+    else env_value("HP_AI_MODELS", env_value("HP_AI_MODEL", "gpt-5.6-terra"))
 )
 AI_COMPARISON_MODELS: tuple[str, ...] = tuple(dict.fromkeys(
     model.strip()

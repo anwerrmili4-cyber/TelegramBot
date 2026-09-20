@@ -90,6 +90,18 @@ def test_agentrouter_unauthorized_client_error_is_explicit():
     assert "Railway" in message
 
 
+def test_public_config_identifies_openai(monkeypatch):
+    monkeypatch.setattr(service, "AI_COMPARISON_API_URL", "https://api.openai.com/v1/chat/completions")
+    monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "test-token")
+    monkeypatch.setattr(service, "AI_COMPARISON_MODELS", ("gpt-5.6-terra",))
+
+    config = service.public_config()
+
+    assert config["configured"] is True
+    assert config["provider"] == "OpenAI"
+    assert config["models"] == ["gpt-5.6-terra"]
+
+
 def test_chat_returns_sanitized_suggestions(monkeypatch, mock_mongodb):
     monkeypatch.setattr(service, "AI_COMPARISON_API_URL", "https://ai.example/v1/chat/completions")
     monkeypatch.setattr(service, "AI_COMPARISON_API_KEY", "test-token")

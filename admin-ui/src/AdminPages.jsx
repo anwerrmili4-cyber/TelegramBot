@@ -3687,14 +3687,14 @@ function AiManagerPage({ data, onAction, setToast }) {
         description="Ask questions across the bot database and manage operations by conversation. Every change requires your confirmation."
         actions={(
           <div className={`ai-manager-status ${config.configured ? "ready" : ""}`}>
-            <span />{config.configured ? "AI configured" : "Configuration required"}
+            <span />{config.configured ? "OpenAI configured" : "OpenAI key required"}
           </div>
         )}
       />
       <section className="ai-manager-layout">
         <aside className="ai-manager-sidebar">
           <div className="ai-manager-brand"><Sparkles size={21} /><div><strong>Full admin assistant</strong><span>Database context refreshed for every question</span></div></div>
-          <label className="ai-model-select"><span>Active model</span><select value={model} onChange={(event) => selectModel(event.target.value)}>{config.models?.map((item) => <option key={item} value={item}>{item}</option>)}</select>{config.endpoint_host && <small>API: {config.endpoint_host}</small>}</label>
+          <label className="ai-model-select"><span>Active model</span><select value={model} onChange={(event) => selectModel(event.target.value)}>{config.models?.map((item) => <option key={item} value={item}>{item}</option>)}</select>{config.endpoint_host && <small>API: {config.provider || config.endpoint_host}</small>}</label>
           <div className="ai-quick-list"><span>Quick questions</span>{AI_QUICK_PROMPTS.map(([label, prompt]) => <button key={label} disabled={sending || !config.configured} onClick={() => send(prompt)}><Sparkles size={13} />{label}</button>)}</div>
           <div className="ai-safety-note"><ShieldCheck size={17} /><div><strong>Human control</strong><span>The AI proposes. You confirm every action before execution.</span></div></div>
         </aside>
@@ -3710,7 +3710,7 @@ function AiManagerPage({ data, onAction, setToast }) {
             ))}
             {sending && <article className="ai-message assistant"><div className="ai-message-avatar"><RefreshCw className="spin" size={15} /></div><div className="ai-message-body"><p>Analyzing the current bot database…</p></div></article>}
           </div>
-          <form className="ai-chat-composer" onSubmit={(event) => { event.preventDefault(); send(); }}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder={config.configured ? "Ask about any database record, analysis, or admin action…" : "Configure the AI API in Railway first"} disabled={!config.configured || sending} rows={2} /><button type="submit" disabled={!input.trim() || sending || !config.configured}><Send size={17} /></button></form>
+          <form className="ai-chat-composer" onSubmit={(event) => { event.preventDefault(); send(); }}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder={config.configured ? "Ask about any database record, analysis, or admin action…" : "Add HP_OPENAI_API_KEY in Railway first"} disabled={!config.configured || sending} rows={2} /><button type="submit" disabled={!input.trim() || sending || !config.configured}><Send size={17} /></button></form>
         </div>
       </section>
       {pendingAction && <Modal title="Confirm AI action" onClose={() => setPendingAction(null)}><div className="ai-confirm"><ShieldCheck size={30} /><strong>{pendingAction.label}</strong><p>{pendingAction.confirmation}</p><pre>{JSON.stringify(pendingAction.parameters, null, 2)}</pre><div><ActionButton secondary onClick={() => setPendingAction(null)}>Cancel</ActionButton><ActionButton danger={pendingAction.risk === "high"} icon={Check} onClick={executeAction}>Confirm and execute</ActionButton></div></div></Modal>}
