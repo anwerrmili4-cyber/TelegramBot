@@ -1018,6 +1018,7 @@ def test_customize_menu_has_global_product_card_editor():
     }
 
     assert "adm_text_key:offer_card_template" in callbacks
+    assert "adm_text_key:welcome" in callbacks
     assert admin.text_category_for_key("offer_card_template") == "catalog"
 
 

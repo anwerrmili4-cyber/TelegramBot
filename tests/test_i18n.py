@@ -4,11 +4,16 @@ from i18n import t
 
 
 def test_removed_french_language_falls_back_to_english():
-    message = t("fr", "welcome", shop="BlackMarket")
+    values = {
+        "first_name": "Anwer - BMC",
+        "terms_url": "https://blackmarket.up.railway.app/terms",
+    }
+    message = t("fr", "welcome", **values)
 
-    assert message == t("en", "welcome", shop="BlackMarket")
-    assert "Welcome to BlackMarket" in message
-    assert "premium digital services" in message
+    assert message == t("en", "welcome", **values)
+    assert "Welcome to Black Market" in message
+    assert "Anwer - BMC" in message
+    assert "premium digital products" in message
     assert "Binance" not in message
     assert "paiement" not in message.lower()
 

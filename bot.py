@@ -1133,25 +1133,14 @@ def top_selling_products_text(lang: str) -> str:
     )
 
 
-def welcome_home_text(user=None) -> str:
-    """Build the text-only storefront welcome shown on every home visit."""
-    first_name = html.escape(str(getattr(user, "first_name", "") or "user").strip())
-    return (
-        "🛍️ <b>Welcome to Black Market!</b>\n\n"
-        f"Hey {first_name}! 👋\n\n"
-        "We offer premium digital products at the best prices. Fast, secure, and fully automated delivery.\n\n"
-        "<blockquote>🏪 <b>Shop</b> — Browse &amp; buy products\n"
-        "🤑 <b>Deposit</b> — Add funds to your wallet\n"
-        "👤 <b>My Profile</b> — Balance, orders &amp; settings\n"
-        "🔧 <b>Developer API</b> — Reseller &amp; automated ordering\n"
-        "⭐️ <b>Refer &amp; Earn</b> — Invite friends &amp; earn rewards</blockquote>\n\n"
-        "📣 Channel: <a href=\"https://t.me/blackmarketBotChannel\">Join Channel</a>\n"
-        "📣 Group: <a href=\"https://t.me/Blackmarketgrp\">Join Group Chat</a>\n"
-        "🛎️ Support: <a href=\"https://t.me/b9hdc2\">Contact Support</a>\n\n"
-        f"<b>Terms of Service:</b> <a href=\"{html.escape(TERMS_OF_SERVICE_URL, quote=True)}\">Read here</a>\n\n"
-        "<blockquote>⚠️ <b>Notification</b>\n"
-        "Support Time is 9:00PM to 12:00AM IST</blockquote>\n\n"
-        "Choose an option below to continue !"
+def welcome_home_text(user=None, lang="en") -> str:
+    """Build the admin-editable storefront welcome shown on every home visit."""
+    first_name = str(getattr(user, "first_name", "") or "user").strip()
+    return premium_customer_text(
+        lang,
+        "welcome",
+        first_name=first_name,
+        terms_url=TERMS_OF_SERVICE_URL,
     )
 
 
@@ -1748,7 +1737,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def send_main_menu(update, context, lang, chat_id=None):
     uid = update.effective_user.id if update.effective_user else chat_id
-    text = welcome_home_text(update.effective_user)
+    text = welcome_home_text(update.effective_user, lang)
     target = update.message or (update.callback_query.message if update.callback_query else None)
     markup = kb.home_keyboard(lang, uid)
     if target:
@@ -4879,6 +4868,11 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
 def premium_customer_text(lang: str, key: str, **kwargs) -> str:
     """Render selected customer texts as HTML with their Premium emoji."""
     protected_values = {}
+    if key == "welcome" and "first_name" in kwargs:
+        token = "WELCOMEFIRSTNAMEPLACEHOLDER8A6C"
+        protected_values[token] = html.escape(str(kwargs["first_name"]))
+        kwargs = dict(kwargs)
+        kwargs["first_name"] = token
     if key == "delivery_received" and "content" in kwargs:
         # Delivery data is opaque customer content, not bot markup. Protect it
         # while rendering the customizable template, then insert escaped text.
@@ -5952,6 +5946,12 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "\n<i>{name} inclut automatiquement l’emoji, le catalogue et le produit en gras.</i>"
             if key == "offer_card_template" else ""
         )
+        if key == "welcome":
+            template_help = (
+                "\n\n<b>Variables disponibles :</b>\n"
+                "<code>{first_name}</code> <code>{terms_url}</code>"
+                "\n<i>La mise en forme et les emojis Telegram Premium sont pris en charge.</i>"
+            )
         prompt = (
             f"✏️ <b>Modifier {html.escape(key)}</b> "
             f"(<code>{html.escape(selected_lang)}</code>)\n\n"

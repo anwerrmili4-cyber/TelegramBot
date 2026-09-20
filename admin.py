@@ -93,6 +93,7 @@ def text_entry_label(key):
     """Return a quick-to-scan button name and purpose for the text editor."""
     names = {
         "offer_card_template": "Product card",
+        "welcome": "Welcome page",
         "menu_catalog": "Shop",
         "menu_topup": "Deposit",
         "menu_account": "My account",
@@ -604,6 +605,7 @@ def user_activity_keyboard():
 
 def customize_keyboard():
     rows = _two_column_rows([
+        InlineKeyboardButton("🏠 Page d’accueil", callback_data="adm_text_key:welcome"),
         InlineKeyboardButton("🧾 Fiche produit", callback_data="adm_text_key:offer_card_template"),
         InlineKeyboardButton("✨ Alertes stocks & flash", callback_data="adm_alert_design"),
         InlineKeyboardButton("✏️ Textes du bot", callback_data="adm_texts"),

@@ -1829,6 +1829,24 @@ def test_main_menu_sends_text_only_welcome_with_public_terms(monkeypatch):
     assert "https://t.me/b9hdc2" in sent_text
 
 
+def test_admin_welcome_override_preserves_premium_emoji_and_dynamic_name(mock_mongodb):
+    db.set_text_override(
+        "welcome",
+        "en",
+        "[[HTML]][[TGEMOJI:premium-welcome:e2ad90]] <b>Hello {first_name}</b>",
+    )
+
+    text = premium_customer_text(
+        "en",
+        "welcome",
+        first_name="Alex <Admin>",
+        terms_url="https://blackmarket.up.railway.app/terms",
+    )
+
+    assert '<tg-emoji emoji-id="premium-welcome">⭐</tg-emoji>' in text
+    assert "Hello Alex &lt;Admin&gt;" in text
+
+
 def test_catalog_button_opens_the_services_catalog(monkeypatch):
     query = SimpleNamespace(
         data="catalog",
