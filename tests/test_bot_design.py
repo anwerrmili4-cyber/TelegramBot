@@ -1823,7 +1823,7 @@ def test_main_menu_sends_text_only_welcome_with_public_terms(monkeypatch):
     assert "Hey Alex &amp; Co!" in sent_text
     assert "Developer API" in sent_text
     assert "Refer &amp; Earn" in sent_text
-    assert "https://blackmarket.up.railway.app/terms" in sent_text
+    assert "https://blackmarket.today/terms" in sent_text
     assert "https://t.me/blackmarketBotChannel" in sent_text
     assert "https://t.me/Blackmarketgrp" in sent_text
     assert "https://t.me/b9hdc2" in sent_text
@@ -1840,7 +1840,7 @@ def test_admin_welcome_override_preserves_premium_emoji_and_dynamic_name(mock_mo
         "en",
         "welcome",
         first_name="Alex <Admin>",
-        terms_url="https://blackmarket.up.railway.app/terms",
+        terms_url="https://blackmarket.today/terms",
     )
 
     assert '<tg-emoji emoji-id="premium-welcome">⭐</tg-emoji>' in text
