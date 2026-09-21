@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Archive,
@@ -61,6 +61,12 @@ const STATUS_LABELS = {
   waiting_customer: "Attente client",
   resolved: "Résolu",
   closed: "Fermé",
+  pending: "En attente",
+  approved: "Approuvé",
+  completed: "Terminé",
+  pending_admin_check: "Contrôle admin",
+  replacement_sent: "Remplacement envoyé",
+  refund_approved: "Remboursement approuvé",
 };
 
 const PROVIDERS = [
@@ -135,21 +141,27 @@ function ActionButton({
 }
 
 function Modal({ title, children, onClose, wide = false }) {
+  const dialog = useRef(null);
+  useEffect(() => {
+    const node = dialog.current;
+    const previous = document.body.style.overflow;
+    node.showModal();
+    document.body.style.overflow = "hidden";
+    return () => { node.close(); document.body.style.overflow = previous; };
+  }, []);
   return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section
+      <dialog ref={dialog} aria-label={title}
         className={`form-dialog ${wide ? "wide" : ""}`}
-        onMouseDown={(event) => event.stopPropagation()}
+        onCancel={(event) => { event.preventDefault(); onClose(); }}
       >
         <header>
           <h3>{title}</h3>
-          <button onClick={onClose}>
+          <button type="button" onClick={onClose} aria-label="Fermer la fenêtre">
             <X size={19} />
           </button>
         </header>
         <div className="form-dialog-body">{children}</div>
-      </section>
-    </div>
+      </dialog>
   );
 }
 
@@ -269,6 +281,7 @@ function useRemoteList(endpoint, filters) {
       signal: controller.signal,
     })
       .then((response) => {
+        if (response.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
         if (!response.ok) throw new Error(`Erreur ${response.status}`);
         return response.json();
       })
@@ -282,7 +295,9 @@ function useRemoteList(endpoint, filters) {
           total: Math.max(0, Number(payload?.total) || 0),
         });
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        if (active && error.name !== "AbortError") window.dispatchEvent(new CustomEvent("admin:read-error", { detail: "La liste n’a pas pu être actualisée. Réessayez avant d’agir." }));
+      })
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
@@ -486,7 +501,7 @@ function OrdersPage({ data, onAction }) {
   const [sort, setSort] = useState("date");
   const [direction, setDirection] = useState("desc");
   const [selected, setSelected] = useState(null);
-  const [viewMode, setViewMode] = useState(window.localStorage.getItem("admin-orders-view") || "table");
+  const [viewMode, setViewMode] = useState(() => window.matchMedia("(max-width: 640px)").matches ? "cards" : window.localStorage.getItem("admin-orders-view") || "table");
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const defaults = ["customer", "product", "amount", "status", "date"];
@@ -575,7 +590,7 @@ function OrdersPage({ data, onAction }) {
     <>
       <PageHeader
         eyebrow="Ventes"
-        title="Commandes"
+        title="Le bon suivi, pour chaque commande."
         description="Suivez les paiements, livraisons et interventions manuelles."
       />
       <section className="order-kpis" aria-label="Statistiques des commandes">
@@ -584,7 +599,7 @@ function OrdersPage({ data, onAction }) {
         <article><span className="order-kpi-icon green"><CheckCircle2 size={19} /></span><div><small>Taux de livraison</small><strong>{analytics.success_rate || 0}%</strong><em>{analytics.delivered || 0} livrée(s)</em></div></article>
         <article><span className="order-kpi-icon amber"><Clock3 size={19} /></span><div><small>À traiter</small><strong>{analytics.pending || 0}</strong><em>Action requise</em></div></article>
       </section>
-      <section className="order-analytics-grid">
+      <details className="workspace-analytics"><summary><TrendingUp size={17} />Analyser les tendances et la répartition</summary><section className="order-analytics-grid">
         <article className="data-panel order-trend-card">
           <header><div><span className="eyebrow">Activité</span><h3>Commandes sur 7 jours</h3></div><TrendingUp size={19} /></header>
           <div className="order-line-chart">
@@ -604,7 +619,8 @@ function OrdersPage({ data, onAction }) {
             <div className="order-legend">{statusSegments.slice(0, 5).map((item) => <button key={item.key} onClick={() => { setStatus(item.key); setPage(1); }}><i style={{ background: item.color }} /><span>{STATUS_LABELS[item.key] || item.key}</span><strong>{item.value}</strong></button>)}</div>
           </div>
         </article>
-      </section>
+      </section></details>
+      <div className="workspace-tabs order-quick-filters" role="group" aria-label="Files de commandes">{[["", "Toutes"], ["manual_review", "À vérifier"], ["pending_payment", "Paiement en attente"], ["preparing_delivery", "À livrer"], ["delivered", "Livrées"]].map(([value, label]) => <button key={value} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }}>{label}</button>)}</div>
       <FilterBar
         search={search}
         searchField={searchField}
@@ -639,11 +655,11 @@ function OrdersPage({ data, onAction }) {
           <option value="amount-desc">Montant décroissant</option>
           <option value="amount-asc">Montant croissant</option>
         </select>
-        <div className="order-view-switch" aria-label="Mode d’affichage"><button className={viewMode === "table" ? "active" : ""} onClick={() => { setViewMode("table"); window.localStorage.setItem("admin-orders-view", "table"); }} type="button"><ClipboardList size={14} />Tableau</button><button className={viewMode === "kanban" ? "active" : ""} onClick={() => { setViewMode("kanban"); window.localStorage.setItem("admin-orders-view", "kanban"); }} type="button"><Boxes size={14} />Kanban</button></div>
+        <div className="order-view-switch" aria-label="Mode d’affichage"><button className={viewMode === "cards" ? "active" : ""} onClick={() => { setViewMode("cards"); window.localStorage.setItem("admin-orders-view", "cards"); }} type="button"><ClipboardList size={14} />Cartes</button><button className={viewMode === "table" ? "active" : ""} onClick={() => { setViewMode("table"); window.localStorage.setItem("admin-orders-view", "table"); }} type="button"><ClipboardList size={14} />Tableau</button><button className={viewMode === "kanban" ? "active" : ""} onClick={() => { setViewMode("kanban"); window.localStorage.setItem("admin-orders-view", "kanban"); }} type="button"><Boxes size={14} />Kanban</button></div>
         {viewMode === "table" && <button className="column-picker-trigger" type="button" onClick={() => setColumnsOpen(true)}><Columns3 size={14} />Colonnes</button>}
       </FilterBar>
       <section className="data-panel">
-        {viewMode === "table" ? <div className="responsive-table">
+        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header><h3>{order.offer_name || order.service_name || "Produit"}</h3><p>{order.username ? `@${order.username}` : `Client ${order.user_id}`}</p><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
           <table>
             <thead>
               <tr>
@@ -936,6 +952,7 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
 
 function CatalogPage({ data, onAction }) {
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [offer, setOffer] = useState(undefined);
   const [showOffer, setShowOffer] = useState(false);
@@ -998,7 +1015,7 @@ function CatalogPage({ data, onAction }) {
       setShowService(false);
   };
   const normalizedSearch = search.trim().toLowerCase();
-  const visibleServices = (data.services || []).map((service) => {
+  const visibleServices = (data.services || []).filter((service) => !category || String(service.id) === category).map((service) => {
     const serviceMatch = `${service.name || ""} ${service.id || ""}`.toLowerCase().includes(normalizedSearch);
     const offers = (service.offers || []).filter((item) => {
       const channels = item.sales_channels || ["bot"];
@@ -1038,8 +1055,8 @@ function CatalogPage({ data, onAction }) {
   return (
     <>
       <PageHeader
-        eyebrow="Bot Telegram"
-        title="Catalogue du bot"
+        eyebrow="Commerce / Mon catalogue"
+        title="Des offres qui donnent envie."
         description="Gérez les catégories et produits publiés dans le bot Telegram."
         actions={
           <>
@@ -1062,6 +1079,8 @@ function CatalogPage({ data, onAction }) {
           </>
         }
       />
+      <div className="catalog-command-bar"><div><span>COLLECTIONS</span><strong>{(data.services || []).length}</strong></div><div><span>OFFRES CHARGÉES</span><strong>{(data.services || []).reduce((total, service) => total + (service.offers || []).length, 0)}</strong></div><div><span>SÉLECTION</span><strong>{selectedOffers.size}</strong></div><p>Organisez vos services, ajustez les prix et gérez la disponibilité de chaque offre.</p></div>
+      <div className="workspace-tabs" role="group" aria-label="Collections du catalogue"><button aria-pressed={!category} onClick={() => { setCategory(""); setSelectedOffers(new Set()); }}>Toutes les collections</button>{(data.services || []).map((service) => <button key={service.id} aria-pressed={category === String(service.id)} onClick={() => { setCategory(String(service.id)); setSelectedOffers(new Set()); }}>{service.name}<small> {(service.offers || []).length}</small></button>)}</div>
       <FilterBar
         search={search}
         setSearch={setSearch}
@@ -1345,7 +1364,10 @@ function CatalogPage({ data, onAction }) {
 }
 
 function ApiProductsPage({ data, onAction, setToast }) {
-  const [provider, setProvider] = useState("mailreader");
+  const [provider, setProvider] = useState("");
+  const [workspaceTab, setWorkspaceTab] = useState("catalog");
+  const [providerError, setProviderError] = useState("");
+  const providerRequest = useRef(0);
   const [catalog, setCatalog] = useState(null);
   const [loading, setLoading] = useState(false);
   const [providerMeta, setProviderMeta] = useState([]);
@@ -1358,8 +1380,10 @@ function ApiProductsPage({ data, onAction, setToast }) {
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const loadProvider = async (providerId, { showToast = false, selectCatalog = true } = {}) => {
+    if (!providerId) return false;
+    const requestId = selectCatalog ? ++providerRequest.current : null;
     const startedAt = performance.now();
-    if (selectCatalog) setLoading(true);
+    if (selectCatalog) { setLoading(true); setCatalog(null); }
     setProviderHealth((current) => ({
       ...current,
       [providerId]: { ...current[providerId], status: "checking", error: "" },
@@ -1371,7 +1395,7 @@ function ApiProductsPage({ data, onAction, setToast }) {
       );
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "API indisponible");
-      if (selectCatalog) setCatalog(payload);
+      if (selectCatalog && requestId === providerRequest.current) setCatalog(payload);
       setProviderHealth((current) => ({
         ...current,
         [providerId]: {
@@ -1388,7 +1412,7 @@ function ApiProductsPage({ data, onAction, setToast }) {
       }));
       return true;
     } catch (error) {
-      if (selectCatalog) setCatalog(null);
+      if (selectCatalog && requestId === providerRequest.current) setCatalog(null);
       setProviderHealth((current) => ({
         ...current,
         [providerId]: {
@@ -1402,7 +1426,7 @@ function ApiProductsPage({ data, onAction, setToast }) {
       if (showToast) setToast({ type: "error", title: "Fournisseur indisponible", message: error.message });
       return false;
     } finally {
-      if (selectCatalog) setLoading(false);
+      if (selectCatalog && requestId === providerRequest.current) setLoading(false);
     }
   };
   const load = () => loadProvider(provider, { showToast: true, selectCatalog: true });
@@ -1412,11 +1436,12 @@ function ApiProductsPage({ data, onAction, setToast }) {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Configuration fournisseurs indisponible");
         setProviderMeta(payload.providers || []);
+        setProvider((current) => current || (payload.providers || []).find((item) => item.configured)?.id || "");
       })
-      .catch((error) => setToast({ type: "error", title: "Centre API indisponible", message: error.message }));
+      .catch((error) => setProviderError(error.message));
   }, []);
   useEffect(() => {
-    load();
+    if (provider) load();
   }, [provider]);
   const testAllProviders = async () => {
     const configured = providerMeta.filter((item) => item.configured);
@@ -1502,21 +1527,24 @@ function ApiProductsPage({ data, onAction, setToast }) {
   return (
     <>
       <PageHeader
-        eyebrow="Automatisation"
-        title="Produits API"
+        eyebrow="Approvisionnement / Intégrations"
+        title="Votre réseau de fournisseurs."
         description="Connectez les fournisseurs et publiez leurs produits dans votre boutique."
         actions={
           <div className="inline-actions">
-            <ActionButton icon={Sparkles} onClick={comparePrices} disabled={comparisonLoading}>
+            <ActionButton icon={Sparkles} onClick={comparePrices} disabled={comparisonLoading || !providerMeta.some((item) => item.configured)}>
               {comparisonLoading ? "Analyse IA…" : "Comparer les prix avec l’IA"}
             </ActionButton>
-            <ActionButton secondary icon={RefreshCw} onClick={load}>
+            <ActionButton secondary icon={RefreshCw} onClick={load} disabled={!provider || loading}>
               Synchroniser
             </ActionButton>
           </div>
         }
       />
-      <section className="provider-health-center">
+      <div className="workspace-tabs supplier-workspace-tabs" role="group" aria-label="Espace fournisseurs">{[["catalog", "Catalogue fournisseur"], ["health", "Connexions & diagnostics"], ["keys", "Clés clients"], ["connectors", "Connecteurs personnalisés"]].map(([id, label]) => <button key={id} aria-pressed={workspaceTab === id} onClick={() => setWorkspaceTab(id)}>{label}</button>)}</div>
+      {providerError && <p className="control-error" role="alert">{providerError}</p>}
+      {workspaceTab === "health" && <section className="provider-health-center">
+
         <header>
           <div><span className="comparison-kicker"><Cloud size={14} /> Centre de santé API</span><h2>État des fournisseurs externes</h2><p>Testez les connexions uniquement à la demande pour éviter les appels inutiles.</p></div>
           <ActionButton secondary icon={RefreshCw} onClick={testAllProviders} disabled={checkingAll || !providerMeta.length}>{checkingAll ? "Diagnostic…" : "Tester toutes les API"}</ActionButton>
@@ -1536,8 +1564,8 @@ function ApiProductsPage({ data, onAction, setToast }) {
             </article>;
           })}
         </div>
-      </section>
-      {comparison && (
+      </section>}
+      {workspaceTab === "catalog" && comparison && (
         <section className="ai-comparison-panel">
           <header>
             <div>
@@ -1602,18 +1630,8 @@ function ApiProductsPage({ data, onAction, setToast }) {
           )}
         </section>
       )}
-      <div className="provider-tabs">
-        {PROVIDERS.map(([id, label]) => (
-          <button
-            className={provider === id ? "active" : ""}
-            onClick={() => setProvider(id)}
-            key={id}
-          >
-            <Cloud size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
+      {workspaceTab === "catalog" && <div className="supplier-browser"><aside className="supplier-directory"><div className="supplier-directory-heading"><Cloud size={18} /><strong>Fournisseurs</strong><span>{providerMeta.length}</span></div>{providerMeta.map((item) => <button key={item.id} disabled={!item.configured} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><span className="supplier-monogram">{(item.name || item.id).slice(0, 2).toUpperCase()}</span><span><strong>{item.name || item.id}</strong><small>{item.configured ? "Connexion configurée" : "Configuration requise"}</small></span><ChevronRight size={15} /></button>)}{!providerMeta.length && <p className="control-caption">{providerError ? "Liste indisponible." : "Aucun fournisseur disponible."}</p>}<p className="control-caption">Les fournisseurs non configurés restent visibles, leurs actions sont indisponibles.</p></aside><div className="supplier-catalog">
+      {!provider && <div className="supplier-empty"><Cloud size={38} /><h3>Connectez votre premier fournisseur</h3><p>Les produits apparaîtront après configuration d’une connexion. Consultez les diagnostics ou ajoutez un connecteur personnalisé.</p><ActionButton secondary onClick={() => setWorkspaceTab("connectors")}>Ouvrir les connecteurs</ActionButton></div>}
       {catalog && (
         <div className="api-summary">
           <div>
@@ -1656,7 +1674,7 @@ function ApiProductsPage({ data, onAction, setToast }) {
                 >
                   {product.stock > 0 ? `${product.stock} en stock` : "Épuisé"}
                 </span></div>
-                <button onClick={() => setEditing(product)}>
+                <button aria-label={`Configurer ${product.display_name || product.name}`} onClick={() => setEditing(product)}>
                   <Edit3 size={15} />
                 </button>
               </header>
@@ -1682,8 +1700,9 @@ function ApiProductsPage({ data, onAction, setToast }) {
           />
         )}
       </section>
-      <BuyerKeys setToast={setToast} writeToken={data.dashboard_write_token} />
-      <CustomExternalApis setToast={setToast} writeToken={data.dashboard_write_token} />
+      </div></div>}
+      {workspaceTab === "keys" && <BuyerKeys setToast={setToast} writeToken={data.dashboard_write_token} />}
+      {workspaceTab === "connectors" && <CustomExternalApis setToast={setToast} writeToken={data.dashboard_write_token} />}
       {editing && (
         <ApiProductEditor
           product={editing}
@@ -2332,7 +2351,7 @@ function CustomerDetail({ customer, onAction, onClose, currency }) {
   const [reason, setReason] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(null);
-  const [customerTab, setCustomerTab] = useState("orders");
+  const [customerTab, setCustomerTab] = useState("timeline");
   const openOrder = async (order) => {
     setLoadingOrder(order.id);
     try {
@@ -2345,6 +2364,16 @@ function CustomerDetail({ customer, onAction, onClose, currency }) {
       setLoadingOrder(null);
     }
   };
+  const displayName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
+    || customer.full_name
+    || (customer.username ? `@${customer.username}` : `Client ${customer.telegram_id}`);
+  const tabs = [
+    ["timeline", Activity, "Chronologie", customer.timeline?.length || 0],
+    ["orders", ShoppingBag, "Achats", (customer.orders?.length || 0) + (customer.api_purchases?.length || 0)],
+    ["finance", CircleDollarSign, "Finances", (customer.topups?.length || 0) + (customer.withdrawals?.length || 0)],
+    ["support", Headphones, "Support", customer.tickets?.length || 0],
+    ["warranties", ShieldCheck, "Garanties", customer.warranties?.length || 0],
+  ];
   return (
     <>
       <Modal
@@ -2356,109 +2385,76 @@ function CustomerDetail({ customer, onAction, onClose, currency }) {
         onClose={onClose}
         wide
       >
-      <div className="customer-profile-head"><span>{(customer.first_name || customer.username || "C").slice(0, 1).toUpperCase()}</span><div><strong>{[customer.first_name, customer.last_name].filter(Boolean).join(" ") || (customer.username ? `@${customer.username}` : `Client ${customer.telegram_id}`)}</strong><small>{customer.username ? `@${customer.username} · ` : ""}{customer.banned ? "Compte bloqué" : "Compte actif"}</small></div><i className={customer.banned ? "blocked" : "active"}>{customer.banned ? "Bloqué" : "Actif"}</i></div>
-      <div className="detail-grid">
-        <div>
-          <span>Telegram ID</span>
-          <strong>{customer.telegram_id}</strong>
-        </div>
-        <div>
-          <span>Portefeuille</span>
-          <strong>{money(customer.wallet_balance, currency)}</strong>
-        </div>
-        <div>
-          <span>Commandes</span>
-          <strong>{customer.order_count || 0}</strong>
-        </div>
-        <div>
-          <span>Total dépensé</span>
-          <strong>{money(customer.total_spent, currency)}</strong>
-        </div>
-        <div><span>Affiliés</span><strong>{customer.referrals || 0}</strong></div>
-        <div><span>Tickets</span><strong>{customer.tickets?.length || 0}</strong></div>
-        <div><span>Langue</span><strong>{String(customer.lang || "en").toUpperCase()}</strong></div>
-        <div><span>Inscription</span><strong>{date(customer.created_at)}</strong></div>
+      <div className="customer-profile-head customer-profile-hero">
+        <span>{(customer.first_name || customer.username || "C").slice(0, 1).toUpperCase()}</span>
+        <div><strong>{displayName}</strong><small>{customer.username ? `@${customer.username} · ` : ""}ID {customer.telegram_id} · {String(customer.lang || customer.language || "en").toUpperCase()}</small></div>
+        <i className={customer.banned ? "blocked" : "active"}>{customer.banned ? "Bloqué" : "Actif"}</i>
       </div>
-      <div className="form-grid">
-        <Field label="Ajustement du solde">
-          <input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            placeholder="+10 ou -5"
-          />
-        </Field>
-        <Field label="Motif">
-          <input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </Field>
-      </div>
-      <div className="dialog-actions wrap">
-        <ActionButton
-          icon={CircleDollarSign}
-          disabled={!amount}
-          onClick={() =>
-            onAction({
-              action: "adjust_user_wallet",
-              user_id: customer.telegram_id,
-              amount,
-              reason,
-            })
-          }
-        >
-          Ajuster
-        </ActionButton>
-        <ActionButton
-          danger
-          icon={Ban}
-          onClick={() =>
-            onAction({
-              action: "toggle_ban",
-              user_id: customer.telegram_id,
-              banned: customer.banned ? "0" : "1",
-            })
-          }
-        >
-          {customer.banned ? "Débloquer" : "Bloquer"}
-        </ActionButton>
-      </div>
-      <div className="customer-detail-tabs"><button className={customerTab === "orders" ? "active" : ""} onClick={() => setCustomerTab("orders")}><ShoppingBag size={14} />Commandes <span>{customer.orders?.length || 0}</span></button><button className={customerTab === "tickets" ? "active" : ""} onClick={() => setCustomerTab("tickets")}><Headphones size={14} />Support <span>{customer.tickets?.length || 0}</span></button></div>
-      {customerTab === "orders" ? <section className="customer-orders">
-        <header>
-          <div>
-            <span className="eyebrow">Historique complet</span>
-            <h4>Commandes de ce client</h4>
+      <div className="customer-profile-layout">
+        <div className="customer-profile-main">
+          <div className="customer-profile-kpis">
+            <article><span>Portefeuille</span><strong>{money(customer.wallet_balance, currency)}</strong><small>solde disponible</small></article>
+            <article><span>Dépensé</span><strong>{money(customer.total_spent, currency)}</strong><small>{customer.paid_order_count || 0} achat(s) payé(s)</small></article>
+            <article><span>Dépôts</span><strong>{money(customer.deposit_total, currency)}</strong><small>{customer.topups?.length || 0} opération(s)</small></article>
+            <article><span>Affiliation</span><strong>{customer.referral_count || 0}</strong><small>{money(customer.affiliate_earned, currency)} gagné</small></article>
           </div>
-          <strong>{customer.orders?.length || 0}</strong>
-        </header>
-        {customer.orders?.length ? (
-          <div className="responsive-table">
-            <table>
-              <thead>
-                <tr><th>Commande</th><th>Produit</th><th>Montant</th><th>Statut</th><th>Date</th><th>Détails</th></tr>
-              </thead>
-              <tbody>
-                {customer.orders.map((order) => (
-                  <tr key={order.id} onClick={() => openOrder(order)}>
-                    <td><strong>#{order.id}</strong></td>
-                    <td>{order.offer_name || order.service_name || "—"}</td>
-                    <td>{money(orderAmount(order), currency)}</td>
-                    <td><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></td>
-                    <td>{date(order.created_at)}</td>
-                    <td><button className="row-action" type="button" aria-label={`Voir la commande ${order.id}`}><Eye size={15} /></button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="customer-facts">
+            <div><span>Inscription</span><strong>{date(customer.created_at)}</strong></div>
+            <div><span>Dernière activité</span><strong>{date(customer.last_active_at || customer.last_order_at)}</strong></div>
+            <div><span>Niveau fidélité</span><strong>{customer.loyalty?.level || "Standard"}</strong></div>
+            <div><span>Interactions</span><strong>{customer.interaction_total || customer.interaction_count || 0}</strong></div>
           </div>
-        ) : (
-          <Empty icon={ShoppingBag} title="Aucune commande" text="Ce client n’a encore passé aucune commande." />
-        )}
+        </div>
+        <aside className="customer-wallet-control">
+          <span className="eyebrow">Contrôle administrateur</span>
+          <h4>Portefeuille et accès</h4>
+          <div className="form-grid">
+            <Field label="Montant"><input type="number" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="+10 ou -5" /></Field>
+            <Field label="Motif"><input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Correction, bonus…" /></Field>
+          </div>
+          <div className="dialog-actions wrap">
+            <ActionButton icon={CircleDollarSign} disabled={!amount || !reason.trim()} onClick={() => onAction({ action: "adjust_user_wallet", user_id: customer.telegram_id, amount, reason })}>Ajuster</ActionButton>
+            <ActionButton danger icon={Ban} onClick={() => onAction({ action: "toggle_ban", user_id: customer.telegram_id, banned: customer.banned ? "0" : "1" })}>{customer.banned ? "Débloquer" : "Bloquer"}</ActionButton>
+          </div>
+        </aside>
+      </div>
+      <div className="customer-detail-tabs" role="tablist">
+        {tabs.map(([key, Icon, label, count]) => <button key={key} type="button" role="tab" aria-selected={customerTab === key} className={customerTab === key ? "active" : ""} onClick={() => setCustomerTab(key)}><Icon size={14} />{label}<span>{count}</span></button>)}
+      </div>
+      {customerTab === "timeline" && <section className="customer-profile-section">
+        <header><div><span className="eyebrow">Vue à 360°</span><h4>Chronologie du client</h4></div><strong>{customer.timeline?.length || 0}</strong></header>
+        {customer.timeline?.length ? <div className="customer-timeline">{customer.timeline.map((event, index) => {
+          const EventIcon = { order: ShoppingBag, topup: CircleDollarSign, withdrawal: Database, ticket: Headphones, warranty: ShieldCheck, reward: Sparkles, adjustment: Edit3 }[event.type] || Activity;
+          return <article key={`${event.type}-${event.id}-${index}`}><span className={`timeline-icon ${event.type}`}><EventIcon size={15} /></span><div><strong>{event.title}</strong><p>{event.description}</p><small>{date(event.created_at)}</small></div><aside>{event.status && <span className={`status ${event.status}`}>{STATUS_LABELS[event.status] || event.status}</span>}{event.amount !== undefined && event.amount !== null && <b className={Number(event.amount) < 0 ? "negative" : ""}>{Number(event.amount) > 0 ? "+" : ""}{money(event.amount, currency)}</b>}</aside></article>;
+        })}</div> : <Empty icon={Activity} title="Aucune activité" text="Les futures opérations apparaîtront ici." />}
+        <div className="customer-profile-split">
+          <div><h5>Programme fidélité</h5><dl><div><dt>Niveau</dt><dd>{customer.loyalty?.level || "Standard"}</dd></div><div><dt>Réduction</dt><dd>{customer.loyalty?.discount_percent || 0}%</dd></div><div><dt>Total reconnu</dt><dd>{money(customer.loyalty?.total_spend, currency)}</dd></div></dl></div>
+          <div><h5>Dernières interactions</h5>{customer.interactions?.length ? <ul>{customer.interactions.slice(0, 6).map((event, index) => <li key={`${event.created_at}-${index}`}><span>{event.action || event.interaction_type || "Interaction"}</span><small>{date(event.created_at)}</small></li>)}</ul> : <p>Aucune interaction enregistrée.</p>}</div>
+        </div>
+        {!!customer.referrals?.length && <div className="customer-subsection"><h5>Profils parrainés</h5><div className="compact-history">{customer.referrals.map((referral, index) => <article key={referral.referred_id || index}><div><strong>{referral.customer?.username ? `@${referral.customer.username}` : referral.customer?.first_name || `Client ${referral.referred_id}`}</strong><small>Telegram ID {referral.referred_id}{referral.qualified_order_id ? ` · commande #${referral.qualified_order_id}` : ""}</small></div><span className={`status ${referral.valid === false ? "pending" : "confirmed"}`}>{referral.valid === false ? "À qualifier" : "Qualifié"}</span><time>{date(referral.qualified_at || referral.created_at)}</time></article>)}</div></div>}
+      </section>}
+      {customerTab === "orders" && <section className="customer-profile-section">
+        <header><div><span className="eyebrow">Historique complet</span><h4>Produits achetés</h4></div><strong>{customer.orders?.length || 0}</strong></header>
+        {customer.orders?.length ? <div className="customer-purchase-grid">{customer.orders.map((order) => <button type="button" key={order.id} onClick={() => openOrder(order)}>
+          <header><span>Commande #{order.id}</span><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>
+          <h5>{order.offer_name || order.service_name || "Produit supprimé"}</h5>
+          <p>{order.product_description || "La description de ce produit n’est plus disponible dans le catalogue."}</p>
+          <dl><div><dt>Montant</dt><dd>{money(orderAmount(order), currency)}</dd></div><div><dt>Quantité</dt><dd>{order.qty || 1}</dd></div><div><dt>Garantie</dt><dd>{order.warranty || order.warranty_days ? `${order.warranty || order.warranty_days} j` : "—"}</dd></div></dl>
+          <footer><span>{date(order.created_at)}</span><span>Voir tous les détails <Eye size={14} /></span></footer>
+        </button>)}</div> : <Empty icon={ShoppingBag} title="Aucun achat" text="Ce client n’a encore passé aucune commande." />}
+        {!!customer.api_purchases?.length && <div className="customer-subsection"><h5>Achats via API</h5><div className="compact-history">{customer.api_purchases.map((purchase, index) => <article key={purchase.idempotency_key || index}><div><strong>{purchase.response?.productType || purchase.status || "Achat API"}</strong><small>{purchase.idempotency_key || `Opération ${index + 1}`}</small></div><span className={`status ${purchase.response?.success ? "delivered" : "rejected"}`}>{purchase.response?.success ? "Réussi" : "Échec"}</span><b>{money(purchase.response?.amount, currency)}</b><time>{date(purchase.created_at)}</time></article>)}</div></div>}
         {loadingOrder && <div className="table-loading">Chargement de la commande #{loadingOrder}…</div>}
-      </section> : <section className="customer-orders customer-tickets"><header><div><span className="eyebrow">Support client</span><h4>Tickets récents</h4></div><strong>{customer.tickets?.length || 0}</strong></header>{customer.tickets?.length ? <div className="customer-ticket-list">{customer.tickets.map((ticket) => <article key={ticket.id}><div><strong>Ticket #{ticket.id}</strong><span className={`status ${ticket.status}`}>{STATUS_LABELS[ticket.status] || ticket.status}</span></div><p>{ticket.subject || ticket.category || ticket.message || "Demande de support"}</p><small>Mis à jour {date(ticket.updated_at || ticket.created_at)}</small></article>)}</div> : <Empty icon={Headphones} title="Aucun ticket" text="Ce client n’a aucune demande de support." />}</section>}
+      </section>}
+      {customerTab === "finance" && <section className="customer-profile-section">
+        <header><div><span className="eyebrow">Traçabilité financière</span><h4>Dépôts, retraits et ajustements</h4></div><strong>{(customer.topups?.length || 0) + (customer.withdrawals?.length || 0)}</strong></header>
+        <div className="customer-finance-columns">
+          <div><h5>Dépôts</h5>{customer.topups?.length ? <div className="compact-history">{customer.topups.map((item, index) => <article key={item.id || item.txid || index}><div><strong>{DEPOSIT_PROVIDER_LABELS[item.provider] || item.provider || "Dépôt"}</strong><small>{item.txid || `Dépôt #${item.id}`}</small></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span><b>+{money(item.amount, item.currency || currency)}</b><time>{date(item.created_at)}</time></article>)}</div> : <p>Aucun dépôt.</p>}</div>
+          <div><h5>Retraits</h5>{customer.withdrawals?.length ? <div className="compact-history">{customer.withdrawals.map((item, index) => <article key={item.id || index}><div><strong>{item.method || "Retrait"}</strong><small>{item.destination || `Retrait #${item.id}`}</small></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span><b className="negative">-{money(item.amount, currency)}</b><time>{date(item.created_at)}</time></article>)}</div> : <p>Aucun retrait.</p>}</div>
+        </div>
+        {!!customer.wallet_adjustments?.length && <div className="customer-subsection"><h5>Ajustements administrateur</h5><div className="compact-history">{customer.wallet_adjustments.map((item) => <article key={item.id}><div><strong>{item.details?.reason || "Ajustement"}</strong><small>Admin {item.actor_id || "système"} · solde après {money(item.details?.balance, currency)}</small></div><b className={Number(item.details?.amount) < 0 ? "negative" : ""}>{Number(item.details?.amount) > 0 ? "+" : ""}{money(item.details?.amount, currency)}</b><time>{date(item.created_at)}</time></article>)}</div></div>}
+      </section>}
+      {customerTab === "support" && <section className="customer-profile-section"><header><div><span className="eyebrow">Support client</span><h4>Tous les tickets</h4></div><strong>{customer.tickets?.length || 0}</strong></header>{customer.tickets?.length ? <div className="customer-ticket-list">{customer.tickets.map((ticket) => <article key={ticket.id}><div><strong>Ticket #{ticket.id}</strong><span className={`status ${ticket.status}`}>{STATUS_LABELS[ticket.status] || ticket.status}</span></div><p>{ticket.subject || ticket.category || ticket.message || "Demande de support"}</p><small>Mis à jour {date(ticket.updated_at || ticket.created_at)}</small></article>)}</div> : <Empty icon={Headphones} title="Aucun ticket" text="Ce client n’a aucune demande de support." />}</section>}
+      {customerTab === "warranties" && <section className="customer-profile-section"><header><div><span className="eyebrow">Après-vente</span><h4>Demandes de garantie</h4></div><strong>{customer.warranties?.length || 0}</strong></header>{customer.warranties?.length ? <div className="customer-warranty-grid">{customer.warranties.map((item) => <article key={item.id}><header><strong>Garantie #{item.id}</strong><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header><h5>Commande #{item.order_id}</h5><p>{item.reason || "Aucun motif communiqué."}</p><footer><span>{item.days_used || 0} jour(s) utilisé(s)</span><b>{money(item.refund_amount, currency)}</b><time>{date(item.updated_at || item.created_at)}</time></footer></article>)}</div> : <Empty icon={ShieldCheck} title="Aucune garantie" text="Aucune demande après-vente pour ce client." />}</section>}
       </Modal>
       {selectedOrder && (
         <OrderEditor
@@ -2662,6 +2658,7 @@ function CustomersPage({ data, onAction }) {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkAmount, setBulkAmount] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [revision, setRevision] = useState(0);
   const [result, loading] = useRemoteList("/admin/api/customers", {
     search,
     search_field: searchField,
@@ -2671,20 +2668,33 @@ function CustomersPage({ data, onAction }) {
     sort,
     page,
     per_page: 25,
+    revision,
   });
   const open = async (user) => {
     const response = await fetch(
       `/admin/api/customers?user_id=${user.telegram_id}`,
-      { credentials: "same-origin" },
+      { credentials: "same-origin", cache: "no-store" },
     );
     if (response.ok) setSelected(await response.json());
   };
+  const customerAction = async (payload) => {
+    const result = await onAction(payload);
+    if (result) {
+      setRevision((value) => value + 1);
+      if (selected) await open(selected);
+    }
+    return result;
+  };
+  const visible = result.items || [];
+  const visibleWallets = visible.reduce((sum, user) => sum + Number(user.wallet_balance || 0), 0);
+  const visibleSpent = visible.reduce((sum, user) => sum + Number(user.total_spent || 0), 0);
+  const activeVisible = visible.filter((user) => !user.banned).length;
   return (
     <>
       <PageHeader
         eyebrow="CRM"
-        title="Clients"
-        description="Portefeuilles, achats, affiliation et accès au bot."
+        title="Profils clients"
+        description="Une vue complète de chaque client : identité, portefeuille, achats, dépôts, affiliation, support et activité."
         actions={
           <ActionButton
             icon={CircleDollarSign}
@@ -2695,6 +2705,11 @@ function CustomersPage({ data, onAction }) {
         }
       />
       <PendingWalletTopups onAction={onAction} />
+      <div className="customer-directory-kpis">
+        <article><span><Users size={17} /></span><div><small>Clients trouvés</small><strong>{result.total || 0}</strong><em>{activeVisible} actifs sur cette page</em></div></article>
+        <article><span><CircleDollarSign size={17} /></span><div><small>Soldes affichés</small><strong>{money(visibleWallets, data.currency)}</strong><em>portefeuilles disponibles</em></div></article>
+        <article><span><ShoppingBag size={17} /></span><div><small>Achats affichés</small><strong>{money(visibleSpent, data.currency)}</strong><em>dépenses cumulées</em></div></article>
+      </div>
       <FilterBar
         search={search}
         searchField={searchField}
@@ -2730,64 +2745,30 @@ function CustomersPage({ data, onAction }) {
           <option value="orders">Plus de commandes</option>
         </select>
       </FilterBar>
-      <section className="data-panel">
-        <div className="responsive-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Telegram ID</th>
-                <th>Portefeuille</th>
-                <th>Commandes</th>
-                <th>Dépensé</th>
-                <th>Affiliés</th>
-                <th>Statut</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {result.items.map((user) => (
-                <tr key={user.telegram_id} onClick={() => open(user)}>
-                  <td>
-                    <strong>
-                      {user.username
-                        ? `@${user.username}`
-                        : user.first_name || "Client"}
-                    </strong>
-                  </td>
-                  <td>{user.telegram_id}</td>
-                  <td>{money(user.wallet_balance, data.currency)}</td>
-                  <td>{user.order_count || 0}</td>
-                  <td>{money(user.total_spent, data.currency)}</td>
-                  <td>{user.referral_count || 0}</td>
-                  <td>
-                    <span
-                      className={`status ${user.banned ? "cancelled" : "delivered"}`}
-                    >
-                      {user.banned ? "Bloqué" : "Actif"}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="row-action">
-                      <UserRound size={15} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="data-panel customer-directory">
+        <header className="customer-directory-head"><div><span className="eyebrow">Répertoire CRM</span><h3>Cartes clients</h3></div><span>{result.total || 0} profil(s)</span></header>
+        <div className="customer-card-grid">
+          {visible.map((user) => {
+            const name = [user.first_name, user.last_name].filter(Boolean).join(" ") || user.full_name || (user.username ? `@${user.username}` : `Client ${user.telegram_id}`);
+            return <button type="button" className="customer-card" key={user.telegram_id} onClick={() => open(user)}>
+              <header><span className="customer-card-avatar">{(user.first_name || user.username || "C").slice(0, 1).toUpperCase()}</span><div><strong>{name}</strong><small>{user.username ? `@${user.username} · ` : ""}ID {user.telegram_id}</small></div><i className={user.banned ? "blocked" : "active"}>{user.banned ? "Bloqué" : "Actif"}</i></header>
+              <div className="customer-card-money"><span><small>Portefeuille</small><strong>{money(user.wallet_balance, data.currency)}</strong></span><span><small>Total dépensé</small><strong>{money(user.total_spent, data.currency)}</strong></span></div>
+              <div className="customer-card-metrics"><span><ShoppingBag size={14} /><strong>{user.order_count || 0}</strong><small>achats</small></span><span><Database size={14} /><strong>{user.deposit_count || 0}</strong><small>dépôts</small></span><span><Users size={14} /><strong>{user.referral_count || 0}</strong><small>filleuls</small></span><span><Headphones size={14} /><strong>{user.ticket_count || 0}</strong><small>tickets</small></span></div>
+              <footer><div><small>Dernier achat</small><strong>{user.last_order_name || "Aucun achat"}</strong><span>{user.last_order_at ? date(user.last_order_at) : `Inscrit ${date(user.created_at)}`}</span></div><span className="customer-card-open">Profil complet <ChevronRight size={15} /></span></footer>
+            </button>;
+          })}
         </div>
         {loading ? (
-          <div className="table-loading">Chargement…</div>
+          <div className="table-loading">Chargement des profils…</div>
         ) : (
-          !result.items.length && <Empty icon={Users} title="Aucun client" />
+          !visible.length && <Empty icon={Users} title="Aucun client" text="Aucun profil ne correspond aux filtres sélectionnés." />
         )}
         <Pagination value={result} onChange={setPage} />
       </section>
       {selected && (
         <CustomerDetail
           customer={selected}
-          onAction={onAction}
+          onAction={customerAction}
           currency={data.currency}
           onClose={() => setSelected(null)}
         />
@@ -3373,6 +3354,7 @@ function SettingsPage({ data, onAction, onHealthCheck }) {
             >
               Telegram
             </ActionButton>
+            <ActionButton secondary icon={RefreshCw} onClick={() => onHealthCheck("telegram-repair")}>Réparer le webhook</ActionButton>
             <ActionButton
               secondary
               icon={Cloud}

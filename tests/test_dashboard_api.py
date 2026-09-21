@@ -314,6 +314,71 @@ def test_customer_detail_returns_complete_order_history(mock_mongodb):
     assert customer["orders"][0]["id"] == 55
 
 
+def test_customer_detail_builds_complete_crm_profile(mock_mongodb):
+    now = int(time.time())
+    mock_mongodb.users.insert_many([
+        {"telegram_id": 42, "username": "buyer", "first_name": "Sam", "created_at": 1},
+        {"telegram_id": 77, "username": "friend"},
+    ])
+    mock_mongodb.wallets.insert_one({"user_id": 42, "balance_cents": 1234})
+    mock_mongodb.offers.insert_one({"id": 9, "name": "Pro Plan", "description": "Current catalog description"})
+    mock_mongodb.orders.insert_one({
+        "id": 7, "user_id": 42, "offer_id": 9, "offer_name": "Pro Plan",
+        "status": "delivered", "total_price": 12, "created_at": now - 80,
+    })
+    mock_mongodb.wallet_topups.insert_one({
+        "id": 3, "user_id": 42, "amount_cents": 2000, "provider": "binance",
+        "status": "confirmed", "created_at": now - 70,
+    })
+    mock_mongodb.withdrawals.insert_one({
+        "id": 4, "user_id": 42, "amount_cents": 500, "method": "USDT",
+        "status": "completed", "created_at": now - 60,
+    })
+    mock_mongodb.support_tickets.insert_one({
+        "id": 5, "user_id": 42, "message": "Need help", "status": "open",
+        "created_at": now - 50, "updated_at": now - 49,
+    })
+    mock_mongodb.warranty_requests.insert_one({
+        "id": 6, "user_id": 42, "order_id": 7, "reason": "Login issue",
+        "refund_amount": 4, "status": "pending_admin_check", "created_at": now - 40,
+        "updated_at": now - 39,
+    })
+    mock_mongodb.referrals.insert_one({
+        "referrer_id": 42, "referred_id": 77, "valid": True, "created_at": now - 30,
+    })
+    mock_mongodb.affiliate_rewards.insert_one({
+        "referrer_id": 42, "milestone": 1, "amount_cents": 200, "created_at": now - 20,
+    })
+    mock_mongodb.loyalty.insert_one({"user_id": 42, "level": "Gold", "discount_percent": 8})
+    mock_mongodb.buyer_api_purchases.insert_one({
+        "user_id": 42, "idempotency_key": "api-1", "created_at": now - 10,
+        "response": {"success": True, "amount": 3},
+    })
+    mock_mongodb.audit_events.insert_one({
+        "id": 8, "action": "wallet.admin_adjustment", "actor_id": 1,
+        "details": {"user_id": 42, "amount_cents": 100, "balance_cents": 1234, "reason": "Bonus"},
+        "created_at": datetime.now(UTC),
+    })
+    mock_mongodb.interaction_events.insert_one({
+        "user_id": 42, "interaction_type": "button", "action": "catalog", "created_at": now,
+    })
+
+    customer = dashboard_api.customer_detail(42)
+
+    assert customer is not None
+    assert customer["orders"][0]["product_description"] == "Current catalog description"
+    assert customer["deposit_total"] == 20
+    assert customer["withdrawal_total"] == 5
+    assert customer["affiliate_earned"] == 2
+    assert customer["loyalty"]["level"] == "Gold"
+    assert customer["referrals"][0]["customer"]["username"] == "friend"
+    assert customer["wallet_adjustments"][0]["details"]["amount"] == 1
+    assert customer["interaction_total"] == 1
+    assert {event["type"] for event in customer["timeline"]} == {
+        "order", "topup", "withdrawal", "ticket", "warranty", "reward", "adjustment",
+    }
+
+
 def test_order_detail_exposes_manual_delivery_and_customer(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Sam"})
     mock_mongodb.orders.insert_one({

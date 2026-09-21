@@ -375,16 +375,179 @@ def list_customers(params: dict[str, list[str]]) -> dict[str, Any]:
 
 
 def customer_detail(user_id: int) -> dict[str, Any] | None:
-    """Return one customer with their complete order history and CRM metrics."""
+    """Return one customer with their complete commercial and support history."""
     conn = db.get_conn()
     user = conn.users.find_one({"telegram_id": user_id})
     if not user:
         return None
     result = _customer_summary(user)
-    result["orders"] = [_admin_order(row) for row in conn.orders.find({"user_id": user_id}).sort("created_at", DESCENDING)]
-    result["tickets"] = [db._public(row) for row in conn.support_tickets.find({"user_id": user_id}).sort("updated_at", DESCENDING).limit(25)]
-    result["referrals"] = conn.referrals.count_documents({"referrer_id": user_id})
+
+    orders = [
+        _admin_order(row)
+        for row in conn.orders.find({"user_id": user_id}).sort("created_at", DESCENDING)
+    ]
+    offer_ids = {int(row["offer_id"]) for row in orders if row.get("offer_id") is not None}
+    offers = {
+        int(row["id"]): row
+        for row in conn.offers.find({"id": {"$in": list(offer_ids)}})
+    } if offer_ids else {}
+    for order in orders:
+        offer = offers.get(int(order["offer_id"])) if order.get("offer_id") is not None else None
+        order["product_description"] = str((offer or {}).get("description") or "")
+        order["product_description_ar"] = str((offer or {}).get("description_ar") or "")
+        order["product_image_url"] = str((offer or {}).get("image_url") or "")
+        order["product_description_source"] = "current_catalog" if offer else "unavailable"
+
+    topups = []
+    for row in conn.wallet_topups.find({"user_id": user_id}).sort("created_at", DESCENDING):
+        item = db._public(row)
+        item["amount"] = round(float(item.get("amount_cents") or 0) / 100, 2)
+        item["status"] = item.get("status") or "confirmed"
+        item["provider"] = item.get("provider") or item.get("network") or "unknown"
+        topups.append(item)
+
+    withdrawals = []
+    for row in conn.withdrawals.find({"user_id": user_id}).sort("created_at", DESCENDING):
+        item = db._public(row)
+        item["amount"] = round(float(item.get("amount_cents") or 0) / 100, 2)
+        withdrawals.append(item)
+
+    tickets = [
+        db._public(row)
+        for row in conn.support_tickets.find({"user_id": user_id}).sort("updated_at", DESCENDING)
+    ]
+    warranties = [
+        db._public(row)
+        for row in conn.warranty_requests.find({"user_id": user_id}).sort("updated_at", DESCENDING)
+    ]
+    rewards = []
+    for row in conn.affiliate_rewards.find({"referrer_id": user_id}).sort("created_at", DESCENDING):
+        item = db._public(row)
+        item["amount"] = round(float(item.get("amount_cents") or 0) / 100, 2)
+        rewards.append(item)
+
+    referrals = [
+        db._public(row)
+        for row in conn.referrals.find({"referrer_id": user_id}).sort("created_at", DESCENDING)
+    ]
+    referred_ids = [int(row["referred_id"]) for row in referrals if row.get("referred_id") is not None]
+    referred_users = {
+        int(row["telegram_id"]): db._public(row)
+        for row in conn.users.find(
+            {"telegram_id": {"$in": referred_ids}},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "full_name": 1},
+        )
+    } if referred_ids else {}
+    for referral in referrals:
+        referral["customer"] = referred_users.get(int(referral.get("referred_id") or 0), {})
+
+    api_purchases = [
+        db._public(row)
+        for row in conn.buyer_api_purchases.find({"user_id": user_id}).sort("created_at", DESCENDING)
+    ]
+    wallet_adjustments = []
+    for row in conn.audit_events.find({
+        "action": "wallet.admin_adjustment",
+        "details.user_id": user_id,
+    }).sort("created_at", DESCENDING):
+        item = db._public(row)
+        details = dict(item.get("details") or {})
+        details["amount"] = round(float(details.get("amount_cents") or 0) / 100, 2)
+        details["balance"] = round(float(details.get("balance_cents") or 0) / 100, 2)
+        item["details"] = details
+        wallet_adjustments.append(item)
+
+    interaction_total = conn.interaction_events.count_documents({"user_id": user_id})
+    interactions = [
+        db._public(row)
+        for row in conn.interaction_events.find({"user_id": user_id})
+        .sort("created_at", DESCENDING)
+        .limit(100)
+    ]
+
+    timeline: list[dict[str, Any]] = []
+    for order in orders:
+        timeline.append({
+            "type": "order", "id": order.get("id"), "created_at": order.get("created_at"),
+            "title": order.get("offer_name") or order.get("service_name") or "Commande",
+            "description": f"Commande #{order.get('id')}", "status": order.get("status"),
+            "amount": order.get("charged_total"),
+        })
+    for topup in topups:
+        timeline.append({
+            "type": "topup", "id": topup.get("id"), "created_at": topup.get("created_at"),
+            "title": "Dépôt portefeuille", "description": str(topup.get("provider") or ""),
+            "status": topup.get("status"), "amount": topup.get("amount"),
+        })
+    for withdrawal in withdrawals:
+        timeline.append({
+            "type": "withdrawal", "id": withdrawal.get("id"), "created_at": withdrawal.get("created_at"),
+            "title": "Retrait", "description": str(withdrawal.get("method") or ""),
+            "status": withdrawal.get("status"), "amount": -float(withdrawal.get("amount") or 0),
+        })
+    for ticket in tickets:
+        timeline.append({
+            "type": "ticket", "id": ticket.get("id"),
+            "created_at": ticket.get("updated_at") or ticket.get("created_at"),
+            "title": f"Ticket #{ticket.get('id')}",
+            "description": ticket.get("subject") or ticket.get("category") or ticket.get("message") or "Support",
+            "status": ticket.get("status"),
+        })
+    for warranty in warranties:
+        timeline.append({
+            "type": "warranty", "id": warranty.get("id"),
+            "created_at": warranty.get("updated_at") or warranty.get("created_at"),
+            "title": f"Garantie commande #{warranty.get('order_id')}",
+            "description": warranty.get("reason") or "Demande de garantie",
+            "status": warranty.get("status"), "amount": warranty.get("refund_amount"),
+        })
+    for reward in rewards:
+        timeline.append({
+            "type": "reward", "id": reward.get("milestone"), "created_at": reward.get("created_at"),
+            "title": "Récompense affiliation", "description": f"Palier {reward.get('milestone')}",
+            "status": "confirmed", "amount": reward.get("amount"),
+        })
+    for adjustment in wallet_adjustments:
+        details = adjustment.get("details") or {}
+        timeline.append({
+            "type": "adjustment", "id": adjustment.get("id"), "created_at": adjustment.get("created_at"),
+            "title": "Ajustement administrateur", "description": details.get("reason") or "Sans motif",
+            "status": "confirmed", "amount": details.get("amount"),
+        })
+    timeline.sort(key=lambda item: _event_timestamp(item.get("created_at")), reverse=True)
+
+    result.update({
+        "orders": orders,
+        "topups": topups,
+        "withdrawals": withdrawals,
+        "tickets": tickets,
+        "warranties": warranties,
+        "referrals": referrals,
+        "referral_count": len(referrals),
+        "affiliate_rewards": rewards,
+        "affiliate_earned": round(sum(float(row.get("amount") or 0) for row in rewards), 2),
+        "loyalty": db._public(conn.loyalty.find_one({"user_id": user_id})) or {},
+        "api_purchases": api_purchases,
+        "wallet_adjustments": wallet_adjustments,
+        "interactions": interactions,
+        "interaction_total": interaction_total,
+        "timeline": timeline,
+        "deposit_total": round(sum(float(row.get("amount") or 0) for row in topups if row.get("status") == "confirmed"), 2),
+        "withdrawal_total": round(sum(float(row.get("amount") or 0) for row in withdrawals if row.get("status") in {"approved", "paid", "completed"}), 2),
+    })
     return result
+
+
+def _event_timestamp(value: Any) -> float:
+    """Normalize mixed MongoDB date formats for a stable CRM timeline."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=value.tzinfo or UTC).timestamp()
+    if isinstance(value, str):
+        with suppress(ValueError):
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    return 0.0
 
 
 def list_reseller_clients(params: dict[str, list[str]]) -> dict[str, Any]:
@@ -615,12 +778,23 @@ def _customer_summary(user: dict[str, Any]) -> dict[str, Any]:
         {"$group": {"_id": None, "total": {"$sum": db.order_charge_total_expression()}, "count": {"$sum": 1}}},
     ]))
     metrics = revenue[0] if revenue else {"total": 0, "count": 0}
+    last_order = conn.orders.find_one({"user_id": user_id}, sort=[("created_at", DESCENDING)]) or {}
+    deposits = list(conn.wallet_topups.aggregate([
+        {"$match": {"user_id": user_id, "$or": [{"status": "confirmed"}, {"status": {"$exists": False}}]}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount_cents"}, "count": {"$sum": 1}}},
+    ]))
+    deposit_metrics = deposits[0] if deposits else {"total": 0, "count": 0}
     result = db._public(user)
     result.update({
         "order_count": conn.orders.count_documents({"user_id": user_id}),
         "paid_order_count": metrics["count"],
         "total_spent": round(float(metrics["total"]), 2),
         "referral_count": conn.referrals.count_documents({"referrer_id": user_id}),
+        "ticket_count": conn.support_tickets.count_documents({"user_id": user_id}),
+        "deposit_count": deposit_metrics["count"],
+        "deposit_total": round(float(deposit_metrics["total"] or 0) / 100, 2),
+        "last_order_at": last_order.get("created_at"),
+        "last_order_name": last_order.get("offer_name") or last_order.get("service_name") or "",
         "wallet_balance": round(
             float((conn.wallets.find_one({"user_id": user_id}) or {}).get("balance_cents", 0)) / 100,
             2,

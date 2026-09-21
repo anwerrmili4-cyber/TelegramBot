@@ -241,7 +241,7 @@ def test_primary_admin_route_serves_react_build(monkeypatch):
             body = response.read().decode()
 
     assert response.status == 200
-    assert "BlackMarket Control Center" in body
+    assert "Black Market · Control Room" in body
     assert '<div id="root"></div>' in body
 
 
@@ -394,3 +394,11 @@ def test_webhook_requires_json_content_type(monkeypatch):
             assert exc.code == 415
         else:
             raise AssertionError("Webhook accepted a non-JSON request")
+
+
+def test_control_room_routes_support_direct_navigation():
+    with running_server() as base_url:
+        for page in ("control-center", "phone", "data-explorer", "ai-manager", "api-clients"):
+            with urlopen(f"{base_url}/admin/{page}", timeout=5) as response:
+                assert response.status == 200
+                assert '<div id="root"></div>' in response.read().decode()

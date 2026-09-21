@@ -11,6 +11,12 @@ export default defineConfig({
   server: {
     proxy: {
       "/admin/api": "http://localhost:8080",
+      "^/admin(?:$|/(?!api(?:/|$)))": {
+        target: "http://localhost:8080",
+        bypass(req) {
+          if (req.method !== "POST") return "/admin-v2/index.html";
+        },
+      },
     },
   },
 });
