@@ -638,7 +638,8 @@ class handler(BaseHTTPRequestHandler):
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
-            or path.startswith("/admin/") and path.removeprefix("/admin/") in admin_tabs
+            or path.startswith("/admin/")
+            and path.removeprefix("/admin/").split("/", 1)[0] in admin_tabs
         )
         if react_admin_route:
             relative_path = path.removeprefix("/admin-v2/") if path.startswith("/admin-v2/") else ""
@@ -669,6 +670,7 @@ class handler(BaseHTTPRequestHandler):
             self.send_header(
                 "Cache-Control",
                 "no-store, max-age=0" if resolved_file.suffix == ".html"
+                else "no-cache" if resolved_file.suffix == ".webmanifest"
                 else "public, max-age=31536000, immutable",
             )
             self.send_header("Content-Length", str(len(body)))

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  ArrowLeft,
   Archive,
   Ban,
   Boxes,
@@ -14,6 +15,7 @@ import {
   ClipboardList,
   Cloud,
   Copy,
+  CreditCard,
   Database,
   Download,
   Edit3,
@@ -22,6 +24,7 @@ import {
   Headphones,
   KeyRound,
   MessageSquareText,
+  PackageCheck,
   PackagePlus,
   Plus,
   RefreshCw,
@@ -321,7 +324,7 @@ function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
   return [result, loading];
 }
 
-function OrderEditor({ order, onAction, onClose, currency }) {
+function OrderDetailPage({ order, onAction, onBack, onReload, currency }) {
   const [status, setStatus] = useState(order.status || "pending_payment");
   const [note, setNote] = useState(order.admin_note || "");
   const [message, setMessage] = useState("");
@@ -334,179 +337,76 @@ function OrderEditor({ order, onAction, onClose, currency }) {
   const [confirmation, setConfirmation] = useState(null);
   const customer = order.customer || {};
   const submit = async (action, extra = {}) => {
-    if (await onAction({ action, order_id: order.id, ...extra })) onClose();
+    if (await onAction({ action, order_id: order.id, ...extra })) {
+      setConfirmation(null);
+      await onReload();
+    }
   };
   const requestSensitiveAction = (action, label, extra) => setConfirmation({ action, label, extra });
+  const timeline = [
+    { label: "Commande créée", value: order.created_at, complete: true },
+    { label: "Paiement reçu", value: order.paid_at || order.confirmed_at, complete: Boolean(order.paid_at || order.confirmed_at || ["paid", "payment_confirmed", "preparing_delivery", "delivered"].includes(order.status)) },
+    { label: "Paiement confirmé", value: order.verified_at || order.confirmed_at, complete: ["payment_confirmed", "preparing_delivery", "delivered"].includes(order.status) },
+    { label: "Commande livrée", value: order.delivered_at, complete: order.status === "delivered" },
+  ];
   return (
-    <Modal title={`Commande #${order.id}`} onClose={onClose} wide>
-      <div className="detail-grid">
-        <div>
-          <span>Client</span>
-          <strong>
-            {order.username ? `@${order.username}` : order.user_id}
-          </strong>
-        </div>
-        <div>
-          <span>Produit</span>
-          <strong>{order.offer_name || order.service_name || "—"}</strong>
-        </div>
-        <div>
-          <span>Montant</span>
-          <strong>{money(orderAmount(order), currency)}</strong>
-        </div>
-        <div>
-          <span>Créée</span>
-          <strong>{date(order.created_at)}</strong>
-        </div>
-        <div>
-          <span>ID client</span>
-          <strong>{order.user_id || customer.telegram_id || "—"}</strong>
-        </div>
-        <div>
-          <span>Quantité</span>
-          <strong>{order.qty || 1}</strong>
-        </div>
-        <div>
-          <span>Prix unitaire</span>
-          <strong>{money(order.unit_price, currency)}</strong>
-        </div>
-        <div>
-          <span>Statut</span>
-          <strong>{STATUS_LABELS[order.status] || order.status || "—"}</strong>
-        </div>
-        <div>
-          <span>ID offre</span>
-          <strong>{order.offer_id || "—"}</strong>
-        </div>
-        <div>
-          <span>TXID</span>
-          <strong title={order.txid || ""}>{order.txid || "—"}</strong>
-        </div>
-        <div>
-          <span>Vérification</span>
-          <strong>{order.verify_method || "—"}</strong>
-        </div>
-        <div>
-          <span>Livrée</span>
-          <strong>{date(order.delivered_at)}</strong>
-        </div>
-      </div>
-      <section className="delivery-detail">
-        <header>
-          <div>
-            <span>Contenu livré au client</span>
-            <small>{delivery ? "Contenu complet de la livraison" : "Aucun contenu livré pour cette commande"}</small>
-          </div>
-          {delivery && (
-            <button type="button" onClick={() => navigator.clipboard?.writeText(delivery)} title="Copier le contenu">
-              <Copy size={15} /> Copier
-            </button>
-          )}
-        </header>
-        <pre>{delivery || "—"}</pre>
+    <div className="order-detail-page">
+      <header className="order-detail-header">
+        <button type="button" onClick={onBack}><ArrowLeft size={18} />Toutes les commandes</button>
+        <div><span className="eyebrow">Dossier de commande</span><h2>Commande #{order.id}</h2><p>{order.offer_name || order.service_name || "Produit sans nom"}</p></div>
+        <span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status || "—"}</span>
+      </header>
+
+      <section className="order-detail-summary">
+        <article><span><CircleDollarSign size={18} /></span><div><small>Montant encaissé</small><strong>{money(orderAmount(order), currency)}</strong><em>{order.qty || 1} × {money(order.unit_price, currency)}</em></div></article>
+        <article><span><UserRound size={18} /></span><div><small>Client</small><strong>{order.customer_name || (order.username ? `@${order.username}` : customer.full_name || `Client ${order.user_id}`)}</strong><em>ID {order.user_id || customer.telegram_id || "—"}</em></div></article>
+        <article><span><CreditCard size={18} /></span><div><small>Paiement</small><strong>{order.verify_method || "Non renseigné"}</strong><em>{order.txid ? `TXID ${order.txid}` : "Aucun TXID"}</em></div></article>
+        <article><span><PackageCheck size={18} /></span><div><small>Livraison</small><strong>{order.delivered_at ? "Effectuée" : "En attente"}</strong><em>{order.delivered_at ? date(order.delivered_at) : "À traiter"}</em></div></article>
       </section>
-      <div className="form-grid">
-        <Field label="Statut">
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            {Object.entries(STATUS_LABELS)
-              .slice(0, 11)
-              .map(([value, label]) => (
-                <option value={value} key={value}>
-                  {label}
-                </option>
-              ))}
-          </select>
-        </Field>
-        <Field label="Note administrateur">
-          <input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        </Field>
-        <Field label="Message au client">
-          <textarea
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder="Message Telegram…"
-          />
-        </Field>
-        <Field label="Contenu de livraison">
-          <textarea
-            value={delivery}
-            onChange={(event) => setDelivery(event.target.value)}
-            placeholder="Identifiants ou code…"
-          />
-        </Field>
+
+      <div className="order-detail-layout">
+        <div className="order-detail-main">
+          <section className="order-detail-card order-progress-card">
+            <header><div><span className="eyebrow">Progression</span><h3>Chronologie de la commande</h3></div><Clock3 size={19} /></header>
+            <div className="order-progress">{timeline.map((step, index) => <article className={step.complete ? "complete" : ""} key={step.label}><i>{step.complete ? <Check size={14} /> : index + 1}</i><div><strong>{step.label}</strong><small>{step.value ? date(step.value) : step.complete ? "Terminé" : "En attente"}</small></div></article>)}</div>
+          </section>
+
+          <section className="order-detail-card">
+            <header><div><span className="eyebrow">Informations</span><h3>Détails commerciaux et techniques</h3></div></header>
+            <div className="order-facts">
+              <div><span>Produit</span><strong>{order.offer_name || order.service_name || "—"}</strong></div>
+              <div><span>Commande créée</span><strong>{date(order.created_at)}</strong></div>
+              <div><span>ID offre</span><strong>{order.offer_id || "—"}</strong></div>
+              <div><span>Quantité</span><strong>{order.qty || 1}</strong></div>
+              <div><span>Prix unitaire</span><strong>{money(order.unit_price, currency)}</strong></div>
+              <div><span>Note administrateur</span><strong>{order.admin_note || "Aucune note"}</strong></div>
+              <div className="wide"><span>TXID</span><strong title={order.txid || ""}>{order.txid || "Aucun identifiant de transaction"}</strong></div>
+            </div>
+          </section>
+
+          <section className="delivery-detail">
+            <header><div><span>Contenu livré au client</span><small>{delivery ? "Contenu complet de la livraison" : "Aucun contenu livré pour cette commande"}</small></div>{delivery && <button type="button" onClick={() => navigator.clipboard?.writeText(delivery)} title="Copier le contenu"><Copy size={15} /> Copier</button>}</header>
+            <pre>{delivery || "—"}</pre>
+          </section>
+        </div>
+
+        <aside className="order-action-panel">
+          <header><span className="eyebrow">Pilotage</span><h3>Mettre à jour la commande</h3><p>Les changements sont appliqués et synchronisés immédiatement.</p></header>
+          <Field label="Statut"><select value={status} onChange={(event) => setStatus(event.target.value)}>{Object.entries(STATUS_LABELS).slice(0, 11).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></Field>
+          <Field label="Note administrateur"><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Note interne…" /></Field>
+          <ActionButton icon={Check} onClick={() => submit("update_order_admin", { status, admin_note: note })}>Enregistrer les changements</ActionButton>
+          <hr />
+          <Field label="Message au client"><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message Telegram…" /></Field>
+          <ActionButton secondary icon={Send} disabled={!message.trim()} onClick={() => submit("message_customer", { message })}>Envoyer le message</ActionButton>
+          <Field label="Contenu de livraison"><textarea value={delivery} onChange={(event) => setDelivery(event.target.value)} placeholder="Identifiants ou code…" /></Field>
+          <ActionButton secondary icon={PackagePlus} disabled={!delivery.trim()} onClick={() => submit("manual_deliver_order", { delivery_text: delivery })}>Livrer la commande</ActionButton>
+          <div className="order-secondary-actions"><button type="button" onClick={() => submit("reset_order")}><RefreshCw size={15} />Réinitialiser</button><button type="button" onClick={() => submit("resend_delivery")}><Send size={15} />Renvoyer</button></div>
+          <hr />
+          <div className="order-danger-actions"><button type="button" onClick={() => requestSensitiveAction("refund_order", "Confirmer le remboursement", { reason: note || "Remboursement depuis le dashboard React" })}><CircleDollarSign size={15} />Rembourser</button><button type="button" onClick={() => requestSensitiveAction("cancel_order", "Confirmer l’annulation", { reason: note || "Annulée depuis le dashboard React" })}><X size={15} />Annuler</button></div>
+          {confirmation && <div className="order-confirmation" role="alertdialog" aria-label={confirmation.label}><div><strong>{confirmation.label} ?</strong><span>Cette action peut notifier le client.</span></div><button type="button" onClick={() => setConfirmation(null)}>Retour</button><button type="button" className="danger" onClick={() => submit(confirmation.action, confirmation.extra)}>Confirmer</button></div>}
+        </aside>
       </div>
-      <div className="dialog-actions wrap">
-        <ActionButton
-          icon={Check}
-          onClick={() =>
-            submit("update_order_admin", { status, admin_note: note })
-          }
-        >
-          Enregistrer
-        </ActionButton>
-        <ActionButton
-          secondary
-          icon={Send}
-          disabled={!message.trim()}
-          onClick={() => submit("message_customer", { message })}
-        >
-          Envoyer
-        </ActionButton>
-        <ActionButton
-          secondary
-          icon={PackagePlus}
-          disabled={!delivery.trim()}
-          onClick={() =>
-            submit("manual_deliver_order", { delivery_text: delivery })
-          }
-        >
-          Livrer
-        </ActionButton>
-        <ActionButton
-          secondary
-          icon={RefreshCw}
-          onClick={() => submit("reset_order")}
-        >
-          Réinitialiser
-        </ActionButton>
-        <ActionButton
-          secondary
-          icon={Send}
-          onClick={() => submit("resend_delivery")}
-        >
-          Renvoyer
-        </ActionButton>
-        <ActionButton
-          danger
-          icon={CircleDollarSign}
-          onClick={() =>
-            requestSensitiveAction("refund_order", "Confirmer le remboursement", {
-              reason: note || "Remboursement depuis le dashboard React",
-            })
-          }
-        >
-          Rembourser
-        </ActionButton>
-        <ActionButton
-          danger
-          icon={X}
-          onClick={() =>
-            requestSensitiveAction("cancel_order", "Confirmer l’annulation", {
-              reason: note || "Annulée depuis le dashboard React",
-            })
-          }
-        >
-          Annuler
-        </ActionButton>
-      </div>
-      {confirmation && <div className="order-confirmation" role="alertdialog" aria-label={confirmation.label}><div><strong>{confirmation.label} ?</strong><span>Cette action modifie la commande #{order.id} et peut notifier le client.</span></div><button type="button" onClick={() => setConfirmation(null)}>Retour</button><button type="button" className="danger" onClick={() => submit(confirmation.action, confirmation.extra)}>Oui, confirmer</button></div>}
-    </Modal>
+    </div>
   );
 }
 
@@ -519,6 +419,7 @@ function OrdersPage({ data, onAction }) {
   const [sort, setSort] = useState("date");
   const [direction, setDirection] = useState("desc");
   const [selected, setSelected] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [viewMode, setViewMode] = useState(() => window.matchMedia("(max-width: 640px)").matches ? "cards" : window.localStorage.getItem("admin-orders-view") || "table");
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -557,6 +458,7 @@ function OrdersPage({ data, onAction }) {
       y: 142 - (Number(item.count || 0) / maximum) * 112,
     }));
   }, [daily]);
+  const maximumRevenue = Math.max(...daily.map((item) => Number(item.revenue || 0)), 1);
   const statusSegments = useMemo(() => {
     const colors = {
       delivered: "#34d399",
@@ -581,6 +483,7 @@ function OrdersPage({ data, onAction }) {
     items: (result.items || []).filter((item) => column.statuses.includes(item.status)),
     total: column.statuses.reduce((sum, itemStatus) => sum + Number(analytics.statuses?.[itemStatus] || 0), 0),
   })), [result.items, analytics.statuses]);
+  const pipelineMaximum = Math.max(...kanbanColumns.map((column) => column.total), 1);
   const totalStatuses = statusSegments.reduce((sum, item) => sum + item.value, 0);
   let donutCursor = 0;
   const donutBackground = statusSegments.length
@@ -598,23 +501,50 @@ function OrdersPage({ data, onAction }) {
     }
     setPage(1);
   };
-  const openOrder = async (order) => {
-    const response = await fetch(`/admin/api/orders?detail=1&order_id=${order.id}`, {
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-    setSelected(response.ok ? await response.json() : order);
-    window.history.replaceState({}, "", `/admin/orders?order=${encodeURIComponent(order.id)}`);
+  const openOrder = async (order, updateRoute = true) => {
+    setDetailLoading(true);
+    try {
+      const response = await fetch(`/admin/api/orders?detail=1&order_id=${order.id}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      setSelected(response.ok ? await response.json() : order);
+      window.scrollTo({ top: 0, behavior: "auto" });
+      const target = `/admin/orders/${encodeURIComponent(order.id)}`;
+      if (updateRoute && window.location.pathname !== target) {
+        const notificationRoute = new URLSearchParams(window.location.search).get("order") === String(order.id);
+        window.history[notificationRoute ? "replaceState" : "pushState"]({}, "", target);
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+  const closeOrder = () => {
+    setSelected(null);
+    window.scrollTo({ top: 0, behavior: "auto" });
+    window.history.pushState({}, "", "/admin/orders");
   };
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("order");
+    const pathMatch = window.location.pathname.match(/^\/admin\/orders\/(\d+)\/?$/);
+    const requested = pathMatch?.[1] || new URLSearchParams(window.location.search).get("order");
     if (requested && /^\d+$/.test(requested)) openOrder({ id: Number(requested) });
     const navigateToOrder = (event) => {
       if (event.detail?.page === "orders" && event.detail?.entityId != null) openOrder({ id: event.detail.entityId });
     };
+    const restoreOrderRoute = () => {
+      const match = window.location.pathname.match(/^\/admin\/orders\/(\d+)\/?$/);
+      if (match) openOrder({ id: Number(match[1]) }, false);
+      else setSelected(null);
+    };
     window.addEventListener("admin:navigate", navigateToOrder);
-    return () => window.removeEventListener("admin:navigate", navigateToOrder);
+    window.addEventListener("popstate", restoreOrderRoute);
+    return () => {
+      window.removeEventListener("admin:navigate", navigateToOrder);
+      window.removeEventListener("popstate", restoreOrderRoute);
+    };
   }, []);
+  if (selected) return <OrderDetailPage key={selected.id} order={selected} currency={data.currency} onAction={onAction} onBack={closeOrder} onReload={() => openOrder({ id: selected.id }, false)} />;
+  if (detailLoading) return <div className="order-detail-loading"><RefreshCw className="spin" size={24} /><strong>Ouverture de la commande…</strong></div>;
   return (
     <>
       <PageHeader
@@ -628,12 +558,13 @@ function OrdersPage({ data, onAction }) {
         <article><span className="order-kpi-icon green"><CheckCircle2 size={19} /></span><div><small>Taux de livraison</small><strong>{analytics.success_rate || 0}%</strong><em>{analytics.delivered || 0} livrée(s)</em></div></article>
         <article><span className="order-kpi-icon amber"><Clock3 size={19} /></span><div><small>À traiter</small><strong>{analytics.pending || 0}</strong><em>Action requise</em></div></article>
       </section>
-      <details className="workspace-analytics"><summary><TrendingUp size={17} />Analyser les tendances et la répartition</summary><section className="order-analytics-grid">
+      <section className="workspace-analytics order-analytics-visible"><header><div><span className="eyebrow">Analyse en temps réel</span><h3>Comprendre les commandes d’un coup d’œil</h3></div><TrendingUp size={19} /></header><div className="order-analytics-grid">
         <article className="data-panel order-trend-card">
-          <header><div><span className="eyebrow">Activité</span><h3>Commandes sur 7 jours</h3></div><TrendingUp size={19} /></header>
+          <header><div><span className="eyebrow">Activité</span><h3>Volume et revenus sur 7 jours</h3></div><div className="chart-key"><span><i className="volume" />Commandes</span><span><i className="revenue" />Revenus</span></div></header>
           <div className="order-line-chart">
             <svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Courbe des commandes sur 7 jours">
               {[30, 86, 142].map((y) => <line key={y} x1="0" x2="600" y1={y} y2={y} className="order-grid-line" />)}
+              {daily.map((item, index) => <rect key={`revenue-${item.date}`} x={(index / Math.max(daily.length, 1)) * 600 + 10} y={150 - (Number(item.revenue || 0) / maximumRevenue) * 92} width={Math.max(16, 600 / Math.max(daily.length, 1) - 25)} height={(Number(item.revenue || 0) / maximumRevenue) * 92} rx="5" className="order-revenue-bar"><title>{money(item.revenue, data.currency)} encaissé</title></rect>)}
               {chartPoints.length > 1 && <polygon points={`0,160 ${chartPoints.map((point) => `${point.x},${point.y}`).join(" ")} 600,160`} className="order-area" />}
               {chartPoints.length > 1 && <polyline points={chartPoints.map((point) => `${point.x},${point.y}`).join(" ")} className="order-chart-line" />}
               {chartPoints.map((point) => <circle key={point.date} cx={point.x} cy={point.y} r="4" className="order-chart-dot"><title>{point.count} commande(s)</title></circle>)}
@@ -648,7 +579,11 @@ function OrdersPage({ data, onAction }) {
             <div className="order-legend">{statusSegments.slice(0, 5).map((item) => <button key={item.key} onClick={() => { setStatus(item.key); setPage(1); }}><i style={{ background: item.color }} /><span>{STATUS_LABELS[item.key] || item.key}</span><strong>{item.value}</strong></button>)}</div>
           </div>
         </article>
-      </section></details>
+        <article className="data-panel order-pipeline-card">
+          <header><div><span className="eyebrow">Flux opérationnel</span><h3>Progression des commandes</h3></div><Boxes size={19} /></header>
+          <div className="order-pipeline">{kanbanColumns.map((column) => <button type="button" key={column.id} onClick={() => { setStatus(""); setQueue(column.id === "waiting" ? "attention" : column.id === "delivery" ? "delivery" : ""); setPage(1); }}><div><span>{column.label}</span><strong>{column.total}</strong></div><i><b className={column.id} style={{ width: `${Math.max(4, column.total / pipelineMaximum * 100)}%` }} /></i><small>{analytics.total ? Math.round(column.total / analytics.total * 100) : 0}% du total</small></button>)}</div>
+        </article>
+      </div></section>
       <div className="workspace-tabs order-quick-filters" role="group" aria-label="Files de commandes"><button aria-pressed={!status && !queue} onClick={() => { setStatus(""); setQueue(""); setPage(1); }}>Toutes</button><button aria-pressed={queue === "attention"} onClick={() => { setStatus(""); setQueue("attention"); setPage(1); }}>Urgentes <span>{analytics.attention || 0}</span></button><button aria-pressed={status === "manual_review"} onClick={() => { setQueue(""); setStatus("manual_review"); setPage(1); }}>À vérifier</button><button aria-pressed={status === "pending_payment"} onClick={() => { setQueue(""); setStatus("pending_payment"); setPage(1); }}>Paiement en attente</button><button aria-pressed={queue === "delivery"} onClick={() => { setStatus(""); setQueue("delivery"); setPage(1); }}>À livrer</button><button aria-pressed={status === "delivered"} onClick={() => { setQueue(""); setStatus("delivered"); setPage(1); }}>Livrées</button></div>
       <FilterBar
         search={search}
@@ -740,14 +675,6 @@ function OrdersPage({ data, onAction }) {
         )}
         <Pagination value={result} onChange={setPage} />
       </section>
-      {selected && (
-        <OrderEditor
-          order={selected}
-          currency={data.currency}
-          onAction={onAction}
-          onClose={() => { setSelected(null); window.history.replaceState({}, "", "/admin/orders"); }}
-        />
-      )}
       {columnsOpen && <Modal title="Colonnes du tableau" onClose={() => setColumnsOpen(false)}><div className="column-picker"><p>Choisissez les informations visibles. Ce réglage est mémorisé sur cet appareil.</p>{[["customer", "Client"], ["product", "Produit"], ["amount", "Montant"], ["status", "Statut"], ["date", "Date"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={visibleColumns.includes(key)} onChange={() => toggleColumn(key)} /><span>{label}</span><Check size={15} /></label>)}<div><ActionButton secondary onClick={() => { const all = ["customer", "product", "amount", "status", "date"]; setVisibleColumns(all); window.localStorage.setItem("admin-orders-columns", JSON.stringify(all)); }}>Tout afficher</ActionButton><ActionButton onClick={() => setColumnsOpen(false)}>Terminer</ActionButton></div></div></Modal>}
     </>
   );

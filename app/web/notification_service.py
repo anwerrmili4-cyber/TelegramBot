@@ -86,6 +86,47 @@ def _device_id(endpoint):
     return hashlib.sha256(endpoint.encode()).hexdigest()
 
 
+def _provider(endpoint):
+    host = (urlsplit(str(endpoint or "")).hostname or "").lower()
+    if host == "web.push.apple.com" or host.endswith(".push.apple.com"):
+        return "Apple Push"
+    if host == "fcm.googleapis.com":
+        return "Google Push"
+    if host == "push.services.mozilla.com" or host.endswith(".push.services.mozilla.com"):
+        return "Mozilla Push"
+    if host == "notify.windows.com" or host.endswith(".notify.windows.com"):
+        return "Windows Push"
+    return "Web Push"
+
+
+def _diagnostics(row):
+    if not row:
+        return {}
+    return {
+        "provider": _provider(row.get("subscription", {}).get("endpoint")),
+        "updated_at": row.get("updated_at", 0),
+        "last_sent_at": row.get("last_sent_at", 0),
+        "last_error_at": row.get("last_error_at", 0),
+        "last_error_status": row.get("last_error_status"),
+    }
+
+
+def _app_origin(value=""):
+    configured = env_value("HP_ADMIN_BASE_URL").rstrip("/")
+    raw = str(value or configured or public_base_url_from_environment()).strip().rstrip("/")
+    url = urlsplit(raw)
+    local = url.hostname in {"127.0.0.1", "localhost", "::1"}
+    if url.scheme not in ({"http", "https"} if local else {"https"}) or not url.netloc or url.username or url.password:
+        raise ValueError("Origine de l’application invalide.")
+    origin = f"{url.scheme}://{url.netloc}"
+    if configured:
+        configured_url = urlsplit(configured)
+        configured_origin = f"{configured_url.scheme}://{configured_url.netloc}"
+        if origin != configured_origin:
+            raise ValueError("Cette origine ne correspond pas au domaine administrateur configuré.")
+    return origin
+
+
 def device_action(payload):
     action = payload.get("action")
     if action == "read":
@@ -103,7 +144,8 @@ def device_action(payload):
         return {"ok": True}
     if action == "status":
         row = devices.find_one({"_id": device_id, "auth_version": _auth_version()})
-        return {"ok": True, "enabled": bool(row), "preferences": row.get("preferences", {}) if row else {}}
+        return {"ok": True, "enabled": bool(row), "preferences": row.get("preferences", {}) if row else {},
+                "diagnostics": _diagnostics(row)}
     if action == "subscribe":
         preferences = payload.get("preferences", {})
         categories = preferences.get("categories", sorted(CATEGORIES)) if isinstance(preferences, dict) else None
@@ -119,16 +161,19 @@ def device_action(payload):
                              "paused_until": int(time.time()) + pause * 60 if pause else 0}
         devices.update_one({"_id": device_id}, {"$set": {
             "subscription": subscription, "auth_version": _auth_version(), "preferences": saved_preferences,
-            "updated_at": int(time.time()),
+            "app_origin": _app_origin(payload.get("app_origin")), "updated_at": int(time.time()),
         }, "$setOnInsert": {"seen": baseline, "lease_until": 0}}, upsert=True)
-        return {"ok": True, "preferences": saved_preferences}
+        row = devices.find_one({"_id": device_id})
+        return {"ok": True, "preferences": saved_preferences, "diagnostics": _diagnostics(row)}
     if action == "test":
         row = devices.find_one({"_id": device_id, "auth_version": _auth_version()})
         if not row:
             raise ValueError("Activez d’abord les notifications sur cet appareil.")
         if not _send(row, {"id": "test", "title": "Notifications activées", "message": "Ce téléphone ou PC reçoit les notifications Black Market.", "target": {"page": "overview"}}, test=True):
             raise ValueError("Envoi refusé par le service push. Réactivez les notifications ou réessayez.")
-        return {"ok": True, "message": "Test envoyé au service push. Vérifiez les notifications de votre appareil."}
+        row = devices.find_one({"_id": device_id})
+        return {"ok": True, "message": "Test accepté par le service push. Vérifiez maintenant l’écran verrouillé.",
+                "diagnostics": _diagnostics(row)}
     raise ValueError("Action inconnue.")
 
 
@@ -139,25 +184,58 @@ def read_ids():
 def _send(device, item, *, test=False):
     from pywebpush import WebPushException, webpush
     private = device.get("preferences", {}).get("private", True) and not test
-    payload = {"id": item["id"], "title": "Black Market · Nouvelle notification" if private else item["title"],
-               "body": "Ouvrez le tableau de bord pour consulter les détails." if private else item["message"][:500],
-               "url": "/admin/" + item.get("target", {}).get("page", "overview")}
+    page = str(item.get("target", {}).get("page") or "overview")
+    relative_url = "/admin" if page == "overview" else "/admin/" + page
+    entity_id = item.get("target", {}).get("entity_id")
+    if page == "orders" and entity_id is not None:
+        relative_url += f"/{int(entity_id)}"
+    navigate = _app_origin(device.get("app_origin")) + relative_url
+    title = "Black Market · Nouvelle notification" if private else item["title"]
+    body = "Ouvrez le tableau de bord pour consulter les détails." if private else item["message"][:500]
+    payload = {
+        "web_push": 8030,
+        "notification": {
+            "title": title,
+            "body": body,
+            "navigate": navigate,
+            "tag": str(item["id"]),
+            "silent": False,
+            "mutable": True,
+            "app_badge": 1,
+            "data": {"url": relative_url},
+        },
+    }
     try:
         with _PushSession() as session:
             response = webpush(subscription_info=device["subscription"], data=json.dumps(payload),
                               vapid_private_key=_keypair()["private"],
                               vapid_claims={"sub": env_value("HP_WEB_PUSH_SUBJECT") or public_base_url_from_environment()},
-                              ttl=3600, timeout=10, requests_session=session)
+                              ttl=86400, headers={"Urgency": "high", "Topic": hashlib.sha256(str(item["id"]).encode()).hexdigest()[:32]},
+                              timeout=10, requests_session=session)
             if response is not None and not 200 <= response.status_code < 300:
+                db.get_conn().admin_push_devices.update_one({"_id": device["_id"]}, {"$set": {
+                    "last_error_at": int(time.time()), "last_error_status": response.status_code,
+                }})
                 return False
+        db.get_conn().admin_push_devices.update_one({"_id": device["_id"]}, {
+            "$set": {"last_sent_at": int(time.time())},
+            "$unset": {"last_error_at": "", "last_error_status": ""},
+        })
         return True
     except WebPushException as exc:
         status = getattr(exc.response, "status_code", None)
         if status in (404, 410):
             db.get_conn().admin_push_devices.delete_one({"_id": device["_id"]})
+        else:
+            db.get_conn().admin_push_devices.update_one({"_id": device["_id"]}, {"$set": {
+                "last_error_at": int(time.time()), "last_error_status": status or "provider_error",
+            }})
         log.warning("Admin push delivery failed (HTTP %s)", status)
         return False
     except RequestException:
+        db.get_conn().admin_push_devices.update_one({"_id": device["_id"]}, {"$set": {
+            "last_error_at": int(time.time()), "last_error_status": "network_error",
+        }})
         log.warning("Admin push provider unreachable; delivery will be retried")
         return False
 

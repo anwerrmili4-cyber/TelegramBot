@@ -112,12 +112,65 @@ def test_push_payload_privacy_and_expired_subscription(monkeypatch, mock_mongodb
     mock_mongodb.admin_push_devices.insert_one(device.copy())
     assert service._send(device, event())
     assert "Client privé" not in captured[0]["data"]
-    assert json.loads(captured[0]["data"])["url"] == "/admin/orders"
+    payload = json.loads(captured[0]["data"])
+    assert payload["web_push"] == 8030
+    assert payload["notification"]["navigate"].endswith("/admin/orders")
+    assert payload["notification"]["data"]["url"] == "/admin/orders"
+    assert payload["notification"]["mutable"] is True
+    assert payload["notification"]["app_badge"] == 1
+    assert captured[0]["ttl"] == 86400
+    assert captured[0]["headers"]["Urgency"] == "high"
+    assert len(captured[0]["headers"]["Topic"]) == 32
+    assert mock_mongodb.admin_push_devices.find_one()["last_sent_at"] > 0
     def expired(**kwargs):
         raise pywebpush.WebPushException("gone", response=SimpleNamespace(status_code=410))
     monkeypatch.setattr(pywebpush, "webpush", expired)
     assert not service._send(device, event())
     assert mock_mongodb.admin_push_devices.count_documents({}) == 0
+
+
+def test_subscription_keeps_admin_origin_for_background_navigation(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(service, "DASHBOARD_PASSWORD", "secret")
+    sub = subscription("https://web.push.apple.com/device-token")
+
+    service.device_action({
+        "action": "subscribe",
+        "subscription": sub,
+        "app_origin": "https://admin.example.com",
+    })
+
+    device = mock_mongodb.admin_push_devices.find_one()
+    assert device["app_origin"] == "https://admin.example.com"
+
+    result = service.device_action({"action": "status", "subscription": sub})
+    assert result["diagnostics"]["provider"] == "Apple Push"
+
+
+def test_order_push_opens_the_full_order_page(monkeypatch, mock_mongodb):
+    import pywebpush
+
+    captured = []
+    monkeypatch.setattr(pywebpush, "webpush", lambda **kwargs: captured.append(kwargs))
+    device = {"_id": "device", "subscription": subscription(), "preferences": {"private": False}}
+    item = event()
+    item["target"]["entity_id"] = 598
+
+    assert service._send(device, item)
+
+    payload = json.loads(captured[0]["data"])["notification"]
+    assert payload["navigate"].endswith("/admin/orders/598")
+    assert payload["data"]["url"] == "/admin/orders/598"
+
+
+def test_configured_admin_origin_rejects_another_origin(monkeypatch):
+    monkeypatch.setenv("HP_ADMIN_BASE_URL", "https://admin.example.com")
+
+    with pytest.raises(ValueError):
+        service.device_action({
+            "action": "subscribe",
+            "subscription": subscription(),
+            "app_origin": "https://attacker.example",
+        })
 
 
 def test_active_lease_prevents_duplicate_worker(monkeypatch, mock_mongodb):

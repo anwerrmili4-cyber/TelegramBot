@@ -14,6 +14,8 @@ The Railway entrypoint starts a background worker that scans every five seconds 
 
 On iPhone/iPad with iOS 16.4+, add the site to the Home Screen using Safari and activate notifications from that installed app. Android and desktop require a browser with Web Push support. Unsupported environments receive instructions rather than a false “enabled” status.
 
+On iPhone, opening the dashboard in a normal Safari tab is not enough: Web Push runs only from the Home Screen web app. The activation screen now preloads the service worker and VAPID key so `pushManager.subscribe()` runs directly from the user tap, as required by WebKit. Push payloads use Declarative Web Push on iOS/iPadOS 18.4+ and retain the service-worker fallback for iOS 16.4–18.3 and other browsers. Reopen the Home Screen app after a deployment so it installs the newest service worker; if iOS still shows an old denied subscription, disable notifications in the dashboard, remove the Home Screen app, add it again, then activate and send a test.
+
 ## Behavior
 
 - New enrollment seeds existing alerts without pushing the entire backlog.

@@ -1,15 +1,22 @@
-/* Push-only worker: never caches private administration pages or API responses. */
+/* Push-only worker v3: never caches private administration pages or API responses. */
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 self.addEventListener("push", (event) => {
   let payload = {};
   try { payload = event.data?.json() || {}; } catch { /* Still display every push. */ }
-  event.waitUntil(self.registration.showNotification(payload.title || "Black Market", {
-    body: payload.body || "Une nouvelle notification est disponible.",
-    tag: payload.id || "blackmarket-update",
-    icon: "/admin-v2/notification-icon-192.png",
-    data: { url: payload.url || "/admin" },
-  }));
+  const proposed = payload.notification || payload;
+  const options = { ...proposed };
+  delete options.title;
+  delete options.navigate;
+  delete options.mutable;
+  delete options.app_badge;
+  options.body ||= "Une nouvelle notification est disponible.";
+  options.tag ||= "blackmarket-update";
+  options.icon ||= "/admin-v2/notification-icon-192.png";
+  options.data = { ...(proposed.data || {}), url: proposed.data?.url || proposed.navigate || "/admin" };
+  const tasks = [self.registration.showNotification(proposed.title || "Black Market", options)];
+  if ("setAppBadge" in navigator) tasks.push(navigator.setAppBadge(1));
+  event.waitUntil(Promise.all(tasks));
 });
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

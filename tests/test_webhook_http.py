@@ -79,6 +79,14 @@ def test_notification_worker_served_with_correct_scope_and_no_cache():
         assert b'notificationclick' in response.read()
 
 
+def test_web_app_manifest_is_revalidated_for_ios_updates():
+    with running_server() as base_url, urlopen(base_url + "/admin-v2/manifest.webmanifest", timeout=5) as response:
+        manifest = json.load(response)
+        assert response.headers["Cache-Control"] == "no-cache"
+        assert manifest["display"] == "standalone"
+        assert manifest["scope"] == "/admin"
+
+
 def test_dashboard_uses_first_configured_reseller_provider(monkeypatch, mock_mongodb):
     mock_mongodb.reseller_products.insert_many([
         {"provider": "cgpt_active", "product_id": "1", "enabled": True},
@@ -293,6 +301,22 @@ def test_react_admin_section_route_serves_spa(monkeypatch):
     )
     with running_server() as base_url:
         request.full_url = f"{base_url}/admin/orders"
+        with urlopen(request, timeout=5) as response:
+            body = response.read().decode()
+
+    assert response.status == 200
+    assert '<div id="root"></div>' in body
+
+
+def test_react_admin_order_detail_route_serves_spa(monkeypatch):
+    monkeypatch.setattr("api.webhook.DASHBOARD_PASSWORD", "secret")
+    encoded = base64.b64encode(b"admin:secret").decode()
+    request = Request(
+        "http://placeholder/admin/orders/598",
+        headers={"Authorization": f"Basic {encoded}"},
+    )
+    with running_server() as base_url:
+        request.full_url = f"{base_url}/admin/orders/598"
         with urlopen(request, timeout=5) as response:
             body = response.read().decode()
 
