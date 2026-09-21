@@ -62,6 +62,32 @@ from bot import (
 from i18n import t
 
 
+@pytest.mark.parametrize(("code", "expected"), [
+    ("not_found", "Transaction not found"),
+    ("wrong_currency", "Unsupported deposit currency"),
+    ("invalid_format", "Invalid TXID"),
+    ("not_incoming", "Not an incoming payment"),
+    ("not_configured", "not configured"),
+    ("temporary_error", "temporarily unavailable"),
+    ("unknown", "could not be confirmed"),
+])
+def test_binance_topup_shows_actual_failure(monkeypatch, mock_mongodb, code, expected):
+    monkeypatch.setattr("bot.wallet_service.claim_transfer", lambda *_args: {
+        "status": "failed", "code": code, "message": "PRIVATE API ERROR",
+    })
+    monkeypatch.setattr("bot.PENDING", {42: ("await_topup_txid", "binance")})
+    message = SimpleNamespace(text="RECEIPT_123", reply_text=AsyncMock())
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(effective_user=SimpleNamespace(id=42), message=message),
+        SimpleNamespace(), "en",
+    ))
+    rendered = message.reply_text.await_args.args[0]
+    assert expected in rendered
+    assert "PRIVATE API ERROR" not in rendered
+    if code != "temporary_error":
+        assert "temporarily unavailable" not in rendered
+
+
 def test_profile_uses_quote_panels_and_dedicated_navigation(mock_mongodb):
     mock_mongodb.users.insert_one({
         "telegram_id": 42,

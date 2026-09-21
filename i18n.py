@@ -206,6 +206,36 @@ TRANSLATIONS = {
         "en": "⚠️ *Top up not confirmed*\n\nAutomatic verification is temporarily unavailable. Your balance has not been changed. Try again or use the same TXID later.",
         "ar": "⚠️ *لم يتم تأكيد الشحن*\n\nالتحقق التلقائي غير متاح مؤقتًا. لم يتغير رصيدك. حاول مجددًا أو استخدم TXID نفسه لاحقًا.",
     },
+    "topup_not_found": {
+        "fr": "⚠️ *Transaction introuvable*\n\nCe TXID ne figure pas dans l'historique récent du compte Binance destinataire. Vérifiez le TXID et le destinataire. Si le transfert est récent, réessayez dans quelques instants. Votre solde n'a pas été modifié.",
+        "en": "⚠️ *Transaction not found*\n\nThis TXID was not found in the receiving Binance account's recent history. Check the TXID and recipient. If you just sent the transfer, try again shortly. Your balance has not changed.",
+        "ar": "⚠️ *المعاملة غير موجودة*\n\nلم يتم العثور على TXID في السجل الأخير لحساب Binance المستلم. تحقق من TXID والمستلم. إذا أرسلت التحويل للتو، حاول بعد قليل. لم يتغير رصيدك.",
+    },
+    "topup_invalid_txid": {
+        "fr": "⚠️ *TXID invalide*\n\nCopiez l'identifiant de transaction ou de commande depuis votre reçu Binance Pay et envoyez uniquement cet identifiant.",
+        "en": "⚠️ *Invalid TXID*\n\nCopy the transaction ID or order ID from your Binance Pay receipt and send only that ID.",
+        "ar": "⚠️ *TXID غير صالح*\n\nانسخ معرف المعاملة أو الطلب من إيصال Binance Pay وأرسل المعرف فقط.",
+    },
+    "topup_wrong_currency": {
+        "fr": "⚠️ *Devise non acceptée*\n\nCette transaction n'utilise pas la devise acceptée pour les dépôts. Votre solde n'a pas été crédité. Contactez le support avec votre TXID.",
+        "en": "⚠️ *Unsupported deposit currency*\n\nThis transaction uses a different currency from the accepted deposit currency. Your balance has not been credited. Contact support with your TXID.",
+        "ar": "⚠️ *عملة الإيداع غير مدعومة*\n\nتستخدم هذه المعاملة عملة مختلفة عن عملة الإيداع المقبولة. لم تتم إضافة الرصيد. تواصل مع الدعم وأرسل TXID.",
+    },
+    "topup_not_incoming": {
+        "fr": "⚠️ *Aucun paiement entrant*\n\nCette transaction n'est pas un paiement entrant sur le compte destinataire. Vérifiez votre reçu Binance Pay. Votre solde n'a pas été modifié.",
+        "en": "⚠️ *Not an incoming payment*\n\nThis transaction is not an incoming payment to the receiving account. Check your Binance Pay receipt. Your balance has not changed.",
+        "ar": "⚠️ *ليست دفعة واردة*\n\nهذه المعاملة ليست دفعة واردة إلى الحساب المستلم. تحقق من إيصال Binance Pay. لم يتغير رصيدك.",
+    },
+    "topup_verification_unavailable": {
+        "fr": "⚠️ *Vérification indisponible*\n\nLa vérification des dépôts n'est pas configurée. Contactez le support avec votre TXID. Votre solde n'a pas été modifié.",
+        "en": "⚠️ *Verification unavailable*\n\nDeposit verification is not configured. Contact support with your TXID. Your balance has not changed.",
+        "ar": "⚠️ *التحقق غير متاح*\n\nلم يتم إعداد التحقق من الإيداعات. تواصل مع الدعم وأرسل TXID. لم يتغير رصيدك.",
+    },
+    "topup_rejected": {
+        "fr": "⚠️ *Dépôt non confirmé*\n\nCe dépôt n'a pas pu être confirmé. Votre solde n'a pas été modifié. Contactez le support avec votre TXID.",
+        "en": "⚠️ *Top up not confirmed*\n\nThis deposit could not be confirmed. Your balance has not changed. Contact support with your TXID.",
+        "ar": "⚠️ *لم يتم تأكيد الشحن*\n\nتعذر تأكيد هذا الإيداع. لم يتغير رصيدك. تواصل مع الدعم وأرسل TXID.",
+    },
     "wallet_payment_processing": {
         "fr": "💳 *Paiement par portefeuille confirmé*\n\nPréparation de votre livraison…",
         "en": "💳 *Wallet payment confirmed*\n\nPreparing your delivery…",

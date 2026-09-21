@@ -317,7 +317,7 @@ def verify_bybit_incoming_transfer(txid, minimum_amount=1, created_at=None):
         }
 
 
-def verify_incoming_transfer(txid, minimum_amount=1, created_at=None):
+def verify_incoming_transfer(txid, minimum_amount=0, created_at=None):
     """Verify an incoming TXID and return its real amount for wallet top-ups."""
     txid = (txid or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{6,128}", txid):
@@ -332,6 +332,8 @@ def verify_incoming_transfer(txid, minimum_amount=1, created_at=None):
                 continue
             amount = Decimal(str(transaction.get("amount", "0")))
             asset = str(transaction.get("currency", "")).upper()
+            if not amount.is_finite() or amount <= 0:
+                return {"status": "failed", "code": "not_incoming", "reason": "La transaction n'est pas un paiement entrant"}
             if asset != PAY_CURRENCY:
                 return {"status": "failed", "code": "wrong_currency", "reason": f"Devise reçue: {asset}"}
             if amount < minimum:

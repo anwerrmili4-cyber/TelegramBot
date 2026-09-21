@@ -3,7 +3,50 @@
 import pytest
 
 import database as db
+import payment_verifier
 from app.domain import order_service, payment_service, wallet_service
+
+
+@pytest.mark.parametrize("amount", ["0.14", "0.01", "0.00000001"])
+def test_binance_deposit_has_no_minimum(mock_mongodb, monkeypatch, amount):
+    monkeypatch.setattr(payment_verifier, "BINANCE_API_KEY", "key")
+    monkeypatch.setattr(payment_verifier, "BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr(payment_verifier, "_fetch_pay_transactions", lambda _start: [{
+        "transactionId": "INTERNAL_TX_123", "orderId": "RECEIPT_123",
+        "amount": amount, "currency": "USDT",
+    }])
+
+    result = wallet_service.claim_transfer(42, "RECEIPT_123")
+
+    assert result["status"] == "confirmed"
+    assert result["amount"] == float(amount)
+    if amount == "0.14":
+        assert result["balance"] == 0.14
+    assert wallet_service.claim_transfer(42, "RECEIPT_123")["code"] == "already_used"
+
+
+def test_binance_subcent_deposits_accumulate_without_rounding_up(mock_mongodb, monkeypatch):
+    mock_mongodb.wallets.insert_one({"user_id": 42, "balance_cents": 100})
+    monkeypatch.setattr(wallet_service, "verify_incoming_transfer", lambda *_args, **_kwargs: {
+        "status": "confirmed", "amount": 0.006, "currency": "USDT",
+    })
+    assert wallet_service.claim_transfer(42, "SMALL_TX_1")["balance"] == 1
+    assert wallet_service.claim_transfer(42, "SMALL_TX_2")["balance"] == 1.01
+    wallet = mock_mongodb.wallets.find_one({"user_id": 42})
+    assert wallet["binance_pending_units"] == 200_000
+
+
+@pytest.mark.parametrize("amount", ["0", "-0.14", "NaN", "Infinity"])
+def test_binance_rejects_nonincoming_amounts_without_credit(mock_mongodb, monkeypatch, amount):
+    monkeypatch.setattr(payment_verifier, "BINANCE_API_KEY", "key")
+    monkeypatch.setattr(payment_verifier, "BINANCE_API_SECRET", "secret")
+    monkeypatch.setattr(payment_verifier, "_fetch_pay_transactions", lambda _start: [{
+        "transactionId": "INVALID_TX_123", "amount": amount, "currency": "USDT",
+    }])
+
+    assert wallet_service.claim_transfer(42, "INVALID_TX_123")["code"] == "not_incoming"
+    assert mock_mongodb.wallet_topups.count_documents({}) == 0
+    assert wallet_service.balance_cents(42) == 0
 
 
 def test_verified_topup_credits_real_transfer_amount(mock_mongodb, monkeypatch):

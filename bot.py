@@ -1823,7 +1823,7 @@ def topup_provider_screen(lang, provider):
     txid_note = (
         "⚠️ <b>Bybit:</b> the Transaction ID is the code with dashes — not the long order/receipt number."
         if is_bybit else
-        "⚠️ <b>Binance:</b> send the blockchain/payment Transaction ID (TXID), not the order number."
+        "⚠️ <b>Binance:</b> send the Transaction ID or Order ID from your Binance Pay receipt. No minimum deposit. Amounts below 0.01 USDT accumulate until they reach a spendable cent."
     )
     return (
         f"<b>{provider_name}</b>\n\n"
@@ -3973,7 +3973,7 @@ async def handle_pending_input(update, context, lang):
         if result["status"] == "confirmed":
             PENDING.pop(uid, None)
             await update.message.reply_text(
-                premium_customer_text(lang, "topup_success", amount=f"{result['amount']:.2f}", balance=f"{result['balance']:.2f}"),
+                premium_customer_text(lang, "topup_success", amount=f"{result['amount']:.8f}".rstrip("0").rstrip("."), balance=f"{result['balance']:.2f}"),
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb.home_keyboard(lang, uid),
             )
@@ -3985,8 +3985,16 @@ async def handle_pending_input(update, context, lang):
                 reply_markup=kb.home_keyboard(lang, uid),
             )
         else:
+            failure_key = {
+                "not_found": "topup_not_found",
+                "invalid_format": "topup_invalid_txid",
+                "wrong_currency": "topup_wrong_currency",
+                "not_incoming": "topup_not_incoming",
+                "temporary_error": "topup_failed",
+                "not_configured": "topup_verification_unavailable",
+            }.get(result.get("code"), "topup_rejected")
             await update.message.reply_text(
-                premium_customer_text(lang, "topup_failed"),
+                premium_customer_text(lang, failure_key),
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb.topup_keyboard(lang, uid),
             )

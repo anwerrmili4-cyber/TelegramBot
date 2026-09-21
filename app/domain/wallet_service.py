@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import time
+from decimal import Decimal
 from typing import Any
 
 from pymongo import ReturnDocument
@@ -45,32 +46,45 @@ def claim_transfer(user_id: int, txid: str, provider: str = "binance") -> dict[s
         if provider == "bybit"
         else verify_incoming_transfer
     )
-    verification = verifier(txid, minimum_amount=1)
+    verification = verifier(txid, minimum_amount=0)
     if verification["status"] != "confirmed":
         return {
             "status": verification["status"],
             "code": verification.get("code"),
             "message": verification.get("reason"),
         }
-    amount_cents = round(float(verification["amount"]) * 100)
+    # Binance amounts have up to eight decimal places. Keep sub-cent funds
+    # until they add up to a spendable cent instead of dropping or rounding up.
+    amount_units = int(Decimal(str(verification["amount"])) * 100_000_000)
+    amount_cents = amount_units // 1_000_000
     try:
         conn.wallet_topups.insert_one({
             "txid": txid,
             "user_id": user_id,
             "amount_cents": amount_cents,
+            "amount_units": amount_units,
             "currency": verification["currency"],
             "provider": provider,
             "created_at": int(time.time()),
         })
     except DuplicateKeyError:
         return {"status": "failed", "code": "already_used", "message": "Ce TXID a déjà été crédité."}
+    total_units = {"$add": [
+        {"$ifNull": ["$binance_pending_units", 0]}, amount_units,
+    ]}
     conn.wallets.update_one(
         {"user_id": user_id},
-        {"$inc": {"balance_cents": amount_cents}},
+        [{"$set": {
+            "balance_cents": {"$add": [
+                {"$ifNull": ["$balance_cents", 0]},
+                {"$floor": {"$divide": [total_units, 1_000_000]}},
+            ]},
+            "binance_pending_units": {"$mod": [total_units, 1_000_000]},
+        }}],
         upsert=True,
     )
-    db.audit_event("wallet.topup_confirmed", actor_id=user_id, details={"txid": txid, "amount_cents": amount_cents, "provider": provider})
-    return {"status": "confirmed", "amount": amount_cents / 100, "balance": balance_cents(user_id) / 100}
+    db.audit_event("wallet.topup_confirmed", actor_id=user_id, details={"txid": txid, "amount_cents": amount_cents, "amount_units": amount_units, "provider": provider})
+    return {"status": "confirmed", "amount": amount_units / 100_000_000, "balance": balance_cents(user_id) / 100}
 
 
 def submit_onchain_topup(
