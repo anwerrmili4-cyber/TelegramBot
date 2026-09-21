@@ -30,6 +30,23 @@ def test_order_filters_and_pagination(mock_mongodb):
     assert result["analytics"]["statuses"] == {"pending_payment": 1, "delivered": 2}
 
 
+def test_order_analytics_exclude_admin_purchases_but_keep_order_history(monkeypatch, mock_mongodb):
+    monkeypatch.setattr("config.ADMIN_ID", 999)
+    now = int(time.time())
+    mock_mongodb.orders.insert_many([
+        {"id": 10, "user_id": 42, "status": "delivered", "total_price": 8.0, "created_at": now},
+        {"id": 11, "user_id": 999, "status": "delivered", "total_price": 200.0, "created_at": now},
+    ])
+
+    result = dashboard_api.list_orders({})
+
+    assert result["total"] == 2
+    assert {item["id"] for item in result["items"]} == {10, 11}
+    assert result["analytics"]["total"] == 1
+    assert result["analytics"]["delivered"] == 1
+    assert result["analytics"]["revenue"] == 8.0
+
+
 def test_pending_onchain_topups_include_customer_and_explorer(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Buyer"})
     mock_mongodb.wallet_topups.insert_many([

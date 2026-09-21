@@ -99,7 +99,7 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         rows = collection.find(query).sort(sort_field, sort_direction).skip((page - 1) * per_page).limit(per_page)
     analytics_query = dict(query)
     analytics_query.pop("status", None)
-    analytics = _order_analytics(collection, analytics_query)
+    analytics = _order_analytics(collection, db.customer_order_query(analytics_query))
     items = [_admin_order(row) for row in rows]
     user_ids = {item.get("user_id") for item in items if item and item.get("user_id") is not None}
     users = {

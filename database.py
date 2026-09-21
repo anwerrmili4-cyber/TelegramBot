@@ -1433,14 +1433,11 @@ def add_offer(
 
 def offer_sold_count(offer_id):
     """Return customer sales, excluding administrator/test purchases."""
-    from config import ADMIN_ID
-
     pipeline = [
-        {"$match": {
+        {"$match": customer_order_query({
             "offer_id": offer_id,
             "status": {"$in": ["paid", "payment_confirmed", "delivered"]},
-            **({"user_id": {"$ne": int(ADMIN_ID)}} if ADMIN_ID else {}),
-        }},
+        })},
         {"$group": {"_id": None, "total": {"$sum": "$qty"}}},
     ]
     result = list(get_conn().orders.aggregate(pipeline))
@@ -2227,6 +2224,20 @@ def dashboard_summary():
     return data.get("summary", {})
 
 
+def customer_order_query(query=None):
+    """Limit a statistics query to real customers, excluding the administrator."""
+    from config import ADMIN_ID
+
+    result = dict(query or {})
+    if not ADMIN_ID:
+        return result
+    customer_only = {"user_id": {"$ne": int(ADMIN_ID)}}
+    if "user_id" in result:
+        return {"$and": [result, customer_only]}
+    result.update(customer_only)
+    return result
+
+
 def dashboard_data():
     """Comprehensive dashboard data for the admin panel."""
     db = get_conn()
@@ -2244,19 +2255,19 @@ def dashboard_data():
     new_users_prev_7d = db.users.count_documents({"created_at": {"$gte": prev_week_start, "$lt": week_ago}})
 
     # --- Orders ---
-    total_orders = db.orders.count_documents({})
-    orders_today = db.orders.count_documents({"created_at": {"$gte": today_start}})
-    orders_yesterday = db.orders.count_documents({"created_at": {"$gte": yesterday_start, "$lt": today_start}})
-    pending_orders = db.orders.count_documents({"status": {"$in": ["pending_payment", "awaiting_verification", "manual_review"]}})
+    total_orders = db.orders.count_documents(customer_order_query())
+    orders_today = db.orders.count_documents(customer_order_query({"created_at": {"$gte": today_start}}))
+    orders_yesterday = db.orders.count_documents(customer_order_query({"created_at": {"$gte": yesterday_start, "$lt": today_start}}))
+    pending_orders = db.orders.count_documents(customer_order_query({"status": {"$in": ["pending_payment", "awaiting_verification", "manual_review"]}}))
 
     paid_statuses = ["paid", "payment_confirmed", "delivered"]
-    paid_orders = db.orders.count_documents({"status": {"$in": paid_statuses}})
-    delivered_orders = db.orders.count_documents({"status": "delivered"})
+    paid_orders = db.orders.count_documents(customer_order_query({"status": {"$in": paid_statuses}}))
+    delivered_orders = db.orders.count_documents(customer_order_query({"status": "delivered"}))
 
     # --- Revenue ---
     def _revenue(match_filter):
         result = list(db.orders.aggregate([
-            {"$match": match_filter},
+            {"$match": customer_order_query(match_filter)},
             {"$group": {"_id": None, "total": {"$sum": order_charge_total_expression()}}},
         ]))
         return round(result[0]["total"], 2) if result else 0.0
@@ -2295,10 +2306,10 @@ def dashboard_data():
     for off in low_stock_offers:
         alerts.append({"type": "stock_low", "message": f"Stock faible ({off['stock']}): {off['name']}", "severity": "warning", "entity_id": off["id"]})
 
-    old_pending = db.orders.count_documents({
+    old_pending = db.orders.count_documents(customer_order_query({
         "status": "pending_payment",
         "created_at": {"$lt": now - 3600},
-    })
+    }))
     if old_pending:
         alerts.append({"type": "old_pending", "message": f"{old_pending} commande(s) en attente depuis plus d'1h", "severity": "warning"})
 
@@ -2306,10 +2317,10 @@ def dashboard_data():
     if unanswered_tickets:
         alerts.append({"type": "unanswered_tickets", "message": f"{unanswered_tickets} ticket(s) sans réponse", "severity": "warning"})
 
-    paid_not_delivered = db.orders.count_documents({
+    paid_not_delivered = db.orders.count_documents(customer_order_query({
         "status": {"$in": ["paid", "payment_confirmed", "preparing_delivery"]},
         "paid_at": {"$lt": now - 900},
-    })
+    }))
     if paid_not_delivered:
         alerts.append({
             "type": "paid_not_delivered",
@@ -2317,9 +2328,9 @@ def dashboard_data():
             "severity": "error",
         })
 
-    failed_payments = db.orders.count_documents({
+    failed_payments = db.orders.count_documents(customer_order_query({
         "status": {"$in": ["verification_failed", "manual_review"]},
-    })
+    }))
     if failed_payments:
         alerts.append({
             "type": "payment_review",
@@ -2351,10 +2362,10 @@ def dashboard_data():
         svc_data["offer_count"] = len(offers)
         svc_data["total_stock"] = sum(o.get("stock", 0) for o in offers)
         # Count sales
-        svc_data["total_sales"] = db.orders.count_documents({
+        svc_data["total_sales"] = db.orders.count_documents(customer_order_query({
             "offer_id": {"$in": [o["id"] for o in offers]},
             "status": {"$in": paid_statuses},
-        }) if offers else 0
+        })) if offers else 0
         offer_ids = [offer["id"] for offer in offers]
         svc_data["total_revenue"] = _revenue({
             "offer_id": {"$in": offer_ids},

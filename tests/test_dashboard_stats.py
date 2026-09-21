@@ -44,6 +44,33 @@ def test_dashboard_revenue_includes_wallet_payments(mock_mongodb):
     assert db.dashboard_data()["summary"]["revenue_today"] == 14.5
 
 
+def test_dashboard_statistics_exclude_every_admin_purchase(monkeypatch, mock_mongodb):
+    monkeypatch.setattr("config.ADMIN_ID", 999)
+    now = int(time.time())
+    service_id = db.add_service("Statistics", "📊")
+    offer_id = db.add_offer(service_id, "Real sale", 10.0, 10)
+    mock_mongodb.orders.insert_many([
+        {"id": 20, "user_id": 42, "offer_id": offer_id, "qty": 1, "status": "delivered", "total_price": 10.0, "created_at": now},
+        {"id": 21, "user_id": 999, "offer_id": offer_id, "qty": 1, "status": "delivered", "total_price": 500.0, "created_at": now},
+        {"id": 22, "user_id": 999, "offer_id": offer_id, "qty": 1, "status": "manual_review", "total_price": 700.0, "created_at": now},
+    ])
+
+    data = db.dashboard_data()
+    summary = data["summary"]
+    service = next(item for item in data["services"] if item["id"] == service_id)
+
+    assert summary["orders"] == 1
+    assert summary["orders_today"] == 1
+    assert summary["paid_orders"] == 1
+    assert summary["delivered_orders"] == 1
+    assert summary["pending_orders"] == 0
+    assert summary["failed_payments"] == 0
+    assert summary["revenue_today"] == 10.0
+    assert service["total_sales"] == 1
+    assert service["total_revenue"] == 10.0
+    assert db.offer_sold_count(offer_id) == 1
+
+
 def test_dashboard_services_include_offers(mock_mongodb):
     service_id = db.add_service("Streaming", "🎬")
     db.add_offer(service_id, "Monthly", 5.0, 2, "Instant")
