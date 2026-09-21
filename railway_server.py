@@ -253,6 +253,13 @@ def main() -> None:
         daemon=True,
     )
     scheduler.start()
+    notification_worker = threading.Thread(
+        target=webhook.notification_service.worker_loop,
+        args=(stop_event,),
+        name="admin-notifications",
+        daemon=True,
+    )
+    notification_worker.start()
 
     def request_shutdown(_signum, _frame) -> None:
         stop_event.set()
@@ -281,6 +288,7 @@ def main() -> None:
         admin_server.shutdown()
         admin_thread.join(timeout=5)
         scheduler.join(timeout=5)
+        notification_worker.join(timeout=5)
         public_server.server_close()
         admin_server.server_close()
 

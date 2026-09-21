@@ -46,7 +46,7 @@ from app.domain import (
     wallet_service,
     warranty_service,
 )
-from app.web import dashboard_api
+from app.web import dashboard_api, notification_service
 from bot import (
     build_app,
     monitor_codex_number_deadlines,
@@ -623,6 +623,17 @@ class handler(BaseHTTPRequestHandler):
             self._reply(404, {"ok": False, "error": "asset_not_found"})
             return
 
+        if path == "/admin/notification-sw.js":
+            body = (ADMIN_UI_DIST / "notification-sw.js").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Service-Worker-Allowed", "/admin")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "catalog", "api-products", "inventory", "customers", "deposits", "support", "interactions", "activity", "settings"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
@@ -840,6 +851,28 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, dashboard_api.list_wallet_topups(parse_qs(url.query)))
             return
 
+        elif path == "/admin/api/notifications/config":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, notification_service.push_config(), headers={"Cache-Control": "no-store"})
+            return
+
+        elif path == "/admin/api/notifications":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            query = parse_qs(url.query)
+            try:
+                limit = int(query.get("limit", [100])[0])
+            except (TypeError, ValueError):
+                limit = 100
+            payload = dashboard_api.list_admin_notifications(limit=limit)
+            payload["read_ids"] = notification_service.read_ids()
+            payload["poll_after_seconds"] = 5
+            self._reply(200, payload, headers={"Cache-Control": "no-store"})
+            return
+
         elif path == "/admin/api/withdrawals":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1047,6 +1080,25 @@ class handler(BaseHTTPRequestHandler):
                 })
             except buyer_api_service.BuyerApiError as exc:
                 self._reply(exc.status, {"ok": False, "error": exc.message})
+            return
+        if path == "/admin/api/notifications":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            token = self.headers.get("X-Dashboard-Write-Token", "")
+            if not token or not hmac.compare_digest(token, dashboard_write_token()):
+                self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
+                return
+            try:
+                payload = self._read_json_body(max_bytes=64_000)
+                self._reply(200, notification_service.device_action(payload), headers={"Cache-Control": "no-store"})
+            except buyer_api_service.BuyerApiError as exc:
+                self._reply(exc.status, {"ok": False, "error": exc.message})
+            except ValueError as exc:
+                self._reply(400, {"ok": False, "error": str(exc)})
+            except Exception:
+                log.warning("Admin notification request failed")
+                self._reply(503, {"ok": False, "error": "Notifications temporairement indisponibles. Réessayez."})
             return
         if path == "/admin/api/logout":
             self._reply(200, {"ok": True}, headers={

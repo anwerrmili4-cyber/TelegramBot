@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminPage from "./AdminPages";
+import NotificationSettings, { NOTIFICATION_CATEGORIES, notificationAction } from "./NotificationSettings";
 import WorkspaceHome from "./WorkspaceHome";
 import { ControlCenter, DataExplorer } from "./ControlCenter";
 import {
@@ -9,6 +10,7 @@ import {
   Bot,
   Boxes,
   ChevronRight,
+  CheckCheck,
   CircleDollarSign,
   ClipboardList,
   Cloud,
@@ -90,6 +92,17 @@ function formatDate(value) {
     : new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(date);
 }
 
+function relativeDate(value) {
+  if (!value) return "Maintenant";
+  const parsed = typeof value === "number" ? new Date(value * 1000) : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Date inconnue";
+  const seconds = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 1000));
+  if (seconds < 60) return "À l’instant";
+  if (seconds < 3600) return `Il y a ${Math.floor(seconds / 60)} min`;
+  if (seconds < 86400) return `Il y a ${Math.floor(seconds / 3600)} h`;
+  return formatDate(value);
+}
+
 function initials(value = "BM") {
   return value
     .split(/\s+/)
@@ -155,7 +168,7 @@ function Header({ activePage, alertCount, busyAction, density, isRefreshing, onL
           <RefreshCw size={19} className={isRefreshing ? "spin" : ""} />
         </button>
         <button className="icon-button notification-button" onClick={onNotifications} aria-label={`${alertCount} alertes`}>
-          <Bell size={19} />{alertCount > 0 && <span>{Math.min(alertCount, 9)}</span>}
+          <Bell size={19} />{alertCount > 0 && <span>{alertCount > 9 ? "9+" : alertCount}</span>}
         </button>
         <button className="avatar" onClick={onLogout} aria-label="Se déconnecter" title="Se déconnecter">AD<span><LogOut size={12} /></span></button>
       </div>
@@ -198,30 +211,48 @@ function SearchDialog({ data, onClose, onNavigate }) {
   );
 }
 
-function NotificationsDrawer({ alerts = [], onClose, onNavigate }) {
-  const [filter, setFilter] = useState("all");
-  const criticalCount = alerts.filter((alert) => alert.severity === "error").length;
-  const warningCount = alerts.length - criticalCount;
-  const visible = [...alerts]
-    .filter((alert) => filter === "all" || (filter === "critical" ? alert.severity === "error" : alert.severity !== "error"))
-    .sort((a, b) => (a.severity === "error" ? 0 : 1) - (b.severity === "error" ? 0 : 1));
-  const destination = (alert) => alert.type?.includes("stock")
-    ? "inventory"
-    : alert.type?.includes("ticket") ? "support"
-      : alert.type?.includes("api") || alert.type?.includes("provider") ? "api-products"
-        : alert.type?.includes("error") ? "activity" : "orders";
+function NotificationsDrawer({ token, lastSynced, error, loading, notifications = [], onClose, onMarkAllRead, onMarkRead, onNavigate, onRefresh, readIds }) {
+  const [filter, setFilter] = useState("unread");
+  const [category, setCategory] = useState("");
+  const [search, setSearch] = useState("");
+  const isRead = (notification) => readIds.has(notification.id);
+  const unreadCount = notifications.filter((notification) => !isRead(notification)).length;
+  const criticalCount = notifications.filter((notification) => notification.severity === "error").length;
+  const actionableCount = notifications.filter((notification) => notification.actionable).length;
+  const visible = notifications.filter((notification) => {
+    if (category && notification.category !== category) return false;
+    if (search && !`${notification.title} ${notification.message}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())) return false;
+    if (filter === "unread") return !isRead(notification);
+    if (filter === "urgent") return notification.actionable;
+    return true;
+  });
+  const iconFor = (notification) => ({
+    order: ClipboardList,
+    sale: ShoppingBag,
+    deposit: CircleDollarSign,
+    withdrawal: CircleDollarSign,
+    support: Headphones,
+    warranty: ShieldCheck,
+    stock: Boxes,
+    system: Activity,
+  }[notification.category] || Bell);
   return (
     <div className="drawer-backdrop" onMouseDown={onClose}>
       <aside className="notifications-drawer" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><span className="eyebrow">Centre d’alertes</span><h2>Notifications</h2></div><button className="icon-button" onClick={onClose}><X size={18} /></button></header>
-        <div className="alert-summary"><div className="critical"><strong>{criticalCount}</strong><span>Critiques</span></div><div><strong>{warningCount}</strong><span>Attention</span></div><div><strong>{alerts.length}</strong><span>Total</span></div></div>
-        <div className="alert-filters"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Toutes <span>{alerts.length}</span></button><button className={filter === "critical" ? "active" : ""} onClick={() => setFilter("critical")}>Critiques <span>{criticalCount}</span></button><button className={filter === "warning" ? "active" : ""} onClick={() => setFilter("warning")}>Attention <span>{warningCount}</span></button></div>
+        <header><div><span className={`notification-live ${error ? "is-disconnected" : ""}`}><i />{error ? "Synchronisation interrompue" : lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")} · 5 s` : "Connexion…"}</span><h2>Notifications</h2></div><div className="notification-head-actions"><button className="icon-button" onClick={onRefresh} aria-label="Actualiser les notifications"><RefreshCw size={17} className={loading ? "spin" : ""} /></button><button className="icon-button" onClick={onClose} aria-label="Fermer les notifications"><X size={18} /></button></div></header>
+        <NotificationSettings token={token} />
+        <div className="notification-search"><input aria-label="Rechercher une notification" placeholder="Rechercher une notification…" value={search} onChange={(event) => setSearch(event.target.value)} /><select aria-label="Catégorie de notification" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Toutes les catégories</option>{Object.entries(NOTIFICATION_CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
+        <div className="alert-summary"><div className="critical"><strong>{criticalCount}</strong><span>Critiques</span></div><div><strong>{actionableCount}</strong><span>À traiter</span></div><div><strong>{unreadCount}</strong><span>Non lues</span></div></div>
+        <div className="notification-toolbar"><div className="alert-filters"><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>Non lues <span>{unreadCount}</span></button><button className={filter === "urgent" ? "active" : ""} onClick={() => setFilter("urgent")}>À traiter <span>{actionableCount}</span></button><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Toutes <span>{notifications.length}</span></button></div><button className="mark-all-read" disabled={!unreadCount} onClick={onMarkAllRead}><CheckCheck size={14} />Tout lire</button></div>
+        {error && <div className="notification-error"><AlertTriangle size={15} /><span>{error}</span><button onClick={onRefresh}>Réessayer</button></div>}
         <div className="drawer-alerts">
-          {visible.length === 0 ? <div className="search-empty"><strong>Aucune alerte</strong><span>{alerts.length ? "Aucune alerte dans ce filtre." : "Votre boutique fonctionne normalement."}</span></div> : visible.map((alert, index) => (
-            <button key={`${alert.type}-${index}`} onClick={() => { onNavigate(destination(alert)); onClose(); }} className={alert.severity || "warning"}>
-              <span><AlertTriangle size={17} /></span><div><strong>{alert.severity === "error" ? "Action requise" : "À surveiller"}</strong><small>{alert.message}</small><em>Ouvrir la section concernée</em></div><ChevronRight size={16} />
-            </button>
-          ))}
+          {loading && !notifications.length ? <div className="notification-loading"><RefreshCw className="spin" size={19} />Lecture des événements réels…</div> : visible.length === 0 ? <div className="search-empty"><CheckCheck size={25} /><strong>{notifications.length ? "Aucun résultat pour ces filtres" : "Aucune notification"}</strong><span>{notifications.length ? "Les nouvelles opérations apparaîtront automatiquement." : "Aucune intervention n’est nécessaire actuellement."}</span></div> : visible.map((notification) => {
+            const Icon = iconFor(notification);
+            const read = isRead(notification);
+            return <button key={notification.id} onClick={() => { onMarkRead(notification.id); onNavigate(notification.target?.page || "overview", notification.target?.entity_id); onClose(); }} className={`${notification.severity || "info"} ${read ? "is-read" : "is-unread"}`}>
+              <span><Icon size={17} /></span><div><header><strong>{notification.title}</strong><time>{relativeDate(notification.created_at)}</time></header><small>{notification.message}</small><em>{notification.actionable ? "Ouvrir et traiter" : "Voir les détails"}</em></div>{!read && <i className="unread-dot" aria-label="Non lue" />}<ChevronRight size={16} />
+            </button>;
+          })}
         </div>
       </aside>
     </div>
@@ -320,6 +351,11 @@ export default function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
+  const [notificationReadIds, setNotificationReadIds] = useState(() => new Set());
+  const [notificationsSynced, setNotificationsSynced] = useState(null);
   const [busyAction, setBusyAction] = useState("");
   const [toast, setToast] = useState(null);
   const [pendingActionCount, setPendingActionCount] = useState(0);
@@ -329,6 +365,8 @@ export default function App() {
   const lastSyncRef = useRef(0);
   const pendingActionsRef = useRef(new Set());
   const syncChannelRef = useRef(null);
+  const notificationRequestRef = useRef(null);
+  const previousNotificationIdsRef = useRef(null);
 
   const loadData = useCallback(async (background = false, forceFresh = false) => {
     if (dataRequestRef.current) {
@@ -368,7 +406,73 @@ export default function App() {
     }
   }, []);
 
+  const loadNotifications = useCallback(async (silent = false) => {
+    if (notificationRequestRef.current) return notificationRequestRef.current;
+    const request = (async () => {
+      if (!silent) setNotificationsLoading(true);
+      try {
+        const response = await fetch("/admin/api/notifications?limit=120", {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: AbortSignal.timeout(12000),
+        });
+        if (response.status === 401) {
+          window.dispatchEvent(new Event("admin:session-expired"));
+          return;
+        }
+        if (!response.ok) throw new Error(`Erreur serveur (${response.status}).`);
+        const payload = await response.json();
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        const nextIds = new Set(items.map((item) => item.id));
+        const previousIds = previousNotificationIdsRef.current;
+        if (previousIds) {
+          const fresh = items.find((item) => !previousIds.has(item.id) && item.actionable);
+          if (fresh) setToast({ type: fresh.severity === "error" ? "error" : "success", title: fresh.title, message: fresh.message });
+        }
+        previousNotificationIdsRef.current = nextIds;
+        setNotifications(items);
+        setNotificationReadIds(new Set(payload.read_ids || []));
+        setNotificationsSynced(new Date());
+        setNotificationsError("");
+      } catch (requestError) {
+        setNotificationsError(requestError.message || "Les notifications ne peuvent pas être actualisées.");
+      } finally {
+        setNotificationsLoading(false);
+      }
+    })();
+    notificationRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      if (notificationRequestRef.current === request) notificationRequestRef.current = null;
+    }
+  }, []);
+
   useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    if (!authenticated) return undefined;
+    loadNotifications();
+    const refresh = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) loadNotifications(true);
+    };
+    const timer = window.setInterval(refresh, 5_000);
+    const offline = () => setNotificationsError("Hors ligne. La synchronisation reprendra à la reconnexion.");
+    window.addEventListener("offline", offline);
+    window.addEventListener("online", refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("online", refresh);
+      previousNotificationIdsRef.current = null;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [authenticated, loadNotifications]);
+  useEffect(() => {
+    if (notificationsOpen) loadNotifications(true);
+  }, [notificationsOpen, loadNotifications]);
   useEffect(() => {
     const expired = () => { setAuthenticated(false); setData(null); };
     const offline = () => setSyncError("Connexion interrompue. Reconnectez-vous au réseau avant d’agir.");
@@ -443,11 +547,24 @@ export default function App() {
     };
   }, [loadData]);
 
-  const navigate = (page) => {
+  const navigate = (page, entityId = null) => {
     setActivePage(page);
     setMobileOpen(false);
-    window.history.pushState({}, "", page === "overview" ? "/admin" : `/admin/${page}`);
+    const target = page === "overview" ? "/admin" : `/admin/${page}`;
+    const query = page === "orders" && entityId != null ? `?order=${encodeURIComponent(entityId)}` : "";
+    window.history.pushState({}, "", target + query);
+    window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
   };
+
+  const markNotificationsRead = async (ids) => {
+    try {
+      await notificationAction(data?.dashboard_write_token, { action: "read", ids });
+      setNotificationReadIds((current) => new Set([...current, ...ids]));
+      await loadNotifications(true);
+    } catch (err) { setNotificationsError(err.message); }
+  };
+  const markNotificationRead = (id) => markNotificationsRead([id]);
+  const markAllNotificationsRead = () => markNotificationsRead(notifications.map((item) => item.id));
 
   const adminAction = async (params) => {
     const actionSignature = JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
@@ -469,6 +586,7 @@ export default function App() {
       if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Action refusée.");
       setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
       await loadData(true, true);
+      await loadNotifications(true);
       syncChannelRef.current?.postMessage({ type: "data-changed", at: Date.now() });
       return payload;
     } catch (actionError) {
@@ -510,7 +628,15 @@ export default function App() {
     }
   };
 
-  const alertCount = useMemo(() => data?.alerts?.length || 0, [data]);
+  const alertCount = useMemo(
+    () => notifications.filter((notification) => !notificationReadIds.has(notification.id)).length,
+    [notificationReadIds, notifications],
+  );
+  useEffect(() => {
+    document.title = alertCount
+      ? `(${alertCount}) Black Market · Control Room`
+      : "Black Market · Control Room";
+  }, [alertCount]);
 
   const logout = async () => {
     await fetch("/admin/api/logout", { method: "POST", credentials: "same-origin" });
@@ -530,7 +656,7 @@ export default function App() {
     <div className={`app-shell ${refreshing || pendingActionCount ? "is-synchronizing" : ""}`} aria-busy={refreshing || pendingActionCount > 0}>
       <Sidebar activePage={activePage} data={data} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} onNavigate={navigate} />
       <div className="main-shell">
-        <Header activePage={activePage} alertCount={alertCount} busyAction={busyAction} density={density} isRefreshing={refreshing || pendingActionCount > 0} onLogout={logout} onMenu={() => setMobileOpen(true)} onNotifications={() => setNotificationsOpen(true)} onRefresh={() => loadData(true)} onRepairTelegram={() => runHealthCheck("telegram-repair")} onSearch={() => setSearchOpen(true)} onTestBinance={() => runHealthCheck("binance")} onToggleDensity={() => setDensity((current) => { const next = current === "compact" ? "comfortable" : "compact"; window.localStorage.setItem("admin-density", next); return next; })} onToggleTheme={() => setTheme((current) => { const next = current === "dark" ? "light" : "dark"; window.localStorage.setItem("admin-theme", next); return next; })} theme={theme} />
+        <Header activePage={activePage} alertCount={alertCount} busyAction={busyAction} density={density} isRefreshing={refreshing || pendingActionCount > 0} onLogout={logout} onMenu={() => setMobileOpen(true)} onNotifications={() => setNotificationsOpen(true)} onRefresh={async () => { await loadData(true); await loadNotifications(true); }} onRepairTelegram={() => runHealthCheck("telegram-repair")} onSearch={() => setSearchOpen(true)} onTestBinance={() => runHealthCheck("binance")} onToggleDensity={() => setDensity((current) => { const next = current === "compact" ? "comfortable" : "compact"; window.localStorage.setItem("admin-density", next); return next; })} onToggleTheme={() => setTheme((current) => { const next = current === "dark" ? "light" : "dark"; window.localStorage.setItem("admin-theme", next); return next; })} theme={theme} />
         <div className={`sync-status ${syncError ? "has-error" : ""}`} role="status"><span>{syncError || (lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")}` : "Connexion au panneau…")}</span>{syncError && <button onClick={() => loadData(true)}>Réessayer</button>}</div>
         <main className={`content page-${activePage}`} id="main-content">
           {data?.preview_mode && <p className="preview-notice" role="status">Prévisualisation locale · données fictives · aucune écriture réelle</p>}
@@ -538,7 +664,7 @@ export default function App() {
         </main>
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}
-      {notificationsOpen && <NotificationsDrawer alerts={data?.alerts || []} onClose={() => setNotificationsOpen(false)} onNavigate={navigate} />}
+      {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{[["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]].map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>

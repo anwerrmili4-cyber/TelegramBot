@@ -379,6 +379,45 @@ def test_customer_detail_builds_complete_crm_profile(mock_mongodb):
     }
 
 
+def test_live_admin_notifications_reference_real_entities(mock_mongodb):
+    now = int(time.time())
+    mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer"})
+    mock_mongodb.orders.insert_many([
+        {"id": 10, "user_id": 42, "offer_name": "Pro", "status": "manual_review", "created_at": now - 60},
+        {"id": 11, "user_id": 42, "offer_name": "Done", "status": "delivered", "total_price": 8, "created_at": now - 30},
+    ])
+    mock_mongodb.wallet_topups.insert_one({
+        "id": 20, "user_id": 42, "amount_cents": 1500, "status": "manual_review",
+        "network": "bsc", "created_at": now - 20,
+    })
+    mock_mongodb.support_tickets.insert_one({
+        "id": 30, "user_id": 42, "status": "waiting_admin", "message": "Help",
+        "created_at": now - 15, "updated_at": now - 10,
+    })
+    mock_mongodb.withdrawals.insert_one({
+        "id": 40, "user_id": 42, "amount_cents": 1000, "status": "pending",
+        "method": "USDT", "created_at": now - 9,
+    })
+    mock_mongodb.warranty_requests.insert_one({
+        "id": 50, "user_id": 42, "order_id": 11, "status": "pending_admin_check",
+        "created_at": now - 8, "updated_at": now - 7,
+    })
+    mock_mongodb.offers.insert_one({
+        "id": 60, "name": "Empty product", "active": 1, "stock": 0, "created_at": now - 6,
+    })
+
+    result = dashboard_api.list_admin_notifications()
+    items = result["items"]
+    categories = {item["category"] for item in items}
+
+    assert {"order", "sale", "deposit", "support", "withdrawal", "warranty", "stock"} <= categories
+    order = next(item for item in items if item["id"] == "order:10:manual_review")
+    assert order["target"] == {"page": "orders", "entity_id": 10}
+    assert "@buyer" in order["message"]
+    assert result["summary"]["actionable"] >= 6
+    assert result["summary"]["critical"] == 1
+
+
 def test_order_detail_exposes_manual_delivery_and_customer(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Sam"})
     mock_mongodb.orders.insert_one({

@@ -40,6 +40,45 @@ def test_public_health_endpoint():
     assert payload["timestamp"]
 
 
+def test_notification_routes_require_auth_and_sync_reads(monkeypatch):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "notification-test")
+    token = webhook_module.dashboard_write_token()
+    with running_server() as base_url:
+        for path in ("/admin/api/notifications", "/admin/api/notifications/config"):
+            try:
+                urlopen(base_url + path, timeout=5)
+                raise AssertionError("Expected authentication error")
+            except HTTPError as exc:
+                assert exc.code == 401
+        request = Request(base_url + "/admin/api/notifications", data=json.dumps({"action": "read", "ids": ["order:123"]}).encode(),
+                          headers={"Content-Type": "application/json", "X-Dashboard-Write-Token": token}, method="POST")
+        with urlopen(request, timeout=5) as response:
+            assert json.load(response)["ok"]
+        request = Request(base_url + "/admin/api/notifications", headers={"X-Dashboard-Write-Token": token})
+        with urlopen(request, timeout=5) as response:
+            result = json.load(response)
+            assert "order:123" in result["read_ids"]
+            assert response.headers["Cache-Control"] == "no-store"
+            assert result["poll_after_seconds"] == 5
+        # Cookie/Basic authentication alone must not permit cross-site writes.
+        basic = base64.b64encode(b"admin:notification-test").decode()
+        request = Request(base_url + "/admin/api/notifications", data=b'{"action":"read","ids":[]}',
+                          headers={"Content-Type": "application/json", "Authorization": "Basic " + basic}, method="POST")
+        try:
+            urlopen(request, timeout=5)
+            raise AssertionError("Expected CSRF protection")
+        except HTTPError as exc:
+            assert exc.code == 403
+
+
+def test_notification_worker_served_with_correct_scope_and_no_cache():
+    with running_server() as base_url, urlopen(base_url + "/admin/notification-sw.js", timeout=5) as response:
+        assert response.headers["Service-Worker-Allowed"] == "/admin"
+        assert response.headers["Cache-Control"] == "no-cache"
+        assert "javascript" in response.headers["Content-Type"]
+        assert b'notificationclick' in response.read()
+
+
 def test_dashboard_uses_first_configured_reseller_provider(monkeypatch, mock_mongodb):
     mock_mongodb.reseller_products.insert_many([
         {"provider": "cgpt_active", "product_id": "1", "enabled": True},

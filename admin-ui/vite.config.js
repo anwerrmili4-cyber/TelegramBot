@@ -10,6 +10,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      "/admin/notification-sw.js": "http://localhost:8080",
       "/admin/api": "http://localhost:8080",
       "^/admin(?:$|/(?!api(?:/|$)))": {
         target: "http://localhost:8080",

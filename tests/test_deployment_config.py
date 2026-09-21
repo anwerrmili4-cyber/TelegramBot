@@ -26,7 +26,11 @@ def test_railway_runs_single_webhook_replica_in_europe():
 def test_railway_docker_image_uses_supported_python_and_non_root_user():
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
-    assert dockerfile.startswith("FROM python:3.12-slim\n")
+    assert "FROM python:3.12-slim\n" in dockerfile
+    assert "FROM node:24-slim AS admin-build" in dockerfile
+    assert "RUN npm ci" in dockerfile
+    assert "RUN npm run build" in dockerfile
+    assert "COPY --from=admin-build --chown=appuser:appuser /build/admin-ui/dist ./admin-ui/dist" in dockerfile
     assert "pip install --no-cache-dir --requirement requirements.txt" in dockerfile
     assert "USER appuser" in dockerfile
     assert 'CMD ["python", "railway_server.py"]' in dockerfile

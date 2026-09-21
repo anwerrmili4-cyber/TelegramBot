@@ -247,7 +247,7 @@ function Pagination({ value, onChange }) {
   );
 }
 
-function useRemoteList(endpoint, filters) {
+function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
   const [result, setResult] = useState({
     items: [],
     page: 1,
@@ -271,6 +271,20 @@ function useRemoteList(endpoint, filters) {
     window.addEventListener("admin:data-synced", synchronize);
     return () => window.removeEventListener("admin:data-synced", synchronize);
   }, []);
+  useEffect(() => {
+    if (!refreshInterval) return undefined;
+    const refresh = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) setSyncVersion((value) => value + 1);
+    };
+    const timer = window.setInterval(refresh, refreshInterval);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [refreshInterval]);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -317,10 +331,12 @@ function OrderEditor({ order, onAction, onClose, currency }) {
         ? ""
         : order.delivery_text || ""),
   );
+  const [confirmation, setConfirmation] = useState(null);
   const customer = order.customer || {};
   const submit = async (action, extra = {}) => {
     if (await onAction({ action, order_id: order.id, ...extra })) onClose();
   };
+  const requestSensitiveAction = (action, label, extra) => setConfirmation({ action, label, extra });
   return (
     <Modal title={`Commande #${order.id}`} onClose={onClose} wide>
       <div className="detail-grid">
@@ -470,7 +486,7 @@ function OrderEditor({ order, onAction, onClose, currency }) {
           danger
           icon={CircleDollarSign}
           onClick={() =>
-            submit("refund_order", {
+            requestSensitiveAction("refund_order", "Confirmer le remboursement", {
               reason: note || "Remboursement depuis le dashboard React",
             })
           }
@@ -481,7 +497,7 @@ function OrderEditor({ order, onAction, onClose, currency }) {
           danger
           icon={X}
           onClick={() =>
-            submit("cancel_order", {
+            requestSensitiveAction("cancel_order", "Confirmer l’annulation", {
               reason: note || "Annulée depuis le dashboard React",
             })
           }
@@ -489,6 +505,7 @@ function OrderEditor({ order, onAction, onClose, currency }) {
           Annuler
         </ActionButton>
       </div>
+      {confirmation && <div className="order-confirmation" role="alertdialog" aria-label={confirmation.label}><div><strong>{confirmation.label} ?</strong><span>Cette action modifie la commande #{order.id} et peut notifier le client.</span></div><button type="button" onClick={() => setConfirmation(null)}>Retour</button><button type="button" className="danger" onClick={() => submit(confirmation.action, confirmation.extra)}>Oui, confirmer</button></div>}
     </Modal>
   );
 }
@@ -497,6 +514,7 @@ function OrdersPage({ data, onAction }) {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [status, setStatus] = useState("");
+  const [queue, setQueue] = useState("");
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState("date");
   const [direction, setDirection] = useState("desc");
@@ -523,11 +541,12 @@ function OrdersPage({ data, onAction }) {
     search,
     search_field: searchField,
     status,
+    queue,
     page,
     per_page: 25,
     sort,
     direction,
-  });
+  }, { refreshInterval: 5_000 });
   const analytics = result.analytics || {};
   const daily = analytics.daily || [];
   const chartPoints = useMemo(() => {
@@ -585,7 +604,17 @@ function OrdersPage({ data, onAction }) {
       cache: "no-store",
     });
     setSelected(response.ok ? await response.json() : order);
+    window.history.replaceState({}, "", `/admin/orders?order=${encodeURIComponent(order.id)}`);
   };
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("order");
+    if (requested && /^\d+$/.test(requested)) openOrder({ id: Number(requested) });
+    const navigateToOrder = (event) => {
+      if (event.detail?.page === "orders" && event.detail?.entityId != null) openOrder({ id: event.detail.entityId });
+    };
+    window.addEventListener("admin:navigate", navigateToOrder);
+    return () => window.removeEventListener("admin:navigate", navigateToOrder);
+  }, []);
   return (
     <>
       <PageHeader
@@ -620,7 +649,7 @@ function OrdersPage({ data, onAction }) {
           </div>
         </article>
       </section></details>
-      <div className="workspace-tabs order-quick-filters" role="group" aria-label="Files de commandes">{[["", "Toutes"], ["manual_review", "À vérifier"], ["pending_payment", "Paiement en attente"], ["preparing_delivery", "À livrer"], ["delivered", "Livrées"]].map(([value, label]) => <button key={value} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }}>{label}</button>)}</div>
+      <div className="workspace-tabs order-quick-filters" role="group" aria-label="Files de commandes"><button aria-pressed={!status && !queue} onClick={() => { setStatus(""); setQueue(""); setPage(1); }}>Toutes</button><button aria-pressed={queue === "attention"} onClick={() => { setStatus(""); setQueue("attention"); setPage(1); }}>Urgentes <span>{analytics.pending || 0}</span></button><button aria-pressed={status === "manual_review"} onClick={() => { setQueue(""); setStatus("manual_review"); setPage(1); }}>À vérifier</button><button aria-pressed={status === "pending_payment"} onClick={() => { setQueue(""); setStatus("pending_payment"); setPage(1); }}>Paiement en attente</button><button aria-pressed={queue === "delivery"} onClick={() => { setStatus(""); setQueue("delivery"); setPage(1); }}>À livrer</button><button aria-pressed={status === "delivered"} onClick={() => { setQueue(""); setStatus("delivered"); setPage(1); }}>Livrées</button></div>
       <FilterBar
         search={search}
         searchField={searchField}
@@ -637,6 +666,7 @@ function OrdersPage({ data, onAction }) {
           value={status}
           onChange={(event) => {
             setStatus(event.target.value);
+            setQueue("");
             setPage(1);
           }}
         >
@@ -659,7 +689,7 @@ function OrdersPage({ data, onAction }) {
         {viewMode === "table" && <button className="column-picker-trigger" type="button" onClick={() => setColumnsOpen(true)}><Columns3 size={14} />Colonnes</button>}
       </FilterBar>
       <section className="data-panel">
-        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header><h3>{order.offer_name || order.service_name || "Produit"}</h3><p>{order.username ? `@${order.username}` : `Client ${order.user_id}`}</p><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
+        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><p>{order.customer_name || (order.username ? `@${order.username}` : `Client ${order.user_id}`)}</p><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
           <table>
             <thead>
               <tr>
@@ -674,12 +704,12 @@ function OrdersPage({ data, onAction }) {
             </thead>
             <tbody>
               {result.items.map((order) => (
-                <tr key={order.id} onClick={() => openOrder(order)}>
+                <tr className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}>
                   <td>
                     <strong>#{order.id}</strong>
                   </td>
                   {visibleColumns.includes("customer") && <td>
-                    {order.username ? `@${order.username}` : order.user_id}
+                    {order.customer_name || (order.username ? `@${order.username}` : order.user_id)}
                   </td>}
                   {visibleColumns.includes("product") && <td>{order.offer_name || order.service_name || "—"}</td>}
                   {visibleColumns.includes("amount") && <td>
@@ -700,7 +730,7 @@ function OrdersPage({ data, onAction }) {
               ))}
             </tbody>
           </table>
-        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className="kanban-order" onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div><h4>{order.offer_name || order.service_name || "Produit"}</h4><p>{order.username ? `@${order.username}` : `Client ${order.user_id}`}</p><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
+        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className={`kanban-order ${order.needs_attention ? "needs-attention" : ""}`} onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><p>{order.customer_name || (order.username ? `@${order.username}` : `Client ${order.user_id}`)}</p><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
         {loading ? (
           <div className="table-loading">Chargement…</div>
         ) : (
@@ -715,7 +745,7 @@ function OrdersPage({ data, onAction }) {
           order={selected}
           currency={data.currency}
           onAction={onAction}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); window.history.replaceState({}, "", "/admin/orders"); }}
         />
       )}
       {columnsOpen && <Modal title="Colonnes du tableau" onClose={() => setColumnsOpen(false)}><div className="column-picker"><p>Choisissez les informations visibles. Ce réglage est mémorisé sur cet appareil.</p>{[["customer", "Client"], ["product", "Produit"], ["amount", "Montant"], ["status", "Statut"], ["date", "Date"]].map(([key, label]) => <label key={key}><input type="checkbox" checked={visibleColumns.includes(key)} onChange={() => toggleColumn(key)} /><span>{label}</span><Check size={15} /></label>)}<div><ActionButton secondary onClick={() => { const all = ["customer", "product", "amount", "status", "date"]; setVisibleColumns(all); window.localStorage.setItem("admin-orders-columns", JSON.stringify(all)); }}>Tout afficher</ActionButton><ActionButton onClick={() => setColumnsOpen(false)}>Terminer</ActionButton></div></div></Modal>}

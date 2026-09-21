@@ -15,6 +15,12 @@ CUSTOMERS = [
     {"telegram_id": 102, "username": "demo_alex", "first_name": "Alex", "lang": "en", "created_at": 1787200000, "last_active_at": 1789900000, "wallet_balance": 8, "total_spent": 64, "order_count": 3, "paid_order_count": 3, "referral_count": 0, "ticket_count": 0, "deposit_count": 2, "deposit_total": 72, "last_order_at": 1790000000, "last_order_name": "Outil de productivité", "banned": False},
     {"telegram_id": 103, "username": "demo_nora", "first_name": "Nora", "lang": "fr", "created_at": 1787300000, "last_active_at": 1788000000, "wallet_balance": 0, "total_spent": 0, "order_count": 0, "paid_order_count": 0, "referral_count": 1, "ticket_count": 1, "deposit_count": 0, "deposit_total": 0, "last_order_at": None, "last_order_name": "", "banned": True},
 ]
+NOTIFICATIONS = [
+    {"id": "order:1048:manual_review", "category": "order", "severity": "warning", "title": "Paiement à vérifier", "message": "Commande #1048 · @demo_camille · Abonnement créatif", "created_at": 1790000300, "actionable": True, "target": {"page": "orders", "entity_id": 1048}},
+    {"id": "ticket:81:waiting_admin", "category": "support", "severity": "warning", "title": "Réponse client attendue", "message": "Ticket #81 · @demo_camille · Question sur la livraison", "created_at": 1790000200, "actionable": True, "target": {"page": "support", "entity_id": 81}},
+    {"id": "offer:7:stock:0", "category": "stock", "severity": "error", "title": "Produit épuisé", "message": "Compte premium annuel · 0 unité disponible", "created_at": 1790000100, "actionable": True, "target": {"page": "inventory", "entity_id": 7}},
+    {"id": "topup:31:confirmed", "category": "deposit", "severity": "success", "title": "Dépôt confirmé", "message": "@demo_camille · +50.00 USDT", "created_at": 1789999000, "actionable": False, "target": {"page": "deposits", "entity_id": 31}},
+]
 
 
 def customer_profile(customer):
@@ -66,6 +72,8 @@ class Preview(BaseHTTPRequestHandler):
             if params.get("search"):
                 rows = [x for x in rows if params["search"][0].lower() in json.dumps(x).lower()]
             self.reply({"items": rows, "page": 1, "pages": 1, "total": len(rows)})
+        elif path == "/admin/api/notifications":
+            self.reply({"items": NOTIFICATIONS, "generated_at": 1790000300, "poll_after_seconds": 30, "summary": {"total": 4, "critical": 1, "actionable": 3, "information": 1}})
         elif path == "/admin/api/orders" and params.get("detail") == ["1"]:
             row = next((x for x in ORDERS if str(x["id"]) == params.get("order_id", [""])[0]), None)
             self.reply({**row, "customer": {}, "events": [], "inventory": [], "delivery_content": ""} if row else {}, 200 if row else 404)

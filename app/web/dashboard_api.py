@@ -38,6 +38,15 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
     status = _first(params, "status")
     if status:
         query["status"] = status
+    queue = _first(params, "queue")
+    if queue == "attention":
+        delayed_before = int(time.time()) - 900
+        query["$or"] = [
+            {"status": {"$in": ["manual_review", "verification_failed", "stock_issue"]}},
+            {"status": {"$in": ["paid", "payment_confirmed", "preparing_delivery"]}, "created_at": {"$lte": delayed_before}},
+        ]
+    elif queue == "delivery":
+        query["status"] = {"$in": ["paid", "payment_confirmed", "preparing_delivery", "stock_issue"]}
     user_id = _first(params, "user_id")
     if user_id and user_id.isdigit():
         query["user_id"] = int(user_id)
@@ -69,7 +78,10 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
             clauses.append({"id": int(search)})
         if search.isdigit() and field in {"all", "user_id"}:
             clauses.append({"user_id": int(search)})
-        query["$or"] = clauses
+        if "$or" in query:
+            query["$and"] = [{"$or": query.pop("$or")}, {"$or": clauses}]
+        else:
+            query["$or"] = clauses
 
     collection = db.get_conn().orders
     total = collection.count_documents(query)
@@ -88,8 +100,37 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
     analytics_query = dict(query)
     analytics_query.pop("status", None)
     analytics = _order_analytics(collection, analytics_query)
+    items = [_admin_order(row) for row in rows]
+    user_ids = {item.get("user_id") for item in items if item and item.get("user_id") is not None}
+    users = {
+        row["telegram_id"]: row
+        for row in db.get_conn().users.find(
+            {"telegram_id": {"$in": list(user_ids)}},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "full_name": 1},
+        )
+    } if user_ids else {}
+    now = int(time.time())
+    urgent_statuses = {"manual_review", "verification_failed", "stock_issue"}
+    delivery_statuses = {"paid", "payment_confirmed", "preparing_delivery"}
+    for item in items:
+        user = users.get(item.get("user_id"), {})
+        item["username"] = user.get("username") or item.get("username")
+        item["customer_name"] = (
+            f"@{user['username']}" if user.get("username")
+            else user.get("full_name") or user.get("first_name") or f"Client {item.get('user_id')}"
+        )
+        created_at = int(_event_timestamp(item.get("paid_at") or item.get("created_at")))
+        age_seconds = max(0, now - created_at)
+        delayed = item.get("status") in delivery_statuses and age_seconds >= 900
+        item["age_seconds"] = age_seconds
+        item["needs_attention"] = item.get("status") in urgent_statuses or delayed
+        item["attention_reason"] = (
+            "Livraison en retard" if delayed
+            else "Intervention requise" if item.get("status") in urgent_statuses
+            else ""
+        )
     return {
-        "items": [_admin_order(row) for row in rows],
+        "items": items,
         "page": page,
         "per_page": per_page,
         "total": total,
@@ -548,6 +589,190 @@ def _event_timestamp(value: Any) -> float:
         with suppress(ValueError):
             return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     return 0.0
+
+
+def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
+    """Build a live, actionable notification feed from operational collections."""
+    conn = db.get_conn()
+    now = int(time.time())
+    notifications: list[dict[str, Any]] = []
+    user_cache: dict[int, str] = {}
+
+    def customer_name(user_id: Any) -> str:
+        try:
+            parsed = int(user_id)
+        except (TypeError, ValueError):
+            return "Client inconnu"
+        if parsed not in user_cache:
+            user = conn.users.find_one(
+                {"telegram_id": parsed},
+                {"username": 1, "first_name": 1, "full_name": 1},
+            ) or {}
+            user_cache[parsed] = (
+                f"@{user['username']}" if user.get("username")
+                else str(user.get("full_name") or user.get("first_name") or f"Client {parsed}")
+            )
+        return user_cache[parsed]
+
+    def add(
+        notification_id: str,
+        *,
+        category: str,
+        severity: str,
+        title: str,
+        message: str,
+        page: str,
+        created_at: Any,
+        entity_id: Any = None,
+        actionable: bool = True,
+    ) -> None:
+        notifications.append({
+            "id": notification_id,
+            "category": category,
+            "severity": severity,
+            "title": title,
+            "message": message,
+            "created_at": created_at,
+            "actionable": actionable,
+            "target": {"page": page, "entity_id": entity_id},
+        })
+
+    order_statuses = [
+        "manual_review", "verification_failed", "paid", "payment_confirmed",
+        "preparing_delivery", "stock_issue",
+    ]
+    for order in conn.orders.find({"status": {"$in": order_statuses}}).sort("created_at", DESCENDING).limit(40):
+        status = str(order.get("status") or "")
+        order_id = order.get("id")
+        age = max(0, now - int(_event_timestamp(order.get("paid_at") or order.get("created_at"))))
+        delayed_delivery = status in {"paid", "payment_confirmed", "preparing_delivery"} and age >= 900
+        severity = "error" if status in {"verification_failed", "stock_issue"} or delayed_delivery else "warning"
+        title = "Livraison en retard" if delayed_delivery else (
+            "Paiement à vérifier" if status in {"manual_review", "verification_failed"}
+            else "Commande à finaliser"
+        )
+        add(
+            f"order:{order_id}:{status}" + (":delayed" if delayed_delivery else ""),
+            category="order", severity=severity, title=title,
+            message=f"Commande #{order_id} · {customer_name(order.get('user_id'))} · {order.get('offer_name') or order.get('service_name') or 'Produit'}",
+            page="orders", entity_id=order_id,
+            created_at=order.get("updated_at") or order.get("paid_at") or order.get("created_at"),
+        )
+
+    for order in conn.orders.find({
+        "status": "delivered",
+        "created_at": {"$gte": now - 86400},
+    }).sort("created_at", DESCENDING).limit(12):
+        order_id = order.get("id")
+        add(
+            f"order:{order_id}:delivered",
+            category="sale", severity="success", title="Commande livrée",
+            message=f"Commande #{order_id} · {customer_name(order.get('user_id'))} · {db.order_charge_total(order):.2f} USDT",
+            page="orders", entity_id=order_id, created_at=order.get("created_at"), actionable=False,
+        )
+
+    for topup in conn.wallet_topups.find({"status": "manual_review"}).sort("created_at", DESCENDING).limit(30):
+        topup_id = topup.get("id")
+        amount = float(topup.get("amount_cents") or 0) / 100
+        add(
+            f"topup:{topup_id}:manual_review",
+            category="deposit", severity="warning", title="Dépôt à vérifier",
+            message=f"{customer_name(topup.get('user_id'))} · {amount:.2f} {topup.get('currency') or 'USDT'} · {topup.get('network') or topup.get('provider') or 'paiement'}",
+            page="deposits", entity_id=topup_id, created_at=topup.get("created_at"),
+        )
+
+    for topup in conn.wallet_topups.find({
+        "$or": [{"status": "confirmed"}, {"status": {"$exists": False}}],
+        "created_at": {"$gte": now - 86400},
+    }).sort("created_at", DESCENDING).limit(12):
+        topup_id = topup.get("id") or topup.get("txid")
+        amount = float(topup.get("amount_cents") or 0) / 100
+        add(
+            f"topup:{topup_id}:confirmed",
+            category="deposit", severity="success", title="Dépôt confirmé",
+            message=f"{customer_name(topup.get('user_id'))} · +{amount:.2f} {topup.get('currency') or 'USDT'}",
+            page="deposits", entity_id=topup.get("id"), created_at=topup.get("created_at"), actionable=False,
+        )
+
+    for ticket in conn.support_tickets.find({"status": {"$in": ["open", "waiting_admin"]}}).sort("updated_at", DESCENDING).limit(30):
+        ticket_id = ticket.get("id")
+        ticket_date = ticket.get("updated_at") or ticket.get("created_at")
+        add(
+            f"ticket:{ticket_id}:{ticket.get('status')}:{int(_event_timestamp(ticket_date))}",
+            category="support", severity="warning", title="Réponse client attendue",
+            message=f"Ticket #{ticket_id} · {customer_name(ticket.get('user_id'))} · {ticket.get('subject') or ticket.get('category') or ticket.get('message') or 'Nouvelle demande'}",
+            page="support", entity_id=ticket_id,
+            created_at=ticket_date,
+        )
+
+    for withdrawal in conn.withdrawals.find({"status": "pending"}).sort("created_at", DESCENDING).limit(30):
+        withdrawal_id = withdrawal.get("id")
+        amount = float(withdrawal.get("amount_cents") or 0) / 100
+        add(
+            f"withdrawal:{withdrawal_id}:pending",
+            category="withdrawal", severity="warning", title="Retrait en attente",
+            message=f"{customer_name(withdrawal.get('user_id'))} · {amount:.2f} USDT · {withdrawal.get('method') or 'méthode non précisée'}",
+            page="deposits", entity_id=withdrawal_id, created_at=withdrawal.get("created_at"),
+        )
+
+    pending_warranty_statuses = ["pending_admin_check", "pending", "waiting_admin"]
+    for warranty in conn.warranty_requests.find({"status": {"$in": pending_warranty_statuses}}).sort("updated_at", DESCENDING).limit(30):
+        warranty_id = warranty.get("id")
+        add(
+            f"warranty:{warranty_id}:{warranty.get('status')}",
+            category="warranty", severity="warning", title="Garantie à contrôler",
+            message=f"Demande #{warranty_id} · commande #{warranty.get('order_id')} · {customer_name(warranty.get('user_id'))}",
+            page="orders", entity_id=warranty.get("order_id"),
+            created_at=warranty.get("updated_at") or warranty.get("created_at"),
+        )
+
+    from config import LOW_STOCK_THRESHOLD
+    for offer in conn.offers.find({
+        "active": 1,
+        "stock": {"$lte": LOW_STOCK_THRESHOLD},
+        "archived": {"$ne": 1},
+    }).sort("stock", 1).limit(30):
+        offer_id = offer.get("id")
+        stock = int(offer.get("stock") or 0)
+        add(
+            f"offer:{offer_id}:stock:{stock}",
+            category="stock", severity="error" if stock <= 0 else "warning",
+            title="Produit épuisé" if stock <= 0 else "Stock faible",
+            message=f"{offer.get('name') or f'Produit #{offer_id}'} · {stock} unité(s) disponible(s)",
+            page="inventory", entity_id=offer_id,
+            created_at=offer.get("updated_at") or offer.get("created_at") or now,
+        )
+
+    for event in conn.audit_events.find({
+        "action": {"$in": ["system.error", "webhook.error", "delivery.error"]},
+        "created_at": {"$gte": datetime.fromtimestamp(now - 86400, UTC)},
+    }).sort("created_at", DESCENDING).limit(20):
+        event_id = event.get("id")
+        details = event.get("details") or {}
+        add(
+            f"error:{event_id}:{event.get('action')}",
+            category="system", severity="error", title="Erreur système",
+            message=str(details.get("message") or details.get("error") or event.get("action") or "Erreur à examiner"),
+            page="activity", entity_id=event_id, created_at=event.get("created_at"),
+        )
+
+    priority = {"error": 0, "warning": 1, "success": 2, "info": 3}
+    notifications.sort(key=lambda item: (
+        priority.get(str(item.get("severity")), 4),
+        -_event_timestamp(item.get("created_at")),
+    ))
+    notifications = notifications[:max(1, min(int(limit), 200))]
+    return {
+        "items": notifications,
+        "generated_at": now,
+        "poll_after_seconds": 30,
+        "summary": {
+            "total": len(notifications),
+            "critical": sum(1 for item in notifications if item["severity"] == "error"),
+            "actionable": sum(1 for item in notifications if item["actionable"]),
+            "information": sum(1 for item in notifications if not item["actionable"]),
+        },
+    }
 
 
 def list_reseller_clients(params: dict[str, list[str]]) -> dict[str, Any]:
