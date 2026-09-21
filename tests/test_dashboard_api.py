@@ -156,6 +156,43 @@ def test_order_date_service_and_amount_sort(mock_mongodb):
     assert [item["id"] for item in result["items"]] == [2, 1]
 
 
+def test_order_attention_queue_and_customer_names(mock_mongodb, monkeypatch):
+    now = 2_000_000
+    monkeypatch.setattr(dashboard_api.time, "time", lambda: now)
+    mock_mongodb.users.insert_many([
+        {"telegram_id": 10, "username": "alice"},
+        {"telegram_id": 20, "first_name": "Bob"},
+    ])
+    mock_mongodb.orders.insert_many([
+        {"id": 1, "user_id": 10, "status": "manual_review", "created_at": now - 10},
+        {"id": 2, "user_id": 20, "status": "preparing_delivery", "created_at": now - 1000},
+        {"id": 3, "user_id": 30, "status": "preparing_delivery", "created_at": now - 20},
+        {"id": 4, "user_id": 40, "status": "delivered", "created_at": now - 2000},
+    ])
+
+    result = dashboard_api.list_orders({"queue": ["attention"]})
+
+    assert [item["id"] for item in result["items"]] == [1, 2]
+    assert result["items"][0]["customer_name"] == "@alice"
+    assert result["items"][1]["customer_name"] == "Bob"
+    assert result["items"][1]["attention_reason"] == "Livraison en retard"
+    assert all(item["needs_attention"] for item in result["items"])
+
+
+def test_order_attention_queue_combines_with_search(mock_mongodb, monkeypatch):
+    now = 2_000_000
+    monkeypatch.setattr(dashboard_api.time, "time", lambda: now)
+    mock_mongodb.orders.insert_many([
+        {"id": 10, "user_id": 1, "offer_name": "Wanted", "status": "stock_issue", "created_at": now},
+        {"id": 11, "user_id": 2, "offer_name": "Other", "status": "stock_issue", "created_at": now},
+        {"id": 12, "user_id": 3, "offer_name": "Wanted", "status": "delivered", "created_at": now},
+    ])
+
+    result = dashboard_api.list_orders({"queue": ["attention"], "search": ["Wanted"]})
+
+    assert [item["id"] for item in result["items"]] == [10]
+
+
 def test_wallet_orders_show_and_sort_by_full_charged_amount(mock_mongodb):
     mock_mongodb.orders.insert_many([
         {"id": 1, "total_price": 5.0, "wallet_amount": 0.0, "status": "delivered", "created_at": 1},

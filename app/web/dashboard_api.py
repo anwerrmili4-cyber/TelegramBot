@@ -200,7 +200,7 @@ def _order_analytics(collection: Any, query: dict[str, Any]) -> dict[str, Any]:
     revenue = 0.0
     paid_statuses = {"paid", "payment_confirmed", "delivered"}
     pending_statuses = {"pending_payment", "awaiting_verification", "manual_review", "preparing_delivery"}
-    delivered = pending = 0
+    delivered = pending = attention = 0
 
     for row in collection.find(query, {"status": 1, "total_price": 1, "wallet_amount": 1, "created_at": 1}):
         status = str(row.get("status") or "unknown")
@@ -212,6 +212,15 @@ def _order_analytics(collection: Any, query: dict[str, Any]) -> dict[str, Any]:
             delivered += 1
         if status in pending_statuses:
             pending += 1
+        try:
+            created_timestamp = int(_event_timestamp(row.get("created_at")))
+        except (TypeError, ValueError):
+            created_timestamp = int(now.timestamp())
+        if status in {"manual_review", "verification_failed", "stock_issue"} or (
+            status in {"paid", "payment_confirmed", "preparing_delivery"}
+            and int(now.timestamp()) - created_timestamp >= 900
+        ):
+            attention += 1
 
         created_at = row.get("created_at")
         try:
@@ -234,6 +243,7 @@ def _order_analytics(collection: Any, query: dict[str, Any]) -> dict[str, Any]:
         "revenue": round(revenue, 2),
         "delivered": delivered,
         "pending": pending,
+        "attention": attention,
         "success_rate": round((delivered / total * 100) if total else 0, 1),
         "statuses": statuses,
         "daily": [
