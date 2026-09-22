@@ -251,6 +251,9 @@ def test_wallet_orders_show_and_sort_by_full_charged_amount(mock_mongodb):
 
 def test_ticket_filters(mock_mongodb):
     now = datetime.now(UTC)
+    mock_mongodb.users.insert_one({
+        "telegram_id": 10, "username": "alice", "first_name": "Alice", "last_name": "Martin",
+    })
     mock_mongodb.support_tickets.insert_many([
         {"id": 1, "user_id": 10, "status": "waiting_admin", "updated_at": now},
         {"id": 2, "user_id": 10, "status": "closed", "updated_at": now},
@@ -260,6 +263,8 @@ def test_ticket_filters(mock_mongodb):
 
     assert result["total"] == 1
     assert result["items"][0]["id"] == 1
+    assert result["items"][0]["full_name"] == "Alice Martin"
+    assert result["items"][0]["username"] == "alice"
 
 
 def test_ticket_search_uses_full_collection(mock_mongodb):
@@ -499,7 +504,7 @@ def test_live_admin_notifications_reference_real_entities(mock_mongodb):
 
 
 def test_order_detail_exposes_manual_delivery_and_customer(mock_mongodb):
-    mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Sam"})
+    mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Sam", "last_name": "Martin"})
     mock_mongodb.orders.insert_one({
         "id": 7,
         "user_id": 42,
@@ -512,6 +517,8 @@ def test_order_detail_exposes_manual_delivery_and_customer(mock_mongodb):
     assert order is not None
     assert order["delivery_content"] == "login@example.com\nsecret-password"
     assert order["customer"]["username"] == "buyer"
+    assert order["customer_name"] == "Sam Martin"
+    assert order["username"] == "buyer"
 
 
 def test_order_detail_decrypts_automatic_delivery(mock_mongodb):

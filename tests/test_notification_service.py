@@ -49,6 +49,22 @@ def test_read_state_shared_and_bounded():
         service.device_action({"action": "read", "ids": ["x"] * 201})
 
 
+def test_delete_all_hides_current_notifications_and_blocks_push_delivery(monkeypatch):
+    items = [event("old"), event("keep")]
+    service.device_action({"action": "delete_all", "ids": ["old"]})
+    assert service.dismissed_ids() == ["old"]
+    monkeypatch.setattr(dashboard_api, "list_admin_notifications", lambda *_: {"items": items})
+    sub = subscription()
+    service.device_action({"action": "subscribe", "subscription": sub})
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+    items.append(event("new"))
+
+    service.deliver_pending()
+
+    assert sent == ["new"]
+
+
 def test_delivery_deduplicates_baseline_and_retries_failure(monkeypatch, mock_mongodb):
     items = [event("old")]
     monkeypatch.setattr(dashboard_api, "list_admin_notifications", lambda *_: {"items": items})

@@ -56,3 +56,24 @@ button:not(:disabled):active,[role="button"]:active{transform:translateY(0) scal
 @keyframes mono-loading-line{0%,100%{opacity:.2;transform:scaleX(.35)}50%{opacity:1;transform:scaleX(1)}}
 @keyframes mono-soft-pulse{0%,100%{opacity:.55}50%{opacity:1}}
 @media(max-width:560px){.action-confirm-dialog{grid-template-columns:1fr;padding:19px}.action-confirm-icon{width:42px;height:42px}.action-confirm-dialog h2{font-size:19px}.action-confirm-dialog footer{display:grid;grid-template-columns:1fr}.action-confirm-dialog footer button{width:100%}}
+
+/* Support is a true edge-to-edge workspace below the global header. */
+.main-shell.page-support{height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden}.main-shell.page-support>.topbar,.main-shell.page-support>.sync-status{flex:0 0 auto}.main-shell.page-support>.content.page-support{flex:1;min-height:0;width:100%;max-width:none;margin:0;padding:0;overflow:hidden}.main-shell.page-support .support-page{height:100%;min-height:0}.main-shell.page-support .support-inbox{height:100%;min-height:0;border-radius:0;border-right:0;border-bottom:0;box-shadow:none}.main-shell.page-support .support-heading{display:none}
+@media(max-width:900px){.main-shell.page-support>.content.page-support{padding:0 0 calc(69px + env(safe-area-inset-bottom))}.main-shell.page-support .support-page{height:100%;min-height:0}.main-shell.page-support .support-inbox{border-radius:0}}
+
+/* Support palette: deep petrol surfaces keep message text readable in both themes. */
+.support-page{--support-accent:#2dd4bf;--support-accent-strong:#0f766e;--support-accent-deep:#115e59;--support-on-accent:#fff;--support-on-accent-muted:#d1fae5;--support-selected:color-mix(in srgb,#14b8a6 13%,var(--panel))}
+html[data-admin-theme="light"] .support-page{--support-accent:#0f766e;--support-accent-strong:#0f766e;--support-accent-deep:#064e3b;--support-on-accent:#fff;--support-on-accent-muted:#ecfdf5;--support-selected:#e5f5f2}
+.support-page .support-heading h2{background:linear-gradient(100deg,var(--text) 18%,var(--support-accent-strong) 72%);background-clip:text;color:transparent}.support-page .support-heading>span{color:var(--support-accent)}
+.support-page .support-sidebar>header h3::after{background:linear-gradient(90deg,var(--support-accent),#34d399)}
+.support-page .support-contact.is-selected{color:var(--text);background:var(--support-selected);border-color:var(--support-accent);box-shadow:inset 3px 0 var(--support-accent)}
+.support-page .support-contact.is-selected .support-avatar,.support-page .support-chat-header>.support-avatar,.support-page .support-welcome>span{color:var(--support-on-accent);background:linear-gradient(145deg,var(--support-accent-strong),var(--support-accent-deep));border-color:transparent;box-shadow:0 8px 24px color-mix(in srgb,var(--support-accent) 20%,transparent)}
+.support-page .support-welcome h3{background:linear-gradient(100deg,var(--text),var(--support-accent));background-clip:text;color:transparent}
+.support-page .support-bubble.is-customer{color:var(--text);background:var(--panel-soft);border-color:var(--line-bright)}
+.support-page .support-bubble.is-customer>small,.support-page .support-bubble.is-customer time{color:var(--muted);opacity:1}
+.support-page .support-bubble.is-admin{color:var(--support-on-accent);background:linear-gradient(135deg,var(--support-accent-strong),var(--support-accent-deep));border-color:color-mix(in srgb,var(--support-accent) 70%,transparent);box-shadow:0 10px 28px color-mix(in srgb,var(--support-accent) 18%,transparent)}
+.support-page .support-bubble.is-admin p{color:var(--support-on-accent)}.support-page .support-bubble.is-admin>small,.support-page .support-bubble.is-admin time{color:var(--support-on-accent-muted);opacity:1}
+.support-page .support-composer>.support-composer-row:focus-within{border-color:var(--support-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--support-accent) 16%,transparent)}
+.support-page .support-composer .support-attach:hover{color:var(--support-accent);background:color-mix(in srgb,var(--support-accent) 10%,var(--panel-soft))}
+.support-page .support-composer .support-send{color:var(--support-on-accent);background:linear-gradient(145deg,var(--support-accent-strong),var(--support-accent-deep));box-shadow:0 6px 18px color-mix(in srgb,var(--support-accent) 18%,transparent)}
+.support-page .support-composer .support-send:not(:disabled):hover{box-shadow:0 10px 26px color-mix(in srgb,var(--support-accent) 28%,transparent)}

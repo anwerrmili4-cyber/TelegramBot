@@ -368,7 +368,24 @@ def _application():
             candidate = build_app()
             _run_async(candidate.initialize())
             _app = candidate
-        return _app
+    return _app
+
+
+def _deliver_ticket_reply(user_id: int, ticket_id: int, message: str) -> None:
+    """Send the Telegram copy outside the dashboard request latency path."""
+    def deliver() -> None:
+        try:
+            _run_async(
+                _application().bot.send_message(
+                    user_id,
+                    f"🎫 <b>Réponse du Support (Ticket #{ticket_id})</b>\n\n{html.escape(message)}",
+                    parse_mode=ParseMode.HTML,
+                )
+            )
+        except Exception:
+            log.exception("Failed to notify user about ticket reply")
+
+    threading.Thread(target=deliver, name=f"ticket-reply-{ticket_id}", daemon=True).start()
 
 
 def _notify_wallet_adjustment(result: dict, reason: str = "") -> bool:
@@ -679,7 +696,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "catalog", "api-products", "inventory", "customers", "deposits", "support", "interactions", "activity", "settings"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "warranties", "support", "interactions", "activity", "settings"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -922,6 +939,9 @@ class handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 limit = 100
             payload = dashboard_api.list_admin_notifications(limit=limit)
+            dismissed = set(notification_service.dismissed_ids())
+            payload["items"] = [item for item in payload.get("items", []) if item.get("id") not in dismissed]
+            payload["total"] = len(payload["items"])
             payload["read_ids"] = notification_service.read_ids()
             payload["poll_after_seconds"] = 5
             self._reply(200, payload, headers={"Cache-Control": "no-store"})
@@ -931,8 +951,14 @@ class handler(BaseHTTPRequestHandler):
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
-            status = parse_qs(url.query).get("status", ["pending"])[0]
-            self._reply(200, {"ok": True, "items": db.list_withdrawals(status)})
+            self._reply(200, dashboard_api.list_withdrawals(parse_qs(url.query)))
+            return
+
+        elif path == "/admin/api/warranties":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, dashboard_api.list_warranties(parse_qs(url.query)))
             return
 
         elif path == "/admin/api/telegram-media":
@@ -1861,27 +1887,168 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "close_ticket":
                 tid = int(form["ticket_id"])
-                support_service.close_ticket(tid)
+                if not support_service.close_ticket(tid):
+                    raise ValueError("Ce ticket est déjà fermé ou introuvable.")
+
+            elif action == "close_all_tickets":
+                count = support_service.close_all_tickets()
+                self._reply(200, {
+                    "ok": True,
+                    "modified": count,
+                    "message": f"{count} ticket(s) ouvert(s) fermé(s).",
+                })
+                return
+
+            elif action == "ticket_archive":
+                tid = int(form["ticket_id"])
+                if not support_service.archive_ticket(tid):
+                    raise ValueError("Fermez ce ticket avant de l’archiver.")
+                self._reply(200, {"ok": True, "message": f"Ticket #{tid} archivé."})
+                return
+
+            elif action == "tickets_archive_closed":
+                count = support_service.archive_closed_tickets()
+                self._reply(200, {
+                    "ok": True,
+                    "modified": count,
+                    "message": f"{count} ticket(s) fermé(s) archivé(s).",
+                })
+                return
+
+            elif action == "ticket_unarchive":
+                tid = int(form["ticket_id"])
+                if not support_service.unarchive_ticket(tid):
+                    raise ValueError("Ce ticket n’est pas archivé ou n’existe plus.")
+                self._reply(200, {"ok": True, "message": f"Ticket #{tid} restauré."})
+                return
 
             elif action == "reply_ticket":
                 tid = int(form["ticket_id"])
                 message = form.get("message", "").strip()
                 if message:
-                    support_service.add_message(tid, 0, message, sender_type="admin")
+                    message_record = support_service.add_message(tid, 0, message, sender_type="admin")
                     # Notifier le client sur Telegram
                     ticket = support_service.get_ticket(tid)
                     if ticket:
-                        app = _application()
-                        try:
-                            _run_async(
-                                app.bot.send_message(
-                                    ticket["user_id"],
-                                    f"🎫 <b>Réponse du Support (Ticket #{tid})</b>\n\n{html.escape(message)}",
-                                    parse_mode=ParseMode.HTML,
-                                )
-                            )
-                        except Exception as e:
-                            print(f"Failed to notify user about ticket reply: {e}")
+                        _deliver_ticket_reply(int(ticket["user_id"]), tid, message)
+                    self._reply(200, {"ok": True, "message_record": message_record})
+                    return
+                raise ValueError("Le message ne peut pas être vide.")
+
+            elif action == "complete_withdrawal":
+                withdrawal_id = int(form["withdrawal_id"])
+                withdrawal = db.update_withdrawal(
+                    withdrawal_id, "completed", form.get("admin_note", "").strip()[:500],
+                )
+                if not withdrawal:
+                    raise ValueError("Ce retrait a déjà été traité ou n’existe plus.")
+                amount = float(withdrawal.get("amount_cents") or 0) / 100
+                db.audit_event("withdrawal.completed", details={"withdrawal_id": withdrawal_id})
+                notification_sent = True
+                try:
+                    _run_async(_application().bot.send_message(
+                        withdrawal["user_id"],
+                        f"✅ <b>Retrait terminé</b>\n\nVotre retrait <b>#{withdrawal_id}</b> de <b>{amount:.2f} {CURRENCY}</b> a été envoyé.",
+                        parse_mode=ParseMode.HTML,
+                    ))
+                except Exception:
+                    notification_sent = False
+                self._reply(200, {"ok": True, "notification_sent": notification_sent,
+                                  "message": f"Retrait #{withdrawal_id} marqué comme payé."})
+                return
+
+            elif action == "withdrawal_reject":
+                withdrawal_id = int(form["withdrawal_id"])
+                reason = form.get("admin_note", "").strip()[:500]
+                if not reason:
+                    raise ValueError("Indiquez la raison du refus.")
+                withdrawal = db.reject_withdrawal(withdrawal_id, reason)
+                if not withdrawal:
+                    raise ValueError("Ce retrait a déjà été traité ou n’existe plus.")
+                amount = float(withdrawal.get("amount_cents") or 0) / 100
+                notification_sent = True
+                try:
+                    _run_async(_application().bot.send_message(
+                        withdrawal["user_id"],
+                        f"❌ <b>Retrait refusé</b>\n\nLa demande <b>#{withdrawal_id}</b> a été refusée et <b>{amount:.2f} {CURRENCY}</b> a été recrédité.\nRaison : {html.escape(reason)}",
+                        parse_mode=ParseMode.HTML,
+                    ))
+                except Exception:
+                    notification_sent = False
+                self._reply(200, {"ok": True, "notification_sent": notification_sent,
+                                  "message": f"Retrait #{withdrawal_id} refusé et remboursé."})
+                return
+
+            elif action == "warranty_accept":
+                request_id = int(form["warranty_id"])
+                request = db.accept_warranty_request(request_id)
+                if not request:
+                    raise ValueError("Cette garantie a déjà été traitée ou n’existe plus.")
+                self._reply(200, {"ok": True, "message": f"Garantie #{request_id} acceptée."})
+                return
+
+            elif action == "warranty_refuse":
+                request_id = int(form["warranty_id"])
+                reason = form.get("admin_note", "").strip()[:1000]
+                if not reason:
+                    raise ValueError("Indiquez la raison du refus.")
+                request = db.refuse_warranty_request(request_id, reason)
+                if not request:
+                    raise ValueError("Cette garantie a déjà été traitée ou n’existe plus.")
+                notification_sent = True
+                try:
+                    _run_async(_application().bot.send_message(
+                        request["user_id"],
+                        f"❌ <b>Demande de garantie refusée</b>\n\nDemande <b>#{request_id}</b>\nRaison : {html.escape(reason)}",
+                        parse_mode=ParseMode.HTML,
+                    ))
+                except Exception:
+                    notification_sent = False
+                self._reply(200, {"ok": True, "notification_sent": notification_sent,
+                                  "message": f"Garantie #{request_id} refusée."})
+                return
+
+            elif action == "warranty_refund":
+                request_id = int(form["warranty_id"])
+                request = db.resolve_warranty_request(request_id, "refund", form.get("admin_note", ""))
+                if not request:
+                    raise ValueError("Cette garantie n’est plus en attente d’une résolution.")
+                refund = float(request.get("refund_amount") or 0)
+                notification_sent = True
+                try:
+                    _run_async(_application().bot.send_message(
+                        request["user_id"],
+                        f"💰 <b>Remboursement de garantie approuvé</b>\n\n<b>{refund:.2f} {CURRENCY}</b> a été ajouté à votre portefeuille pour la demande <b>#{request_id}</b>.",
+                        parse_mode=ParseMode.HTML,
+                    ))
+                except Exception:
+                    notification_sent = False
+                self._reply(200, {"ok": True, "notification_sent": notification_sent,
+                                  "message": f"Garantie #{request_id} remboursée."})
+                return
+
+            elif action == "warranty_replacement":
+                request_id = int(form["warranty_id"])
+                replacement = form.get("replacement", "").strip()[:3600]
+                if not replacement:
+                    raise ValueError("Saisissez le contenu de remplacement.")
+                request = db.resolve_warranty_request(request_id, "replacement")
+                if not request:
+                    request = db.get_conn().warranty_requests.find_one({
+                        "id": request_id, "status": "replacement_pending",
+                    })
+                if not request:
+                    raise ValueError("Cette garantie n’attend plus de remplacement.")
+                _run_async(_application().bot.send_message(
+                    request["user_id"],
+                    "🔁 Votre remplacement sous garantie est prêt\n\n"
+                    f"Commande : #{int(request['order_id'])}\n"
+                    f"Garantie : #{request_id}\n\n{replacement}",
+                ))
+                if not db.complete_warranty_replacement(request_id):
+                    raise ValueError("Le remplacement a été envoyé mais son statut n’a pas pu être finalisé.")
+                self._reply(200, {"ok": True, "message": f"Remplacement de garantie #{request_id} envoyé."})
+                return
 
             elif action == "confirm_payment":
                 raise ValueError(
@@ -1979,7 +2146,7 @@ class handler(BaseHTTPRequestHandler):
                 _run_async(
                     _application().bot.send_message(
                         order["user_id"],
-                        f"ðŸŽ <b>Votre commande #{oid} est livrÃ©e !</b>\n\n"
+                        f"🎁 <b>Votre commande #{oid} est livrée !</b>\n\n"
                         f"<code>{html.escape(content)}</code>",
                         parse_mode=ParseMode.HTML,
                     )

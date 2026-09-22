@@ -611,6 +611,32 @@ def update_withdrawal(withdrawal_id, status, admin_note=""):
     return _public(row) if row else None
 
 
+def reject_withdrawal(withdrawal_id, admin_note=""):
+    """Reject a pending withdrawal and return the reserved amount to the wallet."""
+    conn = get_conn()
+    row = conn.withdrawals.find_one_and_update(
+        {"id": int(withdrawal_id), "status": "pending"},
+        {"$set": {
+            "status": "rejected",
+            "admin_note": str(admin_note or "").strip()[:500],
+            "updated_at": datetime.now(UTC),
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not row:
+        return None
+    conn.wallets.update_one(
+        {"user_id": int(row["user_id"])},
+        {"$inc": {"balance_cents": int(row.get("amount_cents") or 0)}},
+        upsert=True,
+    )
+    audit_event(
+        "withdrawal.rejected",
+        details={"withdrawal_id": int(withdrawal_id), "user_id": int(row["user_id"])},
+    )
+    return _public(row)
+
+
 def create_warranty_request(user_id, order_id, days_used, refund_amount, reason=""):
     row = {
         "id": _next_id("warranty_requests"), "user_id": int(user_id), "order_id": int(order_id),
@@ -620,6 +646,17 @@ def create_warranty_request(user_id, order_id, days_used, refund_amount, reason=
     }
     get_conn().warranty_requests.insert_one(row)
     return _public(row)
+
+
+def accept_warranty_request(request_id):
+    row = get_conn().warranty_requests.find_one_and_update(
+        {"id": int(request_id), "status": "pending_admin_check"},
+        {"$set": {"status": "accepted", "updated_at": datetime.now(UTC)}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if row:
+        audit_event("warranty.accepted", details={"request_id": int(request_id)})
+    return _public(row) if row else None
 
 
 def list_warranty_requests(*, page=0, page_size=10):

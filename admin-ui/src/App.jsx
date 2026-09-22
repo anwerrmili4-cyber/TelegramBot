@@ -34,6 +34,7 @@ import {
   Settings,
   ShoppingBag,
   Sun,
+  Trash2,
   Users,
   Wrench,
   X,
@@ -45,12 +46,14 @@ const NAV_GROUPS = [
     { id: "orders", label: "Commandes", icon: ClipboardList },
     { id: "customers", label: "Clients", icon: Users },
     { id: "support", label: "Support", icon: Headphones },
+    { id: "warranties", label: "Garanties", icon: ShieldCheck },
   ] },
   { label: "Catalogue & finance", items: [
     { id: "catalog", label: "Mon catalogue", icon: ShoppingBag },
     { id: "inventory", label: "Inventaire", icon: Boxes },
     { id: "api-products", label: "Fournisseurs & API", icon: Cloud },
     { id: "deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
+    { id: "withdrawals", label: "Retraits", icon: CircleDollarSign },
     { id: "finance", label: "Profit & pertes", icon: CalendarDays },
     { id: "api-clients", label: "Clients API", icon: KeyRound },
   ] },
@@ -213,10 +216,12 @@ function SearchDialog({ data, onClose, onNavigate }) {
   );
 }
 
-function NotificationsDrawer({ token, lastSynced, error, loading, notifications = [], onClose, onMarkAllRead, onMarkRead, onNavigate, onRefresh, readIds }) {
+function NotificationsDrawer({ token, lastSynced, error, loading, notifications = [], onClose, onDeleteAll, onMarkAllRead, onMarkRead, onNavigate, onRefresh, readIds }) {
   const [filter, setFilter] = useState("unread");
   const [category, setCategory] = useState("");
   const [search, setSearch] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const isRead = (notification) => readIds.has(notification.id);
   const unreadCount = notifications.filter((notification) => !isRead(notification)).length;
   const criticalCount = notifications.filter((notification) => notification.severity === "error").length;
@@ -245,7 +250,8 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
         <NotificationSettings token={token} />
         <div className="notification-search"><input aria-label="Rechercher une notification" placeholder="Rechercher une notification…" value={search} onChange={(event) => setSearch(event.target.value)} /><select aria-label="Catégorie de notification" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Toutes les catégories</option>{Object.entries(NOTIFICATION_CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
         <div className="alert-summary"><div className="critical"><strong>{criticalCount}</strong><span>Critiques</span></div><div><strong>{actionableCount}</strong><span>À traiter</span></div><div><strong>{unreadCount}</strong><span>Non lues</span></div></div>
-        <div className="notification-toolbar"><div className="alert-filters"><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>Non lues <span>{unreadCount}</span></button><button className={filter === "urgent" ? "active" : ""} onClick={() => setFilter("urgent")}>À traiter <span>{actionableCount}</span></button><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Toutes <span>{notifications.length}</span></button></div><button className="mark-all-read" disabled={!unreadCount} onClick={onMarkAllRead}><CheckCheck size={14} />Tout lire</button></div>
+        <div className="notification-toolbar"><div className="alert-filters"><button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>Non lues <span>{unreadCount}</span></button><button className={filter === "urgent" ? "active" : ""} onClick={() => setFilter("urgent")}>À traiter <span>{actionableCount}</span></button><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>Toutes <span>{notifications.length}</span></button></div><div className="notification-toolbar-actions"><button className="mark-all-read" disabled={!unreadCount} onClick={onMarkAllRead}><CheckCheck size={14} />Tout lire</button><button className="delete-all-notifications" disabled={!notifications.length || deleting} onClick={() => setConfirmDelete(true)}><Trash2 size={14} />Tout supprimer</button></div></div>
+        {confirmDelete && <div className="notification-delete-confirm" role="alert"><span>Supprimer les {notifications.length} notifications affichées ?</span><button onClick={() => setConfirmDelete(false)} disabled={deleting}>Annuler</button><button className="danger" disabled={deleting} onClick={async () => { setDeleting(true); const deleted = await onDeleteAll(); setDeleting(false); if (deleted) setConfirmDelete(false); }}>{deleting ? "Suppression…" : "Supprimer"}</button></div>}
         {error && <div className="notification-error"><AlertTriangle size={15} /><span>{error}</span><button onClick={onRefresh}>Réessayer</button></div>}
         <div className="drawer-alerts">
           {loading && !notifications.length ? <div className="notification-loading"><RefreshCw className="spin" size={19} />Lecture des événements réels…</div> : visible.length === 0 ? <div className="search-empty"><CheckCheck size={25} /><strong>{notifications.length ? "Aucun résultat pour ces filtres" : "Aucune notification"}</strong><span>{notifications.length ? "Les nouvelles opérations apparaîtront automatiquement." : "Aucune intervention n’est nécessaire actuellement."}</span></div> : visible.map((notification) => {
@@ -280,6 +286,7 @@ function ErrorState({ message, onRetry }) {
 }
 
 const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_)/;
+const IMMEDIATE_ACTIONS = new Set(["reply_ticket"]);
 
 function describeAdminChange(params = {}) {
   const action = String(params.action || "change");
@@ -295,6 +302,17 @@ function describeAdminChange(params = {}) {
     save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
     save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],
     save_settings: ["Enregistrer les paramètres", "Les nouveaux réglages seront appliqués au fonctionnement du bot."],
+    close_all_tickets: ["Fermer tous les tickets", "Toutes les conversations encore ouvertes seront fermées en une seule opération."],
+    close_ticket: ["Fermer ce ticket", "La conversation sera fermée et pourra ensuite être archivée."],
+    ticket_archive: ["Archiver ce ticket", "Le ticket disparaîtra de la boîte active, mais son historique restera disponible dans les archives."],
+    ticket_unarchive: ["Restaurer ce ticket", "Le ticket archivé reviendra dans la liste principale du support."],
+    tickets_archive_closed: ["Archiver les tickets fermés", "Tous les tickets fermés ou résolus seront déplacés vers les archives."],
+    complete_withdrawal: ["Confirmer le paiement du retrait", "Le retrait sera marqué comme payé et le client recevra une confirmation Telegram."],
+    withdrawal_reject: ["Refuser et rembourser ce retrait", "Le montant réservé sera recrédité dans le portefeuille du client."],
+    warranty_accept: ["Accepter cette garantie", "La demande passera à l’étape de résolution : remplacement ou remboursement."],
+    warranty_refuse: ["Refuser cette garantie", "Le motif saisi sera envoyé au client dans Telegram."],
+    warranty_refund: ["Rembourser cette garantie", "Le montant calculé sera crédité une seule fois dans le portefeuille du client."],
+    warranty_replacement: ["Envoyer ce remplacement", "Le contenu saisi sera livré au client dans Telegram et la garantie sera finalisée."],
     toggle_ban: ["Changer l’accès du client", "Le statut d’accès de ce client sera immédiatement modifié."],
     toggle_inventory: ["Changer la disponibilité", "Cette unité de stock sera activée ou désactivée."],
     toggle_offer: ["Changer la visibilité du produit", "La disponibilité de ce produit dans le catalogue sera modifiée."],
@@ -595,6 +613,12 @@ export default function App() {
         ? `?order=${encodeURIComponent(entityId)}`
         : page === "support" && entityId != null
           ? `?ticket=${encodeURIComponent(entityId)}`
+          : page === "customers" && entityId != null
+            ? `?user=${encodeURIComponent(entityId)}`
+          : page === "withdrawals" && entityId != null
+            ? `?withdrawal=${encodeURIComponent(entityId)}`
+            : page === "warranties" && entityId != null
+              ? `?warranty=${encodeURIComponent(entityId)}`
           : "";
       window.history.pushState({}, "", target + query);
       window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
@@ -616,8 +640,23 @@ export default function App() {
   };
   const markNotificationRead = (id) => markNotificationsRead([id]);
   const markAllNotificationsRead = () => markNotificationsRead(notifications.map((item) => item.id));
+  const deleteAllNotifications = async () => {
+    try {
+      await notificationAction(data?.dashboard_write_token, {
+        action: "delete_all",
+        ids: notifications.map((item) => item.id),
+      });
+      setNotifications([]);
+      setNotificationReadIds(new Set());
+      setToast({ title: "Notifications supprimées", message: "La liste des notifications a été vidée." });
+      return true;
+    } catch (err) {
+      setNotificationsError(err.message);
+      return false;
+    }
+  };
 
-  const executeAdminAction = async (params) => {
+  const executeAdminAction = async (params, { quiet = false, refreshGlobal = true } = {}) => {
     const actionSignature = JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
     if (pendingActionsRef.current.has(actionSignature)) return null;
     pendingActionsRef.current.add(actionSignature);
@@ -635,9 +674,11 @@ export default function App() {
       const payload = await response.json();
       if (response.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
       if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Action refusée.");
-      setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
-      await loadData(true, true);
-      await loadNotifications(true);
+      if (!quiet) setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
+      if (refreshGlobal) {
+        await loadData(true, true);
+        await loadNotifications(true);
+      }
       syncChannelRef.current?.postMessage({ type: "data-changed", at: Date.now() });
       return payload;
     } catch (actionError) {
@@ -650,6 +691,9 @@ export default function App() {
   };
 
   const adminAction = (params) => {
+    if (IMMEDIATE_ACTIONS.has(String(params?.action || ""))) {
+      return executeAdminAction(params, { quiet: true, refreshGlobal: false });
+    }
     if (SPECIALIZED_CONFIRMATION_ACTIONS.test(String(params?.action || ""))) {
       return executeAdminAction(params);
     }
@@ -733,7 +777,7 @@ export default function App() {
   return (
     <div className={`app-shell ${refreshing || pendingActionCount ? "is-synchronizing" : ""}`} aria-busy={refreshing || pendingActionCount > 0}>
       <Sidebar activePage={activePage} data={data} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} onNavigate={navigate} />
-      <div className="main-shell">
+      <div className={`main-shell page-${activePage}`}>
         <Header activePage={activePage} alertCount={alertCount} busyAction={busyAction} density={density} isRefreshing={refreshing || pendingActionCount > 0} onLogout={logout} onMenu={() => setMobileOpen(true)} onNotifications={() => setNotificationsOpen(true)} onRefresh={async () => { await loadData(true); await loadNotifications(true); }} onRepairTelegram={() => runHealthCheck("telegram-repair")} onSearch={() => setSearchOpen(true)} onTestBinance={() => runHealthCheck("binance")} onToggleDensity={() => setDensity((current) => { const next = current === "compact" ? "comfortable" : "compact"; window.localStorage.setItem("admin-density", next); return next; })} onToggleTheme={() => setTheme((current) => { const next = current === "dark" ? "light" : "dark"; window.localStorage.setItem("admin-theme", next); return next; })} theme={theme} />
         <div className={`sync-status ${syncError ? "has-error" : ""}`} role="status"><span>{syncError || (lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")}` : "Connexion au panneau…")}</span>{syncError && <button onClick={() => loadData(true)}>Réessayer</button>}</div>
         <main className={`content page-${activePage}`} id="main-content">
@@ -742,7 +786,7 @@ export default function App() {
         </main>
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}
-      {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
+      {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
       {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{[["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]].map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
       <Toast toast={toast} onClose={() => setToast(null)} />

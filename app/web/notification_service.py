@@ -129,13 +129,24 @@ def _app_origin(value=""):
 
 def device_action(payload):
     action = payload.get("action")
-    if action == "read":
+    if action in {"read", "delete_all"}:
         ids = payload.get("ids")
         if not isinstance(ids, list) or len(ids) > 200 or any(not isinstance(item, str) or len(item) > 300 for item in ids):
             raise ValueError("Liste de notifications invalide.")
+        collection = (
+            db.get_conn().admin_notification_reads
+            if action == "read"
+            else db.get_conn().admin_notification_dismissals
+        )
         for item in ids:
-            db.get_conn().admin_notification_reads.update_one({"_id": item}, {"$set": {"expires_at": datetime.now(UTC) + timedelta(days=30)}}, upsert=True)
-        return {"ok": True}
+            collection.update_one(
+                {"_id": item},
+                {"$set": {"expires_at": datetime.now(UTC) + timedelta(days=30)}},
+                upsert=True,
+            )
+        if action == "delete_all" and ids:
+            db.audit_event("notification.deleted_all", details={"count": len(ids)})
+        return {"ok": True, "deleted": len(ids) if action == "delete_all" else 0}
     subscription = validate_subscription(payload.get("subscription"))
     device_id = _device_id(subscription["endpoint"])
     devices = db.get_conn().admin_push_devices
@@ -179,6 +190,10 @@ def device_action(payload):
 
 def read_ids():
     return [row["_id"] for row in db.get_conn().admin_notification_reads.find({"expires_at": {"$gt": datetime.now(UTC)}})]
+
+
+def dismissed_ids():
+    return [row["_id"] for row in db.get_conn().admin_notification_dismissals.find({"expires_at": {"$gt": datetime.now(UTC)}})]
 
 
 def _send(device, item, *, test=False):
@@ -246,7 +261,8 @@ def deliver_pending():
     devices = db.get_conn().admin_push_devices
     if not devices.count_documents({"auth_version": _auth_version()}):
         return
-    items = list_admin_notifications(200)["items"]
+    dismissed = set(dismissed_ids())
+    items = [item for item in list_admin_notifications(200)["items"] if item["id"] not in dismissed]
     for candidate in devices.find({"auth_version": _auth_version()}):
         now = int(time.time())
         device = devices.find_one_and_update({"_id": candidate["_id"], "lease_until": {"$lte": now}},

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Archive, Headphones, Image as ImageIcon, MessageSquareText, Paperclip, Play, Search, Send, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Archive, ArchiveRestore, CheckCheck, ExternalLink, Headphones, Image as ImageIcon, MessageSquareText, Paperclip, Play, Search, Send, Sparkles, X } from "lucide-react";
 import "./support.css";
 
 const labels = { open: "Ouvert", waiting_admin: "Attente admin", waiting_customer: "Attente client", closed: "Fermé", resolved: "Résolu" };
 const categories = { payment: "Paiement", order: "Commande", delivery: "Livraison", other: "Général", catalog_request: "Catalogue" };
-const customer = (ticket) => ticket.username ? `@${ticket.username}` : ticket.full_name || `Client ${ticket.user_id}`;
+const ticketStatus = (ticket) => ticket.archived_at ? "Archivé" : labels[ticket.status] || ticket.status;
+const customer = (ticket) => ticket.full_name || [ticket.first_name, ticket.last_name].filter(Boolean).join(" ") || (ticket.username ? `@${ticket.username}` : `Client ${ticket.user_id}`);
+const customerReference = (ticket) => ticket.username ? `@${ticket.username}` : `ID ${ticket.user_id}`;
 const stamp = (value) => {
   const parsed = new Date(typeof value === "number" ? value * 1000 : value);
   return value && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
@@ -72,7 +74,7 @@ function uploadTicketMedia({ ticketId, message, file, token, onProgress }) {
   });
 }
 
-function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, writeToken }) {
+function Conversation({ ticket, onAction, onArchive, onBack, onNavigate, draft, setDraft, onStatus, writeToken }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -86,6 +88,7 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, wri
   const fileInput = useRef(null);
   const nearBottom = useRef(true);
   const closed = ["closed", "resolved"].includes(ticket.status);
+  const archived = Boolean(ticket.archived_at);
 
   useEffect(() => {
     let active = true;
@@ -103,7 +106,7 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, wri
     };
     const refresh = () => { if (document.visibilityState === "visible") load(); };
     load();
-    const timer = window.setInterval(refresh, 10000);
+    const timer = window.setInterval(refresh, 3000);
     window.addEventListener("admin:data-synced", refresh);
     return () => { active = false; controller?.abort(); window.clearInterval(timer); window.removeEventListener("admin:data-synced", refresh); };
   }, [ticket.id, version]);
@@ -122,17 +125,40 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, wri
   const send = async (event) => {
     event.preventDefault();
     if (busy || closed || (!draft.trim() && !attachment)) return;
+    const message = draft.trim();
+    const optimisticId = attachment ? "" : `pending-${ticket.id}-${Date.now()}`;
+    if (optimisticId) {
+      setMessages((current) => [...current, {
+        id: optimisticId,
+        sender_type: "admin",
+        content: message,
+        created_at: new Date().toISOString(),
+      }]);
+      setDraft("");
+      nearBottom.current = true;
+    }
     setBusy(true);
     setComposerError("");
     try {
       const completed = attachment
-        ? await uploadTicketMedia({ ticketId: ticket.id, message: draft.trim(), file: attachment, token: writeToken, onProgress: setUploadProgress })
-        : await onAction({ action: "reply_ticket", ticket_id: ticket.id, message: draft.trim() });
+        ? await uploadTicketMedia({ ticketId: ticket.id, message, file: attachment, token: writeToken, onProgress: setUploadProgress })
+        : await onAction({ action: "reply_ticket", ticket_id: ticket.id, message });
+      if (!completed) throw new Error("Le message n’a pas pu être envoyé.");
       if (completed) {
-        setDraft(""); setAttachment(null); setUploadProgress(0); nearBottom.current = true; setVersion((n) => n + 1); onStatus("waiting_customer");
-        window.dispatchEvent(new CustomEvent("admin:data-synced"));
+        if (optimisticId && completed.message_record) {
+          setMessages((current) => current.map((item) => item.id === optimisticId ? completed.message_record : item));
+        } else {
+          setVersion((n) => n + 1);
+        }
+        setDraft(""); setAttachment(null); setUploadProgress(0); nearBottom.current = true; onStatus("waiting_customer");
       }
-    } catch (sendError) { setComposerError(sendError.message); }
+    } catch (sendError) {
+      if (optimisticId) {
+        setMessages((current) => current.filter((item) => item.id !== optimisticId));
+        setDraft(message);
+      }
+      setComposerError(sendError.message);
+    }
     finally { setBusy(false); }
   };
 
@@ -154,13 +180,19 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, wri
     <header className="support-chat-header">
       <button className="support-back" onClick={onBack} aria-label="Retour aux conversations"><ArrowLeft size={20} /></button>
       <span className="support-avatar"><Headphones size={21} /></span>
-      <div className="support-chat-identity"><strong>{customer(ticket)}</strong><small>Ticket #{ticket.id} · {categories[ticket.category] || ticket.category || "Général"}</small></div>
-      <span className={`status ${ticket.status}`}>{labels[ticket.status] || ticket.status}</span>
-      <button className="support-close" aria-label={closed ? "Ticket fermé" : "Fermer le ticket"} disabled={busy || closed} onClick={async () => {
+      <button type="button" className="support-chat-identity support-customer-link" onClick={() => onNavigate("customers", ticket.user_id)} title="Ouvrir le profil client"><strong>{customer(ticket)} <ExternalLink size={13} /></strong><small>{customerReference(ticket)} · Ticket #{ticket.id} · {categories[ticket.category] || ticket.category || "Général"}</small></button>
+      <span className={`status ${archived ? "archived" : ticket.status}`}>{ticketStatus(ticket)}</span>
+      <button className="support-close" aria-label={archived ? "Restaurer le ticket" : closed ? "Archiver le ticket" : "Fermer le ticket"} disabled={busy} onClick={async () => {
         setBusy(true);
-        try { if (await onAction({ action: "close_ticket", ticket_id: ticket.id })) onStatus("closed"); }
+        try {
+          if (archived) {
+            if (await onAction({ action: "ticket_unarchive", ticket_id: ticket.id })) onArchive(false);
+          } else if (closed) {
+            if (await onAction({ action: "ticket_archive", ticket_id: ticket.id })) onArchive(true);
+          } else if (await onAction({ action: "close_ticket", ticket_id: ticket.id })) onStatus("closed");
+        }
         finally { setBusy(false); }
-      }}><Archive size={16} /><span>{closed ? "Ticket fermé" : "Fermer le ticket"}</span></button>
+      }}>{archived ? <ArchiveRestore size={16} /> : closed ? <Archive size={16} /> : <CheckCheck size={16} />}<span>{archived ? "Restaurer" : closed ? "Archiver" : "Fermer le ticket"}</span></button>
     </header>
     <div className="support-messages" ref={thread} role="log" aria-label="Messages de la conversation" onScroll={() => {
       const el = thread.current; nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -170,7 +202,7 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, wri
       {error && <div className="support-notice" role="alert">{error} <button onClick={() => setVersion((n) => n + 1)}>Réessayer</button></div>}
       {!loading && !error && !messages.length && <p className="support-notice">Aucun message dans cette conversation.</p>}
       {messages.map((message, index) => <article key={message.id || index} className={`support-bubble ${message.sender_type === "admin" ? "is-admin" : "is-customer"} ${message.media ? "has-media" : ""}`}>
-        <small>{message.sender_type === "admin" ? "Vous" : "Client"}</small>
+        <small>{message.sender_type === "admin" ? "Vous" : customer(ticket)}</small>
         <MessageMedia media={message.media} />
         {(message.message || message.content) && <p><RichText>{message.message || message.content}</RichText></p>}
         <time>{stamp(message.created_at)}</time>
@@ -196,9 +228,10 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, wri
 
 function UserInitial({ ticket }) { return String(ticket.full_name || ticket.username || ticket.user_id || "C").slice(0, 2).toUpperCase(); }
 
-export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction, writeToken }) {
+export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction, onNavigate, writeToken }) {
   const [selected, setSelected] = useState(null);
   const [drafts, setDrafts] = useState({});
+  const [bulkBusy, setBulkBusy] = useState(false);
   useEffect(() => {
     setSelected((previous) => result.items.find((item) => item.id === previous?.id) || previous);
   }, [result.items]);
@@ -208,27 +241,37 @@ export default function SupportInbox({ result, loading, search, setSearch, statu
     if (match) setSelected(match);
   }, [result.items, targetTicketId]);
   const current = selected;
+  const runBulkAction = async (action) => {
+    if (bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      if (await onAction({ action })) {
+        setSelected(null);
+        window.dispatchEvent(new CustomEvent("admin:data-synced"));
+      }
+    } finally { setBulkBusy(false); }
+  };
   return <div className="support-page">
-    <div className="support-heading"><div><span className="eyebrow">Assistance</span><h2>Messagerie</h2></div><span><MessageSquareText size={16} /> Support clients</span></div>
     <div className={`support-inbox ${current ? "has-conversation" : ""}`}>
       <aside className="support-sidebar" aria-label="Conversations">
         <header><h3>Conversations</h3><span>{result.total}</span></header>
+        {status !== "archived" && <div className="support-bulk-actions"><button disabled={bulkBusy} onClick={() => runBulkAction("close_all_tickets")}><CheckCheck size={14} />Fermer ouverts</button><button disabled={bulkBusy} onClick={() => runBulkAction("tickets_archive_closed")}><Archive size={14} />Archiver fermés</button></div>}
         <div className="support-filters">
           <label className="support-search"><Search size={17} /><input type="search" aria-label="Rechercher une conversation" placeholder="Rechercher une conversation…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <div><select aria-label="Champ de recherche" value={searchField} onChange={(event) => setSearchField(event.target.value)}>{[["all", "Tout rechercher"], ["ticket_id", "ID ticket"], ["user_id", "ID client"], ["category", "Catégorie"], ["message", "Message"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-          <select aria-label="Filtrer les conversations par statut" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Tous les statuts</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+          <select aria-label="Filtrer les conversations par statut" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Tous les statuts</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}<option value="archived">Archivés</option></select></div>
         </div>
         <div className="support-list" aria-busy={loading}>
-          {loading && <p className="support-notice" role="status">Actualisation…</p>}
+          {loading && !result.items.length && <p className="support-notice" role="status">Actualisation…</p>}
           {!loading && !result.items.length && <div className="support-list-empty"><Search size={26} /><strong>Aucune conversation</strong><p>Essayez une autre recherche ou un autre statut.</p></div>}
           {result.items.map((ticket) => <button key={ticket.id} className={`support-contact ${current?.id === ticket.id ? "is-selected" : ""}`} aria-pressed={current?.id === ticket.id} onClick={() => setSelected(ticket)}>
             <span className="support-avatar"><UserInitial ticket={ticket} /></span>
-            <span className="support-contact-copy"><span><strong>{customer(ticket)}</strong>{ticket.status === "waiting_admin" && <i aria-label="Réponse attendue" />}</span><small>{plainRichText(ticket.last_message || ticket.message || categories[ticket.category] || ticket.category || "Conversation support")}</small><span className="support-contact-meta"><span>#{ticket.id} · {labels[ticket.status] || ticket.status}</span><time>{stamp(ticket.updated_at || ticket.created_at)}</time></span></span>
+            <span className="support-contact-copy"><span><strong>{customer(ticket)}</strong>{ticket.status === "waiting_admin" && <i aria-label="Réponse attendue" />}</span><small>{plainRichText(ticket.last_message || ticket.message || categories[ticket.category] || ticket.category || "Conversation support")}</small><span className="support-contact-meta"><span>#{ticket.id} · {ticketStatus(ticket)}</span><time>{stamp(ticket.updated_at || ticket.created_at)}</time></span></span>
           </button>)}
         </div>
         {pagination}
       </aside>
-      {current ? <Conversation key={current.id} ticket={current} onAction={onAction} onBack={() => setSelected(null)} draft={drafts[current.id] || ""} setDraft={(value) => setDrafts((prev) => ({ ...prev, [current.id]: value }))} onStatus={(value) => setSelected({ ...current, status: value })} writeToken={writeToken} /> : <section className="support-welcome"><span><MessageSquareText size={35} /></span><h3>Vos conversations, au même endroit.</h3><p>Sélectionnez un client pour consulter ses messages et lui répondre directement.</p><small><Headphones size={14} /> Support BlackMarket</small></section>}
+      {current ? <Conversation key={current.id} ticket={current} onAction={onAction} onArchive={() => { setSelected(null); window.dispatchEvent(new CustomEvent("admin:data-synced")); }} onBack={() => setSelected(null)} onNavigate={onNavigate} draft={drafts[current.id] || ""} setDraft={(value) => setDrafts((prev) => ({ ...prev, [current.id]: value }))} onStatus={(value) => setSelected({ ...current, status: value })} writeToken={writeToken} /> : <section className="support-welcome"><span><MessageSquareText size={35} /></span><h3>Vos conversations, au même endroit.</h3><p>Sélectionnez un client pour consulter ses messages et lui répondre directement.</p><small><Headphones size={14} /> Support BlackMarket</small></section>}
     </div>
   </div>;
 }

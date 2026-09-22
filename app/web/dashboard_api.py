@@ -36,7 +36,11 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
     query: dict[str, Any] = {}
 
     status = _first(params, "status")
-    if status:
+    if status == "archived":
+        query["archived_at"] = {"$exists": True}
+    else:
+        query["archived_at"] = {"$exists": False}
+    if status and status != "archived":
         query["status"] = status
     queue = _first(params, "queue")
     if queue == "attention":
@@ -106,7 +110,7 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         row["telegram_id"]: row
         for row in db.get_conn().users.find(
             {"telegram_id": {"$in": list(user_ids)}},
-            {"telegram_id": 1, "username": 1, "first_name": 1, "full_name": 1},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
         )
     } if user_ids else {}
     now = int(time.time())
@@ -114,11 +118,14 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
     delivery_statuses = {"paid", "payment_confirmed", "preparing_delivery"}
     for item in items:
         user = users.get(item.get("user_id"), {})
+        first_name = str(user.get("first_name") or "").strip()
+        last_name = str(user.get("last_name") or "").strip()
+        full_name = str(user.get("full_name") or " ".join(filter(None, (first_name, last_name)))).strip()
         item["username"] = user.get("username") or item.get("username")
-        item["customer_name"] = (
-            f"@{user['username']}" if user.get("username")
-            else user.get("full_name") or user.get("first_name") or f"Client {item.get('user_id')}"
-        )
+        item["first_name"] = first_name
+        item["last_name"] = last_name
+        item["full_name"] = full_name
+        item["customer_name"] = full_name or (f"@{user['username']}" if user.get("username") else f"Client {item.get('user_id')}")
         created_at = int(_event_timestamp(item.get("paid_at") or item.get("created_at")))
         age_seconds = max(0, now - created_at)
         delayed = item.get("status") in delivery_statuses and age_seconds >= 900
@@ -149,9 +156,14 @@ def order_detail(order_id: int) -> dict[str, Any] | None:
     result = _admin_order(order)
     user = conn.users.find_one(
         {"telegram_id": order.get("user_id")},
-        {"_id": 0, "telegram_id": 1, "username": 1, "first_name": 1, "full_name": 1},
+        {"_id": 0, "telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
     ) or {}
     result["customer"] = db._public(user)
+    first_name = str(user.get("first_name") or "").strip()
+    last_name = str(user.get("last_name") or "").strip()
+    full_name = str(user.get("full_name") or " ".join(filter(None, (first_name, last_name)))).strip()
+    result["customer_name"] = full_name or (f"@{user['username']}" if user.get("username") else f"Client {order.get('user_id')}")
+    result["username"] = str(user.get("username") or "")
     result["delivery_content"] = _order_delivery_content(order)
     return result
 
@@ -368,11 +380,31 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
             clauses.append({"user_id": int(search)})
         query["$or"] = clauses
 
-    collection = db.get_conn().support_tickets
+    conn = db.get_conn()
+    collection = conn.support_tickets
     total = collection.count_documents(query)
-    rows = collection.find(query).sort("updated_at", DESCENDING).skip((page - 1) * per_page).limit(per_page)
+    rows = list(collection.find(query).sort("updated_at", DESCENDING).skip((page - 1) * per_page).limit(per_page))
+    user_ids = {int(row["user_id"]) for row in rows if row.get("user_id") is not None}
+    users = {
+        int(user["telegram_id"]): user
+        for user in conn.users.find(
+            {"telegram_id": {"$in": list(user_ids)}},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
+        )
+    } if user_ids else {}
+    items = []
+    for row in rows:
+        item = db._public(row)
+        user = users.get(int(item.get("user_id") or 0), {})
+        first_name = str(user.get("first_name") or "").strip()
+        last_name = str(user.get("last_name") or "").strip()
+        item["first_name"] = first_name
+        item["last_name"] = last_name
+        item["full_name"] = str(user.get("full_name") or " ".join(filter(None, (first_name, last_name)))).strip()
+        item["username"] = str(user.get("username") or "").strip()
+        items.append(item)
     return {
-        "items": [db._public(row) for row in rows],
+        "items": items,
         "page": page,
         "per_page": per_page,
         "total": total,
@@ -811,7 +843,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
             f"withdrawal:{withdrawal_id}:pending",
             category="withdrawal", severity="warning", title="Retrait en attente",
             message=f"{customer_name(withdrawal.get('user_id'))} · {amount:.2f} USDT · {withdrawal.get('method') or 'méthode non précisée'}",
-            page="deposits", entity_id=withdrawal_id, created_at=withdrawal.get("created_at"),
+            page="withdrawals", entity_id=withdrawal_id, created_at=withdrawal.get("created_at"),
         )
 
     pending_warranty_statuses = ["pending_admin_check", "pending", "waiting_admin"]
@@ -821,7 +853,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
             f"warranty:{warranty_id}:{warranty.get('status')}",
             category="warranty", severity="warning", title="Garantie à contrôler",
             message=f"Demande #{warranty_id} · commande #{warranty.get('order_id')} · {customer_name(warranty.get('user_id'))}",
-            page="orders", entity_id=warranty.get("order_id"),
+            page="warranties", entity_id=warranty_id,
             created_at=warranty.get("updated_at") or warranty.get("created_at"),
         )
 
@@ -872,6 +904,86 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
             "information": sum(1 for item in notifications if not item["actionable"]),
         },
     }
+
+
+def list_withdrawals(params: dict[str, list[str]]) -> dict[str, Any]:
+    """Return withdrawal requests with customer context and server-side filters."""
+    page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
+    per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
+    query: dict[str, Any] = {}
+    status = _first(params, "status")
+    if status and status != "all":
+        query["status"] = status
+    search = _first(params, "search")
+    if search:
+        pattern = {"$regex": re.escape(search), "$options": "i"}
+        clauses: list[dict[str, Any]] = [
+            {"method": pattern}, {"destination": pattern}, {"admin_note": pattern},
+        ]
+        if search.isdigit():
+            clauses.extend(({"id": int(search)}, {"user_id": int(search)}))
+        query["$or"] = clauses
+    conn = db.get_conn()
+    total = conn.withdrawals.count_documents(query)
+    rows = conn.withdrawals.find(query).sort("created_at", DESCENDING).skip((page - 1) * per_page).limit(per_page)
+    items = []
+    for row in rows:
+        item = db._public(row)
+        user = conn.users.find_one({"telegram_id": int(item["user_id"])}) or {}
+        item["amount"] = round(float(item.get("amount_cents") or 0) / 100, 2)
+        item["username"] = user.get("username") or ""
+        item["full_name"] = user.get("full_name") or user.get("first_name") or ""
+        items.append(item)
+    summary = {
+        name: conn.withdrawals.count_documents({"status": name})
+        for name in ("pending", "completed", "rejected")
+    }
+    summary["pending_amount"] = round(sum(
+        float(row.get("amount_cents") or 0) / 100
+        for row in conn.withdrawals.find({"status": "pending"}, {"amount_cents": 1})
+    ), 2)
+    return {"items": items, "page": page, "per_page": per_page, "total": total,
+            "pages": max(1, (total + per_page - 1) // per_page), "summary": summary}
+
+
+def list_warranties(params: dict[str, list[str]]) -> dict[str, Any]:
+    """Return warranty cases with their customer and order context."""
+    page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
+    per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
+    query: dict[str, Any] = {}
+    status = _first(params, "status")
+    if status and status != "all":
+        query["status"] = status
+    search = _first(params, "search")
+    if search:
+        pattern = {"$regex": re.escape(search), "$options": "i"}
+        clauses: list[dict[str, Any]] = [{"reason": pattern}, {"admin_note": pattern}]
+        if search.isdigit():
+            clauses.extend(({"id": int(search)}, {"order_id": int(search)}, {"user_id": int(search)}))
+        query["$or"] = clauses
+    conn = db.get_conn()
+    total = conn.warranty_requests.count_documents(query)
+    rows = conn.warranty_requests.find(query).sort("updated_at", DESCENDING).skip((page - 1) * per_page).limit(per_page)
+    items = []
+    for row in rows:
+        item = db._public(row)
+        user = conn.users.find_one({"telegram_id": int(item["user_id"])}) or {}
+        order = conn.orders.find_one({"id": int(item.get("order_id") or 0)}) or {}
+        item["username"] = user.get("username") or ""
+        item["full_name"] = user.get("full_name") or user.get("first_name") or ""
+        item["product"] = order.get("offer_name") or order.get("service_name") or "Produit"
+        item["order_status"] = order.get("status") or ""
+        item["warranty"] = order.get("warranty") or order.get("warranty_days") or "NW"
+        items.append(item)
+    actionable = ["pending_admin_check", "accepted", "replacement_pending"]
+    summary = {
+        "actionable": conn.warranty_requests.count_documents({"status": {"$in": actionable}}),
+        "pending": conn.warranty_requests.count_documents({"status": "pending_admin_check"}),
+        "accepted": conn.warranty_requests.count_documents({"status": "accepted"}),
+        "completed": conn.warranty_requests.count_documents({"status": {"$in": ["refunded", "replacement_delivered"]}}),
+    }
+    return {"items": items, "page": page, "per_page": per_page, "total": total,
+            "pages": max(1, (total + per_page - 1) // per_page), "summary": summary}
 
 
 def list_reseller_clients(params: dict[str, list[str]]) -> dict[str, Any]:

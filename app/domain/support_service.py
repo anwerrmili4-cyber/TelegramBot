@@ -210,6 +210,65 @@ def close_ticket(ticket_id: int) -> bool:
     return False
 
 
+def close_all_tickets() -> int:
+    """Close every active, non-archived support conversation."""
+    now = datetime.now(UTC)
+    result = db.get_conn().support_tickets.update_many(
+        {
+            "status": {"$nin": [TicketStatus.CLOSED, TicketStatus.RESOLVED]},
+            "archived_at": {"$exists": False},
+        },
+        {"$set": {"status": TicketStatus.CLOSED, "closed_at": now, "updated_at": now}},
+    )
+    if result.modified_count:
+        db.audit_event("ticket.closed_all", details={"count": result.modified_count})
+    return int(result.modified_count)
+
+
+def archive_ticket(ticket_id: int) -> bool:
+    """Hide a closed ticket from the active inbox while preserving its history."""
+    now = datetime.now(UTC)
+    result = db.get_conn().support_tickets.update_one(
+        {
+            "id": int(ticket_id),
+            "status": {"$in": [TicketStatus.CLOSED, TicketStatus.RESOLVED]},
+            "archived_at": {"$exists": False},
+        },
+        {"$set": {"archived_at": now, "updated_at": now}},
+    )
+    if result.modified_count:
+        db.audit_event("ticket.archived", details={"ticket_id": int(ticket_id)})
+        return True
+    return False
+
+
+def archive_closed_tickets() -> int:
+    """Archive all closed or resolved tickets that are still in the inbox."""
+    now = datetime.now(UTC)
+    result = db.get_conn().support_tickets.update_many(
+        {
+            "status": {"$in": [TicketStatus.CLOSED, TicketStatus.RESOLVED]},
+            "archived_at": {"$exists": False},
+        },
+        {"$set": {"archived_at": now, "updated_at": now}},
+    )
+    if result.modified_count:
+        db.audit_event("ticket.archived_closed", details={"count": result.modified_count})
+    return int(result.modified_count)
+
+
+def unarchive_ticket(ticket_id: int) -> bool:
+    """Return an archived ticket to the regular support inbox."""
+    result = db.get_conn().support_tickets.update_one(
+        {"id": int(ticket_id), "archived_at": {"$exists": True}},
+        {"$unset": {"archived_at": ""}, "$set": {"updated_at": datetime.now(UTC)}},
+    )
+    if result.modified_count:
+        db.audit_event("ticket.unarchived", details={"ticket_id": int(ticket_id)})
+        return True
+    return False
+
+
 def reopen_ticket(ticket_id: int) -> bool:
     """Rouvre un ticket fermé."""
     conn = db.get_conn()

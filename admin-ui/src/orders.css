@@ -60,6 +60,17 @@
 .page-orders .responsive-table td { padding: 20px 17px; }
 .page-orders .responsive-table tbody tr:hover { background: var(--panel-soft); }
 .page-orders .sort-button, .page-orders .row-action { color: var(--text); }
+.page-orders .order-customer-display { display: grid; gap: 4px; color: var(--text); text-align: left; }
+.page-orders .order-customer-display strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.page-orders .order-customer-display small { color: var(--muted); font-size: 10px; }
+.page-orders .order-table-customer { display: grid; gap: 4px; padding: 5px 7px; margin: -5px -7px; border: 0; border-radius: 8px; color: var(--text); background: transparent; text-align: left; }
+.page-orders .order-table-customer strong { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.page-orders .order-table-customer small { color: var(--muted); font-size: 10px; }
+.page-orders .order-table-customer:hover { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 9%, transparent); }
+.page-orders .order-customer-summary > button { min-width: 0; display: grid; flex: 1; gap: 4px; padding: 6px; margin: -6px; border: 0; border-radius: 9px; color: var(--text); background: transparent; text-align: left; }
+.page-orders .order-customer-summary > button strong { display: flex; align-items: center; gap: 6px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.page-orders .order-customer-summary > button small, .page-orders .order-customer-summary > button em { overflow: hidden; color: var(--muted); font-size: 9px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.page-orders .order-customer-summary > button:hover { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 9%, transparent); }
 @media (max-width: 1200px) {
   .page-orders .order-analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-orders .order-trend-card { grid-column: 1 / -1; }

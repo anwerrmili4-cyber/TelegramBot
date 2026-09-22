@@ -8,6 +8,7 @@ import "./orders.css";
 import "./monochrome.css";
 import "./motion.css";
 import "./finance.css";
+import "./operations.css";
 
 class AppErrorBoundary extends Component {
   constructor(props) {

@@ -21,6 +21,7 @@ import {
   Database,
   Download,
   Edit3,
+  ExternalLink,
   Eye,
   Globe2,
   Headphones,
@@ -71,6 +72,10 @@ const STATUS_LABELS = {
   approved: "Approuvé",
   completed: "Terminé",
   pending_admin_check: "Contrôle admin",
+  accepted: "Acceptée",
+  replacement_pending: "Remplacement requis",
+  replacement_delivered: "Remplacement livré",
+  refused: "Refusée",
   replacement_sent: "Remplacement envoyé",
   refund_approved: "Remboursement approuvé",
 };
@@ -101,6 +106,21 @@ function money(value, currency = "USDT") {
 
 function orderAmount(order = {}) {
   return order.charged_total ?? Number(order.total_price || 0) + Number(order.wallet_amount || 0);
+}
+
+function orderCustomerName(order = {}) {
+  const customer = order.customer || {};
+  return order.customer_name
+    || customer.full_name
+    || [order.first_name || customer.first_name, order.last_name || customer.last_name].filter(Boolean).join(" ")
+    || (order.username || customer.username ? `@${order.username || customer.username}` : `Client ${order.user_id || customer.telegram_id || "—"}`);
+}
+
+function orderCustomerReference(order = {}) {
+  const customer = order.customer || {};
+  const username = order.username || customer.username;
+  const userId = order.user_id || customer.telegram_id || "—";
+  return `${username ? `@${username} · ` : ""}ID ${userId}`;
 }
 
 function date(value) {
@@ -327,7 +347,7 @@ function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
   return [result, loading];
 }
 
-function OrderDetailPage({ order, onAction, onBack, onReload, currency }) {
+function OrderDetailPage({ order, onAction, onBack, onNavigate, onReload, currency }) {
   const [status, setStatus] = useState(order.status || "pending_payment");
   const [note, setNote] = useState(order.admin_note || "");
   const [message, setMessage] = useState("");
@@ -362,7 +382,7 @@ function OrderDetailPage({ order, onAction, onBack, onReload, currency }) {
 
       <section className="order-detail-summary">
         <article><span><CircleDollarSign size={18} /></span><div><small>Montant encaissé</small><strong>{money(orderAmount(order), currency)}</strong><em>{order.qty || 1} × {money(order.unit_price, currency)}</em></div></article>
-        <article><span><UserRound size={18} /></span><div><small>Client</small><strong>{order.customer_name || (order.username ? `@${order.username}` : customer.full_name || `Client ${order.user_id}`)}</strong><em>ID {order.user_id || customer.telegram_id || "—"}</em></div></article>
+        <article className="order-customer-summary"><span><UserRound size={18} /></span><button type="button" onClick={() => onNavigate("customers", order.user_id || customer.telegram_id)} title="Ouvrir le profil client"><small>Client</small><strong>{orderCustomerName(order)} <ExternalLink size={13} /></strong><em>{orderCustomerReference(order)}</em></button></article>
         <article><span><CreditCard size={18} /></span><div><small>Paiement</small><strong>{order.verify_method || "Non renseigné"}</strong><em>{order.txid ? `TXID ${order.txid}` : "Aucun TXID"}</em></div></article>
         <article><span><PackageCheck size={18} /></span><div><small>Livraison</small><strong>{order.delivered_at ? "Effectuée" : "En attente"}</strong><em>{order.delivered_at ? date(order.delivered_at) : "À traiter"}</em></div></article>
       </section>
@@ -413,7 +433,7 @@ function OrderDetailPage({ order, onAction, onBack, onReload, currency }) {
   );
 }
 
-function OrdersPage({ data, onAction }) {
+function OrdersPage({ data, onAction, onNavigate }) {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [status, setStatus] = useState("");
@@ -546,7 +566,7 @@ function OrdersPage({ data, onAction }) {
       window.removeEventListener("popstate", restoreOrderRoute);
     };
   }, []);
-  if (selected) return <OrderDetailPage key={selected.id} order={selected} currency={data.currency} onAction={onAction} onBack={closeOrder} onReload={() => openOrder({ id: selected.id }, false)} />;
+  if (selected) return <OrderDetailPage key={selected.id} order={selected} currency={data.currency} onAction={onAction} onBack={closeOrder} onNavigate={onNavigate} onReload={() => openOrder({ id: selected.id }, false)} />;
   if (detailLoading) return <div className="order-detail-loading"><RefreshCw className="spin" size={24} /><strong>Ouverture de la commande…</strong></div>;
   return (
     <>
@@ -627,7 +647,7 @@ function OrdersPage({ data, onAction }) {
         {viewMode === "table" && <button className="column-picker-trigger" type="button" onClick={() => setColumnsOpen(true)}><Columns3 size={14} />Colonnes</button>}
       </FilterBar>
       <section className="data-panel">
-        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><p>{order.customer_name || (order.username ? `@${order.username}` : `Client ${order.user_id}`)}</p><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
+        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
           <table>
             <thead>
               <tr>
@@ -646,9 +666,7 @@ function OrdersPage({ data, onAction }) {
                   <td>
                     <strong>#{order.id}</strong>
                   </td>
-                  {visibleColumns.includes("customer") && <td>
-                    {order.customer_name || (order.username ? `@${order.username}` : order.user_id)}
-                  </td>}
+                  {visibleColumns.includes("customer") && <td><button type="button" className="order-table-customer" onClick={(event) => { event.stopPropagation(); onNavigate("customers", order.user_id); }} title="Ouvrir le profil client"><strong>{orderCustomerName(order)} <ExternalLink size={12} /></strong><small>{orderCustomerReference(order)}</small></button></td>}
                   {visibleColumns.includes("product") && <td>{order.offer_name || order.service_name || "—"}</td>}
                   {visibleColumns.includes("amount") && <td>
                     <strong>{money(orderAmount(order), data.currency)}</strong>
@@ -668,7 +686,7 @@ function OrdersPage({ data, onAction }) {
               ))}
             </tbody>
           </table>
-        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className={`kanban-order ${order.needs_attention ? "needs-attention" : ""}`} onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><p>{order.customer_name || (order.username ? `@${order.username}` : `Client ${order.user_id}`)}</p><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
+        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className={`kanban-order ${order.needs_attention ? "needs-attention" : ""}`} onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
         {loading ? (
           <div className="table-loading">Chargement…</div>
         ) : (
@@ -2701,6 +2719,30 @@ function CustomersPage({ data, onAction, onNavigate }) {
     );
     if (response.ok) setSelected(await response.json());
   };
+  const closeCustomer = () => {
+    setSelected(null);
+    if (new URLSearchParams(window.location.search).has("user")) window.history.replaceState({}, "", "/admin/customers");
+  };
+  useEffect(() => {
+    const openRequestedCustomer = (userId) => {
+      if (userId != null && /^\d+$/.test(String(userId))) open({ telegram_id: Number(userId) });
+    };
+    openRequestedCustomer(new URLSearchParams(window.location.search).get("user"));
+    const navigateToCustomer = (event) => {
+      if (event.detail?.page === "customers") openRequestedCustomer(event.detail.entityId);
+    };
+    const restoreCustomerRoute = () => {
+      const requested = new URLSearchParams(window.location.search).get("user");
+      if (requested) openRequestedCustomer(requested);
+      else setSelected(null);
+    };
+    window.addEventListener("admin:navigate", navigateToCustomer);
+    window.addEventListener("popstate", restoreCustomerRoute);
+    return () => {
+      window.removeEventListener("admin:navigate", navigateToCustomer);
+      window.removeEventListener("popstate", restoreCustomerRoute);
+    };
+  }, []);
   const customerAction = async (payload) => {
     const result = await onAction(payload);
     if (result) {
@@ -2795,7 +2837,7 @@ function CustomersPage({ data, onAction, onNavigate }) {
           onAction={customerAction}
           onNavigate={onNavigate}
           currency={data.currency}
-          onClose={() => setSelected(null)}
+          onClose={closeCustomer}
         />
       )}
       {bulkOpen && (
@@ -2974,7 +3016,77 @@ function ResellerClientsPage({ data }) {
   );
 }
 
-function SupportPage({ onAction, data }) {
+function OperationsSummary({ items }) {
+  return <div className="operations-summary">{items.map(([label, value, tone]) => <article key={label} className={tone || ""}><span>{label}</span><strong>{value}</strong></article>)}</div>;
+}
+
+function WithdrawalsPage({ onAction, data }) {
+  const initial = new URLSearchParams(window.location.search).get("withdrawal") || "";
+  const [search, setSearch] = useState(initial);
+  const [status, setStatus] = useState("pending");
+  const [page, setPage] = useState(1);
+  const [editor, setEditor] = useState(null);
+  const [note, setNote] = useState("");
+  const [result, loading] = useRemoteList("/admin/api/withdrawals", { search, status, page, per_page: 25 }, { refreshInterval: 10000 });
+  const refresh = () => window.dispatchEvent(new CustomEvent("admin:data-synced"));
+  const run = async (payload) => {
+    const completed = await onAction(payload);
+    if (completed) { setEditor(null); setNote(""); refresh(); }
+  };
+  return <div className="operations-page">
+    <PageHeader eyebrow="Portefeuille" title="Retraits" description="Traitez les demandes créées dans le bot et suivez les paiements déjà terminés." />
+    <OperationsSummary items={[["En attente", result.summary?.pending || 0, "warning"], ["Montant réservé", money(result.summary?.pending_amount, data.currency), "accent"], ["Terminés", result.summary?.completed || 0, "success"], ["Refusés", result.summary?.rejected || 0, "danger"]]} />
+    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="ID, client, méthode ou destination…" resultCount={result.total}>
+      <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut du retrait"><option value="all">Tous les statuts</option><option value="pending">En attente</option><option value="completed">Terminés</option><option value="rejected">Refusés</option></select>
+    </FilterBar>
+    <section className="operations-panel" aria-busy={loading}>
+      {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des retraits…</div> : !result.items.length ? <Empty icon={CircleDollarSign} title="Aucun retrait" text="Les demandes envoyées depuis le bot apparaîtront ici." /> : <div className="operation-list">{result.items.map((item) => <article key={item.id} className="operation-card">
+        <header><span className="operation-icon"><CircleDollarSign size={20} /></span><div><small>Retrait #{item.id}</small><strong>{item.username ? `@${item.username}` : item.full_name || `Client ${item.user_id}`}</strong></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header>
+        <div className="operation-amount"><strong>{money(item.amount, data.currency)}</strong><span>{item.method === "bep20" ? "USDT BEP20" : item.method || "Méthode non précisée"}</span></div>
+        <dl><div><dt>Destination</dt><dd><code>{item.destination || "—"}</code></dd></div><div><dt>Demandé le</dt><dd>{date(item.created_at)}</dd></div>{item.admin_note && <div><dt>Note admin</dt><dd>{item.admin_note}</dd></div>}</dl>
+        {item.status === "pending" && <footer><ActionButton icon={CheckCircle2} onClick={() => run({ action: "complete_withdrawal", withdrawal_id: item.id })}>Marquer payé</ActionButton><ActionButton icon={X} danger onClick={() => { setEditor({ type: "reject", item }); setNote(""); }}>Refuser et rembourser</ActionButton></footer>}
+      </article>)}</div>}
+      <Pagination value={result} onChange={setPage} />
+    </section>
+    {editor?.type === "reject" && <Modal title={`Refuser le retrait #${editor.item.id}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "withdrawal_reject", withdrawal_id: editor.item.id, admin_note: note }); }}><p>Le montant réservé sera automatiquement recrédité dans le portefeuille du client.</p><Field label="Motif du refus" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={5} required autoFocus /></Field><div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Annuler</ActionButton><ActionButton type="submit" danger icon={X}>Refuser et rembourser</ActionButton></div></form></Modal>}
+  </div>;
+}
+
+function WarrantiesPage({ onAction, data }) {
+  const initial = new URLSearchParams(window.location.search).get("warranty") || "";
+  const [search, setSearch] = useState(initial);
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [editor, setEditor] = useState(null);
+  const [value, setValue] = useState("");
+  const [result, loading] = useRemoteList("/admin/api/warranties", { search, status, page, per_page: 25 }, { refreshInterval: 10000 });
+  const refresh = () => window.dispatchEvent(new CustomEvent("admin:data-synced"));
+  const run = async (payload) => {
+    const completed = await onAction(payload);
+    if (completed) { setEditor(null); setValue(""); refresh(); }
+  };
+  const openEditor = (type, item) => { setEditor({ type, item }); setValue(""); };
+  return <div className="operations-page warranty-page">
+    <PageHeader eyebrow="Après-vente" title="Garanties" description="Examinez les demandes du bot, remboursez le portefeuille ou livrez un remplacement." />
+    <OperationsSummary items={[["À traiter", result.summary?.actionable || 0, "warning"], ["Nouvelles", result.summary?.pending || 0, "accent"], ["Acceptées", result.summary?.accepted || 0, "info"], ["Terminées", result.summary?.completed || 0, "success"]]} />
+    <FilterBar search={search} setSearch={(next) => { setSearch(next); setPage(1); }} placeholder="Demande, commande, client ou motif…" resultCount={result.total}>
+      <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut de garantie"><option value="">Tous les statuts</option><option value="pending_admin_check">Contrôle admin</option><option value="accepted">Acceptées</option><option value="replacement_pending">Remplacement requis</option><option value="replacement_delivered">Remplacements livrés</option><option value="refunded">Remboursées</option><option value="refused">Refusées</option></select>
+    </FilterBar>
+    <section className="operations-panel" aria-busy={loading}>
+      {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des garanties…</div> : !result.items.length ? <Empty icon={ShieldCheck} title="Aucune garantie" text="Les demandes créées dans le bot apparaîtront ici." /> : <div className="operation-list warranty-list">{result.items.map((item) => <article key={item.id} className="operation-card">
+        <header><span className="operation-icon"><ShieldCheck size={20} /></span><div><small>Garantie #{item.id} · Commande #{item.order_id}</small><strong>{item.product}</strong></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header>
+        <div className="warranty-customer"><span>{item.username ? `@${item.username}` : item.full_name || `Client ${item.user_id}`}</span><b>{item.days_used || 0} jour(s) utilisé(s)</b></div>
+        <p>{item.reason || "Aucun motif communiqué."}</p>
+        <dl><div><dt>Garantie produit</dt><dd>{item.warranty}</dd></div><div><dt>Remboursement calculé</dt><dd>{money(item.refund_amount, data.currency)}</dd></div><div><dt>Mise à jour</dt><dd>{date(item.updated_at || item.created_at)}</dd></div>{item.admin_note && <div><dt>Note admin</dt><dd>{item.admin_note}</dd></div>}</dl>
+        <footer>{item.status === "pending_admin_check" && <><ActionButton icon={Check} onClick={() => run({ action: "warranty_accept", warranty_id: item.id })}>Accepter</ActionButton><ActionButton danger icon={X} onClick={() => openEditor("refuse", item)}>Refuser</ActionButton></>}{item.status === "accepted" && <><ActionButton icon={PackageCheck} onClick={() => openEditor("replacement", item)}>Remplacement</ActionButton><ActionButton secondary icon={CircleDollarSign} onClick={() => run({ action: "warranty_refund", warranty_id: item.id })}>Rembourser</ActionButton></>}{item.status === "replacement_pending" && <ActionButton icon={Send} onClick={() => openEditor("replacement", item)}>Envoyer le remplacement</ActionButton>}</footer>
+      </article>)}</div>}
+      <Pagination value={result} onChange={setPage} />
+    </section>
+    {editor && <Modal title={editor.type === "refuse" ? `Refuser la garantie #${editor.item.id}` : `Remplacement pour la garantie #${editor.item.id}`} onClose={() => setEditor(null)} wide={editor.type === "replacement"}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run(editor.type === "refuse" ? { action: "warranty_refuse", warranty_id: editor.item.id, admin_note: value } : { action: "warranty_replacement", warranty_id: editor.item.id, replacement: value }); }}><p>{editor.type === "refuse" ? "Le client recevra ce motif dans Telegram." : "Ce contenu sera envoyé directement au client comme nouvelle livraison."}</p><Field label={editor.type === "refuse" ? "Motif du refus" : "Compte ou contenu de remplacement"} wide><textarea value={value} onChange={(event) => setValue(event.target.value)} maxLength={editor.type === "refuse" ? 1000 : 3600} rows={editor.type === "refuse" ? 5 : 9} required autoFocus /></Field><div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Annuler</ActionButton><ActionButton type="submit" danger={editor.type === "refuse"} icon={editor.type === "refuse" ? X : Send}>{editor.type === "refuse" ? "Refuser" : "Envoyer au client"}</ActionButton></div></form></Modal>}
+  </div>;
+}
+
+function SupportPage({ onAction, onNavigate, data }) {
   const initialTicket = new URLSearchParams(window.location.search).get("ticket") || "";
   const [search, setSearch] = useState(initialTicket);
   const [searchField, setSearchField] = useState(initialTicket ? "ticket_id" : "all");
@@ -2995,13 +3107,14 @@ function SupportPage({ onAction, data }) {
   }, []);
   const [result, loading] = useRemoteList("/admin/api/tickets", {
     status, search, search_field: searchField, page, per_page: 25,
-  }, { refreshInterval: 10000 });
+  }, { refreshInterval: 4000 });
   return <SupportInbox result={result} loading={loading} search={search}
     setSearch={(value) => { setSearch(value); setPage(1); }}
     searchField={searchField} setSearchField={(value) => { setSearchField(value); setPage(1); }}
     status={status} setStatus={(value) => { setStatus(value); setPage(1); }}
     targetTicketId={targetTicketId}
     pagination={<Pagination value={result} onChange={setPage} />} onAction={onAction}
+    onNavigate={onNavigate}
     writeToken={data?.dashboard_write_token || ""} />;
 }
 
@@ -3596,6 +3709,8 @@ export default function AdminPage({
   if (page === "inventory") return <InventoryPage {...props} />;
   if (page === "customers") return <CustomersPage {...props} />;
   if (page === "deposits") return <DepositsPage {...props} />;
+  if (page === "withdrawals") return <WithdrawalsPage {...props} />;
+  if (page === "warranties") return <WarrantiesPage {...props} />;
   if (page === "finance") return <FinancePage {...props} />;
   if (page === "support") return <SupportPage {...props} />;
   if (page === "interactions") return <InteractionsPage {...props} />;

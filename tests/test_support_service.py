@@ -110,3 +110,24 @@ def test_ticket_message_keeps_safe_telegram_media_metadata(mock_mongodb):
         "width": 1280,
         "height": 720,
     }
+
+
+def test_bulk_close_archive_and_restore_tickets(mock_mongodb):
+    first = support_service.create_ticket(user_id=101, message="First")
+    second = support_service.create_ticket(user_id=202, message="Second")
+
+    assert support_service.close_all_tickets() == 2
+    assert support_service.get_ticket(first["id"])["status"] == TicketStatus.CLOSED
+    assert support_service.get_ticket(second["id"])["status"] == TicketStatus.CLOSED
+    assert support_service.archive_ticket(first["id"]) is True
+    assert support_service.get_ticket(first["id"])["archived_at"]
+    assert support_service.archive_closed_tickets() == 1
+    assert support_service.get_ticket(second["id"])["archived_at"]
+    assert support_service.unarchive_ticket(first["id"]) is True
+    assert "archived_at" not in support_service.get_ticket(first["id"])
+
+
+def test_open_ticket_must_be_closed_before_archive(mock_mongodb):
+    ticket = support_service.create_ticket(user_id=303, message="Still open")
+
+    assert support_service.archive_ticket(ticket["id"]) is False
