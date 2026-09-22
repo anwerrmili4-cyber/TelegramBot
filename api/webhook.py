@@ -853,6 +853,13 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, dashboard_api.list_wallet_topups(parse_qs(url.query)))
             return
 
+        elif path == "/admin/api/finance":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, dashboard_api.finance_summary(parse_qs(url.query)))
+            return
+
         elif path == "/admin/api/notifications/config":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})

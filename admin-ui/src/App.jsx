@@ -9,6 +9,7 @@ import {
   Bell,
   Bot,
   Boxes,
+  CalendarDays,
   ChevronRight,
   CheckCheck,
   CircleDollarSign,
@@ -50,6 +51,7 @@ const NAV_GROUPS = [
     { id: "inventory", label: "Inventaire", icon: Boxes },
     { id: "api-products", label: "Fournisseurs & API", icon: Cloud },
     { id: "deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
+    { id: "finance", label: "Profit & pertes", icon: CalendarDays },
     { id: "api-clients", label: "Clients API", icon: KeyRound },
   ] },
   { label: "Administration", items: [
@@ -277,6 +279,41 @@ function ErrorState({ message, onRetry }) {
   return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le dashboard</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
 }
 
+const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_)/;
+
+function describeAdminChange(params = {}) {
+  const action = String(params.action || "change");
+  const labels = {
+    add_inventory: ["Ajouter au stock", "De nouvelles unités seront enregistrées dans l’inventaire du bot."],
+    add_service: ["Créer ce service", "Le nouveau service deviendra disponible dans l’administration du catalogue."],
+    adjust_user_wallet: ["Modifier le portefeuille", "Le solde du client sera ajusté avec le montant et le motif indiqués."],
+    create: ["Créer cet accès", "Un nouvel accès administré sera créé avec les réglages renseignés."],
+    duplicate_offer: ["Dupliquer ce produit", "Une nouvelle fiche sera créée à partir du produit sélectionné."],
+    manual_deliver_order: ["Livrer cette commande", "Le contenu saisi sera envoyé au client et la commande sera mise à jour."],
+    message_customer: ["Envoyer ce message", "Le client recevra le message saisi depuis le bot."],
+    run_external_connector: ["Exécuter cette requête", "La requête sera envoyée au connecteur externe sélectionné."],
+    save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
+    save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],
+    save_settings: ["Enregistrer les paramètres", "Les nouveaux réglages seront appliqués au fonctionnement du bot."],
+    toggle_ban: ["Changer l’accès du client", "Le statut d’accès de ce client sera immédiatement modifié."],
+    toggle_inventory: ["Changer la disponibilité", "Cette unité de stock sera activée ou désactivée."],
+    toggle_offer: ["Changer la visibilité du produit", "La disponibilité de ce produit dans le catalogue sera modifiée."],
+    toggle_service: ["Changer la visibilité du service", "La disponibilité de ce service dans le catalogue sera modifiée."],
+    update_order_admin: ["Enregistrer la commande", "Le statut et la note administrateur seront remplacés par les valeurs affichées."],
+    update_service: ["Modifier ce service", "Le nom et la présentation du service seront mis à jour."],
+  };
+  const [title, description] = labels[action] || [
+    "Confirmer la modification",
+    "Cette modification sera appliquée aux données du bot et enregistrée dans le journal d’activité.",
+  ];
+  const target = params.order_id != null ? `Commande #${params.order_id}`
+    : params.user_id != null ? `Client ${params.user_id}`
+    : params.offer_id != null ? `Produit #${params.offer_id}`
+    : params.service_id != null ? `Service #${params.service_id}`
+    : params.ticket_id != null ? `Ticket #${params.ticket_id}` : "Administration du bot";
+  return { title, description, target };
+}
+
 function LoginPage({ onAuthenticated }) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
@@ -359,11 +396,13 @@ export default function App() {
   const [busyAction, setBusyAction] = useState("");
   const [toast, setToast] = useState(null);
   const [pendingActionCount, setPendingActionCount] = useState(0);
+  const [actionConfirmation, setActionConfirmation] = useState(null);
   const [density, setDensity] = useState(window.localStorage.getItem("admin-density") === "compact" ? "compact" : "comfortable");
   const [theme, setTheme] = useState(window.localStorage.getItem("admin-theme") === "dark" ? "dark" : "light");
   const dataRequestRef = useRef(null);
   const lastSyncRef = useRef(0);
   const pendingActionsRef = useRef(new Set());
+  const actionConfirmationResolverRef = useRef(null);
   const syncChannelRef = useRef(null);
   const notificationRequestRef = useRef(null);
   const previousNotificationIdsRef = useRef(null);
@@ -551,7 +590,11 @@ export default function App() {
     setActivePage(page);
     setMobileOpen(false);
     const target = page === "overview" ? "/admin" : `/admin/${page}`;
-    const query = page === "orders" && entityId != null ? `?order=${encodeURIComponent(entityId)}` : "";
+    const query = page === "orders" && entityId != null
+      ? `?order=${encodeURIComponent(entityId)}`
+      : page === "support" && entityId != null
+        ? `?ticket=${encodeURIComponent(entityId)}`
+        : "";
     window.history.pushState({}, "", target + query);
     window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
   };
@@ -566,7 +609,7 @@ export default function App() {
   const markNotificationRead = (id) => markNotificationsRead([id]);
   const markAllNotificationsRead = () => markNotificationsRead(notifications.map((item) => item.id));
 
-  const adminAction = async (params) => {
+  const executeAdminAction = async (params) => {
     const actionSignature = JSON.stringify(Object.entries(params).sort(([left], [right]) => left.localeCompare(right)));
     if (pendingActionsRef.current.has(actionSignature)) return null;
     pendingActionsRef.current.add(actionSignature);
@@ -596,6 +639,33 @@ export default function App() {
       pendingActionsRef.current.delete(actionSignature);
       setPendingActionCount(pendingActionsRef.current.size);
     }
+  };
+
+  const adminAction = (params) => {
+    if (SPECIALIZED_CONFIRMATION_ACTIONS.test(String(params?.action || ""))) {
+      return executeAdminAction(params);
+    }
+    if (actionConfirmationResolverRef.current) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      actionConfirmationResolverRef.current = resolve;
+      setActionConfirmation({ params, ...describeAdminChange(params) });
+    });
+  };
+
+  const closeActionConfirmation = () => {
+    actionConfirmationResolverRef.current?.(null);
+    actionConfirmationResolverRef.current = null;
+    setActionConfirmation(null);
+  };
+
+  const confirmAdminAction = async () => {
+    if (!actionConfirmation) return;
+    const { params } = actionConfirmation;
+    const resolve = actionConfirmationResolverRef.current;
+    actionConfirmationResolverRef.current = null;
+    setActionConfirmation(null);
+    const result = await executeAdminAction(params);
+    resolve?.(result);
   };
 
   const runHealthCheck = async (type) => {
@@ -665,6 +735,7 @@ export default function App() {
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}
       {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
+      {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{[["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]].map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>

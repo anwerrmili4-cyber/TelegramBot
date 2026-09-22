@@ -1722,6 +1722,19 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
     supplier_idempotency_key = (
         str(uuid.uuid4()) if provider == CGPT_ACTIVE_PROVIDER else external_order_id
     )
+    quantity = max(1, int(order.get("qty") or 1))
+    product_config = conn.reseller_products.find_one({
+        "provider": provider,
+        "product_id": str(offer["supplier_product_id"]),
+    }) or {}
+    purchase_unit_cost = max(0.0, float(product_config.get("wholesale_price") or 0))
+    purchase_cost = {
+        "purchase_unit_cost": round(purchase_unit_cost, 4),
+        "purchase_cost_total": round(purchase_unit_cost * quantity, 4),
+        "purchase_cost_currency": str(product_config.get("currency") or "USDT")[:12],
+        "purchase_cost_source": "catalog_snapshot",
+        "quantity": quantity,
+    }
     try:
         conn.reseller_fulfillments.insert_one({
             "provider": provider,
@@ -1900,6 +1913,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             {"$set": {
                 "status": "delivery_pending",
                 "supplier_order_id": str(supplier_order_id),
+                **purchase_cost,
                 "updated_at": int(time.time()),
             }},
         )
@@ -1918,6 +1932,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                 "status": "completed",
                 "encrypted_items": encrypted_items,
                 "supplier_order_id": str(supplier_order_id),
+                **purchase_cost,
                 "updated_at": now,
             },
             "$setOnInsert": {"created_at": now},

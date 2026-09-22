@@ -77,6 +77,16 @@ class Preview(BaseHTTPRequestHandler):
         elif path == "/admin/api/orders" and params.get("detail") == ["1"]:
             row = next((x for x in ORDERS if str(x["id"]) == params.get("order_id", [""])[0]), None)
             self.reply({**row, "customer": {}, "events": [], "inventory": [], "delivery_content": ""} if row else {}, 200 if row else 404)
+        elif path == "/admin/api/finance":
+            month = params.get("month", ["2026-09"])[0]
+            profits = {2: (22, 9, 13, 3), 5: (15, 6, 9, 2), 12: (7, 11, -4, 1), 18: (34, 14, 20, 4), 21: (18, 7, 11, 1)}
+            self.reply({
+                "currency": "USDT", "started_at": 1788217200, "month": month,
+                "totals": {"revenue": 96, "cost": 47, "profit": 49},
+                "averages": {"daily_profit": 2.23, "weekly_profit": 15.59, "daily_revenue": 4.36, "weekly_revenue": 30.55},
+                "profitable_days": 4, "loss_days": 1, "cost_quality": {"exact": 4, "estimated": 1},
+                "days": [{"date": f"{month}-{day:02d}", "revenue": profits.get(day, (0, 0, 0, 0))[0], "cost": profits.get(day, (0, 0, 0, 0))[1], "profit": profits.get(day, (0, 0, 0, 0))[2], "orders": profits.get(day, (0, 0, 0, 0))[3]} for day in range(1, 31)],
+            })
         elif path.startswith("/admin/api/"):
             rows = ORDERS if path.endswith("orders") else []
             if params.get("status", [""])[0] not in {"", "all"}:

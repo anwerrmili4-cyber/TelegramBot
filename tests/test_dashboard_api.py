@@ -47,6 +47,32 @@ def test_order_analytics_exclude_admin_purchases_but_keep_order_history(monkeypa
     assert result["analytics"]["revenue"] == 8.0
 
 
+def test_finance_summary_combines_revenue_reseller_costs_and_daily_profit(mock_mongodb):
+    first_day = int(datetime(2026, 9, 2, 12, tzinfo=UTC).timestamp())
+    second_day = int(datetime(2026, 9, 3, 12, tzinfo=UTC).timestamp())
+    mock_mongodb.orders.insert_many([
+        {"id": 1, "user_id": 10, "status": "delivered", "total_price": 10, "qty": 2, "created_at": first_day},
+        {"id": 2, "user_id": 20, "status": "payment_confirmed", "total_price": 3, "created_at": second_day},
+        {"id": 3, "user_id": 30, "status": "cancelled", "total_price": 99, "created_at": second_day},
+    ])
+    mock_mongodb.reseller_products.insert_one({
+        "provider": "mailreader", "product_id": "old", "wholesale_price": 4,
+    })
+    mock_mongodb.reseller_fulfillments.insert_many([
+        {"order_id": 1, "provider": "mailreader", "external_order_id": "BM-1", "supplier_product_id": "new", "status": "completed", "purchase_cost_total": 6, "created_at": first_day},
+        {"order_id": 2, "provider": "mailreader", "external_order_id": "BM-2", "supplier_product_id": "old", "status": "completed", "created_at": second_day},
+    ])
+
+    result = dashboard_api.finance_summary({"month": ["2026-09"]})
+
+    assert result["totals"] == {"revenue": 13.0, "cost": 10.0, "profit": 3.0}
+    assert result["cost_quality"] == {"exact": 1, "estimated": 1}
+    assert next(day for day in result["days"] if day["date"] == "2026-09-02")["profit"] == 4.0
+    assert next(day for day in result["days"] if day["date"] == "2026-09-03")["profit"] == -1.0
+    assert result["profitable_days"] == 1
+    assert result["loss_days"] == 1
+
+
 def test_pending_onchain_topups_include_customer_and_explorer(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Buyer"})
     mock_mongodb.wallet_topups.insert_many([

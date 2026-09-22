@@ -338,6 +338,10 @@ def test_paid_supplier_order_is_delivered_idempotently(monkeypatch, mock_mongodb
         "qty": 2,
         "status": "payment_confirmed",
     })
+    mock_mongodb.reseller_products.insert_one({
+        "provider": "mailreader", "product_id": "mail_100",
+        "wholesale_price": 1.25, "currency": "USDT",
+    })
     calls = []
 
     def fake_request(path, *, method="GET", body=None):
@@ -356,7 +360,11 @@ def test_paid_supplier_order_is_delivered_idempotently(monkeypatch, mock_mongodb
     assert calls[1][2]["external_order_id"] == "BM-91"
     assert db.get_order(91)["status"] == "delivered"
     assert mock_mongodb.inventory.count_documents({"delivered_order_id": 91}) == 2
-    assert "user:a" not in str(mock_mongodb.reseller_fulfillments.find_one({"order_id": 91}))
+    fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 91})
+    assert fulfillment["purchase_unit_cost"] == 1.25
+    assert fulfillment["purchase_cost_total"] == 2.5
+    assert fulfillment["purchase_cost_source"] == "catalog_snapshot"
+    assert "user:a" not in str(fulfillment)
 
 
 def test_mailreader_delivery_array_is_forwarded_without_manual_fallback(

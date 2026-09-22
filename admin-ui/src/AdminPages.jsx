@@ -1,3 +1,4 @@
+import SupportInbox from "./SupportInbox";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -5,6 +6,7 @@ import {
   Archive,
   Ban,
   Boxes,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -36,6 +38,7 @@ import {
   Sparkles,
   ToggleLeft,
   ToggleRight,
+  TrendingDown,
   TrendingUp,
   Trash2,
   Upload,
@@ -143,7 +146,7 @@ function ActionButton({
   );
 }
 
-function Modal({ title, children, onClose, wide = false }) {
+function Modal({ title, children, onClose, wide = false, fullScreen = false }) {
   const dialog = useRef(null);
   useEffect(() => {
     const node = dialog.current;
@@ -154,7 +157,7 @@ function Modal({ title, children, onClose, wide = false }) {
   }, []);
   return (
       <dialog ref={dialog} aria-label={title}
-        className={`form-dialog ${wide ? "wide" : ""}`}
+        className={`form-dialog ${wide ? "wide" : ""} ${fullScreen ? "full-screen" : ""}`}
         onCancel={(event) => { event.preventDefault(); onClose(); }}
       >
         <header>
@@ -462,15 +465,15 @@ function OrdersPage({ data, onAction }) {
   const statusSegments = useMemo(() => {
     const colors = {
       delivered: "#34d399",
-      paid: "#22d3ee",
-      payment_confirmed: "#60a5fa",
+      paid: "#d9f780",
+      payment_confirmed: "#a9c878",
       cancelled: "#fb7185",
       refunded: "#f97316",
       pending_payment: "#fbbf24",
-      manual_review: "#a78bfa",
+      manual_review: "#d4b77a",
     };
     return Object.entries(analytics.statuses || {})
-      .map(([key, value]) => ({ key, value, color: colors[key] || "#64748b" }))
+      .map(([key, value]) => ({ key, value, color: colors[key] || "#8b9982" }))
       .sort((a, b) => b.value - a.value);
   }, [analytics.statuses]);
   const kanbanColumns = useMemo(() => [
@@ -492,7 +495,7 @@ function OrdersPage({ data, onAction }) {
         donutCursor += (item.value / totalStatuses) * 100;
         return `${item.color} ${start}% ${donutCursor}%`;
       }).join(", ")})`
-    : "conic-gradient(#1c2b3d 0 100%)";
+    : "conic-gradient(var(--line) 0 100%)";
   const toggleSort = (nextSort) => {
     if (sort === nextSort) setDirection((value) => (value === "desc" ? "asc" : "desc"));
     else {
@@ -549,7 +552,7 @@ function OrdersPage({ data, onAction }) {
     <>
       <PageHeader
         eyebrow="Ventes"
-        title="Le bon suivi, pour chaque commande."
+        title="Vos commandes, en un seul endroit."
         description="Suivez les paiements, livraisons et interventions manuelles."
       />
       <section className="order-kpis" aria-label="Statistiques des commandes">
@@ -558,7 +561,7 @@ function OrdersPage({ data, onAction }) {
         <article><span className="order-kpi-icon green"><CheckCircle2 size={19} /></span><div><small>Taux de livraison</small><strong>{analytics.success_rate || 0}%</strong><em>{analytics.delivered || 0} livrée(s)</em></div></article>
         <article><span className="order-kpi-icon amber"><Clock3 size={19} /></span><div><small>À traiter</small><strong>{analytics.pending || 0}</strong><em>Action requise</em></div></article>
       </section>
-      <section className="workspace-analytics order-analytics-visible"><header><div><span className="eyebrow">Analyse en temps réel</span><h3>Comprendre les commandes d’un coup d’œil</h3></div><TrendingUp size={19} /></header><div className="order-analytics-grid">
+      <details className="workspace-analytics order-analytics-visible"><summary><TrendingUp size={19} /><span>Analyse des commandes<small>Activité sur 7 jours, statuts et progression</small></span></summary><div className="order-analytics-grid">
         <article className="data-panel order-trend-card">
           <header><div><span className="eyebrow">Activité</span><h3>Volume et revenus sur 7 jours</h3></div><div className="chart-key"><span><i className="volume" />Commandes</span><span><i className="revenue" />Revenus</span></div></header>
           <div className="order-line-chart">
@@ -583,7 +586,7 @@ function OrdersPage({ data, onAction }) {
           <header><div><span className="eyebrow">Flux opérationnel</span><h3>Progression des commandes</h3></div><Boxes size={19} /></header>
           <div className="order-pipeline">{kanbanColumns.map((column) => <button type="button" key={column.id} onClick={() => { setStatus(""); setQueue(column.id === "waiting" ? "attention" : column.id === "delivery" ? "delivery" : ""); setPage(1); }}><div><span>{column.label}</span><strong>{column.total}</strong></div><i><b className={column.id} style={{ width: `${Math.max(4, column.total / pipelineMaximum * 100)}%` }} /></i><small>{analytics.total ? Math.round(column.total / analytics.total * 100) : 0}% du total</small></button>)}</div>
         </article>
-      </div></section>
+      </div></details>
       <div className="workspace-tabs order-quick-filters" role="group" aria-label="Files de commandes"><button aria-pressed={!status && !queue} onClick={() => { setStatus(""); setQueue(""); setPage(1); }}>Toutes</button><button aria-pressed={queue === "attention"} onClick={() => { setStatus(""); setQueue("attention"); setPage(1); }}>Urgentes <span>{analytics.attention || 0}</span></button><button aria-pressed={status === "manual_review"} onClick={() => { setQueue(""); setStatus("manual_review"); setPage(1); }}>À vérifier</button><button aria-pressed={status === "pending_payment"} onClick={() => { setQueue(""); setStatus("pending_payment"); setPage(1); }}>Paiement en attente</button><button aria-pressed={queue === "delivery"} onClick={() => { setStatus(""); setQueue("delivery"); setPage(1); }}>À livrer</button><button aria-pressed={status === "delivered"} onClick={() => { setQueue(""); setStatus("delivered"); setPage(1); }}>Livrées</button></div>
       <FilterBar
         search={search}
@@ -2303,7 +2306,7 @@ function InventoryPage({ data, onAction }) {
   );
 }
 
-function CustomerDetail({ customer, onAction, onClose, currency }) {
+function CustomerDetail({ customer, onAction, onClose, onNavigate, currency }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -2340,12 +2343,19 @@ function CustomerDetail({ customer, onAction, onClose, currency }) {
             : `Client ${customer.telegram_id}`
         }
         onClose={onClose}
-        wide
+        fullScreen
       >
       <div className="customer-profile-head customer-profile-hero">
         <span>{(customer.first_name || customer.username || "C").slice(0, 1).toUpperCase()}</span>
         <div><strong>{displayName}</strong><small>{customer.username ? `@${customer.username} · ` : ""}ID {customer.telegram_id} · {String(customer.lang || customer.language || "en").toUpperCase()}</small></div>
-        <i className={customer.banned ? "blocked" : "active"}>{customer.banned ? "Bloqué" : "Actif"}</i>
+        <div className="customer-profile-actions">
+          <button type="button" onClick={() => {
+            const firstTicket = customer.tickets?.[0];
+            onClose();
+            onNavigate("support", firstTicket?.id || null);
+          }}><MessageSquareText size={16} />Messages support</button>
+          <i className={customer.banned ? "blocked" : "active"}>{customer.banned ? "Bloqué" : "Actif"}</i>
+        </div>
       </div>
       <div className="customer-profile-layout">
         <div className="customer-profile-main">
@@ -2410,7 +2420,7 @@ function CustomerDetail({ customer, onAction, onClose, currency }) {
         </div>
         {!!customer.wallet_adjustments?.length && <div className="customer-subsection"><h5>Ajustements administrateur</h5><div className="compact-history">{customer.wallet_adjustments.map((item) => <article key={item.id}><div><strong>{item.details?.reason || "Ajustement"}</strong><small>Admin {item.actor_id || "système"} · solde après {money(item.details?.balance, currency)}</small></div><b className={Number(item.details?.amount) < 0 ? "negative" : ""}>{Number(item.details?.amount) > 0 ? "+" : ""}{money(item.details?.amount, currency)}</b><time>{date(item.created_at)}</time></article>)}</div></div>}
       </section>}
-      {customerTab === "support" && <section className="customer-profile-section"><header><div><span className="eyebrow">Support client</span><h4>Tous les tickets</h4></div><strong>{customer.tickets?.length || 0}</strong></header>{customer.tickets?.length ? <div className="customer-ticket-list">{customer.tickets.map((ticket) => <article key={ticket.id}><div><strong>Ticket #{ticket.id}</strong><span className={`status ${ticket.status}`}>{STATUS_LABELS[ticket.status] || ticket.status}</span></div><p>{ticket.subject || ticket.category || ticket.message || "Demande de support"}</p><small>Mis à jour {date(ticket.updated_at || ticket.created_at)}</small></article>)}</div> : <Empty icon={Headphones} title="Aucun ticket" text="Ce client n’a aucune demande de support." />}</section>}
+      {customerTab === "support" && <section className="customer-profile-section"><header><div><span className="eyebrow">Support client</span><h4>Tous les tickets</h4></div><strong>{customer.tickets?.length || 0}</strong></header>{customer.tickets?.length ? <div className="customer-ticket-list">{customer.tickets.map((ticket) => <button type="button" key={ticket.id} onClick={() => { onClose(); onNavigate("support", ticket.id); }}><div><strong>Ticket #{ticket.id}</strong><span className={`status ${ticket.status}`}>{STATUS_LABELS[ticket.status] || ticket.status}</span></div><p>{ticket.subject || ticket.category || ticket.message || "Demande de support"}</p><small>Mis à jour {date(ticket.updated_at || ticket.created_at)}</small><span className="customer-ticket-open">Ouvrir les messages <ChevronRight size={15} /></span></button>)}</div> : <Empty icon={Headphones} title="Aucun ticket" text="Ce client n’a aucune demande de support." />}</section>}
       {customerTab === "warranties" && <section className="customer-profile-section"><header><div><span className="eyebrow">Après-vente</span><h4>Demandes de garantie</h4></div><strong>{customer.warranties?.length || 0}</strong></header>{customer.warranties?.length ? <div className="customer-warranty-grid">{customer.warranties.map((item) => <article key={item.id}><header><strong>Garantie #{item.id}</strong><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header><h5>Commande #{item.order_id}</h5><p>{item.reason || "Aucun motif communiqué."}</p><footer><span>{item.days_used || 0} jour(s) utilisé(s)</span><b>{money(item.refund_amount, currency)}</b><time>{date(item.updated_at || item.created_at)}</time></footer></article>)}</div> : <Empty icon={ShieldCheck} title="Aucune garantie" text="Aucune demande après-vente pour ce client." />}</section>}
       </Modal>
       {selectedOrder && (
@@ -2603,7 +2613,64 @@ function DepositsPage({ data, onAction }) {
   );
 }
 
-function CustomersPage({ data, onAction }) {
+function FinancePage({ data }) {
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(currentMonth);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [result, loading] = useRemoteList("/admin/api/finance", { month }, { refreshInterval: 30_000 });
+  const totals = result.totals || {};
+  const averages = result.averages || {};
+  const days = result.days || [];
+  const currency = result.currency || data.currency || "USDT";
+  const monthDate = new Date(`${month}-01T12:00:00Z`);
+  const leadingDays = (monthDate.getUTCDay() + 6) % 7;
+  const selected = days.find((item) => item.date === selectedDate);
+  const monthTotals = days.reduce((summary, day) => ({
+    revenue: summary.revenue + Number(day.revenue || 0),
+    cost: summary.cost + Number(day.cost || 0),
+    profit: summary.profit + Number(day.profit || 0),
+  }), { revenue: 0, cost: 0, profit: 0 });
+  const changeMonth = (direction) => {
+    const next = new Date(`${month}-01T12:00:00Z`);
+    next.setUTCMonth(next.getUTCMonth() + direction);
+    setMonth(next.toISOString().slice(0, 7));
+    setSelectedDate("");
+  };
+  const startedAt = result.started_at
+    ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" }).format(new Date(result.started_at * 1000))
+    : "le lancement du bot";
+  return (
+    <>
+      <PageHeader eyebrow="Finance" title="Gains, dépenses et profit." description={`Résultats des ventes et achats API reseller depuis ${startedAt}.`} />
+      <section className="finance-kpis" aria-label="Résumé financier">
+        <article className="income"><span><TrendingUp size={20} /></span><div><small>Argent gagné</small><strong>{money(totals.revenue, currency)}</strong><em>Ventes encaissées</em></div></article>
+        <article className="expense"><span><TrendingDown size={20} /></span><div><small>Argent dépensé</small><strong>{money(totals.cost, currency)}</strong><em>Achats API reseller</em></div></article>
+        <article className={Number(totals.profit || 0) < 0 ? "loss" : "profit"}><span><CircleDollarSign size={20} /></span><div><small>Profit net</small><strong>{money(totals.profit, currency)}</strong><em>Gains moins dépenses</em></div></article>
+        <article><span><CalendarDays size={20} /></span><div><small>Jours gagnants / pertes</small><strong>{result.profitable_days || 0} / {result.loss_days || 0}</strong><em>Jours avec mouvement</em></div></article>
+      </section>
+      <section className="finance-averages">
+        <article><small>Moyenne par jour</small><strong className={Number(averages.daily_profit || 0) < 0 ? "negative" : "positive"}>{money(averages.daily_profit, currency)}</strong><span>{money(averages.daily_revenue, currency)} de ventes / jour</span></article>
+        <article><small>Moyenne par semaine</small><strong className={Number(averages.weekly_profit || 0) < 0 ? "negative" : "positive"}>{money(averages.weekly_profit, currency)}</strong><span>{money(averages.weekly_revenue, currency)} de ventes / semaine</span></article>
+        <article><small>{new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" }).format(monthDate)}</small><strong className={monthTotals.profit < 0 ? "negative" : "positive"}>{money(monthTotals.profit, currency)}</strong><span>{money(monthTotals.revenue, currency)} gagné · {money(monthTotals.cost, currency)} dépensé</span></article>
+      </section>
+      <section className="finance-calendar data-panel">
+        <header><div><span className="eyebrow">Calendrier du profit</span><h3>{new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" }).format(monthDate)}</h3></div><div><button type="button" onClick={() => changeMonth(-1)} aria-label="Mois précédent"><ChevronLeft size={18} /></button><button type="button" onClick={() => { setMonth(currentMonth); setSelectedDate(""); }}>Aujourd’hui</button><button type="button" onClick={() => changeMonth(1)} disabled={month >= currentMonth} aria-label="Mois suivant"><ChevronRight size={18} /></button></div></header>
+        {loading ? <div className="table-loading">Calcul des finances…</div> : <>
+          <div className="finance-weekdays">{["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((day) => <span key={day}>{day}</span>)}</div>
+          <div className="finance-days">{Array.from({ length: leadingDays }).map((_, index) => <i key={`blank-${index}`} />)}{days.map((day) => {
+            const profit = Number(day.profit || 0);
+            const active = Number(day.revenue || 0) !== 0 || Number(day.cost || 0) !== 0;
+            return <button type="button" key={day.date} className={`${profit > 0 ? "gain" : profit < 0 ? "loss" : "neutral"} ${selectedDate === day.date ? "selected" : ""}`} onClick={() => setSelectedDate(day.date)} aria-label={`${day.date}, profit ${money(profit, currency)}`}><span>{Number(day.date.slice(-2))}</span>{active ? <><strong>{profit > 0 ? "+" : ""}{money(profit, currency)}</strong><small>{day.orders || 0} vente(s)</small></> : <small>Aucun mouvement</small>}</button>;
+          })}</div>
+        </>}
+      </section>
+      {selected && <section className="finance-day-detail"><div><span>{new Intl.DateTimeFormat("fr-FR", { dateStyle: "full", timeZone: "UTC" }).format(new Date(`${selected.date}T12:00:00Z`))}</span><strong className={selected.profit < 0 ? "negative" : "positive"}>{money(selected.profit, currency)}</strong></div><dl><div><dt>Ventes</dt><dd>{money(selected.revenue, currency)}</dd></div><div><dt>Coût reseller</dt><dd>{money(selected.cost, currency)}</dd></div><div><dt>Commandes</dt><dd>{selected.orders || 0}</dd></div></dl></section>}
+      {Number(result.cost_quality?.estimated || 0) > 0 && <p className="finance-estimate-note">{result.cost_quality.estimated} ancien(s) achat(s) utilisent le dernier prix fournisseur enregistré. Les nouveaux achats conservent automatiquement leur coût exact.</p>}
+    </>
+  );
+}
+
+function CustomersPage({ data, onAction, onNavigate }) {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -2726,6 +2793,7 @@ function CustomersPage({ data, onAction }) {
         <CustomerDetail
           customer={selected}
           onAction={customerAction}
+          onNavigate={onNavigate}
           currency={data.currency}
           onClose={() => setSelected(null)}
         />
@@ -2906,181 +2974,34 @@ function ResellerClientsPage({ data }) {
   );
 }
 
-function TicketDialog({ ticket, onAction, onClose }) {
-  const [messages, setMessages] = useState([]);
-  const [reply, setReply] = useState("");
-  const load = () =>
-    fetch(`/admin/api/ticket-messages?ticket_id=${ticket.id}`, {
-      credentials: "same-origin",
-      cache: "no-store",
-    })
-      .then((response) => response.json())
-      .then((payload) =>
-        setMessages(Array.isArray(payload) ? payload : payload.messages || []),
-      );
-  useEffect(load, [ticket.id]);
-  return (
-    <Modal title={`Ticket #${ticket.id}`} onClose={onClose} wide>
-      <div className="ticket-thread">
-        {messages.map((message, index) => (
-          <div
-            className={`ticket-message ${message.sender_type === "admin" ? "admin" : ""}`}
-            key={message.id || index}
-          >
-            <strong>
-              {message.sender_type === "admin" ? "Admin" : "Client"}
-            </strong>
-            <p>{message.message || message.content}</p>
-            <span>{date(message.created_at)}</span>
-          </div>
-        ))}
-        {!messages.length && (
-          <Empty icon={MessageSquareText} title="Conversation vide" />
-        )}
-      </div>
-      <Field label="Réponse">
-        <textarea
-          value={reply}
-          onChange={(event) => setReply(event.target.value)}
-          placeholder="Votre réponse…"
-        />
-      </Field>
-      <div className="dialog-actions wrap">
-        <ActionButton
-          icon={Send}
-          disabled={!reply.trim()}
-          onClick={async () => {
-            if (
-              await onAction({
-                action: "reply_ticket",
-                ticket_id: ticket.id,
-                message: reply,
-              })
-            ) {
-              setReply("");
-              load();
-            }
-          }}
-        >
-          Répondre
-        </ActionButton>
-        <ActionButton
-          secondary
-          icon={Archive}
-          onClick={async () => {
-            if (
-              await onAction({ action: "close_ticket", ticket_id: ticket.id })
-            )
-              onClose();
-          }}
-        >
-          Fermer le ticket
-        </ActionButton>
-      </div>
-    </Modal>
-  );
-}
-
 function SupportPage({ onAction }) {
-  const [search, setSearch] = useState("");
-  const [searchField, setSearchField] = useState("all");
+  const initialTicket = new URLSearchParams(window.location.search).get("ticket") || "";
+  const [search, setSearch] = useState(initialTicket);
+  const [searchField, setSearchField] = useState(initialTicket ? "ticket_id" : "all");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
-  const [ticket, setTicket] = useState(null);
+  const [targetTicketId, setTargetTicketId] = useState(initialTicket);
+  useEffect(() => {
+    const navigateToTicket = (event) => {
+      if (event.detail?.page !== "support" || event.detail?.entityId == null) return;
+      const id = String(event.detail.entityId);
+      setTargetTicketId(id);
+      setSearchField("ticket_id");
+      setSearch(id);
+      setPage(1);
+    };
+    window.addEventListener("admin:navigate", navigateToTicket);
+    return () => window.removeEventListener("admin:navigate", navigateToTicket);
+  }, []);
   const [result, loading] = useRemoteList("/admin/api/tickets", {
-    status,
-    search,
-    search_field: searchField,
-    page,
-    per_page: 25,
-  });
-  const items = result.items;
-  return (
-    <>
-      <PageHeader
-        eyebrow="Assistance"
-        title="Support"
-        description="Consultez les conversations et répondez directement aux clients."
-      />
-      <FilterBar
-        search={search}
-        setSearch={(value) => { setSearch(value); setPage(1); }}
-        searchField={searchField}
-        setSearchField={(value) => { setSearchField(value); setPage(1); }}
-        options={[["all", "Tout"], ["ticket_id", "ID ticket"], ["user_id", "ID client"], ["category", "Catégorie"], ["message", "Message"]]}
-        resultCount={result.total}
-        placeholder="Ticket, client, catégorie ou message…"
-      >
-        <select
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
-            setPage(1);
-          }}
-        >
-          <option value="">Tous les statuts</option>
-          {Object.entries(STATUS_LABELS)
-            .slice(11)
-            .map(([value, label]) => (
-              <option value={value} key={value}>
-                {label}
-              </option>
-            ))}
-        </select>
-      </FilterBar>
-      <section className="data-panel">
-        <div className="responsive-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Ticket</th>
-                <th>Client</th>
-                <th>Catégorie</th>
-                <th>Statut</th>
-                <th>Mis à jour</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} onClick={() => setTicket(item)}>
-                  <td>
-                    <strong>#{item.id}</strong>
-                  </td>
-                  <td>{item.user_id}</td>
-                  <td>{item.category || "Général"}</td>
-                  <td>
-                    <span className={`status ${item.status}`}>
-                      {STATUS_LABELS[item.status] || item.status}
-                    </span>
-                  </td>
-                  <td>{date(item.updated_at || item.created_at)}</td>
-                  <td>
-                    <button className="row-action">
-                      <MessageSquareText size={15} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {loading ? (
-          <div className="table-loading">Chargement…</div>
-        ) : (
-          !items.length && <Empty icon={Headphones} title="Aucun ticket" />
-        )}
-        <Pagination value={result} onChange={setPage} />
-      </section>
-      {ticket && (
-        <TicketDialog
-          ticket={ticket}
-          onAction={onAction}
-          onClose={() => setTicket(null)}
-        />
-      )}
-    </>
-  );
+    status, search, search_field: searchField, page, per_page: 25,
+  }, { refreshInterval: 10000 });
+  return <SupportInbox result={result} loading={loading} search={search}
+    setSearch={(value) => { setSearch(value); setPage(1); }}
+    searchField={searchField} setSearchField={(value) => { setSearchField(value); setPage(1); }}
+    status={status} setStatus={(value) => { setStatus(value); setPage(1); }}
+    targetTicketId={targetTicketId}
+    pagination={<Pagination value={result} onChange={setPage} />} onAction={onAction} />;
 }
 
 function InteractionsPage({ data }) {
@@ -3674,6 +3595,7 @@ export default function AdminPage({
   if (page === "inventory") return <InventoryPage {...props} />;
   if (page === "customers") return <CustomersPage {...props} />;
   if (page === "deposits") return <DepositsPage {...props} />;
+  if (page === "finance") return <FinancePage {...props} />;
   if (page === "support") return <SupportPage {...props} />;
   if (page === "interactions") return <InteractionsPage {...props} />;
   if (page === "activity") return <ActivityPage {...props} />;

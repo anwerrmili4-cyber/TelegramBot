@@ -253,6 +253,95 @@ def _order_analytics(collection: Any, query: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def finance_summary(params: dict[str, list[str]]) -> dict[str, Any]:
+    """Return customer revenue, reseller costs, profit, and one calendar month."""
+    conn = db.get_conn()
+    now = datetime.now(UTC)
+    requested_month = _first(params, "month")
+    try:
+        month_start = datetime.strptime(requested_month, "%Y-%m").replace(tzinfo=UTC)
+    except (TypeError, ValueError):
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if month_start.year < 2000 or month_start > now.replace(day=1) + timedelta(days=366):
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_end = month_start.replace(year=month_start.year + 1, month=1) if month_start.month == 12 else month_start.replace(month=month_start.month + 1)
+
+    paid_statuses = {"paid", "payment_confirmed", "delivered"}
+    orders = list(conn.orders.find(db.customer_order_query({})))
+    orders_by_id = {row.get("id"): row for row in orders if row.get("id") is not None}
+    product_costs = {
+        (str(row.get("provider") or ""), str(row.get("product_id") or "")): float(row.get("wholesale_price") or 0)
+        for row in conn.reseller_products.find({}, {"provider": 1, "product_id": 1, "wholesale_price": 1})
+    }
+    daily: dict[str, dict[str, Any]] = {}
+    estimated_cost_orders = exact_cost_orders = 0
+
+    def day_bucket(value: Any) -> dict[str, Any]:
+        timestamp = _event_timestamp(value) or now.timestamp()
+        day = datetime.fromtimestamp(timestamp, UTC).date().isoformat()
+        return daily.setdefault(day, {"date": day, "revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0})
+
+    for order in orders:
+        if str(order.get("status") or "") in paid_statuses:
+            bucket = day_bucket(order.get("created_at"))
+            bucket["revenue"] += db.order_charge_total(order)
+            bucket["orders"] += 1
+
+    for fulfillment in conn.reseller_fulfillments.find({"status": {"$in": ["completed", "delivery_pending"]}}):
+        order = orders_by_id.get(fulfillment.get("order_id"))
+        if fulfillment.get("order_id") is not None and order is None:
+            continue
+        quantity = max(1, int((order or {}).get("qty") or fulfillment.get("quantity") or 1))
+        saved_total = fulfillment.get("purchase_cost_total")
+        if saved_total is not None:
+            cost = max(0.0, float(saved_total or 0))
+            exact_cost_orders += 1
+        else:
+            key = (str(fulfillment.get("provider") or ""), str(fulfillment.get("supplier_product_id") or ""))
+            cost = max(0.0, product_costs.get(key, 0.0) * quantity)
+            estimated_cost_orders += 1
+        day_bucket((order or {}).get("created_at") or fulfillment.get("created_at"))["cost"] += cost
+
+    for bucket in daily.values():
+        bucket["revenue"] = round(bucket["revenue"], 2)
+        bucket["cost"] = round(bucket["cost"], 2)
+        bucket["profit"] = round(bucket["revenue"] - bucket["cost"], 2)
+
+    timestamps = []
+    for collection in (conn.orders, conn.users, conn.reseller_fulfillments):
+        first = collection.find_one({}, sort=[("created_at", 1)])
+        if first and first.get("created_at") is not None:
+            with suppress(TypeError, ValueError, OSError, OverflowError):
+                timestamp = _event_timestamp(first["created_at"])
+                if timestamp > 0:
+                    timestamps.append(timestamp)
+    started = datetime.fromtimestamp(min(timestamps), UTC) if timestamps else now
+    elapsed_days = max(1, (now.date() - started.date()).days + 1)
+    elapsed_weeks = max(1.0, elapsed_days / 7)
+    total_revenue = round(sum(item["revenue"] for item in daily.values()), 2)
+    total_cost = round(sum(item["cost"] for item in daily.values()), 2)
+    total_profit = round(total_revenue - total_cost, 2)
+    selected_days = []
+    cursor = month_start
+    while cursor < month_end:
+        key = cursor.date().isoformat()
+        selected_days.append(daily.get(key, {"date": key, "revenue": 0.0, "cost": 0.0, "profit": 0.0, "orders": 0}))
+        cursor += timedelta(days=1)
+    active_days = [item for item in daily.values() if item["revenue"] or item["cost"]]
+    return {
+        "currency": "USDT", "started_at": int(started.timestamp()), "month": month_start.strftime("%Y-%m"),
+        "totals": {"revenue": total_revenue, "cost": total_cost, "profit": total_profit},
+        "averages": {
+            "daily_profit": round(total_profit / elapsed_days, 2), "weekly_profit": round(total_profit / elapsed_weeks, 2),
+            "daily_revenue": round(total_revenue / elapsed_days, 2), "weekly_revenue": round(total_revenue / elapsed_weeks, 2),
+        },
+        "days": selected_days,
+        "profitable_days": sum(1 for item in active_days if item["profit"] > 0),
+        "loss_days": sum(1 for item in active_days if item["profit"] < 0),
+        "cost_quality": {"exact": exact_cost_orders, "estimated": estimated_cost_orders},
+    }
+
+
 def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
     """Return filtered, paginated support tickets."""
     page = _bounded_int(_first(params, "page"), 1, 1, 100_000)

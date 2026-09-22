@@ -4,6 +4,9 @@ import App from "./App";
 import "./styles.css";
 import "./premium.css";
 import "./workspace.css";
+import "./orders.css";
+import "./monochrome.css";
+import "./finance.css";
 
 class AppErrorBoundary extends Component {
   constructor(props) {
