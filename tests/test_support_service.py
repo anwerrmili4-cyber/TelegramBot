@@ -86,3 +86,27 @@ def test_guided_ticket_keeps_category_and_order(mock_mongodb):
     assert ticket["category"] == TicketCategory.PAYMENT
     assert ticket["order_id"] == 77
     assert ticket["priority"] == TicketPriority.HIGH
+
+
+def test_ticket_message_keeps_safe_telegram_media_metadata(mock_mongodb):
+    ticket = support_service.create_ticket(
+        user_id=321,
+        message="[Photo] Screenshot",
+        media={
+            "type": "image",
+            "file_id": "telegram-file-id",
+            "mime_type": "image/jpeg",
+            "width": 1280,
+            "height": 720,
+            "private_internal_value": "must-not-leak",
+        },
+    )
+
+    message = support_service.get_messages(ticket["id"])[0]
+    assert message["media"] == {
+        "type": "image",
+        "file_id": "telegram-file-id",
+        "mime_type": "image/jpeg",
+        "width": 1280,
+        "height": 720,
+    }

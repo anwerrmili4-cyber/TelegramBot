@@ -587,16 +587,24 @@ export default function App() {
   }, [loadData]);
 
   const navigate = (page, entityId = null) => {
-    setActivePage(page);
-    setMobileOpen(false);
-    const target = page === "overview" ? "/admin" : `/admin/${page}`;
-    const query = page === "orders" && entityId != null
-      ? `?order=${encodeURIComponent(entityId)}`
-      : page === "support" && entityId != null
-        ? `?ticket=${encodeURIComponent(entityId)}`
-        : "";
-    window.history.pushState({}, "", target + query);
-    window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
+    const updatePage = () => {
+      setActivePage(page);
+      setMobileOpen(false);
+      const target = page === "overview" ? "/admin" : `/admin/${page}`;
+      const query = page === "orders" && entityId != null
+        ? `?order=${encodeURIComponent(entityId)}`
+        : page === "support" && entityId != null
+          ? `?ticket=${encodeURIComponent(entityId)}`
+          : "";
+      window.history.pushState({}, "", target + query);
+      window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
+    };
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (document.startViewTransition && !reduceMotion && page !== activePage) {
+      document.startViewTransition(updatePage);
+    } else {
+      updatePage();
+    }
   };
 
   const markNotificationsRead = async (ids) => {

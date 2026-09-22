@@ -24,6 +24,7 @@ def create_ticket(
     category: str = TicketCategory.OTHER,
     order_id: int | None = None,
     priority: str = TicketPriority.NORMAL,
+    media: dict | None = None,
 ) -> dict:
     """Crée un ticket support avec un premier message.
 
@@ -48,7 +49,7 @@ def create_ticket(
     conn.support_tickets.insert_one(ticket)
 
     # Premier message du client
-    add_message(ticket_id, user_id, message, sender_type="client")
+    add_message(ticket_id, user_id, message, sender_type="client", media=media)
 
     db.audit_event(
         "ticket.created",
@@ -69,6 +70,7 @@ def add_message(
     sender_id: int,
     content: str,
     sender_type: str = "client",
+    media: dict | None = None,
 ) -> dict:
     """Ajoute un message à un ticket.
 
@@ -93,6 +95,17 @@ def add_message(
         "content": content[:2000],
         "created_at": now,
     }
+    if media:
+        allowed = {
+            "type", "file_id", "file_unique_id", "file_name", "mime_type",
+            "width", "height", "duration", "file_size", "custom_emoji_id",
+        }
+        clean_media = {
+            key: value for key, value in media.items()
+            if key in allowed and value not in (None, "")
+        }
+        if clean_media.get("file_id"):
+            msg["media"] = clean_media
     conn.ticket_messages.insert_one(msg)
 
     # Mettre à jour le statut du ticket

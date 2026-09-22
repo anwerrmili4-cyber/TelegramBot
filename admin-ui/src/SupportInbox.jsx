@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Archive, Headphones, MessageSquareText, Search, Send } from "lucide-react";
+import { ArrowLeft, Archive, Headphones, Image as ImageIcon, MessageSquareText, Paperclip, Play, Search, Send, Sparkles, X } from "lucide-react";
 import "./support.css";
 
 const labels = { open: "Ouvert", waiting_admin: "Attente admin", waiting_customer: "Attente client", closed: "Fermé", resolved: "Résolu" };
@@ -10,13 +10,80 @@ const stamp = (value) => {
   return value && !Number.isNaN(parsed.getTime()) ? parsed.toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
 };
 
-function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus }) {
+const emojiToken = /\[\[TGEMOJI:([^:\]]+):([0-9a-fA-F]*)\]\]/g;
+const decodeEmoji = (hex) => {
+  try {
+    const bytes = new Uint8Array((hex.match(/.{1,2}/g) || []).map((value) => Number.parseInt(value, 16)));
+    return new TextDecoder().decode(bytes) || "⭐";
+  } catch { return "⭐"; }
+};
+const plainRichText = (value) => String(value || "").replace(emojiToken, (_, __, hex) => decodeEmoji(hex));
+
+function TelegramEmoji({ id, fallback }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="telegram-emoji-fallback">{fallback}</span>;
+  return <img className="telegram-emoji" src={`/admin/api/telegram-custom-emoji?id=${encodeURIComponent(id)}`} alt={fallback} loading="lazy" onError={() => setFailed(true)} />;
+}
+
+function RichText({ children }) {
+  const value = String(children || "");
+  const nodes = [];
+  let cursor = 0;
+  for (const match of value.matchAll(emojiToken)) {
+    if (match.index > cursor) nodes.push(value.slice(cursor, match.index));
+    const fallback = decodeEmoji(match[2]);
+    nodes.push(<TelegramEmoji key={`${match[1]}-${match.index}`} id={match[1]} fallback={fallback} />);
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < value.length) nodes.push(value.slice(cursor));
+  return nodes;
+}
+
+function MessageMedia({ media }) {
+  if (!media?.file_id) return null;
+  const src = `/admin/api/telegram-media?file_id=${encodeURIComponent(media.file_id)}`;
+  const kind = media.type === "image" || String(media.mime_type || "").startsWith("image/") ? "image"
+    : media.type === "video" || String(media.mime_type || "").startsWith("video/") ? "video" : media.type;
+  if (kind === "image" || kind === "sticker") return <a className={`support-media is-${kind}`} href={src} target="_blank" rel="noreferrer" aria-label="Ouvrir l’image en plein écran"><img src={src} alt={media.file_name || "Image envoyée"} loading="lazy" /></a>;
+  if (kind === "video") return <div className="support-media is-video"><video src={src} controls playsInline preload="metadata">Votre navigateur ne peut pas lire cette vidéo.</video><span><Play size={13} /> Vidéo</span></div>;
+  return <a className="support-media-file" href={src} target="_blank" rel="noreferrer"><Paperclip size={16} />{media.file_name || "Pièce jointe Telegram"}</a>;
+}
+
+function uploadTicketMedia({ ticketId, message, file, token, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const body = new FormData();
+    body.append("ticket_id", String(ticketId));
+    body.append("message", message);
+    body.append("file", file, file.name);
+    request.open("POST", "/admin/api/ticket-media");
+    request.withCredentials = true;
+    request.setRequestHeader("X-Dashboard-Write-Token", token || "");
+    request.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); };
+    request.onerror = () => reject(new Error("Connexion interrompue pendant l’envoi."));
+    request.onload = () => {
+      let payload = {};
+      try { payload = JSON.parse(request.responseText || "{}"); } catch { /* handled below */ }
+      if (request.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
+      if (request.status < 200 || request.status >= 300 || payload.ok === false) reject(new Error(payload.error || payload.message || "Impossible d’envoyer cette pièce jointe."));
+      else resolve(payload);
+    };
+    request.send(body);
+  });
+}
+
+function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus, writeToken }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [version, setVersion] = useState(0);
+  const [attachment, setAttachment] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [composerError, setComposerError] = useState("");
   const thread = useRef(null);
+  const fileInput = useRef(null);
   const nearBottom = useRef(true);
   const closed = ["closed", "resolved"].includes(ticket.status);
 
@@ -45,15 +112,42 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus }) {
     if (nearBottom.current && thread.current) thread.current.scrollTop = thread.current.scrollHeight;
   }, [messages]);
 
+  useEffect(() => {
+    if (!attachment) { setPreviewUrl(""); return undefined; }
+    const url = URL.createObjectURL(attachment);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [attachment]);
+
   const send = async (event) => {
     event.preventDefault();
-    if (busy || !draft.trim()) return;
+    if (busy || closed || (!draft.trim() && !attachment)) return;
     setBusy(true);
+    setComposerError("");
     try {
-      if (await onAction({ action: "reply_ticket", ticket_id: ticket.id, message: draft.trim() })) {
-        setDraft(""); nearBottom.current = true; setVersion((n) => n + 1); onStatus("waiting_customer");
+      const completed = attachment
+        ? await uploadTicketMedia({ ticketId: ticket.id, message: draft.trim(), file: attachment, token: writeToken, onProgress: setUploadProgress })
+        : await onAction({ action: "reply_ticket", ticket_id: ticket.id, message: draft.trim() });
+      if (completed) {
+        setDraft(""); setAttachment(null); setUploadProgress(0); nearBottom.current = true; setVersion((n) => n + 1); onStatus("waiting_customer");
+        window.dispatchEvent(new CustomEvent("admin:data-synced"));
       }
-    } finally { setBusy(false); }
+    } catch (sendError) { setComposerError(sendError.message); }
+    finally { setBusy(false); }
+  };
+
+  const chooseAttachment = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const image = file.type.startsWith("image/");
+    const video = file.type.startsWith("video/");
+    const limit = image ? 10_000_000 : 50_000_000;
+    if ((!image && !video) || file.size > limit) {
+      setComposerError(!image && !video ? "Choisissez une image ou une vidéo." : `Ce fichier dépasse la limite de ${image ? "10" : "50"} Mo.`);
+      return;
+    }
+    setComposerError(""); setAttachment(file); setUploadProgress(0);
   };
 
   return <section className="support-conversation" aria-label={`Conversation avec ${customer(ticket)}`}>
@@ -75,24 +169,34 @@ function Conversation({ ticket, onAction, onBack, draft, setDraft, onStatus }) {
       {loading && <p className="support-notice" role="status">Chargement des messages…</p>}
       {error && <div className="support-notice" role="alert">{error} <button onClick={() => setVersion((n) => n + 1)}>Réessayer</button></div>}
       {!loading && !error && !messages.length && <p className="support-notice">Aucun message dans cette conversation.</p>}
-      {messages.map((message, index) => <article key={message.id || index} className={`support-bubble ${message.sender_type === "admin" ? "is-admin" : "is-customer"}`}>
+      {messages.map((message, index) => <article key={message.id || index} className={`support-bubble ${message.sender_type === "admin" ? "is-admin" : "is-customer"} ${message.media ? "has-media" : ""}`}>
         <small>{message.sender_type === "admin" ? "Vous" : "Client"}</small>
-        <p>{message.message || message.content}</p>
+        <MessageMedia media={message.media} />
+        {(message.message || message.content) && <p><RichText>{message.message || message.content}</RichText></p>}
         <time>{stamp(message.created_at)}</time>
       </article>)}
     </div>
     <form className="support-composer" onSubmit={send}>
-      <div><textarea aria-label="Votre réponse" placeholder="Écrivez votre réponse…" value={draft} disabled={busy} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {
+      {attachment && <div className="support-attachment-preview">
+        <div>{attachment.type.startsWith("image/") ? <img src={previewUrl} alt="Aperçu de la pièce jointe" /> : <video src={previewUrl} muted />}</div>
+        <span>{attachment.type.startsWith("image/") ? <ImageIcon size={15} /> : <Play size={15} />}<strong>{attachment.name}</strong><small>{(attachment.size / 1_000_000).toFixed(1)} Mo</small></span>
+        <button type="button" onClick={() => setAttachment(null)} aria-label="Retirer la pièce jointe" disabled={busy}><X size={17} /></button>
+      </div>}
+      {composerError && <p className="support-composer-error" role="alert">{composerError}</p>}
+      <div className="support-composer-row"><input ref={fileInput} className="support-file-input" type="file" accept="image/*,video/*" onChange={chooseAttachment} />
+      <button className="support-attach" type="button" disabled={busy || closed} onClick={() => fileInput.current?.click()} aria-label="Ajouter une image ou une vidéo"><Paperclip size={20} /></button>
+      <textarea aria-label="Votre réponse" placeholder={closed ? "Cette conversation est fermée" : attachment ? "Ajouter une légende…" : "Écrivez votre réponse…"} value={draft} disabled={busy || closed} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); send(event); }
-      }} maxLength={2000} rows={2} /><button type="submit" disabled={busy || !draft.trim()} aria-label="Envoyer la réponse"><Send size={20} /></button></div>
-      <small>{busy ? "Enregistrement en cours…" : "Entrée pour envoyer · Maj + Entrée pour une nouvelle ligne"}</small>
+      }} maxLength={attachment ? 850 : 2000} rows={2} /><button className="support-send" type="submit" disabled={busy || closed || (!draft.trim() && !attachment)} aria-label="Envoyer la réponse"><Send size={20} /></button></div>
+      {busy && attachment && <div className="support-upload-progress" role="progressbar" aria-valuenow={uploadProgress} aria-valuemin="0" aria-valuemax="100"><span style={{ width: `${uploadProgress}%` }} /></div>}
+      <small>{busy ? attachment ? `Envoi du média… ${uploadProgress}%` : "Enregistrement en cours…" : <><Sparkles size={11} /> Emoji Premium Telegram · images jusqu’à 10 Mo · vidéos jusqu’à 50 Mo</>}</small>
     </form>
   </section>;
 }
 
 function UserInitial({ ticket }) { return String(ticket.full_name || ticket.username || ticket.user_id || "C").slice(0, 2).toUpperCase(); }
 
-export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction }) {
+export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction, writeToken }) {
   const [selected, setSelected] = useState(null);
   const [drafts, setDrafts] = useState({});
   useEffect(() => {
@@ -119,12 +223,12 @@ export default function SupportInbox({ result, loading, search, setSearch, statu
           {!loading && !result.items.length && <div className="support-list-empty"><Search size={26} /><strong>Aucune conversation</strong><p>Essayez une autre recherche ou un autre statut.</p></div>}
           {result.items.map((ticket) => <button key={ticket.id} className={`support-contact ${current?.id === ticket.id ? "is-selected" : ""}`} aria-pressed={current?.id === ticket.id} onClick={() => setSelected(ticket)}>
             <span className="support-avatar"><UserInitial ticket={ticket} /></span>
-            <span className="support-contact-copy"><span><strong>{customer(ticket)}</strong>{ticket.status === "waiting_admin" && <i aria-label="Réponse attendue" />}</span><small>{ticket.last_message || ticket.message || categories[ticket.category] || ticket.category || "Conversation support"}</small><span className="support-contact-meta"><span>#{ticket.id} · {labels[ticket.status] || ticket.status}</span><time>{stamp(ticket.updated_at || ticket.created_at)}</time></span></span>
+            <span className="support-contact-copy"><span><strong>{customer(ticket)}</strong>{ticket.status === "waiting_admin" && <i aria-label="Réponse attendue" />}</span><small>{plainRichText(ticket.last_message || ticket.message || categories[ticket.category] || ticket.category || "Conversation support")}</small><span className="support-contact-meta"><span>#{ticket.id} · {labels[ticket.status] || ticket.status}</span><time>{stamp(ticket.updated_at || ticket.created_at)}</time></span></span>
           </button>)}
         </div>
         {pagination}
       </aside>
-      {current ? <Conversation key={current.id} ticket={current} onAction={onAction} onBack={() => setSelected(null)} draft={drafts[current.id] || ""} setDraft={(value) => setDrafts((prev) => ({ ...prev, [current.id]: value }))} onStatus={(value) => setSelected({ ...current, status: value })} /> : <section className="support-welcome"><span><MessageSquareText size={35} /></span><h3>Vos conversations, au même endroit.</h3><p>Sélectionnez un client pour consulter ses messages et lui répondre directement.</p><small><Headphones size={14} /> Support BlackMarket</small></section>}
+      {current ? <Conversation key={current.id} ticket={current} onAction={onAction} onBack={() => setSelected(null)} draft={drafts[current.id] || ""} setDraft={(value) => setDrafts((prev) => ({ ...prev, [current.id]: value }))} onStatus={(value) => setSelected({ ...current, status: value })} writeToken={writeToken} /> : <section className="support-welcome"><span><MessageSquareText size={35} /></span><h3>Vos conversations, au même endroit.</h3><p>Sélectionnez un client pour consulter ses messages et lui répondre directement.</p><small><Headphones size={14} /> Support BlackMarket</small></section>}
     </div>
   </div>;
 }

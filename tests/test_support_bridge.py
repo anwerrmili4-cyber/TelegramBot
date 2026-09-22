@@ -147,6 +147,33 @@ def test_customer_attachment_is_copied_to_support_channel(mock_mongodb):
     assert support_service.get_ticket_by_channel_message(711)["id"] == ticket["id"]
 
 
+def test_message_media_uses_largest_photo_and_preserves_dimensions():
+    message = SimpleNamespace(
+        photo=[
+            SimpleNamespace(file_id="small", file_unique_id="one", width=90, height=90, file_size=200),
+            SimpleNamespace(file_id="large", file_unique_id="two", width=1280, height=720, file_size=4000),
+        ],
+        document=None,
+        video=None,
+        animation=None,
+        video_note=None,
+        sticker=None,
+    )
+
+    assert support_bridge.message_media(message) == {
+        "type": "image",
+        "file_id": "large",
+        "file_unique_id": "two",
+        "file_name": None,
+        "mime_type": None,
+        "width": 1280,
+        "height": 720,
+        "duration": None,
+        "file_size": 4000,
+        "custom_emoji_id": None,
+    }
+
+
 def test_admin_can_reply_with_channel_command(mock_mongodb):
     ticket = support_service.create_ticket(42, "Please help", category="other")
     channel_message = SimpleNamespace(

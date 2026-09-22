@@ -4299,7 +4299,8 @@ async def handle_pending_input(update, context, lang):
         return
 
     if kind == "support":
-        ticket = support_service.create_ticket(uid, text, category=str(ref or "other"))
+        stored_text = text_with_custom_emoji_tokens(update.message) or text
+        ticket = support_service.create_ticket(uid, stored_text, category=str(ref or "other"))
         PENDING[uid] = ("ticket_message", ticket["id"])
         await send_ticket_conversation(update.message, lang, ticket)
         await support_bridge.send_client_text(
@@ -4309,6 +4310,7 @@ async def handle_pending_input(update, context, lang):
         return
 
     if kind == "support_guided":
+        stored_text = text_with_custom_emoji_tokens(update.message) or text
         category, order_id_text = str(ref).split("|", 1)
         order_id = int(order_id_text) or None
         if order_id:
@@ -4317,7 +4319,7 @@ async def handle_pending_input(update, context, lang):
                 await update.message.reply_text(t(lang, "not_for_you"))
                 return
         ticket = support_service.create_ticket(
-            uid, text, category=category, order_id=order_id,
+            uid, stored_text, category=category, order_id=order_id,
         )
         PENDING[uid] = ("ticket_message", ticket["id"])
         await send_ticket_conversation(update.message, lang, ticket)
@@ -4328,9 +4330,10 @@ async def handle_pending_input(update, context, lang):
         return
 
     if kind == "support_order":
+        stored_text = text_with_custom_emoji_tokens(update.message) or text
         ticket = support_service.create_ticket(
             uid,
-            text,
+            stored_text,
             category="delivery",
             order_id=int(ref),
             priority="high",
@@ -4349,7 +4352,8 @@ async def handle_pending_input(update, context, lang):
             PENDING.pop(uid, None)
             await update.message.reply_text(t(lang, "ticket_unavailable"))
             return
-        support_service.add_message(int(ref), uid, text, sender_type="client")
+        stored_text = text_with_custom_emoji_tokens(update.message) or text
+        support_service.add_message(int(ref), uid, stored_text, sender_type="client")
         await update.message.reply_text(
             f"Message sent to {support_bridge.ticket_reference(ref)}.",
             reply_markup=kb.ticket_conversation_keyboard(lang, ref),
@@ -4967,13 +4971,15 @@ async def handle_ticket_attachment(update, context):
 
     label = support_bridge.media_label(message)
     caption = str(getattr(message, "caption", None) or "").strip()
-    content = f"[{label}]" + (f" {caption}" if caption else "")
+    stored_caption = text_with_custom_emoji_tokens(message) or caption
+    content = f"[{label}]" + (f" {stored_caption}" if stored_caption else "")
+    media = support_bridge.message_media(message)
     kind, ref = pending
     is_new = kind != "ticket_message"
 
     if kind == "support":
         ticket = support_service.create_ticket(
-            user.id, content, category=str(ref or "other"),
+            user.id, content, category=str(ref or "other"), media=media,
         )
     elif kind == "support_guided":
         category, order_id_text = str(ref).split("|", 1)
@@ -4984,7 +4990,7 @@ async def handle_ticket_attachment(update, context):
                 await message.reply_text(t(lang_of(user.id), "not_for_you"))
                 return True
         ticket = support_service.create_ticket(
-            user.id, content, category=category, order_id=order_id,
+            user.id, content, category=category, order_id=order_id, media=media,
         )
     elif kind == "support_order":
         ticket = support_service.create_ticket(
@@ -4993,6 +4999,7 @@ async def handle_ticket_attachment(update, context):
             category="delivery",
             order_id=int(ref),
             priority="high",
+            media=media,
         )
     else:
         ticket = support_service.get_ticket(int(ref))
@@ -5005,7 +5012,7 @@ async def handle_ticket_attachment(update, context):
             await message.reply_text(t(lang_of(user.id), "ticket_unavailable"))
             return True
         support_service.add_message(
-            int(ref), user.id, content, sender_type="client",
+            int(ref), user.id, content, sender_type="client", media=media,
         )
 
     ticket_id = int(ticket["id"])

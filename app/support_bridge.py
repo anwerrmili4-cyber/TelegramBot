@@ -48,6 +48,51 @@ def media_label(message: Any) -> str:
     return "Attachment"
 
 
+def message_media(message: Any) -> dict | None:
+    """Return safe Telegram file metadata that the dashboard can render."""
+    value = None
+    media_type = "document"
+    photos = getattr(message, "photo", None) or []
+    if photos:
+        value = photos[-1]
+        media_type = "image"
+    else:
+        for attribute, kind in (
+            ("video", "video"),
+            ("animation", "video"),
+            ("video_note", "video"),
+            ("document", "document"),
+            ("sticker", "sticker"),
+        ):
+            candidate = getattr(message, attribute, None)
+            if candidate:
+                value = candidate
+                media_type = kind
+                break
+    if not value or not getattr(value, "file_id", None):
+        return None
+    original = value
+    if media_type == "sticker" and getattr(value, "thumbnail", None):
+        value = value.thumbnail
+    mime_type = str(getattr(value, "mime_type", None) or "")
+    if media_type == "document" and mime_type.startswith("image/"):
+        media_type = "image"
+    elif media_type == "document" and mime_type.startswith("video/"):
+        media_type = "video"
+    return {
+        "type": media_type,
+        "file_id": value.file_id,
+        "file_unique_id": getattr(value, "file_unique_id", None),
+        "file_name": getattr(value, "file_name", None),
+        "mime_type": mime_type or None,
+        "width": getattr(value, "width", None),
+        "height": getattr(value, "height", None),
+        "duration": getattr(value, "duration", None),
+        "file_size": getattr(value, "file_size", None),
+        "custom_emoji_id": getattr(original, "custom_emoji_id", None),
+    }
+
+
 def _user_values(user: Any, user_id: int) -> tuple[str, str]:
     name = getattr(user, "full_name", None) or getattr(user, "first_name", None) or str(user_id)
     raw_username = getattr(user, "username", None) or ""
@@ -272,6 +317,12 @@ async def handle_admin_channel_post(update, context) -> bool:
             message_id=message.message_id,
         )
 
-    support_service.admin_reply(ticket_id, ADMIN_ID, body)
+    support_service.add_message(
+        ticket_id,
+        ADMIN_ID,
+        body,
+        sender_type="admin",
+        media=message_media(message),
+    )
     support_service.link_channel_message(ticket_id, message.message_id)
     return True

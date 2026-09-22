@@ -2974,7 +2974,7 @@ function ResellerClientsPage({ data }) {
   );
 }
 
-function SupportPage({ onAction }) {
+function SupportPage({ onAction, data }) {
   const initialTicket = new URLSearchParams(window.location.search).get("ticket") || "";
   const [search, setSearch] = useState(initialTicket);
   const [searchField, setSearchField] = useState(initialTicket ? "ticket_id" : "all");
@@ -3001,7 +3001,8 @@ function SupportPage({ onAction }) {
     searchField={searchField} setSearchField={(value) => { setSearchField(value); setPage(1); }}
     status={status} setStatus={(value) => { setStatus(value); setPage(1); }}
     targetTicketId={targetTicketId}
-    pagination={<Pagination value={result} onChange={setPage} />} onAction={onAction} />;
+    pagination={<Pagination value={result} onChange={setPage} />} onAction={onAction}
+    writeToken={data?.dashboard_write_token || ""} />;
 }
 
 function InteractionsPage({ data }) {

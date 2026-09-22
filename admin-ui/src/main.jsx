@@ -6,6 +6,7 @@ import "./premium.css";
 import "./workspace.css";
 import "./orders.css";
 import "./monochrome.css";
+import "./motion.css";
 import "./finance.css";
 
 class AppErrorBoundary extends Component {

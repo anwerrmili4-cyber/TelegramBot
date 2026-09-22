@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import csv
+from email.parser import BytesParser
+from email.policy import default as email_policy
 import hashlib
 import hmac
 import html
@@ -25,10 +27,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
-from telegram import Update
+from telegram import InputFile, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 
 import database as db
+from app import support_bridge
 from api.buyer_api_docs import openapi_document, swagger_html
 from api.dashboard import render_dashboard
 from api.public_site import render_public_site
@@ -435,14 +439,55 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _reply_bytes(self, status: int, body: bytes, content_type: str, filename: str | None = None):
+    def _reply_bytes(
+        self,
+        status: int,
+        body: bytes,
+        content_type: str,
+        filename: str | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         if filename:
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_multipart(self, max_bytes: int) -> tuple[dict[str, str], dict]:
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.lower().startswith("multipart/form-data;"):
+            raise ValueError("Le formulaire de pièce jointe est invalide.")
+        size = int(self.headers.get("Content-Length", "0"))
+        if size <= 0 or size > max_bytes:
+            raise ValueError("La pièce jointe dépasse la taille autorisée.")
+        envelope = (
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+            + self.rfile.read(size)
+        )
+        parsed = BytesParser(policy=email_policy).parsebytes(envelope)
+        fields: dict[str, str] = {}
+        upload: dict = {}
+        for part in parsed.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            if not name:
+                continue
+            filename = part.get_filename()
+            payload = part.get_payload(decode=True) or b""
+            if filename and name == "file":
+                upload = {
+                    "body": payload,
+                    "filename": Path(filename).name[:180] or "attachment",
+                    "content_type": part.get_content_type(),
+                }
+            elif not filename:
+                fields[name] = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+        if not upload:
+            raise ValueError("Choisissez une image ou une vidéo.")
+        return fields, upload
 
     @staticmethod
     def _json_default(value):
@@ -890,6 +935,57 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, {"ok": True, "items": db.list_withdrawals(status)})
             return
 
+        elif path == "/admin/api/telegram-media":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            try:
+                file_id = parse_qs(url.query).get("file_id", [""])[0].strip()
+                if not file_id or len(file_id) > 512:
+                    raise ValueError("Fichier Telegram invalide.")
+                telegram_file = _run_async(_application().bot.get_file(file_id))
+                body = bytes(_run_async(telegram_file.download_as_bytearray()))
+                file_path = str(getattr(telegram_file, "file_path", "") or "")
+                content_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+                self._reply_bytes(200, body, content_type, headers={
+                    "Cache-Control": "private, max-age=3600",
+                    "X-Content-Type-Options": "nosniff",
+                })
+            except ValueError as exc:
+                self._reply(400, {"ok": False, "error": str(exc)})
+            except Exception:
+                log.exception("Unable to proxy Telegram support media")
+                self._reply(502, {"ok": False, "error": "Média Telegram indisponible."})
+            return
+
+        elif path == "/admin/api/telegram-custom-emoji":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            try:
+                emoji_id = parse_qs(url.query).get("id", [""])[0].strip()
+                if not emoji_id or len(emoji_id) > 128:
+                    raise ValueError("Emoji Telegram invalide.")
+                stickers = _run_async(_application().bot.get_custom_emoji_stickers([emoji_id]))
+                if not stickers:
+                    raise ValueError("Emoji Telegram introuvable.")
+                sticker = stickers[0]
+                source = getattr(sticker, "thumbnail", None) or sticker
+                telegram_file = _run_async(_application().bot.get_file(source.file_id))
+                body = bytes(_run_async(telegram_file.download_as_bytearray()))
+                file_path = str(getattr(telegram_file, "file_path", "") or "")
+                content_type = mimetypes.guess_type(file_path)[0] or "image/webp"
+                self._reply_bytes(200, body, content_type, headers={
+                    "Cache-Control": "private, max-age=86400",
+                    "X-Content-Type-Options": "nosniff",
+                })
+            except ValueError as exc:
+                self._reply(404, {"ok": False, "error": str(exc)})
+            except Exception:
+                log.exception("Unable to render Telegram custom emoji")
+                self._reply(502, {"ok": False, "error": "Emoji Telegram indisponible."})
+            return
+
         elif path == "/admin/api/ticket-messages":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1200,6 +1296,99 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(400, {"ok": False, "error": str(exc)})
             except buyer_api_service.BuyerApiError as exc:
                 self._reply_buyer_error(exc)
+            return
+        if path == "/admin/api/ticket-media":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            token = self.headers.get("X-Dashboard-Write-Token", "")
+            if not token or not hmac.compare_digest(token, dashboard_write_token()):
+                self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
+                return
+            try:
+                fields, upload = self._read_multipart(52_000_000)
+                ticket_id = int(fields.get("ticket_id", "0"))
+                ticket = support_service.get_ticket(ticket_id)
+                if not ticket or ticket.get("status") in {"closed", "resolved"}:
+                    raise ValueError("Cette conversation n’est plus disponible.")
+                content_type = str(upload["content_type"] or "").lower()
+                guessed = mimetypes.guess_type(upload["filename"])[0] or ""
+                media_kind = "image" if content_type.startswith("image/") else "video" if content_type.startswith("video/") else ""
+                if not media_kind and guessed:
+                    media_kind = "image" if guessed.startswith("image/") else "video" if guessed.startswith("video/") else ""
+                    content_type = guessed
+                if media_kind not in {"image", "video"}:
+                    raise ValueError("Seules les images et les vidéos sont acceptées.")
+                max_size = 10_000_000 if media_kind == "image" else 50_000_000
+                if len(upload["body"]) > max_size:
+                    limit = "10 Mo" if media_kind == "image" else "50 Mo"
+                    raise ValueError(f"Ce fichier dépasse la limite de {limit}.")
+                signature = upload["body"][:16]
+                is_image = (
+                    signature.startswith(b"\xff\xd8\xff")
+                    or signature.startswith(b"\x89PNG\r\n\x1a\n")
+                    or signature.startswith((b"GIF87a", b"GIF89a"))
+                    or signature.startswith(b"RIFF") and signature[8:12] == b"WEBP"
+                )
+                is_video = (
+                    signature[4:8] == b"ftyp"
+                    or signature.startswith(b"\x1aE\xdf\xa3")
+                    or signature.startswith(b"RIFF") and signature[8:12] == b"AVI "
+                )
+                if (media_kind == "image" and not is_image) or (media_kind == "video" and not is_video):
+                    raise ValueError("Le contenu du fichier ne correspond pas à une image ou vidéo prise en charge.")
+                caption = str(fields.get("message") or "").strip()[:850]
+                telegram_caption = (
+                    f"🎫 <b>Réponse du Support (Ticket #{ticket_id})</b>"
+                    + (f"\n\n{html.escape(caption)}" if caption else "")
+                )
+                bot = _application().bot
+
+                def input_file():
+                    return InputFile(io.BytesIO(upload["body"]), filename=upload["filename"])
+
+                with _runtime_lock:
+                    try:
+                        if media_kind == "image":
+                            sent = _run_async(bot.send_photo(
+                                ticket["user_id"], photo=input_file(), caption=telegram_caption,
+                                parse_mode=ParseMode.HTML,
+                            ))
+                        else:
+                            sent = _run_async(bot.send_video(
+                                ticket["user_id"], video=input_file(), caption=telegram_caption,
+                                parse_mode=ParseMode.HTML, supports_streaming=True,
+                            ))
+                    except BadRequest:
+                        sent = _run_async(bot.send_document(
+                            ticket["user_id"], document=input_file(), caption=telegram_caption,
+                            parse_mode=ParseMode.HTML,
+                        ))
+                media = support_bridge.message_media(sent) or {
+                    "type": media_kind,
+                    "file_id": "",
+                    "file_name": upload["filename"],
+                    "mime_type": content_type,
+                }
+                if not media.get("file_id"):
+                    raise ValueError("Telegram n’a pas retourné la pièce jointe envoyée.")
+                message = support_service.add_message(
+                    ticket_id,
+                    ADMIN_ID,
+                    caption or f"[{media_kind.title()}]",
+                    sender_type="admin",
+                    media=media,
+                )
+                self._reply(201, {
+                    "ok": True,
+                    "message": "Pièce jointe envoyée au client.",
+                    "ticket_message": message,
+                })
+            except ValueError as exc:
+                self._reply(400, {"ok": False, "error": str(exc)})
+            except Exception:
+                log.exception("Unable to send support media")
+                self._reply(502, {"ok": False, "error": "Telegram n’a pas pu envoyer cette pièce jointe."})
             return
         if path == "/admin":
             self._dashboard_action()
