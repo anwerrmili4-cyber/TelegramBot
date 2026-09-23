@@ -36,6 +36,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingBag,
+  SlidersHorizontal,
   Sparkles,
   ToggleLeft,
   ToggleRight,
@@ -2756,6 +2757,23 @@ function CustomersPage({ data, onAction, onNavigate }) {
   const visibleWallets = visible.reduce((sum, user) => sum + Number(user.wallet_balance || 0), 0);
   const visibleSpent = visible.reduce((sum, user) => sum + Number(user.total_spent || 0), 0);
   const activeVisible = visible.filter((user) => !user.banned).length;
+  const hasCustomerFilters = Boolean(
+    search
+      || searchField !== "all"
+      || statusFilter !== "all"
+      || walletFilter !== "all"
+      || ordersFilter !== "all"
+      || sort !== "newest",
+  );
+  const resetCustomerFilters = () => {
+    setSearch("");
+    setSearchField("all");
+    setStatusFilter("all");
+    setWalletFilter("all");
+    setOrdersFilter("all");
+    setSort("newest");
+    setPage(1);
+  };
   return (
     <>
       <PageHeader
@@ -2777,41 +2795,74 @@ function CustomersPage({ data, onAction, onNavigate }) {
         <article><span><CircleDollarSign size={17} /></span><div><small>Soldes affichés</small><strong>{money(visibleWallets, data.currency)}</strong><em>portefeuilles disponibles</em></div></article>
         <article><span><ShoppingBag size={17} /></span><div><small>Achats affichés</small><strong>{money(visibleSpent, data.currency)}</strong><em>dépenses cumulées</em></div></article>
       </div>
-      <FilterBar
-        search={search}
-        searchField={searchField}
-        setSearchField={(value) => { setSearchField(value); setPage(1); }}
-        options={[["all", "Tout"], ["name", "Nom / prénom"], ["username", "Username"], ["telegram_id", "Telegram ID"]]}
-        resultCount={result.total}
-        setSearch={(value) => {
-          setSearch(value);
-          setPage(1);
-        }}
-        placeholder="Nom, username ou Telegram ID…"
-      >
-        <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} aria-label="Filtrer par statut">
-          <option value="all">Tous les statuts</option>
-          <option value="active">Clients actifs</option>
-          <option value="banned">Clients bloqués</option>
-        </select>
-        <select value={walletFilter} onChange={(event) => { setWalletFilter(event.target.value); setPage(1); }} aria-label="Filtrer par portefeuille">
-          <option value="all">Tous les portefeuilles</option>
-          <option value="funded">Solde positif</option>
-          <option value="empty">Solde vide</option>
-        </select>
-        <select value={ordersFilter} onChange={(event) => { setOrdersFilter(event.target.value); setPage(1); }} aria-label="Filtrer par commandes">
-          <option value="all">Tous les clients</option>
-          <option value="with_orders">Avec commandes</option>
-          <option value="without_orders">Sans commande</option>
-        </select>
-        <select value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }} aria-label="Trier les clients">
-          <option value="newest">Plus récents</option>
-          <option value="oldest">Plus anciens</option>
-          <option value="balance">Solde le plus élevé</option>
-          <option value="spent">Dépenses les plus élevées</option>
-          <option value="orders">Plus de commandes</option>
-        </select>
-      </FilterBar>
+      <section className={`customer-filter-shell ${hasCustomerFilters ? "is-filtered" : ""}`} aria-label="Recherche et filtres clients">
+        <header className="customer-filter-heading">
+          <div><span><SlidersHorizontal size={16} /></span><div><strong>Affiner les clients</strong><small>Recherchez un profil ou combinez plusieurs critères.</small></div></div>
+          <div><strong>{result.total || 0}</strong><span>profil{result.total === 1 ? "" : "s"}</span></div>
+        </header>
+        <div className="customer-filter-search-row">
+          <label className="customer-search-box">
+            <Search size={19} aria-hidden="true" />
+            <span className="sr-only">Rechercher un client</span>
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+              placeholder="Nom, username ou Telegram ID…"
+              aria-label="Rechercher un client par nom, username ou Telegram ID"
+            />
+            {search && <button type="button" onClick={() => { setSearch(""); setPage(1); }} title="Effacer la recherche" aria-label="Effacer la recherche"><X size={15} /></button>}
+          </label>
+          <label className="customer-filter-field customer-filter-scope">
+            <span>Rechercher dans</span>
+            <select value={searchField} onChange={(event) => { setSearchField(event.target.value); setPage(1); }}>
+              <option value="all">Tous les champs</option>
+              <option value="name">Nom / prénom</option>
+              <option value="username">Username</option>
+              <option value="telegram_id">Telegram ID</option>
+            </select>
+          </label>
+        </div>
+        <div className="customer-filter-controls">
+          <label className="customer-filter-field">
+            <span>Statut</span>
+            <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}>
+              <option value="all">Tous les statuts</option>
+              <option value="active">Clients actifs</option>
+              <option value="banned">Clients bloqués</option>
+            </select>
+          </label>
+          <label className="customer-filter-field">
+            <span>Portefeuille</span>
+            <select value={walletFilter} onChange={(event) => { setWalletFilter(event.target.value); setPage(1); }}>
+              <option value="all">Tous les soldes</option>
+              <option value="funded">Solde positif</option>
+              <option value="empty">Solde vide</option>
+            </select>
+          </label>
+          <label className="customer-filter-field">
+            <span>Commandes</span>
+            <select value={ordersFilter} onChange={(event) => { setOrdersFilter(event.target.value); setPage(1); }}>
+              <option value="all">Tous les clients</option>
+              <option value="with_orders">Avec commandes</option>
+              <option value="without_orders">Sans commande</option>
+            </select>
+          </label>
+          <label className="customer-filter-field customer-filter-sort">
+            <span>Trier par</span>
+            <select value={sort} onChange={(event) => { setSort(event.target.value); setPage(1); }}>
+              <option value="newest">Plus récents</option>
+              <option value="oldest">Plus anciens</option>
+              <option value="balance">Solde le plus élevé</option>
+              <option value="spent">Dépenses les plus élevées</option>
+              <option value="orders">Plus de commandes</option>
+            </select>
+          </label>
+          <button className="customer-filter-reset" type="button" onClick={resetCustomerFilters} disabled={!hasCustomerFilters}>
+            <X size={15} /> Réinitialiser
+          </button>
+        </div>
+      </section>
       <section className="data-panel customer-directory">
         <header className="customer-directory-head"><div><span className="eyebrow">Répertoire CRM</span><h3>Cartes clients</h3></div><span>{result.total || 0} profil(s)</span></header>
         <div className="customer-card-grid">
