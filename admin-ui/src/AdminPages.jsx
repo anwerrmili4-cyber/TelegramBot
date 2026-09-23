@@ -348,7 +348,7 @@ function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
   return [result, loading];
 }
 
-function DeliveredProductDescription({ order, compact = false }) {
+function DeliveredProductDescription({ order }) {
   const [copied, setCopied] = useState(false);
   if (order.status !== "delivered") return null;
   const description = order.product_description || "Description indisponible pour cette ancienne commande.";
@@ -359,10 +359,10 @@ function DeliveredProductDescription({ order, compact = false }) {
     window.setTimeout(() => setCopied(false), 1800);
   };
   return (
-    <div className={`delivered-product-description ${compact ? "compact" : ""}`}>
-      <header><span>Description du produit</span>{!compact && order.product_description && <button type="button" onClick={copyDescription} aria-label="Copier la description du produit"><Copy size={14} />{copied ? "Copié" : "Copier"}</button>}</header>
+    <div className="delivered-product-description">
+      <header><span>Description du produit</span>{order.product_description && <button type="button" onClick={copyDescription} aria-label="Copier la description du produit"><Copy size={14} />{copied ? "Copié" : "Copier"}</button>}</header>
       <p>{description}</p>
-      {!compact && <small className="copy-description-status" aria-live="polite">{copied ? "Description copiée dans le presse-papiers." : ""}</small>}
+      <small className="copy-description-status" aria-live="polite">{copied ? "Description copiée dans le presse-papiers." : ""}</small>
     </div>
   );
 }
@@ -668,7 +668,7 @@ function OrdersPage({ data, onAction, onNavigate }) {
         {viewMode === "table" && <button className="column-picker-trigger" type="button" onClick={() => setColumnsOpen(true)}><Columns3 size={14} />Colonnes</button>}
       </FilterBar>
       <section className="data-panel">
-        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><DeliveredProductDescription order={order} compact /><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
+        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
           <table>
             <thead>
               <tr>
@@ -688,7 +688,7 @@ function OrdersPage({ data, onAction, onNavigate }) {
                     <strong>#{order.id}</strong>
                   </td>
                   {visibleColumns.includes("customer") && <td><button type="button" className="order-table-customer" onClick={(event) => { event.stopPropagation(); onNavigate("customers", order.user_id); }} title="Ouvrir le profil client"><strong>{orderCustomerName(order)} <ExternalLink size={12} /></strong><small>{orderCustomerReference(order)}</small></button></td>}
-                  {visibleColumns.includes("product") && <td><div className="order-table-product"><strong>{order.offer_name || order.service_name || "—"}</strong><DeliveredProductDescription order={order} compact /></div></td>}
+                  {visibleColumns.includes("product") && <td><div className="order-table-product"><strong>{order.offer_name || order.service_name || "—"}</strong></div></td>}
                   {visibleColumns.includes("amount") && <td>
                     <strong>{money(orderAmount(order), data.currency)}</strong>
                   </td>}
@@ -707,7 +707,7 @@ function OrdersPage({ data, onAction, onNavigate }) {
               ))}
             </tbody>
           </table>
-        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className={`kanban-order ${order.needs_attention ? "needs-attention" : ""}`} onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><DeliveredProductDescription order={order} compact /><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
+        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className={`kanban-order ${order.needs_attention ? "needs-attention" : ""}`} onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
         {loading ? (
           <div className="table-loading">Chargement…</div>
         ) : (
@@ -2444,7 +2444,6 @@ function CustomerDetail({ customer, onAction, onClose, onNavigate, currency }) {
         {customer.orders?.length ? <div className="customer-purchase-grid">{customer.orders.map((order) => <button type="button" key={order.id} onClick={() => openOrder(order)}>
           <header><span>Commande #{order.id}</span><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>
           <h5>{order.offer_name || order.service_name || "Produit supprimé"}</h5>
-          <p>{order.product_description || "La description de ce produit n’est plus disponible dans le catalogue."}</p>
           <dl><div><dt>Montant</dt><dd>{money(orderAmount(order), currency)}</dd></div><div><dt>Quantité</dt><dd>{order.qty || 1}</dd></div><div><dt>Garantie</dt><dd>{order.warranty || order.warranty_days ? `${order.warranty || order.warranty_days} j` : "—"}</dd></div></dl>
           <footer><span>{date(order.created_at)}</span><span>Voir tous les détails <Eye size={14} /></span></footer>
         </button>)}</div> : <Empty icon={ShoppingBag} title="Aucun achat" text="Ce client n’a encore passé aucune commande." />}

@@ -159,17 +159,9 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         row["telegram_id"]: row
         for row in db.get_conn().users.find(
             {"telegram_id": {"$in": list(user_ids)}},
-            {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1, "lang": 1},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
         )
     } if user_ids else {}
-    offer_ids = {item.get("offer_id") for item in items if item and item.get("offer_id") is not None}
-    offers = {
-        row["id"]: row
-        for row in db.get_conn().offers.find(
-            {"id": {"$in": list(offer_ids)}},
-            {"id": 1, "description": 1, "description_ar": 1},
-        )
-    } if offer_ids else {}
     now = int(time.time())
     urgent_statuses = {"manual_review", "verification_failed", "stock_issue"}
     delivery_statuses = {"paid", "payment_confirmed", "preparing_delivery"}
@@ -183,14 +175,6 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         item["last_name"] = last_name
         item["full_name"] = full_name
         item["customer_name"] = full_name or (f"@{user['username']}" if user.get("username") else f"Client {item.get('user_id')}")
-        if item.get("status") == "delivered":
-            description, source = _order_product_description(
-                item,
-                offers.get(item.get("offer_id")),
-                str(user.get("lang") or item.get("product_description_language") or "en"),
-            )
-            item["product_description"] = description
-            item["product_description_source"] = source
         created_at = int(_event_timestamp(item.get("paid_at") or item.get("created_at")))
         age_seconds = max(0, now - created_at)
         delayed = item.get("status") in delivery_statuses and age_seconds >= 900
@@ -650,22 +634,6 @@ def customer_detail(user_id: int) -> dict[str, Any] | None:
         _admin_order(row)
         for row in conn.orders.find({"user_id": user_id}).sort("created_at", DESCENDING)
     ]
-    offer_ids = {int(row["offer_id"]) for row in orders if row.get("offer_id") is not None}
-    offers = {
-        int(row["id"]): row
-        for row in conn.offers.find({"id": {"$in": list(offer_ids)}})
-    } if offer_ids else {}
-    for order in orders:
-        offer = offers.get(int(order["offer_id"])) if order.get("offer_id") is not None else None
-        description, source = _order_product_description(
-            order,
-            offer,
-            str(user.get("lang") or order.get("product_description_language") or "en"),
-        )
-        order["product_description"] = description
-        order["product_image_url"] = str((offer or {}).get("image_url") or "")
-        order["product_description_source"] = source
-
     topups = []
     for row in conn.wallet_topups.find({"user_id": user_id}).sort("created_at", DESCENDING):
         item = db._public(row)

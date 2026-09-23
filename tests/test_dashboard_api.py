@@ -30,7 +30,7 @@ def test_order_filters_and_pagination(mock_mongodb):
     assert result["analytics"]["statuses"] == {"pending_payment": 1, "delivered": 2}
 
 
-def test_delivered_orders_expose_plain_telegram_product_description(mock_mongodb):
+def test_order_list_hides_product_description_until_detail_is_opened(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 20, "lang": "en"})
     mock_mongodb.offers.insert_one({
         "id": 6,
@@ -45,12 +45,8 @@ def test_delivered_orders_expose_plain_telegram_product_description(mock_mongodb
     ])
 
     result = dashboard_api.list_orders({})
-    delivered = next(item for item in result["items"] if item["id"] == 1)
-    pending = next(item for item in result["items"] if item["id"] == 2)
-
-    assert delivered["product_description"] == "💎 Premium access\nReady & verified"
-    assert delivered["product_description_source"] == "current_catalog"
-    assert "product_description" not in pending
+    assert all("product_description" not in item for item in result["items"])
+    assert all("product_description_source" not in item for item in result["items"])
 
 
 def test_order_detail_prefers_plain_description_snapshot(mock_mongodb):
@@ -536,7 +532,7 @@ def test_customer_detail_builds_complete_crm_profile(mock_mongodb):
     customer = dashboard_api.customer_detail(42)
 
     assert customer is not None
-    assert customer["orders"][0]["product_description"] == "Current catalog description"
+    assert "product_description" not in customer["orders"][0]
     assert customer["deposit_total"] == 20
     assert customer["withdrawal_total"] == 5
     assert customer["affiliate_earned"] == 2
