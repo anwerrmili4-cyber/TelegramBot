@@ -268,13 +268,48 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
 }
 
 function Toast({ toast, onClose }) {
+  const [leaving, setLeaving] = useState(false);
+  const onCloseRef = useRef(onClose);
+  const dismissTimerRef = useRef(null);
+  const removeTimerRef = useRef(null);
+
   useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    window.clearTimeout(dismissTimerRef.current);
+    window.clearTimeout(removeTimerRef.current);
+    setLeaving(false);
     if (!toast) return undefined;
-    const timeout = window.setTimeout(onClose, 4500);
-    return () => window.clearTimeout(timeout);
-  }, [toast, onClose]);
+    dismissTimerRef.current = window.setTimeout(() => {
+      setLeaving(true);
+      removeTimerRef.current = window.setTimeout(() => onCloseRef.current(), 260);
+    }, 4200);
+    return () => {
+      window.clearTimeout(dismissTimerRef.current);
+      window.clearTimeout(removeTimerRef.current);
+    };
+  }, [toast]);
+
   if (!toast) return null;
-  return <div className={`toast ${toast.type || "success"}`}><span>{toast.type === "error" ? "!" : "✓"}</span><div><strong>{toast.title}</strong><small>{toast.message}</small></div><button onClick={onClose}><X size={15} /></button></div>;
+  const type = toast.type || "success";
+  const Icon = type === "success" ? CheckCheck : AlertTriangle;
+  const dismiss = () => {
+    if (leaving) return;
+    window.clearTimeout(dismissTimerRef.current);
+    setLeaving(true);
+    removeTimerRef.current = window.setTimeout(() => onCloseRef.current(), 260);
+  };
+
+  return <div className="toast-stage">
+    <div key={`${type}-${toast.title}-${toast.message}`} className={`toast ${type}${leaving ? " is-leaving" : ""}`} role={type === "error" ? "alert" : "status"} aria-live={type === "error" ? "assertive" : "polite"} aria-atomic="true">
+      <span className="toast-icon" aria-hidden="true"><Icon size={21} strokeWidth={2.25} /></span>
+      <div className="toast-copy"><strong>{toast.title}</strong>{toast.message && <small>{toast.message}</small>}</div>
+      <button type="button" onClick={dismiss} aria-label="Ignorer la notification" title="Ignorer cette notification"><span>Ignorer</span><X size={15} /></button>
+      <i className="toast-progress" aria-hidden="true" />
+    </div>
+  </div>;
 }
 
 function LoadingState() {

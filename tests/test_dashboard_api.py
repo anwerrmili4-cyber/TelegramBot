@@ -30,6 +30,46 @@ def test_order_filters_and_pagination(mock_mongodb):
     assert result["analytics"]["statuses"] == {"pending_payment": 1, "delivered": 2}
 
 
+def test_delivered_orders_expose_plain_telegram_product_description(mock_mongodb):
+    mock_mongodb.users.insert_one({"telegram_id": 20, "lang": "en"})
+    mock_mongodb.offers.insert_one({
+        "id": 6,
+        "description": (
+            '[[HTML]]<tg-emoji emoji-id="premium">💎</tg-emoji> '
+            "<b>Premium access</b><br><blockquote>Ready &amp; verified</blockquote>"
+        ),
+    })
+    mock_mongodb.orders.insert_many([
+        {"id": 1, "user_id": 20, "offer_id": 6, "status": "delivered", "created_at": 2},
+        {"id": 2, "user_id": 20, "offer_id": 6, "status": "pending_payment", "created_at": 1},
+    ])
+
+    result = dashboard_api.list_orders({})
+    delivered = next(item for item in result["items"] if item["id"] == 1)
+    pending = next(item for item in result["items"] if item["id"] == 2)
+
+    assert delivered["product_description"] == "💎 Premium access\nReady & verified"
+    assert delivered["product_description_source"] == "current_catalog"
+    assert "product_description" not in pending
+
+
+def test_order_detail_prefers_plain_description_snapshot(mock_mongodb):
+    mock_mongodb.users.insert_one({"telegram_id": 42, "lang": "en"})
+    mock_mongodb.offers.insert_one({"id": 9, "description": "Changed later"})
+    mock_mongodb.orders.insert_one({
+        "id": 9,
+        "user_id": 42,
+        "offer_id": 9,
+        "status": "delivered",
+        "product_description_snapshot": "[[HTML]]<b>Original description</b>",
+    })
+
+    order = dashboard_api.order_detail(9)
+
+    assert order["product_description"] == "Original description"
+    assert order["product_description_source"] == "order_snapshot"
+
+
 def test_order_analytics_exclude_admin_purchases_but_keep_order_history(monkeypatch, mock_mongodb):
     monkeypatch.setattr("config.ADMIN_ID", 999)
     now = int(time.time())

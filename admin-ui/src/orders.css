@@ -67,6 +67,21 @@
 .page-orders .order-table-customer strong { display: flex; align-items: center; gap: 5px; font-size: 12px; }
 .page-orders .order-table-customer small { color: var(--muted); font-size: 10px; }
 .page-orders .order-table-customer:hover { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 9%, transparent); }
+.page-orders .delivered-product-description { display: grid; gap: 7px; text-align: left; }
+.page-orders .delivered-product-description > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.page-orders .delivered-product-description > header > span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .55px; text-transform: uppercase; }
+.page-orders .delivered-product-description > header > button { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--panel); font: inherit; font-size: 9px; font-weight: 700; cursor: pointer; }
+.page-orders .delivered-product-description > header > button:hover { border-color: var(--line-bright); background: color-mix(in srgb, var(--cyan) 8%, var(--panel)); }
+.page-orders .delivered-product-description p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.page-orders .copy-description-status { min-height: 1px; color: var(--green); font-size: 9px; }
+.page-orders .delivered-product-description.compact { padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); }
+.page-orders .delivered-product-description.compact p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.page-orders .order-table-product { min-width: 180px; display: grid; gap: 8px; }
+.page-orders .order-table-product > strong { font-size: 12px; }
+.page-orders .order-table-product .delivered-product-description { max-width: 360px; }
+.page-orders .order-table-product .delivered-product-description.compact { padding: 9px 10px; }
+.page-orders .order-product-description-detail { padding: 0; background: transparent; }
+.page-orders .order-product-description-detail .delivered-product-description { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
 .page-orders .order-customer-summary > button { min-width: 0; display: grid; flex: 1; gap: 4px; padding: 6px; margin: -6px; border: 0; border-radius: 9px; color: var(--text); background: transparent; text-align: left; }
 .page-orders .order-customer-summary > button strong { display: flex; align-items: center; gap: 6px; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .page-orders .order-customer-summary > button small, .page-orders .order-customer-summary > button em { overflow: hidden; color: var(--muted); font-size: 9px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }

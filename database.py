@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -333,6 +333,8 @@ def init_db():
         _delete_lovable_catalog(db)
     if not schema or int(schema.get("version") or 0) < 22:
         db.text_overrides.delete_many({"key": {"$regex": r"^onboarding_"}})
+    if not schema or int(schema.get("version") or 0) < 23:
+        _backfill_order_product_descriptions(db)
     if os.environ.get("HP_SEED_DEFAULT_CATALOG", "").strip().lower() in {"1", "true", "yes"}:
         _seed_catalog()
     db.schema_meta.update_one(
@@ -390,6 +392,55 @@ def _backfill_structured_warranties(conn):
         {"$set": {"period_days": 30}},
     )
     return result.modified_count
+
+
+def _backfill_order_product_descriptions(conn):
+    """Snapshot catalog descriptions for delivered orders that predate snapshots."""
+    migrated = 0
+    query = {
+        "status": "delivered",
+        "$or": [
+            {"product_description_snapshot": {"$exists": False}},
+            {"product_description_snapshot": ""},
+        ],
+    }
+    for order in conn.orders.find(query, {"_id": 1, "user_id": 1, "offer_id": 1}):
+        offer_id = order.get("offer_id")
+        if offer_id is None:
+            continue
+        offer = conn.offers.find_one(
+            {"id": offer_id},
+            {"description": 1, "description_ar": 1},
+        )
+        if not offer:
+            continue
+        user = conn.users.find_one(
+            {"telegram_id": order.get("user_id")},
+            {"lang": 1},
+        ) or {}
+        language = str(user.get("lang") or "en")
+        description = (
+            offer.get("description_ar")
+            if language == "ar" and offer.get("description_ar")
+            else offer.get("description")
+        )
+        if not str(description or "").strip():
+            continue
+        result = conn.orders.update_one(
+            {
+                "_id": order["_id"],
+                "$or": [
+                    {"product_description_snapshot": {"$exists": False}},
+                    {"product_description_snapshot": ""},
+                ],
+            },
+            {"$set": {
+                "product_description_snapshot": str(description)[:2000],
+                "product_description_language": language,
+            }},
+        )
+        migrated += int(result.modified_count)
+    return migrated
 
 
 def _sanitize_corrupted_emojis_and_offers(conn):
@@ -1574,8 +1625,14 @@ def create_order(user_id, offer, qty):
     except (TypeError, ValueError):
         pass
     service = get_service(offer["service_id"])
+    language = get_user_lang(user_id) or "en"
+    product_description = (
+        offer.get("description_ar")
+        if language == "ar" and offer.get("description_ar")
+        else offer.get("description")
+    )
     oid = _next_id("orders")
-    get_conn().orders.insert_one({"id": oid, "user_id": user_id, "offer_id": offer["id"], "service_name": service["name"] if service else "", "offer_name": offer["name"], "warranty": warranty_service.offer_warranty_label(offer), "warranty_days": int(offer.get("warranty_days") or 0), "warranty_value": offer.get("warranty_value"), "warranty_unit": offer.get("warranty_unit", "days"), "period_days": int(offer.get("period_days") or 0), "period_value": offer.get("period_value"), "period_unit": offer.get("period_unit", "days"), "qty": qty, "unit_price": unit, "total_price": round(unit * qty, 2), "status": "pending_payment", "txid": "", "verify_method": "", "delivery_text": "", "created_at": now, "updated_at": now})
+    get_conn().orders.insert_one({"id": oid, "user_id": user_id, "offer_id": offer["id"], "service_name": service["name"] if service else "", "offer_name": offer["name"], "product_description_snapshot": str(product_description or "")[:2000], "product_description_language": language, "warranty": warranty_service.offer_warranty_label(offer), "warranty_days": int(offer.get("warranty_days") or 0), "warranty_value": offer.get("warranty_value"), "warranty_unit": offer.get("warranty_unit", "days"), "period_days": int(offer.get("period_days") or 0), "period_value": offer.get("period_value"), "period_unit": offer.get("period_unit", "days"), "qty": qty, "unit_price": unit, "total_price": round(unit * qty, 2), "status": "pending_payment", "txid": "", "verify_method": "", "delivery_text": "", "created_at": now, "updated_at": now})
     return oid
 
 

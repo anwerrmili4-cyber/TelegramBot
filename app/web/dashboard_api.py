@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 import time
 from contextlib import suppress
@@ -19,6 +20,54 @@ def _admin_order(row: dict[str, Any] | None) -> dict[str, Any] | None:
     if result is not None:
         result["charged_total"] = db.order_charge_total(result)
     return result
+
+
+def _telegram_description_plain_text(value: Any) -> str:
+    """Return the visible Telegram description without formatting source."""
+    rendered = str(value or "").strip()
+    if not rendered:
+        return ""
+    rendered = re.sub(r"^\[\[?HTML\]?\]", "", rendered, flags=re.I)
+
+    def custom_emoji_fallback(match: re.Match[str]) -> str:
+        try:
+            return bytes.fromhex(match.group(2)).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return ""
+
+    rendered = re.sub(
+        r"\[\[TGEMOJI:([0-9A-Za-z_-]+):([0-9a-fA-F]+)\]\]",
+        custom_emoji_fallback,
+        rendered,
+    )
+    rendered = re.sub(r"<br\s*/?>", "\n", rendered, flags=re.I)
+    rendered = re.sub(
+        r"</(?:blockquote|div|p|pre)>\s*",
+        "\n",
+        rendered,
+        flags=re.I,
+    )
+    rendered = re.sub(r"<[^>]+>", "", rendered)
+    rendered = html.unescape(rendered).replace("\r\n", "\n").replace("\r", "\n")
+    rendered = "\n".join(line.rstrip() for line in rendered.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", rendered).strip()
+
+
+def _order_product_description(
+    order: dict[str, Any],
+    offer: dict[str, Any] | None,
+    language: str = "en",
+) -> tuple[str, str]:
+    """Resolve the description shown to the buyer, preferring the order snapshot."""
+    snapshot = order.get("product_description_snapshot")
+    if snapshot:
+        return _telegram_description_plain_text(snapshot), "order_snapshot"
+    source = (
+        (offer or {}).get("description_ar")
+        if language == "ar" and (offer or {}).get("description_ar")
+        else (offer or {}).get("description")
+    )
+    return _telegram_description_plain_text(source), "current_catalog" if offer else "unavailable"
 
 
 def _bounded_int(value: str | int | None, default: int, minimum: int, maximum: int) -> int:
@@ -110,9 +159,17 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         row["telegram_id"]: row
         for row in db.get_conn().users.find(
             {"telegram_id": {"$in": list(user_ids)}},
-            {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1, "lang": 1},
         )
     } if user_ids else {}
+    offer_ids = {item.get("offer_id") for item in items if item and item.get("offer_id") is not None}
+    offers = {
+        row["id"]: row
+        for row in db.get_conn().offers.find(
+            {"id": {"$in": list(offer_ids)}},
+            {"id": 1, "description": 1, "description_ar": 1},
+        )
+    } if offer_ids else {}
     now = int(time.time())
     urgent_statuses = {"manual_review", "verification_failed", "stock_issue"}
     delivery_statuses = {"paid", "payment_confirmed", "preparing_delivery"}
@@ -126,6 +183,14 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         item["last_name"] = last_name
         item["full_name"] = full_name
         item["customer_name"] = full_name or (f"@{user['username']}" if user.get("username") else f"Client {item.get('user_id')}")
+        if item.get("status") == "delivered":
+            description, source = _order_product_description(
+                item,
+                offers.get(item.get("offer_id")),
+                str(user.get("lang") or item.get("product_description_language") or "en"),
+            )
+            item["product_description"] = description
+            item["product_description_source"] = source
         created_at = int(_event_timestamp(item.get("paid_at") or item.get("created_at")))
         age_seconds = max(0, now - created_at)
         delayed = item.get("status") in delivery_statuses and age_seconds >= 900
@@ -156,7 +221,7 @@ def order_detail(order_id: int) -> dict[str, Any] | None:
     result = _admin_order(order)
     user = conn.users.find_one(
         {"telegram_id": order.get("user_id")},
-        {"_id": 0, "telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
+        {"_id": 0, "telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1, "lang": 1},
     ) or {}
     result["customer"] = db._public(user)
     first_name = str(user.get("first_name") or "").strip()
@@ -165,6 +230,17 @@ def order_detail(order_id: int) -> dict[str, Any] | None:
     result["customer_name"] = full_name or (f"@{user['username']}" if user.get("username") else f"Client {order.get('user_id')}")
     result["username"] = str(user.get("username") or "")
     result["delivery_content"] = _order_delivery_content(order)
+    offer = conn.offers.find_one(
+        {"id": order.get("offer_id")},
+        {"_id": 0, "id": 1, "description": 1, "description_ar": 1},
+    ) if order.get("offer_id") is not None else None
+    description, source = _order_product_description(
+        order,
+        offer,
+        str(user.get("lang") or order.get("product_description_language") or "en"),
+    )
+    result["product_description"] = description
+    result["product_description_source"] = source
     return result
 
 
@@ -569,10 +645,14 @@ def customer_detail(user_id: int) -> dict[str, Any] | None:
     } if offer_ids else {}
     for order in orders:
         offer = offers.get(int(order["offer_id"])) if order.get("offer_id") is not None else None
-        order["product_description"] = str((offer or {}).get("description") or "")
-        order["product_description_ar"] = str((offer or {}).get("description_ar") or "")
+        description, source = _order_product_description(
+            order,
+            offer,
+            str(user.get("lang") or order.get("product_description_language") or "en"),
+        )
+        order["product_description"] = description
         order["product_image_url"] = str((offer or {}).get("image_url") or "")
-        order["product_description_source"] = "current_catalog" if offer else "unavailable"
+        order["product_description_source"] = source
 
     topups = []
     for row in conn.wallet_topups.find({"user_id": user_id}).sort("created_at", DESCENDING):

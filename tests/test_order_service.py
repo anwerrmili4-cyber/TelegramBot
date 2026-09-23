@@ -75,6 +75,50 @@ def test_order_snapshots_warranty_at_purchase(mock_mongodb):
     assert order["warranty"] == "30-day replacement warranty"
 
 
+def test_order_snapshots_localized_product_description(mock_mongodb):
+    mock_mongodb.users.insert_one({"telegram_id": 42, "lang": "ar"})
+    service_id = db.add_service("AI", "T")
+    offer_id = db.add_offer(
+        service_id,
+        "Premium",
+        9.99,
+        1,
+        description="English description",
+        description_ar="الوصف العربي",
+    )
+
+    order = order_service.create_order(42, db.get_offer(offer_id))
+
+    assert order["product_description_snapshot"] == "الوصف العربي"
+    assert order["product_description_language"] == "ar"
+
+
+def test_description_backfill_only_updates_missing_delivered_snapshots(mock_mongodb):
+    mock_mongodb.users.insert_many([
+        {"telegram_id": 10, "lang": "en"},
+        {"telegram_id": 20, "lang": "ar"},
+    ])
+    mock_mongodb.offers.insert_one({
+        "id": 5,
+        "description": "English description",
+        "description_ar": "الوصف العربي",
+    })
+    mock_mongodb.orders.insert_many([
+        {"id": 1, "user_id": 10, "offer_id": 5, "status": "delivered"},
+        {"id": 2, "user_id": 20, "offer_id": 5, "status": "delivered"},
+        {"id": 3, "user_id": 10, "offer_id": 5, "status": "pending_payment"},
+        {"id": 4, "user_id": 10, "offer_id": 5, "status": "delivered", "product_description_snapshot": "Keep me"},
+    ])
+
+    assert db._backfill_order_product_descriptions(mock_mongodb) == 2
+    assert db._backfill_order_product_descriptions(mock_mongodb) == 0
+
+    assert mock_mongodb.orders.find_one({"id": 1})["product_description_snapshot"] == "English description"
+    assert mock_mongodb.orders.find_one({"id": 2})["product_description_snapshot"] == "الوصف العربي"
+    assert "product_description_snapshot" not in mock_mongodb.orders.find_one({"id": 3})
+    assert mock_mongodb.orders.find_one({"id": 4})["product_description_snapshot"] == "Keep me"
+
+
 def test_delivery_content_resolves_encrypted_inventory_for_order_owner(mock_mongodb):
     service_id = db.add_service("AI", "T")
     offer_id = db.add_offer(service_id, "ChatGPT Plus", 9.99, 0)

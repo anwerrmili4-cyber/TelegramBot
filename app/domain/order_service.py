@@ -122,6 +122,12 @@ def create_order(
                 "Your balance could not be charged. Please try again."
             )
     service = db.get_service(offer["service_id"])
+    description_language = db.get_user_lang(user_id) or "en"
+    product_description = (
+        offer.get("description_ar")
+        if description_language == "ar" and offer.get("description_ar")
+        else offer.get("description")
+    )
     warranty_label = warranty_service.offer_warranty_label(offer)
     warranty_snapshot = (
         "FW" if warranty_label == "FW"
@@ -135,6 +141,8 @@ def create_order(
         "offer_id": offer["id"],
         "service_name": service["name"] if service else "",
         "offer_name": offer["name"],
+        "product_description_snapshot": str(product_description or "")[:2000],
+        "product_description_language": description_language,
         "warranty": warranty_snapshot,
         "warranty_days": int(offer.get("warranty_days") or 0),
         "warranty_value": offer.get("warranty_value"),

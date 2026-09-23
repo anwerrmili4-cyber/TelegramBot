@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parents[2] / "admin-ui" / "dist"
 ORDERS = [
     {"id": 1048, "user_id": 101, "username": "demo_camille", "offer_name": "Abonnement créatif", "service_name": "Création", "total_price": 24, "charged_total": 24, "status": "manual_review", "created_at": 1790000000, "product_description": "Accès premium avec outils de création et espace cloud."},
-    {"id": 1047, "user_id": 102, "username": "demo_alex", "offer_name": "Outil de productivité", "service_name": "Productivité", "total_price": 18, "charged_total": 18, "status": "delivered", "created_at": 1790000000},
+    {"id": 1047, "user_id": 102, "username": "demo_alex", "offer_name": "Outil de productivité", "service_name": "Productivité", "product_description": "Accès premium instantané\n• Outils collaboratifs inclus\n• Assistance pendant 30 jours", "total_price": 18, "charged_total": 18, "status": "delivered", "created_at": 1790000000},
 ]
 CUSTOMERS = [
     {"telegram_id": 101, "username": "demo_camille", "first_name": "Camille", "lang": "fr", "created_at": 1787100000, "last_active_at": 1790000300, "wallet_balance": 46.5, "total_spent": 128, "order_count": 6, "paid_order_count": 5, "referral_count": 3, "ticket_count": 2, "deposit_count": 4, "deposit_total": 180, "last_order_at": 1790000000, "last_order_name": "Abonnement créatif", "banned": False},
