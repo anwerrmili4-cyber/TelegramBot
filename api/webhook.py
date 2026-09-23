@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import csv
-from email.parser import BytesParser
-from email.policy import default as email_policy
 import hashlib
 import hmac
 import html
@@ -15,10 +13,13 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import threading
 import time
 import traceback
 from datetime import UTC, datetime
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from enum import Enum
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
@@ -32,11 +33,10 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
 import database as db
-from app import support_bridge
 from api.buyer_api_docs import openapi_document, swagger_html
 from api.dashboard import render_dashboard
 from api.public_site import render_public_site
-from app import __version__
+from app import __version__, support_bridge
 from app.domain import (
     admin_ai_service,
     buyer_api_service,
@@ -533,9 +533,14 @@ class handler(BaseHTTPRequestHandler):
         }:
             endpoint = "products" if path.endswith("/products") else "balance"
             try:
-                params = parse_qs(url.query)
-                key = buyer_api_service.authenticate(
-                    params.get("key", [""])[0], self._client_ip(), endpoint
+                if "key" in parse_qs(url.query):
+                    raise buyer_api_service.BuyerApiError(
+                        400,
+                        "API_KEY_LOCATION_NOT_ALLOWED",
+                        "Send the API key only as Authorization: Bearer <API_KEY>.",
+                    )
+                key = buyer_api_service.authenticate_bearer(
+                    self.headers.get("Authorization", ""), self._client_ip(), endpoint
                 )
                 payload = (
                     buyer_api_service.products(key)
@@ -654,6 +659,36 @@ class handler(BaseHTTPRequestHandler):
 
         if path == "/fr" or path.startswith("/fr/"):
             self._reply(404, {"ok": False, "error": "language_removed"})
+            return
+
+        order_match = re.fullmatch(
+            r"/api/v2/telegram-buyer/orders/([^/]+)", path
+        )
+        if order_match:
+            try:
+                if "key" in parse_qs(url.query):
+                    raise buyer_api_service.BuyerApiError(
+                        400,
+                        "API_KEY_LOCATION_NOT_ALLOWED",
+                        "Send the API key only as Authorization: Bearer <API_KEY>.",
+                    )
+                key = buyer_api_service.authenticate_bearer(
+                    self.headers.get("Authorization", ""), self._client_ip(), "status"
+                )
+                payload = buyer_api_service.order_status(key, order_match.group(1))
+                headers = {"Cache-Control": "no-store"}
+                if payload.get("status") == "processing":
+                    headers["Retry-After"] = "5"
+                self._reply(200, payload, headers=headers)
+            except buyer_api_service.BuyerApiError as exc:
+                self._reply_buyer_error(exc)
+            except Exception:
+                log.exception("Buyer API order-status request failed")
+                self._reply(500, {
+                    "success": False,
+                    "code": "INTERNAL_ERROR",
+                    "message": "The buyer API is temporarily unavailable.",
+                })
             return
 
         if path in {"", "/", "/ar"} or path.startswith("/ar/"):
@@ -1274,8 +1309,14 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/v2/telegram-buyer/purchase":
             try:
                 payload = self._read_json_body()
-                key = buyer_api_service.authenticate(
-                    payload.get("key", ""), self._client_ip(), "purchase"
+                if "key" in payload:
+                    raise buyer_api_service.BuyerApiError(
+                        400,
+                        "API_KEY_LOCATION_NOT_ALLOWED",
+                        "Send the API key only as Authorization: Bearer <API_KEY>.",
+                    )
+                key = buyer_api_service.authenticate_bearer(
+                    self.headers.get("Authorization", ""), self._client_ip(), "purchase"
                 )
                 try:
                     quantity = int(payload.get("quantity", 1))

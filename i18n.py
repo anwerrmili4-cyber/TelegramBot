@@ -109,6 +109,8 @@ TRANSLATIONS = {
     "reseller_api_regenerate": {"fr": "🔄 Régénérer la clé", "en": "🔄 Regenerate key", "ar": "🔄 إعادة إنشاء المفتاح"},
     "reseller_api_confirm_regenerate": {"fr": "⚠️ Confirmer la régénération", "en": "⚠️ Confirm regeneration", "ar": "⚠️ تأكيد إعادة الإنشاء"},
     "reseller_api_docs": {"fr": "📚 Documentation API", "en": "📚 API documentation", "ar": "📚 توثيق API"},
+    "reseller_api_setup": {"fr": "🚀 Guide de configuration", "en": "🚀 Setup guide", "ar": "🚀 دليل الإعداد"},
+    "reseller_api_copy_base": {"fr": "📋 Copier l’URL API", "en": "📋 Copy API URL", "ar": "📋 نسخ رابط API"},
     "reseller_api_refresh": {"fr": "🔄 Actualiser", "en": "🔄 Refresh", "ar": "🔄 تحديث"},
     "reseller_api_cancel": {"fr": "Annuler", "en": "Cancel", "ar": "إلغاء"},
     "topup_message": {

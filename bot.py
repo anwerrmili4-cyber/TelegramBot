@@ -1986,7 +1986,85 @@ def reseller_api_dashboard_text(user_id, *, revealed_key=None):
         f"<b>Endpoint</b>\n<code>{html.escape(endpoint)}</code>\n\n"
         f"<b>Your API Key</b>\n<code>{credential}</code>\n"
         f"{key_note}\n\n"
-        "<i>Treat this key like a password. Use the documentation for request examples.</i>"
+        "<b>Start here</b>\n"
+        "1. Create and copy your key.\n"
+        "2. Fund this Telegram wallet.\n"
+        "3. Send the key as <code>Authorization: Bearer &lt;API_KEY&gt;</code>.\n"
+        "4. Open <b>Setup guide</b> for endpoints, examples, delivery polling, and errors.\n\n"
+        "<i>Treat this key like a password. Never put it in a URL or JSON body.</i>"
+    )
+
+
+def reseller_api_setup_text(lang):
+    base = html.escape(f"{public_base_url_from_environment()}/api/v2/telegram-buyer")
+    docs = html.escape(f"{public_base_url_from_environment()}/api/swagger")
+    if lang == "ar":
+        return (
+            "🚀 <b>دليل إعداد واجهة الموزع</b>\n\n"
+            "<b>1 — المتطلبات</b>\n"
+            "• أنشئ المفتاح من لوحة API وانسخه فوراً؛ يظهر كاملاً مرة واحدة فقط.\n"
+            "• اشحن محفظة Telegram المرتبطة بالمفتاح بعملة USDT.\n"
+            "• رابط API الأساسي:\n"
+            f"<code>{base}</code>\n\n"
+            "<b>2 — المصادقة</b>\n"
+            "أرسل هذا الرأس في كل طلب. لا تضع المفتاح في الرابط أو JSON:\n"
+            "<code>Authorization: Bearer &lt;API_KEY&gt;</code>\n\n"
+            "<b>3 — المسارات</b>\n"
+            "• <code>GET /products</code> — المنتجات والأسعار والمخزون ومعرّف المنتج.\n"
+            "• <code>GET /balance</code> — رصيد المحفظة.\n"
+            "• <code>POST /purchase</code> — شراء منتج.\n"
+            "• <code>GET /orders/BM-123</code> — حالة الطلب واستلام المنتج.\n\n"
+            "<b>4 — طلب الشراء</b>\n"
+            "الرؤوس:\n"
+            "<code>Authorization: Bearer &lt;API_KEY&gt;\n"
+            "Idempotency-Key: your-unique-order-123\n"
+            "Content-Type: application/json</code>\n"
+            "المحتوى:\n"
+            "<code>{\"product_id\":\"12\",\"quantity\":1}</code>\n\n"
+            "استخدم Idempotency-Key فريداً بطول 8–128 حرفاً. أعد استخدامه فقط لإعادة "
+            "محاولة الطلب نفسه حتى لا يتم الخصم مرتين.\n\n"
+            "<b>5 — التسليم</b>\n"
+            "• <code>200 / delivered</code>: المنتج موجود في <code>deliveredAccounts</code>.\n"
+            "• <code>202 / processing</code>: افحص <code>GET /orders/{orderCode}</code> كل 5 ثوانٍ.\n"
+            "• توقف عندما تصبح <code>terminal=true</code>.\n\n"
+            "<b>6 — الأخطاء</b>\n"
+            "تحقق من <code>code</code> و<code>message</code>. عند <code>429</code> انتظر عدد "
+            "الثواني في <code>Retry-After</code>. لا تغيّر Idempotency-Key عند إعادة محاولة طلب غير مؤكد.\n\n"
+            f"📚 <a href=\"{docs}\">افتح توثيق Swagger الكامل</a>"
+        )
+    return (
+        "🚀 <b>Reseller API setup guide</b>\n\n"
+        "<b>1 — Requirements</b>\n"
+        "• Create the key from the API dashboard and copy it immediately; the full key is shown once.\n"
+        "• Fund the Telegram wallet attached to the key with USDT.\n"
+        "• API base URL:\n"
+        f"<code>{base}</code>\n\n"
+        "<b>2 — Authentication</b>\n"
+        "Send this header on every request. Never put the key in a URL or JSON body:\n"
+        "<code>Authorization: Bearer &lt;API_KEY&gt;</code>\n\n"
+        "<b>3 — Endpoints</b>\n"
+        "• <code>GET /products</code> — product IDs, prices, availability, and delivery type.\n"
+        "• <code>GET /balance</code> — wallet balance.\n"
+        "• <code>POST /purchase</code> — place an order.\n"
+        "• <code>GET /orders/BM-123</code> — check status and receive the product.\n\n"
+        "<b>4 — Purchase request</b>\n"
+        "Headers:\n"
+        "<code>Authorization: Bearer &lt;API_KEY&gt;\n"
+        "Idempotency-Key: your-unique-order-123\n"
+        "Content-Type: application/json</code>\n"
+        "Body:\n"
+        "<code>{\"product_id\":\"12\",\"quantity\":1}</code>\n\n"
+        "Use a unique 8–128 character Idempotency-Key. Reuse it only when retrying the "
+        "exact same purchase so a timeout cannot create a second charge.\n\n"
+        "<b>5 — Delivery</b>\n"
+        "• <code>200 / delivered</code>: read the product from <code>deliveredAccounts</code>.\n"
+        "• <code>202 / processing</code>: poll <code>GET /orders/{orderCode}</code> every 5 seconds.\n"
+        "• Stop polling when <code>terminal=true</code>.\n\n"
+        "<b>6 — Errors and retries</b>\n"
+        "Read <code>code</code> and <code>message</code>. For <code>429</code>, wait for the "
+        "seconds in <code>Retry-After</code>. Keep the same Idempotency-Key when the result "
+        "of a purchase request is uncertain.\n\n"
+        f"📚 <a href=\"{docs}\">Open the complete Swagger documentation</a>"
     )
 
 
@@ -2561,6 +2639,20 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "reseller_api":
         await show_reseller_api(update, context)
+        return
+    if data == "reseller_api_setup":
+        public_url = public_base_url_from_environment()
+        await show_callback_screen(
+            q,
+            reseller_api_setup_text(lang),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb.reseller_api_setup_keyboard(
+                lang,
+                api_base_url=f"{public_url}/api/v2/telegram-buyer",
+                docs_url=f"{public_url}/api/swagger",
+            ),
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
         return
     if data == "reseller_api_create":
         chat = getattr(update, "effective_chat", None)

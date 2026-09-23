@@ -1983,4 +1983,11 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             "items_count": len(items),
         },
     )
+    # A reseller order may have initially returned 202 to a Buyer API client.
+    try:
+        from app.domain import buyer_api_service
+        buyer_api_service.sync_order_delivery(order_id)
+    except Exception:
+        # Supplier delivery must remain successful even if the API cache is stale.
+        log.exception("Buyer API delivery cache sync failed for order #%s", order_id)
     return items

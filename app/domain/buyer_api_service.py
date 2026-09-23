@@ -24,6 +24,7 @@ RATE_LIMITS = {
     "products_key": 10,
     "balance_key": 30,
     "purchase_key": 5,
+    "status_key": 30,
     "auth_ip": 15,
 }
 
@@ -256,6 +257,16 @@ def authenticate(raw_key: str, client_ip: str, endpoint: str) -> dict[str, Any]:
     return key
 
 
+def authenticate_bearer(
+    authorization: str, client_ip: str, endpoint: str
+) -> dict[str, Any]:
+    """Authenticate the standard Authorization: Bearer <key> credential."""
+    scheme, separator, raw_key = str(authorization or "").strip().partition(" ")
+    if not separator or scheme.lower() != "bearer" or not raw_key.strip():
+        return authenticate("", client_ip, endpoint)
+    return authenticate(raw_key.strip(), client_ip, endpoint)
+
+
 def _requester(key: dict[str, Any]) -> dict[str, Any]:
     user = db.get_conn().users.find_one({"telegram_id": key["user_id"]}) or {}
     name = (
@@ -344,6 +355,97 @@ def _delivery_for_order(order: dict[str, Any]) -> list[str]:
     return inventory_service.delivered_content(int(order["id"]))
 
 
+def _delivery_items_for_order(order: dict[str, Any]) -> list[str]:
+    """Return the final API delivery without exposing encrypted storage markers."""
+    stored = str(order.get("delivery_text") or "").strip()
+    if stored and stored not in {
+        "[encrypted automatic delivery]",
+        "[encrypted reseller delivery]",
+    }:
+        return [stored]
+    return inventory_service.delivered_content(int(order["id"]))
+
+
+def _refresh_purchase(purchase_row: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """Synchronize a cached buyer response with its authoritative order state."""
+    response = dict(purchase_row.get("response") or {})
+    order_id = purchase_row.get("order_id")
+    order = db.get_order(int(order_id)) if order_id is not None else None
+    if not order:
+        return int(purchase_row.get("http_status") or 202), response
+
+    order_status = str(order.get("status") or "")
+    if order_status == "delivered":
+        response.update({
+            "success": True,
+            "orderCode": f"BM-{int(order['id'])}",
+            "status": "delivered",
+            "terminal": True,
+            "deliveredAccounts": _delivery_items_for_order(order),
+        })
+        http_status = 200
+        stored_status = "completed"
+    elif order_status in {"cancelled", "refunded"}:
+        response.update({
+            "status": order_status,
+            "terminal": True,
+            "deliveredAccounts": [],
+        })
+        http_status = 200
+        stored_status = order_status
+    else:
+        response.update({
+            "status": "processing",
+            "terminal": False,
+            "deliveredAccounts": [],
+        })
+        http_status = 202
+        stored_status = "processing_delivery"
+
+    now = int(time.time())
+    response["updatedAt"] = datetime.fromtimestamp(
+        int(order.get("updated_at") or now), UTC
+    ).isoformat()
+    if order.get("delivered_at"):
+        response["deliveredAt"] = datetime.fromtimestamp(
+            int(order["delivered_at"]), UTC
+        ).isoformat()
+    db.get_conn().buyer_api_purchases.update_one(
+        {"buyer_key_id": purchase_row["buyer_key_id"],
+         "idempotency_key": purchase_row["idempotency_key"]},
+        {"$set": {
+            "status": stored_status,
+            "http_status": http_status,
+            "response": response,
+            "updated_at": now,
+        }},
+    )
+    return http_status, response
+
+
+def sync_order_delivery(order_id: int) -> None:
+    """Persist final delivery data for an order created through the buyer API."""
+    row = db.get_conn().buyer_api_purchases.find_one({"order_id": int(order_id)})
+    if row:
+        _refresh_purchase(row)
+
+
+def order_status(key: dict[str, Any], order_code: str) -> dict[str, Any]:
+    """Return one order owned by the authenticated buyer key."""
+    match = re.fullmatch(r"BM-([1-9][0-9]*)", str(order_code or "").strip(), re.IGNORECASE)
+    if not match:
+        raise BuyerApiError(400, "INVALID_ORDER_CODE", "orderCode must use the BM-123 format.")
+    row = db.get_conn().buyer_api_purchases.find_one({
+        "buyer_key_id": int(key["id"]),
+        "order_id": int(match.group(1)),
+    })
+    if not row:
+        # Do not reveal whether an order belonging to another buyer exists.
+        raise BuyerApiError(404, "ORDER_NOT_FOUND", "Order not found.")
+    _http_status, response = _refresh_purchase(row)
+    return response
+
+
 def purchase(
     key: dict[str, Any],
     *,
@@ -373,7 +475,8 @@ def purchase(
                 "This Idempotency-Key was already used for a different request.",
             )
         if existing.get("response") and existing.get("http_status"):
-            return int(existing["http_status"]), existing["response"], True
+            status, response = _refresh_purchase(existing)
+            return status, response, True
         raise BuyerApiError(409, "PURCHASE_IN_PROGRESS", "This purchase is already in progress.")
 
     now = int(time.time())
@@ -434,6 +537,7 @@ def purchase(
             )
         delivered = list(payment.get("delivered_content") or [])
         final_order = db.get_order(int(order["id"])) or order
+        response_time = int(final_order.get("updated_at") or time.time())
         response = {
             "success": True,
             "walletCurrency": CURRENCY,
@@ -444,8 +548,14 @@ def purchase(
             "amountText": f"{float(final_order.get('wallet_amount') or 0):.2f} {CURRENCY}",
             "balance": balance(key)["balance"],
             "status": "delivered" if delivered else "processing",
+            "terminal": bool(delivered),
             "deliveredAccounts": delivered,
+            "updatedAt": datetime.fromtimestamp(response_time, UTC).isoformat(),
         }
+        if final_order.get("delivered_at"):
+            response["deliveredAt"] = datetime.fromtimestamp(
+                int(final_order["delivered_at"]), UTC
+            ).isoformat()
         http_status = 200 if delivered else 202
         conn.buyer_api_purchases.update_one(
             identity,

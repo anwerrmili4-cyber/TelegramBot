@@ -8,7 +8,6 @@ import time
 from contextlib import contextmanager
 from http.server import HTTPServer
 from urllib.error import HTTPError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pytest
@@ -155,6 +154,75 @@ def test_purchase_charges_and_delivers_exactly_once(mock_mongodb):
     assert mock_mongodb.inventory.count_documents({"status": "delivered"}) == 1
 
 
+def test_processing_purchase_becomes_available_through_status_and_replay(
+    monkeypatch, mock_mongodb,
+):
+    _issued, key, offer_id = _buyer_with_product(mock_mongodb)
+
+    def defer_delivery(order_id, _user_id):
+        mock_mongodb.orders.update_one(
+            {"id": order_id},
+            {"$set": {"status": "payment_confirmed", "updated_at": int(time.time())}},
+        )
+        return {"status": "confirmed_no_delivery", "delivered_content": None}
+
+    monkeypatch.setattr(
+        buyer_api_service.payment_service, "confirm_wallet_order", defer_delivery
+    )
+    status, pending, replayed = buyer_api_service.purchase(
+        key,
+        product_id=str(offer_id),
+        quantity=1,
+        idempotency_key="partner-order-pending-001",
+    )
+
+    assert status == 202
+    assert replayed is False
+    assert pending["status"] == "processing"
+    assert pending["terminal"] is False
+
+    order_id = int(pending["orderCode"].removeprefix("BM-"))
+    delivered = buyer_api_service.order_service.manual_deliver_order(
+        order_id, "ready-user:ready-pass"
+    )
+    current = buyer_api_service.order_status(key, pending["orderCode"])
+    replay_status, replay, replayed = buyer_api_service.purchase(
+        key,
+        product_id=str(offer_id),
+        quantity=1,
+        idempotency_key="partner-order-pending-001",
+    )
+
+    assert delivered["status"] == "delivered"
+    assert current["status"] == "delivered"
+    assert current["terminal"] is True
+    assert current["deliveredAccounts"] == ["ready-user:ready-pass"]
+    assert replay_status == 200
+    assert replayed is True
+    assert replay == current
+
+
+def test_order_status_is_scoped_to_the_key_that_created_it(mock_mongodb):
+    _issued, owner_key, offer_id = _buyer_with_product(mock_mongodb)
+    _status, purchase, _replayed = buyer_api_service.purchase(
+        owner_key,
+        product_id=str(offer_id),
+        quantity=1,
+        idempotency_key="partner-order-private-001",
+    )
+    db.upsert_user(99, "other", "Other")
+    other_issued = buyer_api_service.create_key(99, label="Other buyer")
+    other_key = buyer_api_service.authenticate(
+        other_issued["key"], "127.0.0.99", "status"
+    )
+
+    with pytest.raises(buyer_api_service.BuyerApiError) as error:
+        buyer_api_service.order_status(other_key, purchase["orderCode"])
+
+    assert error.value.status == 404
+    assert error.value.code == "ORDER_NOT_FOUND"
+
+
 def test_idempotency_key_cannot_be_reused_for_another_request(mock_mongodb):
     _issued, key, offer_id = _buyer_with_product(mock_mongodb)
     buyer_api_service.purchase(
@@ -246,24 +314,35 @@ def test_swagger_and_openapi_are_public():
     assert "SwaggerUIBundle" in swagger
     assert spec["info"]["title"] == "BlackMarket Buyer API"
     assert "/api/v2/telegram-buyer/purchase" in spec["paths"]
+    assert "/api/v2/telegram-buyer/orders/{orderCode}" in spec["paths"]
+    assert spec["components"]["securitySchemes"]["BuyerKeyAuth"]["scheme"] == "bearer"
+    purchase_schema = spec["components"]["schemas"]["PurchaseRequest"]
+    assert "key" not in purchase_schema["properties"]
 
 
 def test_http_catalog_balance_and_idempotent_purchase(mock_mongodb):
     issued, _key, offer_id = _buyer_with_product(mock_mongodb)
-    query = urlencode({"key": issued["key"]})
+    authorization = {"Authorization": f"Bearer {issued['key']}"}
 
     with running_server() as base_url:
         with urlopen(
-            f"{base_url}/api/v2/telegram-buyer/products?{query}", timeout=5
+            Request(
+                f"{base_url}/api/v2/telegram-buyer/products",
+                headers=authorization,
+            ),
+            timeout=5,
         ) as response:
             catalog = json.load(response)
         with urlopen(
-            f"{base_url}/api/v2/telegram-buyer/balance?{query}", timeout=5
+            Request(
+                f"{base_url}/api/v2/telegram-buyer/balance",
+                headers=authorization,
+            ),
+            timeout=5,
         ) as response:
             wallet = json.load(response)
 
         body = json.dumps({
-            "key": issued["key"],
             "product_id": str(offer_id),
             "quantity": 1,
         }).encode()
@@ -273,6 +352,7 @@ def test_http_catalog_balance_and_idempotent_purchase(mock_mongodb):
             headers={
                 "Content-Type": "application/json",
                 "Idempotency-Key": "http-partner-order-001",
+                **authorization,
             },
             method="POST",
         )
@@ -290,11 +370,50 @@ def test_http_catalog_balance_and_idempotent_purchase(mock_mongodb):
     assert second_replay_header == "true"
 
 
+def test_http_order_status_returns_delivery_for_authenticated_owner(mock_mongodb):
+    issued, _key, offer_id = _buyer_with_product(mock_mongodb)
+    body = json.dumps({
+        "product_id": str(offer_id),
+        "quantity": 1,
+    }).encode()
+
+    with running_server() as base_url:
+        request = Request(
+            f"{base_url}/api/v2/telegram-buyer/purchase",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "http-order-status-001",
+                "Authorization": f"Bearer {issued['key']}",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=5) as response:
+            purchase = json.load(response)
+        with urlopen(
+            Request(
+                f"{base_url}/api/v2/telegram-buyer/orders/{purchase['orderCode']}",
+                headers={"Authorization": f"Bearer {issued['key']}"},
+            ),
+            timeout=5,
+        ) as response:
+            status = json.load(response)
+            cache_control = response.headers["Cache-Control"]
+
+    assert status["status"] == "delivered"
+    assert status["terminal"] is True
+    assert status["deliveredAccounts"] == ["user1:pass1"]
+    assert cache_control == "no-store"
+
+
 def test_http_invalid_key_is_safe(mock_mongodb):
     with running_server() as base_url:
         try:
             urlopen(
-                f"{base_url}/api/v2/telegram-buyer/balance?key=tgb_{'0' * 48}",
+                Request(
+                    f"{base_url}/api/v2/telegram-buyer/balance",
+                    headers={"Authorization": f"Bearer tgb_{'0' * 48}"},
+                ),
                 timeout=5,
             )
         except HTTPError as exc:
@@ -308,3 +427,33 @@ def test_http_invalid_key_is_safe(mock_mongodb):
         "code": "INVALID_API_KEY",
         "message": "Invalid API key.",
     }
+
+
+def test_http_rejects_legacy_query_and_body_credentials(mock_mongodb):
+    issued, _key, offer_id = _buyer_with_product(mock_mongodb)
+
+    with running_server() as base_url:
+        legacy_urls = [
+            f"{base_url}/api/v2/telegram-buyer/balance?key={issued['key']}",
+        ]
+        purchase = Request(
+            f"{base_url}/api/v2/telegram-buyer/purchase",
+            data=json.dumps({
+                "key": issued["key"],
+                "product_id": str(offer_id),
+                "quantity": 1,
+            }).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "legacy-body-key-001",
+            },
+            method="POST",
+        )
+        for request in [*legacy_urls, purchase]:
+            with pytest.raises(HTTPError) as error:
+                urlopen(request, timeout=5)
+            payload = json.load(error.value)
+            assert error.value.code == 400
+            assert payload["code"] == "API_KEY_LOCATION_NOT_ALLOWED"
+
+    assert mock_mongodb.orders.count_documents({"source": "buyer_api"}) == 0

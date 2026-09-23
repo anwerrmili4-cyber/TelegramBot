@@ -1043,8 +1043,20 @@ def test_reseller_api_stays_in_profile_and_dashboard(mock_mongodb):
     assert "reseller_api" not in home_callbacks
     assert "reseller_api" in profile_callbacks
     assert create_keyboard.inline_keyboard[0][0].callback_data == "reseller_api_create"
-    assert create_keyboard.inline_keyboard[1][0].url == "https://shop.example/api/swagger"
+    assert create_keyboard.inline_keyboard[1][0].callback_data == "reseller_api_setup"
+    assert create_keyboard.inline_keyboard[2][0].url == "https://shop.example/api/swagger"
     assert active_keyboard.inline_keyboard[0][0].callback_data == "reseller_api_regen"
+
+    setup_keyboard = kb.reseller_api_setup_keyboard(
+        "en",
+        api_base_url="https://shop.example/api/v2/telegram-buyer",
+        docs_url="https://shop.example/api/swagger",
+    )
+    assert setup_keyboard.inline_keyboard[0][0].copy_text.text == (
+        "https://shop.example/api/v2/telegram-buyer"
+    )
+    assert setup_keyboard.inline_keyboard[1][0].url == "https://shop.example/api/swagger"
+    assert setup_keyboard.inline_keyboard[2][0].callback_data == "reseller_api"
 
 
 def test_admin_panel_has_persistent_maintenance_toggle(mock_mongodb):

@@ -575,6 +575,13 @@ def manual_deliver_order(order_id: int, content: str) -> dict | None:
     if result.matched_count != 1:
         return None
     db.audit_event("order.manual_delivered", details={"order_id": order_id})
+    # Keep asynchronous Buyer API responses in sync with manual fulfillment.
+    try:
+        from app.domain import buyer_api_service
+        buyer_api_service.sync_order_delivery(order_id)
+    except Exception:
+        # Delivery already succeeded; the status endpoint can repair the cache.
+        log.exception("Buyer API delivery cache sync failed for order #%s", order_id)
     return db.get_order(order_id)
 
 

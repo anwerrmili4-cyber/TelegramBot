@@ -23,12 +23,13 @@ def openapi_document() -> dict:
         "openapi": "3.0.3",
         "info": {
             "title": "BlackMarket Buyer API",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "description": (
                 "Wallet-funded reseller API. Telegram users can create their own key "
                 "from the bot's Reseller API dashboard. "
                 "Purchases require a unique Idempotency-Key and use the wallet attached "
-                "to the key's Telegram user."
+                "to the key's Telegram user. Send the API key on every protected request "
+                "as Authorization: Bearer <API_KEY>; never place it in a URL or JSON body."
             ),
         },
         "servers": [{"url": base_url}],
@@ -36,7 +37,7 @@ def openapi_document() -> dict:
             "/api/v2/telegram-buyer/products": {
                 "get": {
                     "summary": "List products available to the buyer key",
-                    "parameters": [{"$ref": "#/components/parameters/BuyerKey"}],
+                    "security": [{"BuyerKeyAuth": []}],
                     "responses": {
                         "200": {
                             "description": "Available product catalogue",
@@ -52,7 +53,7 @@ def openapi_document() -> dict:
             "/api/v2/telegram-buyer/balance": {
                 "get": {
                     "summary": "Get the wallet balance attached to the buyer key",
-                    "parameters": [{"$ref": "#/components/parameters/BuyerKey"}],
+                    "security": [{"BuyerKeyAuth": []}],
                     "responses": {
                         "200": {
                             "description": "Current wallet balance",
@@ -68,6 +69,7 @@ def openapi_document() -> dict:
             "/api/v2/telegram-buyer/purchase": {
                 "post": {
                     "summary": "Purchase a product using wallet balance",
+                    "security": [{"BuyerKeyAuth": []}],
                     "parameters": [{
                         "name": "Idempotency-Key",
                         "in": "header",
@@ -102,14 +104,54 @@ def openapi_document() -> dict:
                     },
                 },
             },
+            "/api/v2/telegram-buyer/orders/{orderCode}": {
+                "get": {
+                    "summary": "Get purchase status and completed delivery",
+                    "security": [{"BuyerKeyAuth": []}],
+                    "description": (
+                        "Use this endpoint when POST /purchase returns HTTP 202 with "
+                        "status=processing. Poll no more often than every 5 seconds. "
+                        "Stop when terminal=true. The API key can access only orders "
+                        "created with that same key."
+                    ),
+                    "parameters": [
+                        {"$ref": "#/components/parameters/OrderCode"},
+                    ],
+                    "responses": {
+                        "200": {
+                            "description": (
+                                "Current order state. A processing response includes a "
+                                "Retry-After: 5 header; deliveredAccounts is populated "
+                                "when status becomes delivered."
+                            ),
+                            "content": {"application/json": {"schema": {
+                                "$ref": "#/components/schemas/PurchaseResponse"
+                            }}},
+                        },
+                        "400": {"$ref": "#/components/responses/BadRequest"},
+                        "401": {"$ref": "#/components/responses/Unauthorized"},
+                        "404": {"$ref": "#/components/responses/NotFound"},
+                        "429": {"$ref": "#/components/responses/RateLimited"},
+                    },
+                },
+            },
         },
         "components": {
+            "securitySchemes": {
+                "BuyerKeyAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "Buyer API key",
+                    "description": "API key issued by the Telegram Reseller API dashboard.",
+                },
+            },
             "parameters": {
-                "BuyerKey": {
-                    "name": "key",
-                    "in": "query",
+                "OrderCode": {
+                    "name": "orderCode",
+                    "in": "path",
                     "required": True,
-                    "schema": {"type": "string", "example": "tgb_0123456789abcdef..."},
+                    "schema": {"type": "string", "pattern": "^BM-[1-9][0-9]*$"},
+                    "example": "BM-123",
                 },
             },
             "schemas": {
@@ -151,9 +193,8 @@ def openapi_document() -> dict:
                 },
                 "PurchaseRequest": {
                     "type": "object",
-                    "required": ["key", "product_id", "quantity"],
+                    "required": ["product_id", "quantity"],
                     "properties": {
-                        "key": {"type": "string", "example": "tgb_0123456789abcdef..."},
                         "product_id": {"type": "string", "example": "12"},
                         "quantity": {"type": "integer", "minimum": 1, "maximum": 100},
                     },
@@ -167,8 +208,17 @@ def openapi_document() -> dict:
                         "quantity": {"type": "integer"},
                         "amount": {"type": "number", "format": "double"},
                         "balance": {"type": "number", "format": "double"},
-                        "status": {"type": "string", "enum": ["delivered", "processing"]},
+                        "status": {
+                            "type": "string",
+                            "enum": ["delivered", "processing", "cancelled", "refunded"],
+                        },
+                        "terminal": {
+                            "type": "boolean",
+                            "description": "Stop polling when true.",
+                        },
                         "deliveredAccounts": {"type": "array", "items": {"type": "string"}},
+                        "updatedAt": {"type": "string", "format": "date-time"},
+                        "deliveredAt": {"type": "string", "format": "date-time"},
                     },
                 },
                 "Error": error_schema,

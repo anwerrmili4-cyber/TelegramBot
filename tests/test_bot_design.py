@@ -62,6 +62,28 @@ from bot import (
 from i18n import t
 
 
+def test_reseller_api_setup_guide_contains_complete_integration_contract(monkeypatch):
+    from bot import reseller_api_setup_text
+
+    monkeypatch.setattr(
+        "bot.public_base_url_from_environment", lambda: "https://shop.example"
+    )
+
+    guide = reseller_api_setup_text("en")
+
+    assert "https://shop.example/api/v2/telegram-buyer" in guide
+    assert "Authorization: Bearer &lt;API_KEY&gt;" in guide
+    assert "GET /products" in guide
+    assert "GET /balance" in guide
+    assert "POST /purchase" in guide
+    assert "GET /orders/BM-123" in guide
+    assert "Idempotency-Key" in guide
+    assert "deliveredAccounts" in guide
+    assert "terminal=true" in guide
+    assert "Retry-After" in guide
+    assert "https://shop.example/api/swagger" in guide
+
+
 @pytest.mark.parametrize(("code", "expected"), [
     ("not_found", "Transaction not found"),
     ("wrong_currency", "Unsupported deposit currency"),
@@ -388,7 +410,10 @@ def test_admin_can_create_method_without_image_and_activate_only_after_content(
         SimpleNamespace(callback_query=query),
         SimpleNamespace(),
     ))
-    assert PENDING.get(admin_id) == ("adm_addoff_image", service_id)
+    pending = PENDING.get(admin_id)
+    assert pending[0] == "adm_addoff_name"
+    assert pending[1]["service_id"] == service_id
+    assert pending[1]["photo_file_id"] == ""
 
     def send_text(value):
         message = SimpleNamespace(text=value, reply_text=AsyncMock())
@@ -399,8 +424,6 @@ def test_admin_can_create_method_without_image_and_activate_only_after_content(
         ))
         return message
 
-    send_text("skip")
-    assert PENDING.get(admin_id)[0] == "adm_addoff_name"
     send_text("Python automation method")
     assert PENDING.get(admin_id)[0] == "adm_addoff_description"
     send_text("Step-by-step automation instructions")
@@ -1809,10 +1832,8 @@ def test_inline_home_avoids_actions_repeated_in_profile():
     keyboard = kb.home_keyboard("fr", user_id=42)
     callbacks = {button.callback_data for row in keyboard.inline_keyboard for button in row}
 
-    assert {"catalog", "topup", "account", "reseller_api", "affiliate", "support", "language"} <= callbacks
-    assert "lovable" not in callbacks
-    assert "orders" not in callbacks
-    assert "help" not in callbacks
+    assert {"catalog", "topup", "account", "support", "language"} <= callbacks
+    assert {"reseller_api", "affiliate", "lovable", "orders", "help"}.isdisjoint(callbacks)
 
 
 def test_top_selling_products_are_ranked_and_rendered_with_premium_emoji(monkeypatch):

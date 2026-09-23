@@ -47,7 +47,8 @@ BUTTON_TEXT_KEYS = {
     "btn_cancel", "btn_continue_payment", "btn_new_order", "btn_reply_manual_order",
     "btn_codex_number_agree",
     "reseller_api_create", "reseller_api_regenerate", "reseller_api_confirm_regenerate",
-    "reseller_api_docs", "reseller_api_refresh", "reseller_api_cancel",
+    "reseller_api_docs", "reseller_api_setup", "reseller_api_copy_base",
+    "reseller_api_refresh", "reseller_api_cancel",
     "affiliate_copy", "affiliate_share", "orders_all", "btn_join_channel", "btn_join_group",
     "btn_verify_join", "btn_channel_buy_now",
 }
@@ -872,11 +873,24 @@ def reseller_api_keyboard(lang, *, has_key, docs_url):
             lang, "reseller_api_create", callback_data="reseller_api_create", style="success",
         )])
     rows.extend([
+        [translated_button(lang, "reseller_api_setup", callback_data="reseller_api_setup")],
         [translated_button(lang, "reseller_api_docs", url=docs_url)],
         [translated_button(lang, "reseller_api_refresh", callback_data="reseller_api")],
         [translated_button(lang, "btn_main_menu", callback_data="home")],
     ])
     return InlineKeyboardMarkup(rows)
+
+
+def reseller_api_setup_keyboard(lang, *, api_base_url, docs_url):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            t(lang, "reseller_api_copy_base"),
+            copy_text=CopyTextButton(api_base_url),
+            style="primary",
+        )],
+        [translated_button(lang, "reseller_api_docs", url=docs_url)],
+        [translated_button(lang, "btn_back", callback_data="reseller_api")],
+    ])
 
 
 def reseller_api_regenerate_keyboard(lang):
