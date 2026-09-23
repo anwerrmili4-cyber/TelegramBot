@@ -344,6 +344,25 @@ def test_ticket_search_uses_full_collection(mock_mongodb):
     assert [item["id"] for item in result["items"]] == [4]
 
 
+def test_ticket_category_filter_separates_product_requests(mock_mongodb):
+    mock_mongodb.support_tickets.insert_many([
+        {"id": 10, "user_id": 1, "category": "catalog_request", "status": "waiting_admin", "message": "Je cherche un abonnement design", "updated_at": 3},
+        {"id": 11, "user_id": 2, "category": "catalog_request", "status": "closed", "message": "Produit trouvé", "updated_at": 2},
+        {"id": 12, "user_id": 3, "category": "payment", "status": "waiting_admin", "message": "Paiement", "updated_at": 1},
+    ])
+
+    result = dashboard_api.list_tickets({"category": ["catalog_request"]})
+
+    assert [item["id"] for item in result["items"]] == [10, 11]
+    assert result["summary"] == {
+        "total": 2,
+        "actionable": 1,
+        "waiting_admin": 1,
+        "waiting_customer": 0,
+        "completed": 1,
+    }
+
+
 def test_inventory_never_exposes_encrypted_payload(mock_mongodb):
     mock_mongodb.inventory.insert_one({
         "offer_id": 4,

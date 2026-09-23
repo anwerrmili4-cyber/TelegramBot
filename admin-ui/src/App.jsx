@@ -46,6 +46,7 @@ const NAV_GROUPS = [
     { id: "orders", label: "Commandes", icon: ClipboardList },
     { id: "customers", label: "Clients", icon: Users },
     { id: "support", label: "Support", icon: Headphones },
+    { id: "product-requests", label: "Demandes produits", icon: PackageSearch },
     { id: "warranties", label: "Garanties", icon: ShieldCheck },
   ] },
   { label: "Catalogue & finance", items: [
@@ -120,6 +121,7 @@ function initials(value = "BM") {
 function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const pendingOrders = data?.summary?.pending_orders || 0;
   const openTickets = data?.summary?.open_tickets || 0;
+  const productRequests = data?.summary?.product_requests || 0;
   const navItems = BOT_NAV_ITEMS;
 
   return (
@@ -138,7 +140,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
 
         <nav className="nav-list" aria-label="Navigation principale">
           {NAV_GROUPS.map((group) => <div className="nav-group" key={group.label}><span className="nav-heading">{group.label}</span>{group.items.map(({ id, label, icon: Icon }) => {
-            const count = id === "orders" ? pendingOrders : id === "support" ? openTickets : 0;
+            const count = id === "orders" ? pendingOrders : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
         </nav>
@@ -189,7 +191,7 @@ function SearchDialog({ data, onClose, onNavigate }) {
     const orders = (data.orders || []).filter((item) => `${item.id} ${item.user_id} ${item.username || ""} ${item.offer_name || ""} ${item.service_name || ""} ${item.txid || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `order-${item.id}`, title: `Commande #${item.id}`, detail: item.txid ? `${item.offer_name || "Produit"} · TXID ${item.txid}` : item.offer_name || `Client ${item.user_id}`, page: "orders", icon: ClipboardList }));
     const customers = (data.users || []).filter((item) => `${item.telegram_id || item.user_id || ""} ${item.username || ""} ${item.first_name || ""} ${item.last_name || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `customer-${item.telegram_id || item.user_id}`, title: item.username ? `@${item.username}` : `Client ${item.telegram_id || item.user_id}`, detail: [item.first_name, item.last_name].filter(Boolean).join(" ") || "Client Telegram", page: "customers", icon: Users }));
     const services = (data.services || []).filter((item) => `${item.name || ""} ${(item.offers || []).map((offer) => `${offer.name} ${offer.supplier_provider || ""}`).join(" ")}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `service-${item.id}`, title: item.name, detail: `${item.offer_count || 0} offre(s)`, page: "catalog", icon: ShoppingBag }));
-    const tickets = (data.tickets || []).filter((item) => `${item.id} ${item.user_id} ${item.category || ""} ${item.message || ""}`.toLowerCase().includes(normalized)).slice(0, 3).map((item) => ({ id: `ticket-${item.id}`, title: `Ticket #${item.id}`, detail: item.category || `Client ${item.user_id}`, page: "support", icon: Headphones }));
+    const tickets = (data.tickets || []).filter((item) => `${item.id} ${item.user_id} ${item.category || ""} ${item.message || ""}`.toLowerCase().includes(normalized)).slice(0, 3).map((item) => ({ id: `ticket-${item.id}`, entityId: item.id, title: item.category === "catalog_request" ? `Demande produit #${item.id}` : `Ticket #${item.id}`, detail: item.message || item.category || `Client ${item.user_id}`, page: item.category === "catalog_request" ? "product-requests" : "support", icon: item.category === "catalog_request" ? PackageSearch : Headphones }));
     return [...orders, ...customers, ...services, ...tickets].slice(0, 10);
   }, [data, normalized]);
 
@@ -206,8 +208,8 @@ function SearchDialog({ data, onClose, onNavigate }) {
         <div className="search-results">
           {!normalized && <div className="search-empty"><Search size={25} /><strong>Recherche globale</strong><span>Saisissez un nom, un identifiant, un TXID, un produit ou un ticket.</span></div>}
           {normalized && results.length === 0 && <div className="search-empty"><strong>Aucun résultat</strong><span>Essayez un autre terme de recherche.</span></div>}
-          {results.map(({ id, title, detail, page, icon: Icon }) => (
-            <button key={id} onClick={() => { onNavigate(page); onClose(); }}><span><Icon size={17} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={16} /></button>
+          {results.map(({ id, entityId, title, detail, page, icon: Icon }) => (
+            <button key={id} onClick={() => { onNavigate(page, entityId); onClose(); }}><span><Icon size={17} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={16} /></button>
           ))}
         </div>
         <footer><span>↵ ouvrir</span><span>Échap fermer</span></footer>
@@ -648,6 +650,8 @@ export default function App() {
         ? `?order=${encodeURIComponent(entityId)}`
         : page === "support" && entityId != null
           ? `?ticket=${encodeURIComponent(entityId)}`
+          : page === "product-requests" && entityId != null
+            ? `?request=${encodeURIComponent(entityId)}`
           : page === "customers" && entityId != null
             ? `?user=${encodeURIComponent(entityId)}`
           : page === "withdrawals" && entityId != null

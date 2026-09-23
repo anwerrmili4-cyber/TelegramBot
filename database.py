@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -318,6 +318,7 @@ def init_db():
     db.interaction_events.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
     db.interaction_events.create_index([("interaction_type", ASCENDING), ("created_at", DESCENDING)])
     db.support_tickets.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+    db.support_tickets.create_index([("category", ASCENDING), ("status", ASCENDING), ("updated_at", DESCENDING)])
     db.support_tickets.create_index("user_id")
     db.ticket_messages.create_index([("ticket_id", ASCENDING), ("created_at", ASCENDING)])
     db.support_tickets.create_index("channel_message_ids")
@@ -2391,7 +2392,14 @@ def dashboard_data():
     conversion_rate = round((paid_orders / total_orders * 100) if total_orders else 0, 1)
 
     # --- Tickets ---
-    open_tickets = db.support_tickets.count_documents({"status": {"$nin": ["closed", "resolved"]}})
+    open_tickets = db.support_tickets.count_documents({
+        "category": {"$ne": "catalog_request"},
+        "status": {"$nin": ["closed", "resolved"]},
+    })
+    product_requests = db.support_tickets.count_documents({
+        "category": "catalog_request",
+        "status": {"$nin": ["closed", "resolved"]},
+    })
 
     # --- Inventory & stock ---
     available_inventory = db.inventory.count_documents({"status": "available"})
@@ -2422,9 +2430,22 @@ def dashboard_data():
     if old_pending:
         alerts.append({"type": "old_pending", "message": f"{old_pending} commande(s) en attente depuis plus d'1h", "severity": "warning"})
 
-    unanswered_tickets = db.support_tickets.count_documents({"status": "waiting_admin"})
+    unanswered_tickets = db.support_tickets.count_documents({
+        "category": {"$ne": "catalog_request"},
+        "status": "waiting_admin",
+    })
     if unanswered_tickets:
         alerts.append({"type": "unanswered_tickets", "message": f"{unanswered_tickets} ticket(s) sans réponse", "severity": "warning"})
+    unanswered_product_requests = db.support_tickets.count_documents({
+        "category": "catalog_request",
+        "status": "waiting_admin",
+    })
+    if unanswered_product_requests:
+        alerts.append({
+            "type": "product_requests",
+            "message": f"{unanswered_product_requests} demande(s) de produit à examiner",
+            "severity": "warning",
+        })
 
     paid_not_delivered = db.orders.count_documents(customer_order_query({
         "status": {"$in": ["paid", "payment_confirmed", "preparing_delivery"]},
@@ -2511,6 +2532,7 @@ def dashboard_data():
         ),
         "conversion_rate": conversion_rate,
         "open_tickets": open_tickets,
+        "product_requests": product_requests,
         "low_stock_offers": len(low_stock_offers),
         "available_inventory": available_inventory,
         "failed_payments": failed_payments,

@@ -228,10 +228,11 @@ function Conversation({ ticket, onAction, onArchive, onBack, onNavigate, draft, 
 
 function UserInitial({ ticket }) { return String(ticket.full_name || ticket.username || ticket.user_id || "C").slice(0, 2).toUpperCase(); }
 
-export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction, onNavigate, writeToken }) {
+export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction, onNavigate, writeToken, variant = "support", showBulkActions = true }) {
   const [selected, setSelected] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [bulkBusy, setBulkBusy] = useState(false);
+  const isProductRequests = variant === "product-requests";
   useEffect(() => {
     setSelected((previous) => result.items.find((item) => item.id === previous?.id) || previous);
   }, [result.items]);
@@ -254,16 +255,16 @@ export default function SupportInbox({ result, loading, search, setSearch, statu
   return <div className="support-page">
     <div className={`support-inbox ${current ? "has-conversation" : ""}`}>
       <aside className="support-sidebar" aria-label="Conversations">
-        <header><h3>Conversations</h3><span>{result.total}</span></header>
-        {status !== "archived" && <div className="support-bulk-actions"><button disabled={bulkBusy} onClick={() => runBulkAction("close_all_tickets")}><CheckCheck size={14} />Fermer ouverts</button><button disabled={bulkBusy} onClick={() => runBulkAction("tickets_archive_closed")}><Archive size={14} />Archiver fermés</button></div>}
+        <header><h3>{isProductRequests ? "Demandes produits" : "Conversations"}</h3><span>{result.total}</span></header>
+        {showBulkActions && status !== "archived" && <div className="support-bulk-actions"><button disabled={bulkBusy} onClick={() => runBulkAction("close_all_tickets")}><CheckCheck size={14} />Fermer ouverts</button><button disabled={bulkBusy} onClick={() => runBulkAction("tickets_archive_closed")}><Archive size={14} />Archiver fermés</button></div>}
         <div className="support-filters">
-          <label className="support-search"><Search size={17} /><input type="search" aria-label="Rechercher une conversation" placeholder="Rechercher une conversation…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label className="support-search"><Search size={17} /><input type="search" aria-label={isProductRequests ? "Rechercher une demande produit" : "Rechercher une conversation"} placeholder={isProductRequests ? "Rechercher une demande…" : "Rechercher une conversation…"} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <div><select aria-label="Champ de recherche" value={searchField} onChange={(event) => setSearchField(event.target.value)}>{[["all", "Tout rechercher"], ["ticket_id", "ID ticket"], ["user_id", "ID client"], ["category", "Catégorie"], ["message", "Message"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
           <select aria-label="Filtrer les conversations par statut" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Tous les statuts</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}<option value="archived">Archivés</option></select></div>
         </div>
         <div className="support-list" aria-busy={loading}>
           {loading && !result.items.length && <p className="support-notice" role="status">Actualisation…</p>}
-          {!loading && !result.items.length && <div className="support-list-empty"><Search size={26} /><strong>Aucune conversation</strong><p>Essayez une autre recherche ou un autre statut.</p></div>}
+          {!loading && !result.items.length && <div className="support-list-empty"><Search size={26} /><strong>{isProductRequests ? "Aucune demande produit" : "Aucune conversation"}</strong><p>{isProductRequests ? "Les demandes envoyées depuis le catalogue du bot apparaîtront ici." : "Essayez une autre recherche ou un autre statut."}</p></div>}
           {result.items.map((ticket) => <button key={ticket.id} className={`support-contact ${current?.id === ticket.id ? "is-selected" : ""}`} aria-pressed={current?.id === ticket.id} onClick={() => setSelected(ticket)}>
             <span className="support-avatar"><UserInitial ticket={ticket} /></span>
             <span className="support-contact-copy"><span><strong>{customer(ticket)}</strong>{ticket.status === "waiting_admin" && <i aria-label="Réponse attendue" />}</span><small>{plainRichText(ticket.last_message || ticket.message || categories[ticket.category] || ticket.category || "Conversation support")}</small><span className="support-contact-meta"><span>#{ticket.id} · {ticketStatus(ticket)}</span><time>{stamp(ticket.updated_at || ticket.created_at)}</time></span></span>
@@ -271,7 +272,7 @@ export default function SupportInbox({ result, loading, search, setSearch, statu
         </div>
         {pagination}
       </aside>
-      {current ? <Conversation key={current.id} ticket={current} onAction={onAction} onArchive={() => { setSelected(null); window.dispatchEvent(new CustomEvent("admin:data-synced")); }} onBack={() => setSelected(null)} onNavigate={onNavigate} draft={drafts[current.id] || ""} setDraft={(value) => setDrafts((prev) => ({ ...prev, [current.id]: value }))} onStatus={(value) => setSelected({ ...current, status: value })} writeToken={writeToken} /> : <section className="support-welcome"><span><MessageSquareText size={35} /></span><h3>Vos conversations, au même endroit.</h3><p>Sélectionnez un client pour consulter ses messages et lui répondre directement.</p><small><Headphones size={14} /> Support BlackMarket</small></section>}
+      {current ? <Conversation key={current.id} ticket={current} onAction={onAction} onArchive={() => { setSelected(null); window.dispatchEvent(new CustomEvent("admin:data-synced")); }} onBack={() => setSelected(null)} onNavigate={onNavigate} draft={drafts[current.id] || ""} setDraft={(value) => setDrafts((prev) => ({ ...prev, [current.id]: value }))} onStatus={(value) => setSelected({ ...current, status: value })} writeToken={writeToken} /> : <section className="support-welcome"><span>{isProductRequests ? <Sparkles size={35} /> : <MessageSquareText size={35} />}</span><h3>{isProductRequests ? "Transformez les demandes en nouvelles offres." : "Vos conversations, au même endroit."}</h3><p>{isProductRequests ? "Sélectionnez une demande pour comprendre le besoin et répondre directement au client dans Telegram." : "Sélectionnez un client pour consulter ses messages et lui répondre directement."}</p><small>{isProductRequests ? <><Sparkles size={14} /> Veille catalogue</> : <><Headphones size={14} /> Support BlackMarket</>}</small></section>}
     </div>
   </div>;
 }

@@ -15,9 +15,15 @@ CUSTOMERS = [
     {"telegram_id": 102, "username": "demo_alex", "first_name": "Alex", "lang": "en", "created_at": 1787200000, "last_active_at": 1789900000, "wallet_balance": 8, "total_spent": 64, "order_count": 3, "paid_order_count": 3, "referral_count": 0, "ticket_count": 0, "deposit_count": 2, "deposit_total": 72, "last_order_at": 1790000000, "last_order_name": "Outil de productivité", "banned": False},
     {"telegram_id": 103, "username": "demo_nora", "first_name": "Nora", "lang": "fr", "created_at": 1787300000, "last_active_at": 1788000000, "wallet_balance": 0, "total_spent": 0, "order_count": 0, "paid_order_count": 0, "referral_count": 1, "ticket_count": 1, "deposit_count": 0, "deposit_total": 0, "last_order_at": None, "last_order_name": "", "banned": True},
 ]
+TICKETS = [
+    {"id": 84, "user_id": 103, "username": "demo_nora", "first_name": "Nora", "category": "catalog_request", "message": "Je cherche un abonnement de montage vidéo avec stockage cloud.", "last_message": "Je cherche un abonnement de montage vidéo avec stockage cloud.", "status": "waiting_admin", "created_at": 1790000250, "updated_at": 1790000250},
+    {"id": 83, "user_id": 102, "username": "demo_alex", "first_name": "Alex", "category": "catalog_request", "message": "Pouvez-vous ajouter un outil de gestion de projet pour petite équipe ?", "last_message": "Pouvez-vous ajouter un outil de gestion de projet pour petite équipe ?", "status": "waiting_customer", "created_at": 1789998000, "updated_at": 1789999000},
+    {"id": 81, "user_id": 101, "username": "demo_camille", "first_name": "Camille", "category": "delivery", "message": "Question sur la livraison de mon produit", "last_message": "Question sur la livraison de mon produit", "status": "waiting_admin", "created_at": 1789950000, "updated_at": 1790000100},
+]
 NOTIFICATIONS = [
     {"id": "order:1048:manual_review", "category": "order", "severity": "warning", "title": "Paiement à vérifier", "message": "Commande #1048 · @demo_camille · Abonnement créatif", "created_at": 1790000300, "actionable": True, "target": {"page": "orders", "entity_id": 1048}},
     {"id": "ticket:81:waiting_admin", "category": "support", "severity": "warning", "title": "Réponse client attendue", "message": "Ticket #81 · @demo_camille · Question sur la livraison", "created_at": 1790000200, "actionable": True, "target": {"page": "support", "entity_id": 81}},
+    {"id": "ticket:84:waiting_admin", "category": "product_request", "severity": "warning", "title": "Nouveau produit demandé", "message": "Demande #84 · @demo_nora · Abonnement de montage vidéo", "created_at": 1790000250, "actionable": True, "target": {"page": "product-requests", "entity_id": 84}},
     {"id": "offer:7:stock:0", "category": "stock", "severity": "error", "title": "Produit épuisé", "message": "Compte premium annuel · 0 unité disponible", "created_at": 1790000100, "actionable": True, "target": {"page": "inventory", "entity_id": 7}},
     {"id": "topup:31:confirmed", "category": "deposit", "severity": "success", "title": "Dépôt confirmé", "message": "@demo_camille · +50.00 USDT", "created_at": 1789999000, "actionable": False, "target": {"page": "deposits", "entity_id": 31}},
 ]
@@ -57,7 +63,7 @@ class Preview(BaseHTTPRequestHandler):
         params = parse_qs(url.query)
         path = url.path
         if path == "/admin/api/data":
-            self.reply({"shop_name": "Black Market · DÉMO", "preview_mode": True, "currency": "USDT", "bot_username": "demonstration", "summary": {"pending_orders": 1, "open_tickets": 2, "low_stock_offers": 1, "revenue_today": 18, "orders_today": 2, "new_users_today": 1, "available_inventory": 8}, "orders": ORDERS, "services": [], "alerts": [], "users": [], "tickets": []})
+            self.reply({"shop_name": "Black Market · DÉMO", "preview_mode": True, "currency": "USDT", "bot_username": "demonstration", "summary": {"pending_orders": 1, "open_tickets": 1, "product_requests": 2, "low_stock_offers": 1, "revenue_today": 18, "orders_today": 2, "new_users_today": 1, "available_inventory": 8}, "orders": ORDERS, "services": [], "alerts": [], "users": CUSTOMERS, "tickets": TICKETS})
         elif path.endswith("-health"):
             self.reply({"ok": False, "message": "Diagnostic non exécuté dans la prévisualisation locale."}, 503)
         elif path == "/admin/api/reseller-providers":
@@ -72,8 +78,21 @@ class Preview(BaseHTTPRequestHandler):
             if params.get("search"):
                 rows = [x for x in rows if params["search"][0].lower() in json.dumps(x).lower()]
             self.reply({"items": rows, "page": 1, "pages": 1, "total": len(rows)})
+        elif path == "/admin/api/tickets":
+            rows = TICKETS
+            if params.get("category"):
+                rows = [x for x in rows if x.get("category") == params["category"][0]]
+            if params.get("status") and params["status"][0]:
+                rows = [x for x in rows if x.get("status") == params["status"][0]]
+            if params.get("search"):
+                rows = [x for x in rows if params["search"][0].lower() in json.dumps(x).lower()]
+            scoped = [x for x in TICKETS if not params.get("category") or x.get("category") == params["category"][0]]
+            self.reply({"items": rows, "page": 1, "pages": 1, "total": len(rows), "summary": {"total": len(scoped), "actionable": sum(x["status"] in {"open", "waiting_admin"} for x in scoped), "waiting_admin": sum(x["status"] == "waiting_admin" for x in scoped), "waiting_customer": sum(x["status"] == "waiting_customer" for x in scoped), "completed": sum(x["status"] in {"closed", "resolved"} for x in scoped)}})
+        elif path == "/admin/api/ticket-messages":
+            ticket = next((x for x in TICKETS if str(x["id"]) == params.get("ticket_id", [""])[0]), None)
+            self.reply({"messages": [{"id": 1, "sender_type": "client", "content": ticket["message"], "created_at": ticket["created_at"]}] if ticket else []})
         elif path == "/admin/api/notifications":
-            self.reply({"items": NOTIFICATIONS, "generated_at": 1790000300, "poll_after_seconds": 30, "summary": {"total": 4, "critical": 1, "actionable": 3, "information": 1}})
+            self.reply({"items": NOTIFICATIONS, "generated_at": 1790000300, "poll_after_seconds": 30, "summary": {"total": len(NOTIFICATIONS), "critical": 1, "actionable": 4, "information": 1}})
         elif path == "/admin/api/orders" and params.get("detail") == ["1"]:
             row = next((x for x in ORDERS if str(x["id"]) == params.get("order_id", [""])[0]), None)
             self.reply({**row, "customer": {}, "events": [], "inventory": [], "delivery_content": ""} if row else {}, 200 if row else 404)

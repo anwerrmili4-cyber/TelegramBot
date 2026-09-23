@@ -439,12 +439,16 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
     page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
     per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
     query: dict[str, Any] = {}
-    status = _first(params, "status")
-    if status:
-        query["status"] = status
+    category = (_first(params, "category") or "").strip()[:64]
+    if category:
+        query["category"] = category
     user_id = _first(params, "user_id")
     if user_id and user_id.isdigit():
         query["user_id"] = int(user_id)
+    scope_query = dict(query)
+    status = _first(params, "status")
+    if status:
+        query["status"] = status
     search = _first(params, "search")
     if search:
         field = _first(params, "search_field") or "all"
@@ -463,6 +467,13 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
     conn = db.get_conn()
     collection = conn.support_tickets
     total = collection.count_documents(query)
+    summary = {
+        "total": collection.count_documents(scope_query),
+        "actionable": collection.count_documents({**scope_query, "status": {"$in": ["open", "waiting_admin"]}}),
+        "waiting_admin": collection.count_documents({**scope_query, "status": "waiting_admin"}),
+        "waiting_customer": collection.count_documents({**scope_query, "status": "waiting_customer"}),
+        "completed": collection.count_documents({**scope_query, "status": {"$in": ["closed", "resolved"]}}),
+    }
     rows = list(collection.find(query).sort("updated_at", DESCENDING).skip((page - 1) * per_page).limit(per_page))
     user_ids = {int(row["user_id"]) for row in rows if row.get("user_id") is not None}
     users = {
@@ -489,6 +500,7 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
         "per_page": per_page,
         "total": total,
         "pages": max(1, (total + per_page - 1) // per_page),
+        "summary": summary,
     }
 
 
@@ -912,11 +924,14 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
     for ticket in conn.support_tickets.find({"status": {"$in": ["open", "waiting_admin"]}}).sort("updated_at", DESCENDING).limit(0 if complete else 30):
         ticket_id = ticket.get("id")
         ticket_date = ticket.get("updated_at") or ticket.get("created_at")
+        is_product_request = ticket.get("category") == "catalog_request"
         add(
             f"ticket:{ticket_id}:{ticket.get('status')}:{int(_event_timestamp(ticket_date))}",
-            category="support", severity="warning", title="Réponse client attendue",
+            category="product_request" if is_product_request else "support",
+            severity="warning",
+            title="Nouveau produit demandé" if is_product_request else "Réponse client attendue",
             message=f"Ticket #{ticket_id} · {customer_name(ticket.get('user_id'))} · {ticket.get('subject') or ticket.get('category') or ticket.get('message') or 'Nouvelle demande'}",
-            page="support", entity_id=ticket_id,
+            page="product-requests" if is_product_request else "support", entity_id=ticket_id,
             created_at=ticket_date,
         )
 

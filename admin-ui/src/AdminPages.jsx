@@ -3190,6 +3190,54 @@ function SupportPage({ onAction, onNavigate, data }) {
     writeToken={data?.dashboard_write_token || ""} />;
 }
 
+function ProductRequestsPage({ onAction, onNavigate, data }) {
+  const initialRequest = new URLSearchParams(window.location.search).get("request") || "";
+  const [search, setSearch] = useState(initialRequest);
+  const [searchField, setSearchField] = useState(initialRequest ? "ticket_id" : "all");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [targetTicketId, setTargetTicketId] = useState(initialRequest);
+  useEffect(() => {
+    const navigateToRequest = (event) => {
+      if (event.detail?.page !== "product-requests" || event.detail?.entityId == null) return;
+      const id = String(event.detail.entityId);
+      setTargetTicketId(id);
+      setSearchField("ticket_id");
+      setSearch(id);
+      setPage(1);
+    };
+    window.addEventListener("admin:navigate", navigateToRequest);
+    return () => window.removeEventListener("admin:navigate", navigateToRequest);
+  }, []);
+  const [result, loading] = useRemoteList("/admin/api/tickets", {
+    category: "catalog_request", status, search, search_field: searchField, page, per_page: 25,
+  }, { refreshInterval: 4000 });
+  const summary = result.summary || {};
+  return <div className="product-requests-page">
+    <PageHeader
+      eyebrow="Veille catalogue"
+      title="Demandes de produits"
+      description="Centralisez les produits recherchés par vos clients, échangez avec eux dans Telegram et repérez les prochaines offres à ajouter au bot."
+    />
+    <OperationsSummary items={[
+      ["Total demandes", summary.total || 0, "accent"],
+      ["À traiter", summary.actionable || 0, "warning"],
+      ["Réponse client", summary.waiting_customer || 0, "info"],
+      ["Terminées", summary.completed || 0, "success"],
+    ]} />
+    <SupportInbox result={result} loading={loading} search={search}
+      setSearch={(value) => { setSearch(value); setPage(1); }}
+      searchField={searchField} setSearchField={(value) => { setSearchField(value); setPage(1); }}
+      status={status} setStatus={(value) => { setStatus(value); setPage(1); }}
+      targetTicketId={targetTicketId}
+      pagination={<Pagination value={result} onChange={setPage} />} onAction={onAction}
+      onNavigate={onNavigate}
+      writeToken={data?.dashboard_write_token || ""}
+      variant="product-requests"
+      showBulkActions={false} />
+  </div>;
+}
+
 function InteractionsPage({ data }) {
   const analytics = data.interactions || {};
   const summary = analytics.summary || {};
@@ -3785,6 +3833,7 @@ export default function AdminPage({
   if (page === "warranties") return <WarrantiesPage {...props} />;
   if (page === "finance") return <FinancePage {...props} />;
   if (page === "support") return <SupportPage {...props} />;
+  if (page === "product-requests") return <ProductRequestsPage {...props} />;
   if (page === "interactions") return <InteractionsPage {...props} />;
   if (page === "activity") return <ActivityPage {...props} />;
   if (page === "settings") return <SettingsPage {...props} />;
