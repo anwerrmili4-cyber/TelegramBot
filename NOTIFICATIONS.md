@@ -2,7 +2,7 @@
 
 The React dashboard refreshes the operational notification feed every five seconds while visible, on focus and after reconnection. Read state is shared in MongoDB for the single admin account. Device subscriptions and preferences also persist across application restarts.
 
-The Railway entrypoint starts a background worker that scans every five seconds and delivers Web Push even when the dashboard is closed. This is near-real-time polling, not a guarantee of instantaneous delivery. Browser/OS policies and network availability affect delivery. The operational feed remains bounded (200 records, with existing per-category limits); it is not a complete event archive, and a transition completed between scans may not appear.
+The Railway entrypoint starts a background worker that checks a persistent MongoDB notification outbox every five seconds and delivers Web Push even when the dashboard is closed. Alert-producing writes snapshot the complete operational alert set into the outbox when an alert appears, so a state transition completed between worker runs remains eligible for delivery. The worker also reconciles the bounded dashboard feed for alerts that remain active. Browser/OS policies and network availability affect delivery.
 
 ## Deploy and activate
 
@@ -20,13 +20,13 @@ On iPhone, opening the dashboard in a normal Safari tab is not enough: Web Push 
 
 - New enrollment seeds existing alerts without pushing the entire backlog.
 - Category filters, critical-only mode, private lock-screen text and pauses of 1/8/24 hours apply per device. Paused/filtered events are skipped, not replayed when resumed.
-- Successful deliveries are deduplicated per device (last 2,000 identifiers). A crash between provider acceptance and persistence may retry; stable notification tags replace duplicate OS entries.
-- Temporary failures are retried. HTTP 404/410 subscriptions are removed. A per-device lease prevents concurrent replicas from sending the same batch. At most five notifications per device are sent per scan.
+- Successful deliveries and skipped alerts are recorded per device in MongoDB. A crash between provider acceptance and persistence may retry; stable notification tags replace duplicate OS entries.
+- Temporary failures are retried from the outbox even after the alert leaves the live feed. HTTP 404/410 subscriptions are removed. A per-device lease prevents concurrent replicas from sending the same batch. At most five notifications per device are sent per worker run. Outbox entries and delivery records are retained for 30 days.
 - Changing the dashboard password invalidates delivery to existing subscriptions until they are explicitly enabled again. Signing out alone leaves opted-in push active; use “Désactiver” before leaving a shared device. Private lock-screen text is the default.
 - Read markers expire after 30 days. Push routes require admin authentication; mutations additionally require the dashboard write token. Push endpoints are restricted to supported browser providers, redirects are disabled, and no private dashboard data is cached by the service worker.
 
 ## Validation
 
-Automated tests cover two-device fan-out, persistent deduplication, retry, pause/category/critical filters, expired subscriptions, key persistence, password rotation, shared read state, authentication and write protection. Physical phone/PC receipt requires the activation procedure above.
+Automated tests cover two-device fan-out, persistent deduplication, retry, alerts created and resolved between worker runs, pause/category/critical filters, expired subscriptions, key persistence, password rotation, shared read state, authentication and write protection. Physical phone/PC receipt requires the activation procedure above.
 
 References: [MDN Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API), [Apple Web Push](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers).

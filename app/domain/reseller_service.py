@@ -1727,14 +1727,15 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
         "provider": provider,
         "product_id": str(offer["supplier_product_id"]),
     }) or {}
-    purchase_unit_cost = max(0.0, float(product_config.get("wholesale_price") or 0))
-    purchase_cost = {
-        "purchase_unit_cost": round(purchase_unit_cost, 4),
-        "purchase_cost_total": round(purchase_unit_cost * quantity, 4),
-        "purchase_cost_currency": str(product_config.get("currency") or "USDT")[:12],
-        "purchase_cost_source": "catalog_snapshot",
-        "quantity": quantity,
-    }
+    purchase_cost = {"quantity": quantity}
+    if product_config.get("wholesale_price") is not None:
+        purchase_unit_cost = max(0.0, float(product_config["wholesale_price"]))
+        purchase_cost.update({
+            "purchase_unit_cost": round(purchase_unit_cost, 4),
+            "purchase_cost_total": round(purchase_unit_cost * quantity, 4),
+            "purchase_cost_currency": str(product_config.get("currency") or "USDT")[:12],
+            "purchase_cost_source": "catalog_snapshot",
+        })
     try:
         conn.reseller_fulfillments.insert_one({
             "provider": provider,
@@ -1743,6 +1744,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             "supplier_product_id": str(offer["supplier_product_id"]),
             "idempotency_key": supplier_idempotency_key,
             "status": "purchasing",
+            **purchase_cost,
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
         })

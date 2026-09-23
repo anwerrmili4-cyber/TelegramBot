@@ -2638,7 +2638,7 @@ function FinancePage({ data }) {
   const [result, loading] = useRemoteList("/admin/api/finance", { month }, { refreshInterval: 30_000 });
   const totals = result.totals || {};
   const averages = result.averages || {};
-  const days = result.days || [];
+  const days = result.month === month ? result.days || [] : [];
   const currency = result.currency || data.currency || "USDT";
   const monthDate = new Date(`${month}-01T12:00:00Z`);
   const leadingDays = (monthDate.getUTCDay() + 6) % 7;
@@ -2683,7 +2683,8 @@ function FinancePage({ data }) {
         </>}
       </section>
       {selected && <section className="finance-day-detail"><div><span>{new Intl.DateTimeFormat("fr-FR", { dateStyle: "full", timeZone: "UTC" }).format(new Date(`${selected.date}T12:00:00Z`))}</span><strong className={selected.profit < 0 ? "negative" : "positive"}>{money(selected.profit, currency)}</strong></div><dl><div><dt>Ventes</dt><dd>{money(selected.revenue, currency)}</dd></div><div><dt>Coût reseller</dt><dd>{money(selected.cost, currency)}</dd></div><div><dt>Commandes</dt><dd>{selected.orders || 0}</dd></div></dl></section>}
-      {Number(result.cost_quality?.estimated || 0) > 0 && <p className="finance-estimate-note">{result.cost_quality.estimated} ancien(s) achat(s) utilisent le dernier prix fournisseur enregistré. Les nouveaux achats conservent automatiquement leur coût exact.</p>}
+      {Number(result.cost_quality?.estimated || 0) > 0 && <p className="finance-estimate-note">{result.cost_quality.estimated} ancien(s) achat(s) utilisent le dernier prix fournisseur enregistré. Les nouveaux achats conservent automatiquement le prix au moment de l’achat.</p>}
+      {Number(result.cost_quality?.unknown || 0) > 0 && <p className="finance-estimate-note">{result.cost_quality.unknown} achat(s) fournisseur n’ont pas de prix d’achat enregistré. Le profit affiché peut être surestimé.</p>}
     </>
   );
 }

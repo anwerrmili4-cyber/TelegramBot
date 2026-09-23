@@ -324,6 +324,21 @@ def test_react_admin_order_detail_route_serves_spa(monkeypatch):
     assert '<div id="root"></div>' in body
 
 
+def test_react_finance_deep_link_serves_spa(monkeypatch):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
+    encoded = base64.b64encode(b"admin:secret").decode()
+    with running_server() as base_url:
+        request = Request(
+            f"{base_url}/admin/finance",
+            headers={"Authorization": f"Basic {encoded}"},
+        )
+        with urlopen(request, timeout=5) as response:
+            body = response.read().decode()
+
+    assert response.status == 200
+    assert '<div id="root"></div>' in body
+
+
 def test_react_admin_data_includes_scoped_write_token(monkeypatch, mock_mongodb):
     monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
     encoded = base64.b64encode(b"admin:secret").decode()
@@ -339,6 +354,32 @@ def test_react_admin_data_includes_scoped_write_token(monkeypatch, mock_mongodb)
     assert response.status == 200
     assert payload["dashboard_write_token"] == webhook_module.dashboard_write_token()
     assert payload["dashboard_write_token"] != "secret"
+
+
+def test_finance_endpoint_is_authenticated_and_returns_calendar(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
+    mock_mongodb.orders.insert_one({
+        "id": 501, "user_id": 42, "status": "delivered", "total_price": 9,
+        "created_at": 1788350400,  # 2026-09-02 12:00 UTC
+    })
+    with running_server() as base_url:
+        try:
+            urlopen(f"{base_url}/admin/api/finance?month=2026-09", timeout=5)
+            raise AssertionError("Expected authentication error")
+        except HTTPError as exc:
+            assert exc.code == 401
+        encoded = base64.b64encode(b"admin:secret").decode()
+        request = Request(
+            f"{base_url}/admin/api/finance?month=2026-09",
+            headers={"Authorization": f"Basic {encoded}"},
+        )
+        with urlopen(request, timeout=5) as response:
+            payload = json.load(response)
+
+    assert response.status == 200
+    assert payload["month"] == "2026-09"
+    assert payload["totals"]["revenue"] == 9
+    assert next(day for day in payload["days"] if day["date"] == "2026-09-02")["orders"] == 1
 
 
 def test_admin_reseller_clients_endpoint_returns_safe_profiles(monkeypatch, mock_mongodb):

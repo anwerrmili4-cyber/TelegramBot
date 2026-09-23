@@ -165,15 +165,16 @@ def device_action(payload):
         pause = preferences.get("pause_minutes", 0)
         if pause not in (0, 60, 480, 1440):
             raise ValueError("Durée de pause invalide.")
-        from app.web.dashboard_api import list_admin_notifications
-        baseline = [item["id"] for item in list_admin_notifications(200)["items"]]
+        # Capture the current feed before setting the enrollment time. Existing
+        # alerts must not become a new device's first push batch.
+        capture_feed()
         saved_preferences = {"categories": categories, "urgent_only": preferences.get("urgent_only") is True,
                              "private": preferences.get("private", True) is not False,
                              "paused_until": int(time.time()) + pause * 60 if pause else 0}
         devices.update_one({"_id": device_id}, {"$set": {
             "subscription": subscription, "auth_version": _auth_version(), "preferences": saved_preferences,
             "app_origin": _app_origin(payload.get("app_origin")), "updated_at": int(time.time()),
-        }, "$setOnInsert": {"seen": baseline, "lease_until": 0}}, upsert=True)
+        }, "$setOnInsert": {"enrolled_ns": time.time_ns(), "lease_until": 0}}, upsert=True)
         row = devices.find_one({"_id": device_id})
         return {"ok": True, "preferences": saved_preferences, "diagnostics": _diagnostics(row)}
     if action == "test":
@@ -255,26 +256,67 @@ def _send(device, item, *, test=False):
         return False
 
 
-def deliver_pending():
-    """Scan the operational feed once; retain per-device deduplication across restarts."""
+def enqueue_alert(item):
+    """Persist an alert snapshot before its operational state can disappear."""
+    identifier = str(item["id"])
+    conn = db.get_conn()
+    result = conn.admin_notification_outbox.update_one(
+        {"_id": identifier},
+        {"$setOnInsert": {"item": dict(item), "created_at": datetime.now(UTC), "enqueued_ns": time.time_ns()}},
+        upsert=True,
+    )
+    if result.upserted_id is None:
+        return
+    now = int(time.time())
+    for device in conn.admin_push_devices.find({"auth_version": _auth_version()}):
+        preferences = device.get("preferences", {})
+        muted = (preferences.get("paused_until", 0) > now
+                 or item["category"] not in preferences.get("categories", CATEGORIES)
+                 or preferences.get("urgent_only") and item["severity"] != "error")
+        if muted:
+            conn.admin_push_receipts.update_one(
+                {"_id": f'{device["_id"]}:{identifier}'},
+                {"$setOnInsert": {"created_at": datetime.now(UTC)}},
+                upsert=True,
+            )
+
+
+def capture_feed(complete=True):
+    """Reconcile long-lived alerts and snapshot alerts at audited write points."""
     from app.web.dashboard_api import list_admin_notifications
+    for item in list_admin_notifications(200, complete)["items"]:
+        enqueue_alert(item)
+
+
+def deliver_pending():
+    """Deliver durable snapshots with persistent per-device retry and deduplication."""
     devices = db.get_conn().admin_push_devices
     if not devices.count_documents({"auth_version": _auth_version()}):
         return
+    capture_feed(complete=False)
     dismissed = set(dismissed_ids())
-    items = [item for item in list_admin_notifications(200)["items"] if item["id"] not in dismissed]
+    outbox = db.get_conn().admin_notification_outbox
+    receipts = db.get_conn().admin_push_receipts
     for candidate in devices.find({"auth_version": _auth_version()}):
         now = int(time.time())
         device = devices.find_one_and_update({"_id": candidate["_id"], "lease_until": {"$lte": now}},
                                             {"$set": {"lease_until": now + 120}}, return_document=ReturnDocument.AFTER)
         if not device:
             continue
-        seen = set(device.get("seen", []))
         preferences = device.get("preferences", {})
+        legacy_seen = set(device.get("seen", []))
         count = 0
         try:
-            for item in items:
-                if item["id"] in seen:
+            for queued in outbox.find({"enqueued_ns": {"$gt": device.get("enrolled_ns", 0)}}).sort("enqueued_ns", 1):
+                item = queued["item"]
+                receipt_id = f'{device["_id"]}:{item["id"]}'
+                if receipts.find_one({"_id": receipt_id}):
+                    continue
+                if item["id"] in legacy_seen:
+                    receipts.update_one({"_id": receipt_id}, {"$setOnInsert": {"created_at": datetime.now(UTC)}}, upsert=True)
+                    continue
+                if item["id"] in dismissed:
+                    receipts.update_one({"_id": receipt_id}, {"$setOnInsert": {"created_at": datetime.now(UTC)}}, upsert=True)
                     continue
                 muted = (preferences.get("paused_until", 0) > now
                          or item["category"] not in preferences.get("categories", CATEGORIES)
@@ -285,7 +327,7 @@ def deliver_pending():
                     if not _send(device, item):
                         break
                     count += 1
-                devices.update_one({"_id": device["_id"]}, {"$push": {"seen": {"$each": [item["id"]], "$slice": -2000}}})
+                receipts.update_one({"_id": receipt_id}, {"$setOnInsert": {"created_at": datetime.now(UTC)}}, upsert=True)
         finally:
             devices.update_one({"_id": device["_id"]}, {"$set": {"lease_until": 0}})
 
@@ -295,6 +337,15 @@ def worker_loop(stop_event):
         db.get_conn().admin_notification_reads.create_index("expires_at", expireAfterSeconds=0)
     except Exception:
         log.warning("Admin notification read-state index unavailable")
+    for name in ("admin_notification_outbox", "admin_push_receipts"):
+        try:
+            db.get_conn()[name].create_index("created_at", expireAfterSeconds=30 * 86400)
+        except Exception:
+            log.warning("Admin notification retention index unavailable")
+    try:
+        db.get_conn().admin_notification_outbox.create_index("enqueued_ns")
+    except Exception:
+        log.warning("Admin notification queue index unavailable")
     while not stop_event.is_set():
         try:
             deliver_pending()

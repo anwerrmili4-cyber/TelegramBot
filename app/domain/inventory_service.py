@@ -221,6 +221,7 @@ def deliver_for_order(order_id: int) -> list[str] | None:
         log.warning("Commande #%d déjà prise en charge pour livraison", order_id)
         return None
     order = claimed
+    db._capture_admin_notifications()
 
     # Récupérer les éléments réservés
     reserved_items = list(conn.inventory.find(

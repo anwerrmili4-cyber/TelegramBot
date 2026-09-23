@@ -52,7 +52,7 @@ def test_finance_summary_combines_revenue_reseller_costs_and_daily_profit(mock_m
     second_day = int(datetime(2026, 9, 3, 12, tzinfo=UTC).timestamp())
     mock_mongodb.orders.insert_many([
         {"id": 1, "user_id": 10, "status": "delivered", "total_price": 10, "qty": 2, "created_at": first_day},
-        {"id": 2, "user_id": 20, "status": "payment_confirmed", "total_price": 3, "created_at": second_day},
+        {"id": 2, "user_id": 20, "status": "payment_confirmed", "total_price": 3, "qty": 10, "created_at": second_day},
         {"id": 3, "user_id": 30, "status": "cancelled", "total_price": 99, "created_at": second_day},
     ])
     mock_mongodb.reseller_products.insert_one({
@@ -60,17 +60,43 @@ def test_finance_summary_combines_revenue_reseller_costs_and_daily_profit(mock_m
     })
     mock_mongodb.reseller_fulfillments.insert_many([
         {"order_id": 1, "provider": "mailreader", "external_order_id": "BM-1", "supplier_product_id": "new", "status": "completed", "purchase_cost_total": 6, "created_at": first_day},
-        {"order_id": 2, "provider": "mailreader", "external_order_id": "BM-2", "supplier_product_id": "old", "status": "completed", "created_at": second_day},
+        {"order_id": 2, "provider": "mailreader", "external_order_id": "BM-2", "supplier_product_id": "old", "status": "completed", "quantity": 1, "created_at": second_day},
     ])
 
     result = dashboard_api.finance_summary({"month": ["2026-09"]})
 
     assert result["totals"] == {"revenue": 13.0, "cost": 10.0, "profit": 3.0}
-    assert result["cost_quality"] == {"exact": 1, "estimated": 1}
+    assert result["cost_quality"] == {"exact": 1, "estimated": 1, "unknown": 0}
     assert next(day for day in result["days"] if day["date"] == "2026-09-02")["profit"] == 4.0
     assert next(day for day in result["days"] if day["date"] == "2026-09-03")["profit"] == -1.0
     assert result["profitable_days"] == 1
     assert result["loss_days"] == 1
+
+
+def test_finance_calendar_reconciles_with_order_dashboard_and_flags_missing_cost(monkeypatch, mock_mongodb):
+    monkeypatch.setattr("config.ADMIN_ID", 999)
+    first_day = int(datetime(2026, 9, 2, 12, tzinfo=UTC).timestamp())
+    second_day = int(datetime(2026, 9, 3, 12, tzinfo=UTC).timestamp())
+    mock_mongodb.orders.insert_many([
+        {"id": 1, "user_id": 10, "status": "delivered", "total_price": 8.25, "wallet_amount": 1.75, "qty": 1, "created_at": first_day},
+        {"id": 2, "user_id": 20, "status": "paid", "total_price": 4, "created_at": second_day},
+        {"id": 3, "user_id": 999, "status": "delivered", "total_price": 100, "created_at": first_day},
+        {"id": 4, "user_id": 30, "status": "cancelled", "total_price": 50, "created_at": second_day},
+    ])
+    mock_mongodb.reseller_fulfillments.insert_many([
+        {"order_id": 1, "provider": "mailreader", "external_order_id": "BM-1", "supplier_product_id": "known", "status": "completed", "purchase_cost_total": 3.5, "created_at": first_day},
+        {"order_id": 2, "provider": "mailreader", "external_order_id": "BM-2", "supplier_product_id": "missing", "status": "delivery_pending", "created_at": second_day},
+        {"order_id": 3, "provider": "mailreader", "external_order_id": "BM-3", "supplier_product_id": "known", "status": "completed", "purchase_cost_total": 50, "created_at": first_day},
+    ])
+
+    finance = dashboard_api.finance_summary({"month": ["2026-09"]})
+    orders = dashboard_api.list_orders({})["analytics"]
+
+    assert finance["totals"] == {"revenue": orders["revenue"], "cost": 3.5, "profit": 10.5}
+    assert finance["cost_quality"] == {"exact": 1, "estimated": 0, "unknown": 1}
+    assert sum(day["revenue"] for day in finance["days"]) == orders["revenue"]
+    assert sum(day["cost"] for day in finance["days"]) == finance["totals"]["cost"]
+    assert sum(day["orders"] for day in finance["days"]) == 2
 
 
 def test_pending_onchain_topups_include_customer_and_explorer(mock_mongodb):

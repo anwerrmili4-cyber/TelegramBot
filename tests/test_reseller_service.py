@@ -346,6 +346,10 @@ def test_paid_supplier_order_is_delivered_idempotently(monkeypatch, mock_mongodb
 
     def fake_request(path, *, method="GET", body=None):
         calls.append((path, method, body))
+        if method == "POST":
+            pending = mock_mongodb.reseller_fulfillments.find_one({"order_id": 91})
+            assert pending["status"] == "purchasing"
+            assert pending["purchase_cost_total"] == 2.5
         return {"order": {"id": "supplier-1"}, "delivery_items": ["user:a", "user:b"]}
 
     monkeypatch.setattr(reseller_service, "_request_json", fake_request)

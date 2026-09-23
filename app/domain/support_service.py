@@ -110,10 +110,12 @@ def add_message(
 
     # Mettre à jour le statut du ticket
     new_status = TicketStatus.WAITING_ADMIN if sender_type == "client" else TicketStatus.WAITING_CUSTOMER
-    conn.support_tickets.update_one(
+    result = conn.support_tickets.update_one(
         {"id": ticket_id},
         {"$set": {"status": new_status, "updated_at": now}},
     )
+    if result.matched_count and sender_type == "client":
+        db._capture_admin_notifications()
 
     return db._public(msg)
 

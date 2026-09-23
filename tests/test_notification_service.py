@@ -7,6 +7,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
+import database as db
 from app.web import dashboard_api
 from app.web import notification_service as service
 
@@ -199,3 +200,124 @@ def test_active_lease_prevents_duplicate_worker(monkeypatch, mock_mongodb):
     monkeypatch.setattr(service, "_send", lambda *args: sent.append(args))
     service.deliver_pending()
     assert not sent
+
+
+def test_withdrawal_created_and_resolved_between_scans_is_delivered(monkeypatch, mock_mongodb):
+    service.device_action({"action": "subscribe", "subscription": subscription()})
+    mock_mongodb.wallets.insert_one({"user_id": 42, "balance_cents": 5000})
+    withdrawal = db.create_withdrawal(42, 10, "USDT", "destination")
+    assert db.update_withdrawal(withdrawal["id"], "completed")
+    assert not any(item["id"] == f'withdrawal:{withdrawal["id"]}:pending'
+                   for item in dashboard_api.list_admin_notifications()["items"])
+
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+    service.deliver_pending()
+    service.deliver_pending()
+
+    assert sent == [f'withdrawal:{withdrawal["id"]}:pending']
+
+
+def test_transient_alert_retries_from_outbox_after_feed_changes(monkeypatch, mock_mongodb):
+    for endpoint in ("pc", "phone"):
+        service.device_action({"action": "subscribe", "subscription": subscription(f"https://fcm.googleapis.com/{endpoint}")})
+    mock_mongodb.wallets.insert_one({"user_id": 42, "balance_cents": 5000})
+    withdrawal = db.create_withdrawal(42, 10, "USDT", "destination")
+    db.update_withdrawal(withdrawal["id"], "completed")
+
+    attempts = []
+    def send(device, item):
+        attempts.append((device["_id"], item["id"]))
+        return len(attempts) != 1
+    monkeypatch.setattr(service, "_send", send)
+    service.deliver_pending()
+    service.deliver_pending()
+    service.deliver_pending()
+
+    alert_id = f'withdrawal:{withdrawal["id"]}:pending'
+    assert len(attempts) == 3
+    assert [item_id for _, item_id in attempts] == [alert_id] * 3
+    assert len({device_id for device_id, _ in attempts}) == 2
+
+
+def test_order_status_transition_between_scans_keeps_alert(monkeypatch, mock_mongodb):
+    service.device_action({"action": "subscribe", "subscription": subscription()})
+    mock_mongodb.orders.insert_one({
+        "id": 84, "user_id": 42, "status": "awaiting_verification",
+        "offer_name": "Example", "created_at": int(time.time()),
+    })
+    db.update_order(84, status="manual_review")
+    db.update_order(84, status="cancelled")
+
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+    service.deliver_pending()
+
+    assert sent == ["order:84:manual_review"]
+
+
+def test_alert_created_during_pause_is_not_replayed_after_pause_ends(monkeypatch, mock_mongodb):
+    sub = subscription()
+    service.device_action({"action": "subscribe", "subscription": sub,
+                           "preferences": {"pause_minutes": 60}})
+    mock_mongodb.wallets.insert_one({"user_id": 42, "balance_cents": 5000})
+    db.create_withdrawal(42, 10, "USDT", "destination")
+    service.device_action({"action": "subscribe", "subscription": sub,
+                           "preferences": {"pause_minutes": 0}})
+
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+    service.deliver_pending()
+
+    assert sent == []
+
+
+def test_payment_confirmed_then_delivered_before_scan_keeps_both_events(monkeypatch, mock_mongodb):
+    service.device_action({"action": "subscribe", "subscription": subscription()})
+    mock_mongodb.orders.insert_one({
+        "id": 85, "user_id": 42, "status": "awaiting_verification",
+        "offer_name": "Example", "qty": 1, "total_price": 10,
+        "created_at": int(time.time()),
+    })
+    assert db.mark_order_paid(85, "manual")
+    db.update_order(85, status="delivered")
+
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+    service.deliver_pending()
+
+    assert "order:85:payment_confirmed" in sent
+    assert "order:85:delivered" in sent
+
+
+def test_write_time_capture_is_not_limited_to_dashboard_page(mock_mongodb):
+    service.device_action({"action": "subscribe", "subscription": subscription()})
+    now = int(time.time())
+    mock_mongodb.withdrawals.insert_many([
+        {"id": index, "user_id": 42, "amount_cents": 1000,
+         "method": "USDT", "status": "pending", "created_at": now + index}
+        for index in range(35)
+    ])
+    assert len([item for item in dashboard_api.list_admin_notifications()["items"]
+                if item["category"] == "withdrawal"]) == 30
+    db.audit_event("withdrawal.created")
+    assert mock_mongodb.admin_notification_outbox.count_documents({
+        "item.category": "withdrawal",
+    }) == 35
+
+
+def test_existing_device_seen_ids_are_respected_during_queue_migration(monkeypatch, mock_mongodb):
+    items = [event("existing"), event("new")]
+    monkeypatch.setattr(dashboard_api, "list_admin_notifications", lambda *_: {"items": items})
+    mock_mongodb.admin_push_devices.insert_one({
+        "_id": "old-device", "auth_version": service._auth_version(),
+        "seen": ["existing"], "lease_until": 0,
+        "preferences": {"categories": ["order"]},
+    })
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+
+    service.deliver_pending()
+    service.deliver_pending()
+
+    assert sent == ["new"]

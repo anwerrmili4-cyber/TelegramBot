@@ -286,7 +286,7 @@ def finance_summary(params: dict[str, list[str]]) -> dict[str, Any]:
         for row in conn.reseller_products.find({}, {"provider": 1, "product_id": 1, "wholesale_price": 1})
     }
     daily: dict[str, dict[str, Any]] = {}
-    estimated_cost_orders = exact_cost_orders = 0
+    estimated_cost_orders = exact_cost_orders = unknown_cost_orders = 0
 
     def day_bucket(value: Any) -> dict[str, Any]:
         timestamp = _event_timestamp(value) or now.timestamp()
@@ -303,15 +303,19 @@ def finance_summary(params: dict[str, list[str]]) -> dict[str, Any]:
         order = orders_by_id.get(fulfillment.get("order_id"))
         if fulfillment.get("order_id") is not None and order is None:
             continue
-        quantity = max(1, int((order or {}).get("qty") or fulfillment.get("quantity") or 1))
+        quantity = max(1, int(fulfillment.get("quantity") or (order or {}).get("qty") or 1))
         saved_total = fulfillment.get("purchase_cost_total")
         if saved_total is not None:
             cost = max(0.0, float(saved_total or 0))
             exact_cost_orders += 1
         else:
             key = (str(fulfillment.get("provider") or ""), str(fulfillment.get("supplier_product_id") or ""))
-            cost = max(0.0, product_costs.get(key, 0.0) * quantity)
-            estimated_cost_orders += 1
+            if key in product_costs:
+                cost = max(0.0, product_costs[key] * quantity)
+                estimated_cost_orders += 1
+            else:
+                cost = 0.0
+                unknown_cost_orders += 1
         day_bucket((order or {}).get("created_at") or fulfillment.get("created_at"))["cost"] += cost
 
     for bucket in daily.values():
@@ -350,7 +354,7 @@ def finance_summary(params: dict[str, list[str]]) -> dict[str, Any]:
         "days": selected_days,
         "profitable_days": sum(1 for item in active_days if item["profit"] > 0),
         "loss_days": sum(1 for item in active_days if item["profit"] < 0),
-        "cost_quality": {"exact": exact_cost_orders, "estimated": estimated_cost_orders},
+        "cost_quality": {"exact": exact_cost_orders, "estimated": estimated_cost_orders, "unknown": unknown_cost_orders},
     }
 
 
@@ -722,7 +726,7 @@ def _event_timestamp(value: Any) -> float:
     return 0.0
 
 
-def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
+def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[str, Any]:
     """Build a live, actionable notification feed from operational collections."""
     conn = db.get_conn()
     now = int(time.time())
@@ -772,7 +776,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
         "manual_review", "verification_failed", "paid", "payment_confirmed",
         "preparing_delivery", "stock_issue",
     ]
-    for order in conn.orders.find({"status": {"$in": order_statuses}}).sort("created_at", DESCENDING).limit(40):
+    for order in conn.orders.find({"status": {"$in": order_statuses}}).sort("created_at", DESCENDING).limit(0 if complete else 40):
         status = str(order.get("status") or "")
         order_id = order.get("id")
         age = max(0, now - int(_event_timestamp(order.get("paid_at") or order.get("created_at"))))
@@ -793,7 +797,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
     for order in conn.orders.find({
         "status": "delivered",
         "created_at": {"$gte": now - 86400},
-    }).sort("created_at", DESCENDING).limit(12):
+    }).sort("created_at", DESCENDING).limit(0 if complete else 12):
         order_id = order.get("id")
         add(
             f"order:{order_id}:delivered",
@@ -802,7 +806,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
             page="orders", entity_id=order_id, created_at=order.get("created_at"), actionable=False,
         )
 
-    for topup in conn.wallet_topups.find({"status": "manual_review"}).sort("created_at", DESCENDING).limit(30):
+    for topup in conn.wallet_topups.find({"status": "manual_review"}).sort("created_at", DESCENDING).limit(0 if complete else 30):
         topup_id = topup.get("id")
         amount = float(topup.get("amount_cents") or 0) / 100
         add(
@@ -815,7 +819,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
     for topup in conn.wallet_topups.find({
         "$or": [{"status": "confirmed"}, {"status": {"$exists": False}}],
         "created_at": {"$gte": now - 86400},
-    }).sort("created_at", DESCENDING).limit(12):
+    }).sort("created_at", DESCENDING).limit(0 if complete else 12):
         topup_id = topup.get("id") or topup.get("txid")
         amount = float(topup.get("amount_cents") or 0) / 100
         add(
@@ -825,7 +829,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
             page="deposits", entity_id=topup.get("id"), created_at=topup.get("created_at"), actionable=False,
         )
 
-    for ticket in conn.support_tickets.find({"status": {"$in": ["open", "waiting_admin"]}}).sort("updated_at", DESCENDING).limit(30):
+    for ticket in conn.support_tickets.find({"status": {"$in": ["open", "waiting_admin"]}}).sort("updated_at", DESCENDING).limit(0 if complete else 30):
         ticket_id = ticket.get("id")
         ticket_date = ticket.get("updated_at") or ticket.get("created_at")
         add(
@@ -836,7 +840,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
             created_at=ticket_date,
         )
 
-    for withdrawal in conn.withdrawals.find({"status": "pending"}).sort("created_at", DESCENDING).limit(30):
+    for withdrawal in conn.withdrawals.find({"status": "pending"}).sort("created_at", DESCENDING).limit(0 if complete else 30):
         withdrawal_id = withdrawal.get("id")
         amount = float(withdrawal.get("amount_cents") or 0) / 100
         add(
@@ -847,7 +851,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
         )
 
     pending_warranty_statuses = ["pending_admin_check", "pending", "waiting_admin"]
-    for warranty in conn.warranty_requests.find({"status": {"$in": pending_warranty_statuses}}).sort("updated_at", DESCENDING).limit(30):
+    for warranty in conn.warranty_requests.find({"status": {"$in": pending_warranty_statuses}}).sort("updated_at", DESCENDING).limit(0 if complete else 30):
         warranty_id = warranty.get("id")
         add(
             f"warranty:{warranty_id}:{warranty.get('status')}",
@@ -862,7 +866,7 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
         "active": 1,
         "stock": {"$lte": LOW_STOCK_THRESHOLD},
         "archived": {"$ne": 1},
-    }).sort("stock", 1).limit(30):
+    }).sort("stock", 1).limit(0 if complete else 30):
         offer_id = offer.get("id")
         stock = int(offer.get("stock") or 0)
         add(
@@ -876,8 +880,8 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
 
     for event in conn.audit_events.find({
         "action": {"$in": ["system.error", "webhook.error", "delivery.error"]},
-        "created_at": {"$gte": datetime.fromtimestamp(now - 86400, UTC)},
-    }).sort("created_at", DESCENDING).limit(20):
+        "created_at": {"$gte": datetime.fromtimestamp(max(0, now - 86400), UTC)},
+    }).sort("created_at", DESCENDING).limit(0 if complete else 20):
         event_id = event.get("id")
         details = event.get("details") or {}
         add(
@@ -892,7 +896,8 @@ def list_admin_notifications(limit: int = 100) -> dict[str, Any]:
         priority.get(str(item.get("severity")), 4),
         -_event_timestamp(item.get("created_at")),
     ))
-    notifications = notifications[:max(1, min(int(limit), 200))]
+    if not complete:
+        notifications = notifications[:max(1, min(int(limit), 200))]
     return {
         "items": notifications,
         "generated_at": now,

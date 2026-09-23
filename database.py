@@ -594,6 +594,7 @@ def create_withdrawal(user_id, amount, method, destination):
         "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC),
     }
     conn.withdrawals.insert_one(row)
+    _capture_admin_notifications()
     return _public(row)
 
 
@@ -645,6 +646,7 @@ def create_warranty_request(user_id, order_id, days_used, refund_amount, reason=
         "status": "pending_admin_check", "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC),
     }
     get_conn().warranty_requests.insert_one(row)
+    _capture_admin_notifications()
     return _public(row)
 
 
@@ -1556,6 +1558,8 @@ def mark_order_paid(order_id, verify_method):
     )
     if paid.modified_count != 1 and stock_decremented:
         db.offers.update_one({"id": order["offer_id"]}, {"$inc": {"stock": order["qty"]}})
+    if paid.modified_count == 1:
+        _capture_admin_notifications()
     return paid.modified_count == 1
 
 
@@ -1587,7 +1591,9 @@ def update_order(order_id, **kwargs):
     unknown = set(kwargs) - allowed
     if unknown:
         raise ValueError(f"Champs de commande interdits: {sorted(unknown)}")
-    get_conn().orders.update_one({"id": order_id}, {"$set": kwargs})
+    result = get_conn().orders.update_one({"id": order_id}, {"$set": kwargs})
+    if result.modified_count and "status" in kwargs:
+        _capture_admin_notifications()
 
 
 def claim_order_channel_announcement(order_id):
@@ -2110,7 +2116,16 @@ def fulfill_order(order_id):
 def audit_event(action, actor_id=None, details=None):
     event_id = _next_id("audit_events")
     get_conn().audit_events.insert_one({"id": event_id, "action": action, "actor_id": actor_id, "details": details or {}, "created_at": datetime.now(UTC)})
+    if str(action).startswith(("order.", "payment.", "ticket.", "wallet.", "withdrawal.", "warranty.", "offer.", "inventory.", "system.", "webhook.", "delivery.")):
+        _capture_admin_notifications()
     return event_id
+
+
+def _capture_admin_notifications():
+    from app.web.notification_service import _auth_version, capture_feed
+    if not get_conn().admin_push_devices.count_documents({"auth_version": _auth_version()}):
+        return
+    capture_feed()
 
 
 def log_interaction(
