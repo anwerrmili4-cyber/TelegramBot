@@ -1,5 +1,6 @@
 import SupportInbox from "./SupportInbox";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { normalizeSearchValue, readPreference, savePreference, searchableText } from "./control-utils";
 import {
   Activity,
   ArrowLeft,
@@ -16,6 +17,7 @@ import {
   Clock3,
   ClipboardList,
   Cloud,
+  Command,
   Copy,
   CreditCard,
   Database,
@@ -26,6 +28,8 @@ import {
   Globe2,
   Headphones,
   KeyRound,
+  Layers3,
+  List,
   MessageSquareText,
   PackageCheck,
   PackagePlus,
@@ -987,28 +991,29 @@ function CatalogPage({ data, onAction }) {
   const [showService, setShowService] = useState(false);
   const [serviceName, setServiceName] = useState("");
   const [serviceNameAr, setServiceNameAr] = useState("");
-  const [serviceEmoji, setServiceEmoji] = useState("📦");
-  const [serviceSuffixEmoji, setServiceSuffixEmoji] = useState("");
   const [serviceChannel, setServiceChannel] = useState("bot");
   const [stockOffer, setStockOffer] = useState(null);
   const [stock, setStock] = useState("");
   const [editService, setEditService] = useState(null);
   const [editServiceName, setEditServiceName] = useState("");
   const [editServiceNameAr, setEditServiceNameAr] = useState("");
-  const [editServiceEmoji, setEditServiceEmoji] = useState("📦");
-  const [editServiceSuffixEmoji, setEditServiceSuffixEmoji] = useState("");
   const [editServiceChannel, setEditServiceChannel] = useState("both");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [selectedOffers, setSelectedOffers] = useState(new Set());
   const [bulkOfferAction, setBulkOfferAction] = useState(null);
   const [bulkOfferValue, setBulkOfferValue] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [stockFilter, setStockFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [sortBy, setSortBy] = useState(() => readPreference("catalog-sort", "default"));
+  const [viewMode, setViewMode] = useState(() => readPreference("catalog-view", "grid"));
+  const [collapsedServices, setCollapsedServices] = useState(new Set());
 
   const startEditService = (service) => {
     setEditService(service);
     setEditServiceName(service.name || "");
     setEditServiceNameAr(service.name_ar || "");
-    setEditServiceEmoji(service.emoji || "📦");
-    setEditServiceSuffixEmoji(service.suffix_emoji || "");
     setEditServiceChannel("bot");
   };
 
@@ -1021,8 +1026,8 @@ function CatalogPage({ data, onAction }) {
         service_id: editService.id,
         name: editServiceName,
         name_ar: editServiceNameAr,
-        emoji: editServiceEmoji,
-        suffix_emoji: editServiceSuffixEmoji,
+        emoji: editService.emoji || "",
+        suffix_emoji: editService.suffix_emoji || "",
         sales_channel: editServiceChannel,
       })
     )
@@ -1035,36 +1040,59 @@ function CatalogPage({ data, onAction }) {
         action: "add_service",
         name: serviceName,
         name_ar: serviceNameAr,
-        emoji: serviceEmoji,
-        suffix_emoji: serviceSuffixEmoji,
         sales_channel: serviceChannel,
       })
     )
       setShowService(false);
   };
-  const normalizedSearch = search.trim().toLowerCase();
-  const visibleServices = (data.services || []).filter((service) => !category || String(service.id) === category).map((service) => {
-    const serviceMatch = `${service.name || ""} ${service.id || ""}`.toLowerCase().includes(normalizedSearch);
+  const normalizedSearch = normalizeSearchValue(search.trim());
+  const allServices = data.services || [];
+  const allOffers = allServices.flatMap((service) => service.offers || []);
+  const totalStock = allOffers.reduce((total, item) => total + Math.max(0, Number(item.stock || 0)), 0);
+  const activeOffers = allOffers.filter((item) => item.active !== 0).length;
+  const visibleServices = allServices.filter((service) => !category || String(service.id) === category).map((service) => {
+    const serviceMatch = searchableText({ id: service.id, name: service.name, name_ar: service.name_ar }).includes(normalizedSearch);
     const offers = (service.offers || []).filter((item) => {
       const channels = item.sales_channels || ["bot"];
       if (!channels.includes("bot")) return false;
+      if (statusFilter !== "all" && (item.active === 0 ? "inactive" : "active") !== statusFilter) return false;
+      if (stockFilter === "available" && Number(item.stock || 0) <= 0 && !item.unlimited_stock) return false;
+      if (stockFilter === "empty" && (Number(item.stock || 0) > 0 || item.unlimited_stock)) return false;
+      if (sourceFilter === "internal" && item.supplier_provider) return false;
+      if (sourceFilter === "api" && !item.supplier_provider) return false;
       if (!normalizedSearch) return true;
       if (searchField === "service") return serviceMatch;
       const searchable = {
-        product: `${item.name || ""} ${item.id || ""}`,
-        provider: `${item.supplier_provider || ""} ${providerLabel(item.supplier_provider)}`,
+        product: searchableText(item),
+        provider: searchableText({ supplier_provider: item.supplier_provider, provider_label: providerLabel(item.supplier_provider) }),
       };
       const haystack = searchField === "all"
-        ? `${service.name || ""} ${Object.values(searchable).join(" ")}`
+        ? `${searchableText(service)} ${Object.values(searchable).join(" ")}`
         : searchable[searchField] || "";
-      return haystack.toLowerCase().includes(normalizedSearch);
+      return haystack.includes(normalizedSearch);
     });
     return { ...service, offers, searchMatch: serviceMatch || offers.length > 0 };
-  }).filter((service) => !normalizedSearch || service.searchMatch);
+  }).filter((service) => {
+    const hasActiveFilters = statusFilter !== "all" || stockFilter !== "all" || sourceFilter !== "all";
+    return (!normalizedSearch || service.searchMatch) && (!hasActiveFilters || service.offers.length > 0);
+  }).sort((left, right) => {
+    if (sortBy === "name") return String(left.name || "").localeCompare(String(right.name || ""), "fr", { sensitivity: "base" });
+    if (sortBy === "offers") return right.offers.length - left.offers.length;
+    if (sortBy === "stock") return Number(right.total_stock || 0) - Number(left.total_stock || 0);
+    return 0;
+  });
   const visibleOfferIds = visibleServices.flatMap((service) => (service.offers || []).map((item) => item.id));
   const toggleOfferSelection = (offerId) => setSelectedOffers((current) => {
     const next = new Set(current);
     if (next.has(offerId)) next.delete(offerId); else next.add(offerId);
+    return next;
+  });
+  const setCatalogView = (value) => { setViewMode(value); savePreference("catalog-view", value); };
+  const setCatalogSort = (value) => { setSortBy(value); savePreference("catalog-sort", value); };
+  const resetAdvanced = () => { setStatusFilter("all"); setStockFilter("all"); setSourceFilter("all"); setCatalogSort("default"); };
+  const toggleServiceCollapse = (serviceId) => setCollapsedServices((current) => {
+    const next = new Set(current);
+    if (next.has(serviceId)) next.delete(serviceId); else next.add(serviceId);
     return next;
   });
   const applyBulkOfferAction = async () => {
@@ -1082,12 +1110,12 @@ function CatalogPage({ data, onAction }) {
   };
   return (
     <>
-      <PageHeader
-        eyebrow="Commerce / Mon catalogue"
-        title="Des offres qui donnent envie."
-        description="Gérez les catégories et produits publiés dans le bot Telegram."
-        actions={
-          <>
+      <section className="catalog-hero">
+        <div className="catalog-hero-copy">
+          <span className="eyebrow">Commerce / Mon catalogue</span>
+          <h2>Le centre de contrôle<br /><span>de vos offres.</span></h2>
+          <p>Organisez, filtrez et publiez vos produits Telegram depuis une vue conçue pour les catalogues de toute taille.</p>
+          <div className="catalog-hero-actions">
             <ActionButton
               secondary
               icon={Plus}
@@ -1104,34 +1132,45 @@ function CatalogPage({ data, onAction }) {
             >
               Produit
             </ActionButton>
-          </>
-        }
-      />
-      <div className="catalog-command-bar"><div><span>COLLECTIONS</span><strong>{(data.services || []).length}</strong></div><div><span>OFFRES CHARGÉES</span><strong>{(data.services || []).reduce((total, service) => total + (service.offers || []).length, 0)}</strong></div><div><span>SÉLECTION</span><strong>{selectedOffers.size}</strong></div><p>Organisez vos services, ajustez les prix et gérez la disponibilité de chaque offre.</p></div>
+          </div>
+        </div>
+        <div className="catalog-hero-visual" aria-hidden="true"><span><Layers3 size={28} /></span><i /><i /><i /></div>
+      </section>
+      <div className="catalog-command-bar">
+        <div><span>COLLECTIONS</span><strong>{allServices.length}</strong><small>catégories actives</small></div>
+        <div><span>OFFRES</span><strong>{allOffers.length}</strong><small>{activeOffers} visibles dans le bot</small></div>
+        <div><span>STOCK DISPONIBLE</span><strong>{totalStock}</strong><small>unités prêtes à livrer</small></div>
+        <div><span>SÉLECTION</span><strong>{selectedOffers.size}</strong><small>pour une action groupée</small></div>
+      </div>
       <div className="workspace-tabs" role="group" aria-label="Collections du catalogue"><button aria-pressed={!category} onClick={() => { setCategory(""); setSelectedOffers(new Set()); }}>Toutes les collections</button>{(data.services || []).map((service) => <button key={service.id} aria-pressed={category === String(service.id)} onClick={() => { setCategory(String(service.id)); setSelectedOffers(new Set()); }}>{service.name}<small> {(service.offers || []).length}</small></button>)}</div>
-      <FilterBar
-        search={search}
-        setSearch={setSearch}
-        searchField={searchField}
-        setSearchField={setSearchField}
-        options={[["all", "Tout"], ["service", "Service"], ["product", "Produit"], ["provider", "API fournisseur"]]}
-        resultCount={visibleServices.length}
-        placeholder="Nom du service, produit ou API…"
-      />
+      <div className="catalog-toolbar">
+        <FilterBar search={search} setSearch={setSearch} searchField={searchField} setSearchField={setSearchField} options={[["all", "Tout type"], ["service", "Service"], ["product", "Produit"], ["provider", "API fournisseur"]]} resultCount={visibleServices.length} placeholder="Rechercher un nom, ID, prix, stock, API…" />
+        <div className="catalog-toolbar-actions">
+          <button type="button" className={showAdvanced ? "active" : ""} aria-expanded={showAdvanced} onClick={() => setShowAdvanced((value) => !value)}><SlidersHorizontal size={16} /> Réglages avancés</button>
+          <div className="catalog-view-switch" role="group" aria-label="Mode d’affichage"><button type="button" aria-pressed={viewMode === "grid"} title="Vue en grille" onClick={() => setCatalogView("grid")}><Columns3 size={16} /></button><button type="button" aria-pressed={viewMode === "list"} title="Vue en liste" onClick={() => setCatalogView("list")}><List size={16} /></button></div>
+        </div>
+      </div>
+      <div className={`catalog-advanced ${showAdvanced ? "visible" : ""}`} aria-hidden={!showAdvanced}>
+        <label><span>Visibilité</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tous les statuts</option><option value="active">Actifs</option><option value="inactive">Désactivés</option></select></label>
+        <label><span>Disponibilité</span><select value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}><option value="all">Tous les stocks</option><option value="available">En stock</option><option value="empty">Stock épuisé</option></select></label>
+        <label><span>Source</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">Toutes les sources</option><option value="internal">Stock interne</option><option value="api">API fournisseur</option></select></label>
+        <label><span>Trier par</span><select value={sortBy} onChange={(event) => setCatalogSort(event.target.value)}><option value="default">Ordre du catalogue</option><option value="name">Nom A–Z</option><option value="offers">Nombre de produits</option><option value="stock">Stock disponible</option></select></label>
+        <button type="button" onClick={resetAdvanced}>Réinitialiser</button>
+      </div>
       <div className={`catalog-bulk-bar ${selectedOffers.size ? "visible" : ""}`}>
         <div><span>{selectedOffers.size}</span><strong>produit(s) sélectionné(s)</strong><button type="button" onClick={() => setSelectedOffers(new Set(visibleOfferIds))}>Tout sélectionner</button><button type="button" onClick={() => setSelectedOffers(new Set())}>Effacer</button></div>
         <div><ActionButton secondary icon={ToggleRight} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("activate")}>Activer</ActionButton><ActionButton secondary icon={ToggleLeft} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("deactivate")}>Désactiver</ActionButton><ActionButton secondary icon={CircleDollarSign} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("price")}>Prix</ActionButton><ActionButton secondary icon={ShoppingBag} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("move")}>Service</ActionButton><ActionButton danger icon={Archive} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("archive")}>Archiver</ActionButton></div>
       </div>
-      <div className="catalog-react-grid">
+      <div className={`catalog-react-grid ${viewMode === "list" ? "catalog-list-view" : ""}`}>
         {visibleServices.map((service, serviceIndex) => {
           const providers = [...new Set((service.offers || []).map((item) => item.supplier_provider || "").filter(Boolean))];
           return (
-          <section className="catalog-service" key={service.id} style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length] }}>
+          <section className={`catalog-service ${collapsedServices.has(service.id) ? "collapsed" : ""}`} key={service.id} style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length], "--catalog-index": serviceIndex }}>
             <header>
               <div>
-                <span className="catalog-service-icon">{service.emoji || "◆"}</span>
+                <button type="button" className="catalog-service-icon" onClick={() => toggleServiceCollapse(service.id)} aria-expanded={!collapsedServices.has(service.id)} aria-label={`${collapsedServices.has(service.id) ? "Déplier" : "Replier"} ${service.name}`}><Command size={18} /></button>
                 <div>
-                  <h3>{service.name} {service.suffix_emoji || ""}</h3>
+                  <h3>{service.name}</h3>
                   <small>
                     {service.offers?.length || 0} produit(s) ·{" "}
                     {service.total_stock || 0} en stock
@@ -1157,7 +1196,7 @@ function CatalogPage({ data, onAction }) {
                 </button>
               </div>
             </header>
-            <div>
+            <div className="catalog-offers">
               {service.offers?.map((item, index) => (
                 <article
                   className={`offer-card ${selectedOffers.has(item.id) ? "selected" : ""}`}
@@ -1259,15 +1298,6 @@ function CatalogPage({ data, onAction }) {
                   onChange={(event) => setServiceName(event.target.value)}
                 />
               </Field>
-              <Field label="Emoji">
-                <input
-                  value={serviceEmoji}
-                  onChange={(event) => setServiceEmoji(event.target.value)}
-                />
-              </Field>
-              <Field label="Emoji droit">
-                <input value={serviceSuffixEmoji} onChange={(event) => setServiceSuffixEmoji(event.target.value)} placeholder="✅" />
-              </Field>
               <Field label="Nom arabe" wide>
                 <input dir="rtl" value={serviceNameAr} onChange={(event) => setServiceNameAr(event.target.value)} />
               </Field>
@@ -1295,16 +1325,6 @@ function CatalogPage({ data, onAction }) {
                   value={editServiceName}
                   onChange={(event) => setEditServiceName(event.target.value)}
                 />
-              </Field>
-              <Field label="Emoji">
-                <input
-                  value={editServiceEmoji}
-                  onChange={(event) => setEditServiceEmoji(event.target.value)}
-                  style={{ maxWidth: 80, textAlign: "center", fontSize: "1.25rem" }}
-                />
-              </Field>
-              <Field label="Emoji droit">
-                <input value={editServiceSuffixEmoji} onChange={(event) => setEditServiceSuffixEmoji(event.target.value)} placeholder="✅" style={{ maxWidth: 80, textAlign: "center", fontSize: "1.25rem" }} />
               </Field>
               <Field label="Nom arabe" wide>
                 <input dir="rtl" value={editServiceNameAr} onChange={(event) => setEditServiceNameAr(event.target.value)} />

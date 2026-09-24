@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { csvCell, csvDocument, getAdminJson } from "../src/control-utils.js";
+import { csvCell, csvDocument, getAdminJson, normalizeSearchValue, searchableText } from "../src/control-utils.js";
+
+test("catalog search reads mixed values and ignores accents", () => {
+  const product = { id: 42, active: true, price: 7.5, names: ["Édition Pro", "احترافي"], metadata: { provider: "API-One" } };
+  const text = searchableText(product);
+  for (const query of ["42", "true", "7.5", "edition pro", "احترافي", "api-one"]) {
+    assert.equal(text.includes(normalizeSearchValue(query)), true);
+  }
+  const circular = { name: "safe" };
+  circular.self = circular;
+  assert.match(searchableText(circular), /safe/);
+});
 
 test("CSV neutralizes spreadsheet formulas including leading whitespace", () => {
   for (const value of ["=1+2", "+SUM(A1)", "@SUM(A1)", "-1+2", " \t=HYPERLINK(1)"]) {
