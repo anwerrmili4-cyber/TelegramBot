@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -293,10 +293,6 @@ def init_db():
         [("bucket", ASCENDING), ("window", ASCENDING)], unique=True,
     )
     db.buyer_api_rate_limits.create_index("expire_at", expireAfterSeconds=0)
-    db.admin_passkeys.create_index("credential_id", unique=True)
-    db.admin_passkeys.create_index("created_at")
-    db.admin_webauthn_challenges.create_index("challenge_id", unique=True)
-    db.admin_webauthn_challenges.create_index("expires_at", expireAfterSeconds=0)
     db.affiliate_rewards.create_index([("referrer_id", ASCENDING), ("milestone", ASCENDING)], unique=True)
     db.loyalty.create_index("user_id", unique=True)
     db.pending_states.create_index("user_id", unique=True)
@@ -340,6 +336,9 @@ def init_db():
         db.text_overrides.delete_many({"key": {"$regex": r"^onboarding_"}})
     if not schema or int(schema.get("version") or 0) < 23:
         _backfill_order_product_descriptions(db)
+    if not schema or int(schema.get("version") or 0) < 26:
+        db.drop_collection("admin_passkeys")
+        db.drop_collection("admin_webauthn_challenges")
     if os.environ.get("HP_SEED_DEFAULT_CATALOG", "").strip().lower() in {"1", "true", "yes"}:
         _seed_catalog()
     db.schema_meta.update_one(

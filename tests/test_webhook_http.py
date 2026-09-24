@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import json
 import threading
-import pytest
 from contextlib import contextmanager
 from http.cookiejar import CookieJar
 from http.server import HTTPServer
@@ -201,59 +200,6 @@ def test_binance_wallet_endpoint_is_authenticated_and_never_cached(monkeypatch):
     assert response.status == 200
     assert response.headers["Cache-Control"] == "no-store"
     assert payload == {"ok": True, "days": 30, "balances": [], "transactions": []}
-
-
-def test_passkey_registration_requires_session_csrf_and_password(monkeypatch):
-    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
-    monkeypatch.setattr(
-        webhook_module.admin_passkey_service,
-        "registration_options",
-        lambda: {"ok": True, "challenge_id": "challenge", "publicKey": {}},
-    )
-    token = webhook_module.dashboard_write_token()
-    encoded = base64.b64encode(b"admin:secret").decode()
-    with running_server() as base_url:
-        body = json.dumps({"password": "secret"}).encode()
-        unauthenticated = Request(
-            f"{base_url}/admin/api/passkeys/register/options",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with pytest.raises(HTTPError) as denied:
-            urlopen(unauthenticated, timeout=5)
-        assert denied.value.code == 401
-
-        missing_csrf = Request(
-            f"{base_url}/admin/api/passkeys/register/options",
-            data=body,
-            headers={"Content-Type": "application/json", "Authorization": f"Basic {encoded}"},
-            method="POST",
-        )
-        with pytest.raises(HTTPError) as denied:
-            urlopen(missing_csrf, timeout=5)
-        assert denied.value.code == 403
-
-        wrong_password = Request(
-            f"{base_url}/admin/api/passkeys/register/options",
-            data=json.dumps({"password": "wrong"}).encode(),
-            headers={"Content-Type": "application/json", "Authorization": f"Basic {encoded}", "X-Dashboard-Write-Token": token},
-            method="POST",
-        )
-        with pytest.raises(HTTPError) as denied:
-            urlopen(wrong_password, timeout=5)
-        assert denied.value.code == 403
-
-        request = Request(
-            f"{base_url}/admin/api/passkeys/register/options",
-            data=body,
-            headers={"Content-Type": "application/json", "Authorization": f"Basic {encoded}", "X-Dashboard-Write-Token": token},
-            method="POST",
-        )
-        with urlopen(request, timeout=5) as response:
-            payload = json.load(response)
-        assert payload["challenge_id"] == "challenge"
-        assert response.headers["Cache-Control"] == "no-store"
 
 
 def test_pending_payment_monitor_requires_cron_secret_and_returns_cancellations(

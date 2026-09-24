@@ -38,7 +38,6 @@ from api.dashboard import render_dashboard
 from api.public_site import render_public_site
 from app import __version__, support_bridge
 from app.domain import (
-    admin_passkey_service,
     admin_ai_service,
     binance_dashboard_service,
     buyer_api_service,
@@ -873,17 +872,6 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(503, {"ok": False, "error": "Portefeuille Binance temporairement indisponible."}, headers={"Cache-Control": "no-store"})
             return
 
-        elif path == "/admin/api/passkeys":
-            if not self._dashboard_authorized():
-                self._reply(401, {"ok": False, "error": "Unauthorized"})
-                return
-            try:
-                self._reply(200, admin_passkey_service.status(), headers={"Cache-Control": "no-store"})
-            except Exception:
-                log.exception("Unable to load administrator passkeys")
-                self._reply(503, {"ok": False, "error": "Vérification biométrique temporairement indisponible."}, headers={"Cache-Control": "no-store"})
-            return
-
         elif path == "/admin/api/bybit-health":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1201,31 +1189,6 @@ class handler(BaseHTTPRequestHandler):
         except Exception:
             return False
 
-    def _dashboard_session_authorized(self) -> bool:
-        """Authenticate sensitive routes without treating the CSRF token as a session."""
-        if not DASHBOARD_PASSWORD:
-            return False
-        try:
-            cookies = SimpleCookie(self.headers.get("Cookie", ""))
-            session = cookies.get(ADMIN_SESSION_COOKIE)
-            if session:
-                expires_raw, _ = session.value.split(".", 1)
-                expires_at = int(expires_raw)
-                if expires_at >= int(time.time()) and hmac.compare_digest(
-                    session.value, admin_session_token(expires_at)
-                ):
-                    return True
-        except (KeyError, TypeError, ValueError):
-            pass
-        header = self.headers.get("Authorization", "")
-        if not header.startswith("Basic "):
-            return False
-        try:
-            _, password = base64.b64decode(header[6:]).decode().split(":", 1)
-            return hmac.compare_digest(password, DASHBOARD_PASSWORD)
-        except Exception:
-            return False
-
     def _client_ip(self) -> str:
         forwarded = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
         return forwarded or str(self.client_address[0])
@@ -1320,51 +1283,6 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 log.warning("Admin notification request failed")
                 self._reply(503, {"ok": False, "error": "Notifications temporairement indisponibles. Réessayez."})
-            return
-        if path.startswith("/admin/api/passkeys/"):
-            if not self._dashboard_session_authorized():
-                self._reply(401, {"ok": False, "error": "Unauthorized"})
-                return
-            token = self.headers.get("X-Dashboard-Write-Token", "")
-            if not token or not hmac.compare_digest(token, dashboard_write_token()):
-                self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
-                return
-            try:
-                payload = self._read_json_body(max_bytes=32_000)
-                action = path.removeprefix("/admin/api/passkeys/")
-                if action == "register/options":
-                    password = str(payload.get("password") or "")
-                    if not DASHBOARD_PASSWORD or not hmac.compare_digest(password, DASHBOARD_PASSWORD):
-                        self._reply(403, {"ok": False, "error": "Mot de passe administrateur incorrect."})
-                        return
-                    result = admin_passkey_service.registration_options()
-                elif action == "register/verify":
-                    result = admin_passkey_service.register(
-                        payload.get("challenge_id"), payload.get("credential"), payload.get("label")
-                    )
-                elif action == "authenticate/options":
-                    result = admin_passkey_service.authentication_options()
-                elif action == "authenticate/verify":
-                    result = admin_passkey_service.authenticate(
-                        payload.get("challenge_id"), payload.get("credential")
-                    )
-                elif action == "revoke":
-                    password = str(payload.get("password") or "")
-                    if not DASHBOARD_PASSWORD or not hmac.compare_digest(password, DASHBOARD_PASSWORD):
-                        self._reply(403, {"ok": False, "error": "Mot de passe administrateur incorrect."})
-                        return
-                    result = admin_passkey_service.revoke(payload.get("id"))
-                else:
-                    self._reply(404, {"ok": False, "error": "Action biométrique introuvable."})
-                    return
-                self._reply(200, result, headers={"Cache-Control": "no-store"})
-            except admin_passkey_service.PasskeyError as exc:
-                self._reply(400, {"ok": False, "error": str(exc)}, headers={"Cache-Control": "no-store"})
-            except buyer_api_service.BuyerApiError as exc:
-                self._reply(exc.status, {"ok": False, "error": exc.message}, headers={"Cache-Control": "no-store"})
-            except Exception:
-                log.exception("Administrator passkey operation failed")
-                self._reply(503, {"ok": False, "error": "Vérification biométrique temporairement indisponible."}, headers={"Cache-Control": "no-store"})
             return
         if path == "/admin/api/logout":
             self._reply(200, {"ok": True}, headers={

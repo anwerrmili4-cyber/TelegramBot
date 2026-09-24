@@ -32,7 +32,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  ScanFace,
   Send,
   Settings,
   ShieldCheck,
@@ -3715,126 +3714,7 @@ function SettingsPage({ data, onAction, onHealthCheck }) {
   );
 }
 
-function webauthnBytes(value) {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-  return Uint8Array.from(window.atob(base64), (character) => character.charCodeAt(0));
-}
-
-function webauthnBase64(value) {
-  const bytes = new Uint8Array(value);
-  let binary = "";
-  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function webauthnOptions(publicKey, registration = false) {
-  const prepared = { ...publicKey, challenge: webauthnBytes(publicKey.challenge) };
-  if (registration) prepared.user = { ...publicKey.user, id: webauthnBytes(publicKey.user.id) };
-  const key = registration ? "excludeCredentials" : "allowCredentials";
-  if (prepared[key]) prepared[key] = prepared[key].map((item) => ({ ...item, id: webauthnBytes(item.id) }));
-  return prepared;
-}
-
-function webauthnCredential(credential) {
-  const response = {
-    clientDataJSON: webauthnBase64(credential.response.clientDataJSON),
-  };
-  if (credential.response.attestationObject) response.attestationObject = webauthnBase64(credential.response.attestationObject);
-  if (credential.response.authenticatorData) response.authenticatorData = webauthnBase64(credential.response.authenticatorData);
-  if (credential.response.signature) response.signature = webauthnBase64(credential.response.signature);
-  if (credential.response.userHandle) response.userHandle = webauthnBase64(credential.response.userHandle);
-  if (credential.response.getTransports) response.transports = credential.response.getTransports();
-  return { id: credential.id, rawId: webauthnBase64(credential.rawId), type: credential.type, response, clientExtensionResults: credential.getClientExtensionResults() };
-}
-
-function BinancePasskeys({ setToast, writeToken }) {
-  const [state, setState] = useState(null);
-  const [label, setLabel] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState("");
-  const [verified, setVerified] = useState("");
-  const supported = window.PublicKeyCredential && navigator.credentials;
-
-  const request = async (path, payload) => {
-    const response = await fetch(`/admin/api/passkeys/${path}`, {
-      method: "POST", credentials: "same-origin", cache: "no-store",
-      headers: { "Content-Type": "application/json", "X-Dashboard-Write-Token": writeToken || "" },
-      body: JSON.stringify(payload || {}),
-    });
-    const result = await response.json();
-    if (response.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
-    if (!response.ok || result.ok === false) throw new Error(result.error || "Vérification biométrique impossible.");
-    return result;
-  };
-
-  const refresh = async () => {
-    const response = await fetch("/admin/api/passkeys", { credentials: "same-origin", cache: "no-store" });
-    const result = await response.json();
-    if (response.ok) setState(result);
-  };
-
-  useEffect(() => { refresh(); }, []);
-
-  const register = async (event) => {
-    event.preventDefault();
-    setBusy("register");
-    try {
-      if (!supported) throw new Error("Face ID ou Windows Hello n’est pas pris en charge par ce navigateur.");
-      const options = await request("register/options", { password });
-      const credential = await navigator.credentials.create({ publicKey: webauthnOptions(options.publicKey, true) });
-      await request("register/verify", { challenge_id: options.challenge_id, credential: webauthnCredential(credential), label });
-      setPassword(""); setLabel(""); await refresh();
-      setToast({ type: "success", title: "Appareil autorisé", message: "La vérification biométrique est prête." });
-    } catch (error) {
-      setToast({ type: "error", title: "Enregistrement impossible", message: error.message });
-    } finally { setBusy(""); }
-  };
-
-  const verify = async () => {
-    setBusy("verify"); setVerified("");
-    try {
-      if (!supported) throw new Error("Face ID ou Windows Hello n’est pas pris en charge par ce navigateur.");
-      const options = await request("authenticate/options");
-      const credential = await navigator.credentials.get({ publicKey: webauthnOptions(options.publicKey) });
-      const result = await request("authenticate/verify", { challenge_id: options.challenge_id, credential: webauthnCredential(credential) });
-      setVerified(`Identité confirmée avec ${result.label}.`); await refresh();
-      setToast({ type: "success", title: "Identité confirmée", message: "Face ID ou Windows Hello a validé cet appareil." });
-    } catch (error) {
-      setToast({ type: "error", title: "Vérification refusée", message: error.message });
-    } finally { setBusy(""); }
-  };
-
-  const revoke = async (item) => {
-    if (!password) {
-      setToast({ type: "error", title: "Mot de passe requis", message: "Saisissez le mot de passe administrateur avant de révoquer un appareil." });
-      return;
-    }
-    if (!window.confirm(`Révoquer l’accès biométrique de ${item.label} ?`)) return;
-    setBusy(`revoke-${item.id}`);
-    try {
-      await request("revoke", { id: item.id, password });
-      setPassword(""); setVerified(""); await refresh();
-      setToast({ type: "success", title: "Appareil révoqué", message: `${item.label} ne peut plus valider une opération.` });
-    } catch (error) {
-      setToast({ type: "error", title: "Révocation impossible", message: error.message });
-    } finally { setBusy(""); }
-  };
-
-  return <section className="binance-panel binance-passkeys panel">
-    <header><div><span className="eyebrow">Accès sensible</span><h3>Face ID & Windows Hello</h3></div><span>{state?.passkeys?.length || 0}/{state?.max_passkeys || 2} appareils</span></header>
-    <div className="passkey-layout">
-      <div className="passkey-status"><ScanFace size={34} /><div><strong>{verified || (state?.passkeys?.length ? "Vérification biométrique active" : "Aucun appareil biométrique")}</strong><p>Le visage ou l’empreinte reste exclusivement sur votre appareil. Le serveur conserve seulement une clé publique.</p></div><ActionButton icon={ShieldCheck} secondary disabled={busy || !state?.passkeys?.length} onClick={verify}>{busy === "verify" ? "Vérification…" : "Tester Face ID"}</ActionButton></div>
-      <form className="passkey-enroll" onSubmit={register}>
-        <label><span>Nom de l’appareil</span><input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={60} placeholder="iPhone personnel ou PC bureau" required /></label>
-        <label><span>Mot de passe administrateur</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
-        <ActionButton icon={ScanFace} disabled={busy || !supported || (state?.passkeys?.length || 0) >= (state?.max_passkeys || 2)}>{busy === "register" ? "Activation…" : "Ajouter Face ID / Windows Hello"}</ActionButton>
-      </form>
-    </div>
-    {!!state?.passkeys?.length && <div className="passkey-devices">{state.passkeys.map((item) => <article key={item.id}><ScanFace size={18} /><div><strong>{item.label}</strong><small>Enregistré le {binanceDate(item.created_at)}</small></div><span>Autorisé</span><button type="button" aria-label={`Révoquer ${item.label}`} disabled={!!busy} onClick={() => revoke(item)}><Trash2 size={14} /></button></article>)}</div>}
-  </section>;
-}
-
-function BinanceWalletPage({ data, setToast }) {
+function BinanceWalletPage({ setToast }) {
   const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -3910,8 +3790,6 @@ function BinanceWalletPage({ data, setToast }) {
           {[["Lecture", permissions?.read], ["Retraits", permissions?.withdrawals], ["Trading Spot", permissions?.trading], ["Transferts internes", permissions?.internal_transfer], ["Restriction IP", permissions?.ip_restricted]].map(([label, enabled]) => <article key={label}><span>{label}</span><strong className={enabled ? "enabled" : "disabled"}>{permissions == null ? "Inconnu" : enabled ? "Activé" : "Désactivé"}</strong></article>)}
         </div>
       </section>
-
-      <BinancePasskeys setToast={setToast} writeToken={data?.dashboard_write_token} />
 
       <section className="binance-panel panel">
         <header><div><span className="eyebrow">Spot wallet</span><h3>Soldes disponibles</h3></div><span>{balances.length} actif(s)</span></header>
