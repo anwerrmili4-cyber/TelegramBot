@@ -251,6 +251,8 @@ def init_db():
     db.orders.create_index("status")
     db.orders.create_index("txid", unique=True, partialFilterExpression={"txid": {"$gt": ""}})
     db.orders.create_index("expires_at")
+    db.orders.create_index("tracking_token_hash", unique=True, sparse=True)
+    db.orders.create_index([("sales_channel", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
     db.settings.create_index("key", unique=True)
     db.text_overrides.create_index([("key", ASCENDING), ("lang", ASCENDING)], unique=True)
     db.lovable_licenses.create_index("id", unique=True)
@@ -1947,6 +1949,31 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
     }
 
 
+def reorder_catalog(item_type, ordered_ids, service_id=None):
+    """Persist a complete service order or one service's complete offer order."""
+    item_type = str(item_type or "").strip().lower()
+    ids = [int(value) for value in ordered_ids]
+    if not ids or len(ids) > 2000 or len(ids) != len(set(ids)):
+        raise ValueError("Ordre du catalogue invalide")
+    conn = get_conn()
+    if item_type == "service":
+        collection = conn.services
+        query = {"archived": {"$ne": 1}}
+    elif item_type == "offer":
+        if service_id is None:
+            raise ValueError("Service requis pour ordonner les produits")
+        collection = conn.offers
+        query = {"service_id": int(service_id), "archived": {"$ne": 1}}
+    else:
+        raise ValueError("Type de catalogue invalide")
+    existing_ids = [int(row["id"]) for row in collection.find(query, {"id": 1})]
+    if set(existing_ids) != set(ids):
+        raise ValueError("Le catalogue a changé. Actualisez la page puis réessayez.")
+    for position, item_id in enumerate(ids):
+        collection.update_one({"id": item_id}, {"$set": {"sort_order": position}})
+    return {"item_type": item_type, "ordered_ids": ids, "service_id": int(service_id) if service_id is not None else None}
+
+
 def save_reseller_product_config(
     provider,
     product_id,
@@ -2490,7 +2517,7 @@ def dashboard_data():
     )
     for svc in service_rows:
         svc_data = _public(svc)
-        offers = list(db.offers.find({"service_id": svc["id"], "archived": {"$ne": 1}}))
+        offers = list(db.offers.find({"service_id": svc["id"], "archived": {"$ne": 1}}).sort([("sort_order", ASCENDING), ("id", ASCENDING)]))
         svc_data["offers"] = [_public(offer) for offer in offers]
         svc_data["offer_count"] = len(offers)
         svc_data["total_stock"] = sum(o.get("stock", 0) for o in offers)

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { csvCell, csvDocument, getAdminJson, normalizeSearchValue, searchableText } from "../src/control-utils.js";
+import { csvCell, csvDocument, getAdminJson, normalizeSearchValue, readPreference, savePreference, searchableText } from "../src/control-utils.js";
 
 test("catalog search reads mixed values and ignores accents", () => {
   const product = { id: 42, active: true, price: 7.5, names: ["Édition Pro", "احترافي"], metadata: { provider: "API-One" } };
@@ -11,6 +11,18 @@ test("catalog search reads mixed values and ignores accents", () => {
   const circular = { name: "safe" };
   circular.self = circular;
   assert.match(searchableText(circular), /safe/);
+});
+
+test("catalog view preferences persist and recover safely", () => {
+  const storage = new Map();
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
+  try {
+    assert.equal(savePreference("catalog-view", "list"), true);
+    assert.equal(readPreference("catalog-view", "grid"), "list");
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage; else globalThis.localStorage = previous;
+  }
 });
 
 test("CSV neutralizes spreadsheet formulas including leading whitespace", () => {

@@ -325,7 +325,7 @@ function ErrorState({ message, onRetry }) {
 }
 
 const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_)/;
-const IMMEDIATE_ACTIONS = new Set(["reply_ticket"]);
+const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog"]);
 
 function describeAdminChange(params = {}) {
   const action = String(params.action || "change");

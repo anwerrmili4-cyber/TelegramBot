@@ -1,6 +1,7 @@
 import SupportInbox from "./SupportInbox";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { normalizeSearchValue, readPreference, savePreference, searchableText } from "./control-utils";
+import { readPreference, savePreference } from "./control-utils";
+import { catalogQueryString, filterCatalogServices, paginateCatalogServices, readCatalogQuery, reorderIds } from "./catalog-utils";
 import {
   Activity,
   ArrowLeft,
@@ -27,6 +28,7 @@ import {
   Eye,
   Globe2,
   Headphones,
+  GripVertical,
   KeyRound,
   Layers3,
   List,
@@ -982,10 +984,18 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
   );
 }
 
-function CatalogPage({ data, onAction }) {
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
-  const [searchField, setSearchField] = useState("all");
+export function CatalogPage({ data, onAction }) {
+  const initialCatalogState = useRef(null);
+  if (!initialCatalogState.current) {
+    const query = readCatalogQuery(typeof window === "undefined" ? "" : window.location.search);
+    if (typeof window !== "undefined" && !new URLSearchParams(window.location.search).has("view")) query.view = readPreference("catalog-view", query.view);
+    if (typeof window !== "undefined" && !new URLSearchParams(window.location.search).has("sort")) query.sort = readPreference("catalog-sort", query.sort);
+    initialCatalogState.current = query;
+  }
+  const initial = initialCatalogState.current;
+  const [search, setSearch] = useState(initial.search);
+  const [category, setCategory] = useState(initial.category);
+  const [searchField, setSearchField] = useState(initial.searchField);
   const [offer, setOffer] = useState(undefined);
   const [showOffer, setShowOffer] = useState(false);
   const [showService, setShowService] = useState(false);
@@ -1003,12 +1013,17 @@ function CatalogPage({ data, onAction }) {
   const [bulkOfferAction, setBulkOfferAction] = useState(null);
   const [bulkOfferValue, setBulkOfferValue] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [stockFilter, setStockFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [sortBy, setSortBy] = useState(() => readPreference("catalog-sort", "default"));
-  const [viewMode, setViewMode] = useState(() => readPreference("catalog-view", "grid"));
+  const [statusFilter, setStatusFilter] = useState(initial.status);
+  const [stockFilter, setStockFilter] = useState(initial.stock);
+  const [sourceFilter, setSourceFilter] = useState(initial.source);
+  const [sortBy, setSortBy] = useState(initial.sort);
+  const [viewMode, setViewMode] = useState(initial.view);
+  const [page, setPage] = useState(initial.page);
+  const [pageSize, setPageSize] = useState(initial.pageSize);
   const [collapsedServices, setCollapsedServices] = useState(new Set());
+  const [draggedCatalogItem, setDraggedCatalogItem] = useState(null);
+  const [dragTarget, setDragTarget] = useState(null);
+  const filterResetReady = useRef(false);
 
   const startEditService = (service) => {
     setEditService(service);
@@ -1045,43 +1060,28 @@ function CatalogPage({ data, onAction }) {
     )
       setShowService(false);
   };
-  const normalizedSearch = normalizeSearchValue(search.trim());
   const allServices = data.services || [];
   const allOffers = allServices.flatMap((service) => service.offers || []);
-  const totalStock = allOffers.reduce((total, item) => total + Math.max(0, Number(item.stock || 0)), 0);
+  const totalStock = allOffers.filter((item) => !item.unlimited_stock).reduce((total, item) => total + Math.max(0, Number(item.stock || 0)), 0);
+  const unlimitedOffers = allOffers.filter((item) => item.unlimited_stock).length;
   const activeOffers = allOffers.filter((item) => item.active !== 0).length;
-  const visibleServices = allServices.filter((service) => !category || String(service.id) === category).map((service) => {
-    const serviceMatch = searchableText({ id: service.id, name: service.name, name_ar: service.name_ar }).includes(normalizedSearch);
-    const offers = (service.offers || []).filter((item) => {
-      const channels = item.sales_channels || ["bot"];
-      if (!channels.includes("bot")) return false;
-      if (statusFilter !== "all" && (item.active === 0 ? "inactive" : "active") !== statusFilter) return false;
-      if (stockFilter === "available" && Number(item.stock || 0) <= 0 && !item.unlimited_stock) return false;
-      if (stockFilter === "empty" && (Number(item.stock || 0) > 0 || item.unlimited_stock)) return false;
-      if (sourceFilter === "internal" && item.supplier_provider) return false;
-      if (sourceFilter === "api" && !item.supplier_provider) return false;
-      if (!normalizedSearch) return true;
-      if (searchField === "service") return serviceMatch;
-      const searchable = {
-        product: searchableText(item),
-        provider: searchableText({ supplier_provider: item.supplier_provider, provider_label: providerLabel(item.supplier_provider) }),
-      };
-      const haystack = searchField === "all"
-        ? `${searchableText(service)} ${Object.values(searchable).join(" ")}`
-        : searchable[searchField] || "";
-      return haystack.includes(normalizedSearch);
-    });
-    return { ...service, offers, searchMatch: serviceMatch || offers.length > 0 };
-  }).filter((service) => {
-    const hasActiveFilters = statusFilter !== "all" || stockFilter !== "all" || sourceFilter !== "all";
-    return (!normalizedSearch || service.searchMatch) && (!hasActiveFilters || service.offers.length > 0);
-  }).sort((left, right) => {
-    if (sortBy === "name") return String(left.name || "").localeCompare(String(right.name || ""), "fr", { sensitivity: "base" });
-    if (sortBy === "offers") return right.offers.length - left.offers.length;
-    if (sortBy === "stock") return Number(right.total_stock || 0) - Number(left.total_stock || 0);
-    return 0;
-  });
-  const visibleOfferIds = visibleServices.flatMap((service) => (service.offers || []).map((item) => item.id));
+  const catalogFilters = { search, category, searchField, status: statusFilter, stock: stockFilter, source: sourceFilter, sort: sortBy };
+  const visibleServices = filterCatalogServices(allServices, catalogFilters, providerLabel);
+  const pagination = paginateCatalogServices(visibleServices, page, pageSize);
+  const paginatedServices = pagination.items;
+  const visibleOfferIds = paginatedServices.flatMap((service) => (service.offers || []).map((item) => item.id));
+  const canReorder = sortBy === "default" && !search && statusFilter === "all" && stockFilter === "all" && sourceFilter === "all";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = catalogQueryString({ ...catalogFilters, view: viewMode, page: pagination.page, pageSize }, window.location.search);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query}${window.location.hash}`);
+  }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, sortBy, viewMode, pagination.page, pageSize]);
+  useEffect(() => {
+    if (!filterResetReady.current) { filterResetReady.current = true; return; }
+    setPage(1);
+  }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, sortBy, pageSize]);
+  useEffect(() => { if (page !== pagination.page) setPage(pagination.page); }, [page, pagination.page]);
   const toggleOfferSelection = (offerId) => setSelectedOffers((current) => {
     const next = new Set(current);
     if (next.has(offerId)) next.delete(offerId); else next.add(offerId);
@@ -1095,6 +1095,30 @@ function CatalogPage({ data, onAction }) {
     if (next.has(serviceId)) next.delete(serviceId); else next.add(serviceId);
     return next;
   });
+  const persistCatalogOrder = async (itemType, draggedId, targetId, serviceId = null) => {
+    const source = itemType === "service"
+      ? allServices.map((service) => service.id)
+      : (allServices.find((service) => Number(service.id) === Number(serviceId))?.offers || []).map((item) => item.id);
+    const orderedIds = reorderIds(source, draggedId, targetId);
+    if (orderedIds.every((id, index) => id === Number(source[index]))) return;
+    await onAction({ action: "reorder_catalog", item_type: itemType, ordered_ids: orderedIds.join(","), service_id: serviceId || "" });
+  };
+  const dropCatalogItem = async (itemType, targetId, serviceId = null) => {
+    const dragged = draggedCatalogItem;
+    setDraggedCatalogItem(null);
+    setDragTarget(null);
+    if (!dragged || dragged.type !== itemType || (itemType === "offer" && Number(dragged.serviceId) !== Number(serviceId))) return;
+    await persistCatalogOrder(itemType, dragged.id, targetId, serviceId);
+  };
+  const moveCatalogItemWithKeyboard = (itemType, itemId, direction, serviceId = null) => {
+    const source = itemType === "service"
+      ? allServices.map((service) => service.id)
+      : (allServices.find((service) => Number(service.id) === Number(serviceId))?.offers || []).map((item) => item.id);
+    const index = source.map(Number).indexOf(Number(itemId));
+    const targetIndex = index + direction;
+    if (index < 0 || targetIndex < 0 || targetIndex >= source.length) return;
+    persistCatalogOrder(itemType, itemId, source[targetIndex], serviceId);
+  };
   const applyBulkOfferAction = async () => {
     if (!bulkOfferAction || !selectedOffers.size) return;
     const toggle = ["activate", "deactivate"].includes(bulkOfferAction);
@@ -1139,7 +1163,8 @@ function CatalogPage({ data, onAction }) {
       <div className="catalog-command-bar">
         <div><span>COLLECTIONS</span><strong>{allServices.length}</strong><small>catégories actives</small></div>
         <div><span>OFFRES</span><strong>{allOffers.length}</strong><small>{activeOffers} visibles dans le bot</small></div>
-        <div><span>STOCK DISPONIBLE</span><strong>{totalStock}</strong><small>unités prêtes à livrer</small></div>
+        <div><span>STOCK MESURÉ</span><strong>{totalStock}</strong><small>unités prêtes à livrer</small></div>
+        <div><span>STOCK ILLIMITÉ</span><strong>{unlimitedOffers}</strong><small>offres sans plafond</small></div>
         <div><span>SÉLECTION</span><strong>{selectedOffers.size}</strong><small>pour une action groupée</small></div>
       </div>
       <div className="workspace-tabs" role="group" aria-label="Collections du catalogue"><button aria-pressed={!category} onClick={() => { setCategory(""); setSelectedOffers(new Set()); }}>Toutes les collections</button>{(data.services || []).map((service) => <button key={service.id} aria-pressed={category === String(service.id)} onClick={() => { setCategory(String(service.id)); setSelectedOffers(new Set()); }}>{service.name}<small> {(service.offers || []).length}</small></button>)}</div>
@@ -1152,7 +1177,7 @@ function CatalogPage({ data, onAction }) {
       </div>
       <div className={`catalog-advanced ${showAdvanced ? "visible" : ""}`} aria-hidden={!showAdvanced}>
         <label><span>Visibilité</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tous les statuts</option><option value="active">Actifs</option><option value="inactive">Désactivés</option></select></label>
-        <label><span>Disponibilité</span><select value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}><option value="all">Tous les stocks</option><option value="available">En stock</option><option value="empty">Stock épuisé</option></select></label>
+        <label><span>Disponibilité</span><select value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}><option value="all">Tous les stocks</option><option value="available">En stock</option><option value="empty">Stock épuisé</option><option value="unlimited">Stock illimité</option></select></label>
         <label><span>Source</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">Toutes les sources</option><option value="internal">Stock interne</option><option value="api">API fournisseur</option></select></label>
         <label><span>Trier par</span><select value={sortBy} onChange={(event) => setCatalogSort(event.target.value)}><option value="default">Ordre du catalogue</option><option value="name">Nom A–Z</option><option value="offers">Nombre de produits</option><option value="stock">Stock disponible</option></select></label>
         <button type="button" onClick={resetAdvanced}>Réinitialiser</button>
@@ -1161,13 +1186,21 @@ function CatalogPage({ data, onAction }) {
         <div><span>{selectedOffers.size}</span><strong>produit(s) sélectionné(s)</strong><button type="button" onClick={() => setSelectedOffers(new Set(visibleOfferIds))}>Tout sélectionner</button><button type="button" onClick={() => setSelectedOffers(new Set())}>Effacer</button></div>
         <div><ActionButton secondary icon={ToggleRight} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("activate")}>Activer</ActionButton><ActionButton secondary icon={ToggleLeft} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("deactivate")}>Désactiver</ActionButton><ActionButton secondary icon={CircleDollarSign} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("price")}>Prix</ActionButton><ActionButton secondary icon={ShoppingBag} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("move")}>Service</ActionButton><ActionButton danger icon={Archive} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("archive")}>Archiver</ActionButton></div>
       </div>
+      {canReorder && <div className="catalog-order-hint"><GripVertical size={15} /><span>Glissez les poignées pour réordonner. Utilisez les flèches haut/bas lorsque la poignée est sélectionnée.</span></div>}
       <div className={`catalog-react-grid ${viewMode === "list" ? "catalog-list-view" : ""}`}>
-        {visibleServices.map((service, serviceIndex) => {
+        {paginatedServices.map((service, serviceIndex) => {
           const providers = [...new Set((service.offers || []).map((item) => item.supplier_provider || "").filter(Boolean))];
           return (
-          <section className={`catalog-service ${collapsedServices.has(service.id) ? "collapsed" : ""}`} key={service.id} style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length], "--catalog-index": serviceIndex }}>
+          <section
+            className={`catalog-service ${collapsedServices.has(service.id) ? "collapsed" : ""} ${dragTarget === `service-${service.id}` ? "drag-target" : ""}`}
+            key={service.id}
+            style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length], "--catalog-index": serviceIndex }}
+            onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "service") { event.preventDefault(); setDragTarget(`service-${service.id}`); } }}
+            onDrop={(event) => { event.preventDefault(); dropCatalogItem("service", service.id); }}
+          >
             <header>
               <div>
+                {canReorder && !category && <button type="button" className="catalog-drag-handle" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "service", id: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("service", service.id, event.key === "ArrowUp" ? -1 : 1); } }} aria-label={`Réordonner la collection ${service.name}`} title="Glisser pour réordonner"><GripVertical size={17} /></button>}
                 <button type="button" className="catalog-service-icon" onClick={() => toggleServiceCollapse(service.id)} aria-expanded={!collapsedServices.has(service.id)} aria-label={`${collapsedServices.has(service.id) ? "Déplier" : "Replier"} ${service.name}`}><Command size={18} /></button>
                 <div>
                   <h3>{service.name}</h3>
@@ -1199,9 +1232,12 @@ function CatalogPage({ data, onAction }) {
             <div className="catalog-offers">
               {service.offers?.map((item, index) => (
                 <article
-                  className={`offer-card ${selectedOffers.has(item.id) ? "selected" : ""}`}
+                  className={`offer-card ${selectedOffers.has(item.id) ? "selected" : ""} ${dragTarget === `offer-${item.id}` ? "drag-target" : ""}`}
                   key={item.id || `${service.id}-${item.name}-${index}`}
+                  onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "offer" && Number(draggedCatalogItem.serviceId) === Number(service.id)) { event.preventDefault(); setDragTarget(`offer-${item.id}`); } }}
+                  onDrop={(event) => { event.preventDefault(); dropCatalogItem("offer", item.id, service.id); }}
                 >
+                  {canReorder && <button type="button" className="catalog-drag-handle offer-drag-handle" draggable onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "offer", id: item.id, serviceId: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("offer", item.id, event.key === "ArrowUp" ? -1 : 1, service.id); } }} aria-label={`Réordonner le produit ${item.name}`} title="Glisser pour réordonner"><GripVertical size={15} /></button>}
                   <button className="offer-select" type="button" onClick={() => toggleOfferSelection(item.id)} aria-label={`${selectedOffers.has(item.id) ? "Désélectionner" : "Sélectionner"} ${item.name}`}>{selectedOffers.has(item.id) ? <Check size={13} /> : null}</button>
                   <div>
                     <strong>{item.name}</strong>
@@ -1270,6 +1306,7 @@ function CatalogPage({ data, onAction }) {
           );
         })}
       </div>
+      {pagination.total > 0 && <nav className="catalog-pagination" aria-label="Pagination du catalogue"><span>{pagination.total} produit(s) · Page {pagination.page} sur {pagination.pages}</span><label>Afficher <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><div><button type="button" disabled={pagination.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /> Précédent</button><button type="button" disabled={pagination.page >= pagination.pages} onClick={() => setPage((value) => Math.min(pagination.pages, value + 1))}>Suivant <ChevronRight size={16} /></button></div></nav>}
       {!visibleServices.length && (
         <Empty
           icon={ShoppingBag}
@@ -3803,7 +3840,6 @@ function BinanceWalletPage({ setToast }) {
         <article><span>Dépôts</span><strong>{wallet?.summary?.deposits ?? "—"}</strong><small>{wallet ? `${wallet.period_days} derniers jours` : "Historique"}</small></article>
         <article><span>Retraits</span><strong>{wallet?.summary?.withdrawals ?? "—"}</strong><small>{permissions?.withdrawals ? "API autorisée — à désactiver" : "API de retrait désactivée"}</small></article>
       </div>
-
       <section className="binance-permissions panel">
         <header><div><span className="eyebrow">Sécurité de la clé</span><h3>Permissions Binance</h3></div><span className={`binance-readonly-badge ${unsafeKey ? "unsafe" : ""}`}>{unsafeKey ? "Action requise" : "Lecture seule"}</span></header>
         <div>

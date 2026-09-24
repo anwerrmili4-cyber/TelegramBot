@@ -45,8 +45,10 @@ from app.domain import (
     inventory_service,
     lovable_service,
     order_service,
+    payment_service,
     reseller_comparison_service,
     reseller_service,
+    storefront_service,
     support_service,
     wallet_service,
     warranty_service,
@@ -518,6 +520,35 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
         path = url.path.rstrip("/")
+
+        if path == "/api/storefront/catalog":
+            try:
+                self._reply(200, storefront_service.catalog(), headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "public, max-age=60",
+                })
+            except Exception:
+                log.exception("Storefront catalog request failed")
+                self._reply(503, {"ok": False, "error": "Catalogue temporairement indisponible."}, headers={
+                    "Access-Control-Allow-Origin": "*",
+                })
+            return
+
+        if path == "/api/storefront/order":
+            params = parse_qs(url.query)
+            try:
+                payload = storefront_service.order_status(
+                    int(params.get("id", [0])[0]), params.get("token", [""])[0]
+                )
+                self._reply(200, payload, headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-store",
+                })
+            except (TypeError, ValueError, storefront_service.StorefrontError) as exc:
+                self._reply(404, {"ok": False, "error": str(exc)}, headers={
+                    "Access-Control-Allow-Origin": "*",
+                })
+            return
 
         if path == "/api/openapi.json":
             self._reply(200, openapi_document())
@@ -1223,6 +1254,14 @@ class handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         path = urlsplit(self.path).path.rstrip("/")
+        if path == "/api/storefront/orders":
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.end_headers()
+            return
         if path == "/api/lovable/license/validate":
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1235,6 +1274,28 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/")
+        if path == "/api/storefront/orders":
+            try:
+                payload = self._read_json_body(max_bytes=16_000)
+                result = storefront_service.create_order(payload)
+                self._reply(201, result, headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-store",
+                })
+            except storefront_service.StorefrontError as exc:
+                self._reply(400, {"ok": False, "error": str(exc)}, headers={
+                    "Access-Control-Allow-Origin": "*",
+                })
+            except ValueError as exc:
+                self._reply(400, {"ok": False, "error": str(exc)}, headers={
+                    "Access-Control-Allow-Origin": "*",
+                })
+            except Exception:
+                log.exception("Storefront order creation failed")
+                self._reply(503, {"ok": False, "error": "Commande temporairement indisponible."}, headers={
+                    "Access-Control-Allow-Origin": "*",
+                })
+            return
         if path == "/admin/api/login":
             try:
                 payload = self._read_json_body(max_bytes=4_000)
@@ -1774,6 +1835,29 @@ class handler(BaseHTTPRequestHandler):
                 })
                 return
 
+            elif action == "reorder_catalog":
+                ordered_ids = [
+                    int(value) for value in form.get("ordered_ids", "").split(",")
+                    if value.strip().isdigit()
+                ]
+                item_type = form.get("item_type", "").strip().lower()
+                raw_service_id = form.get("service_id", "").strip()
+                result = db.reorder_catalog(
+                    item_type,
+                    ordered_ids,
+                    service_id=int(raw_service_id) if raw_service_id else None,
+                )
+                db.audit_event("catalog.reordered", details={
+                    **result,
+                    "reversible": False,
+                })
+                label = "collections" if item_type == "service" else "produits"
+                self._reply(200, {
+                    "ok": True,
+                    "message": f"Ordre des {label} enregistré.",
+                })
+                return
+
             elif action == "bulk_update_offers":
                 offer_ids = list(dict.fromkeys(
                     int(value) for value in form.get("offer_ids", "").split(",")
@@ -2110,10 +2194,34 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             elif action == "confirm_payment":
-                raise ValueError(
-                    "La confirmation manuelle est désactivée. "
-                    "Le paiement doit être confirmé automatiquement par Binance."
-                )
+                oid = int(form["order_id"])
+                order = db.get_order(oid)
+                if not order:
+                    raise ValueError("Commande introuvable.")
+                if str(order.get("payment_method") or "").lower() not in {"d17", "flouci"}:
+                    raise ValueError(
+                        "La confirmation manuelle est réservée aux paiements D17 et Flouci."
+                    )
+                if str(order.get("status") or "") != "manual_review":
+                    raise ValueError("Cette commande n'attend pas de vérification manuelle.")
+                if not payment_service.confirm_payment_manual(oid):
+                    raise ValueError("Le paiement n'a pas pu être confirmé.")
+                notification_sent = True
+                try:
+                    _run_async(_application().bot.send_message(
+                        order["user_id"],
+                        f"✅ <b>Paiement confirmé</b>\n\nCommande <b>#{oid}</b> — "
+                        f"{html.escape(str(order.get('payment_method') or '').upper())}",
+                        parse_mode=ParseMode.HTML,
+                    ))
+                except Exception:
+                    notification_sent = False
+                self._reply(200, {
+                    "ok": True,
+                    "notification_sent": notification_sent,
+                    "message": f"Paiement de la commande #{oid} confirmé manuellement.",
+                })
+                return
 
             elif action == "cancel_order":
                 oid = int(form["order_id"])

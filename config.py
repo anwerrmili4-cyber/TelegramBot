@@ -3,6 +3,7 @@ Configuration centrale du bot HEAVENPREM.
 Toutes les valeurs sensibles sont lues depuis les variables d'environnement.
 """
 import os
+import re
 
 from dotenv import load_dotenv
 
@@ -324,6 +325,19 @@ SHOP_NAME: str = os.environ.get("HP_SHOP_NAME", "BlackMarket").strip()
 DEFAULT_LANG: str = "en"
 SUPPORTED_LANGS: list[str] = ["en"]
 CURRENCY: str = "USDT"
+
+# Boutique tunisienne (site client). Les paiements D17/Flouci sont contrôlés
+# manuellement à partir du justificatif envoyé sur WhatsApp ; aucun secret ou
+# identifiant d'API de paiement n'est nécessaire pour ce parcours.
+TN_WHATSAPP_NUMBER: str = re.sub(
+    r"\D", "", os.environ.get("HP_TN_WHATSAPP_NUMBER", "21621994132")
+)
+if not TN_WHATSAPP_NUMBER:
+    TN_WHATSAPP_NUMBER = "21621994132"
+TN_MANUAL_PAYMENT_METHODS: frozenset[str] = frozenset({"d17", "flouci"})
+TN_TND_PER_USDT: float = max(
+    0.0, float(os.environ.get("HP_TN_TND_PER_USDT", "3.2"))
+)
 
 # ---------------------------------------------------------------------------
 # Affiliation

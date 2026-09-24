@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import admin
 import database as db
+import pytest
 
 
 def test_dashboard_comparisons_and_alerts(mock_mongodb):
@@ -122,6 +123,31 @@ def test_offer_can_move_between_services_and_keeps_api_config_in_sync(mock_mongo
     assert result["previous_service_id"] == source_id
     assert db.get_offer(offer_id)["service_id"] == destination_id
     assert mock_mongodb.reseller_products.find_one({"product_id": "sku-move"})["service_id"] == destination_id
+
+
+def test_catalog_reordering_persists_services_and_products(mock_mongodb):
+    first_service = db.add_service("First", "")
+    second_service = db.add_service("Second", "")
+    first_offer = db.add_offer(first_service, "First offer", 1, 1)
+    second_offer = db.add_offer(first_service, "Second offer", 1, 1)
+
+    db.reorder_catalog("service", [second_service, first_service])
+    db.reorder_catalog("offer", [second_offer, first_offer], service_id=first_service)
+
+    assert [item["id"] for item in db.list_services()][:2] == [second_service, first_service]
+    service = next(item for item in db.dashboard_data()["services"] if item["id"] == first_service)
+    assert [item["id"] for item in service["offers"]] == [second_offer, first_offer]
+
+
+def test_catalog_reordering_rejects_partial_or_duplicate_orders(mock_mongodb):
+    service_id = db.add_service("Products", "")
+    first_offer = db.add_offer(service_id, "One", 1, 1)
+    db.add_offer(service_id, "Two", 1, 1)
+
+    with pytest.raises(ValueError, match="catalogue a changé"):
+        db.reorder_catalog("offer", [first_offer], service_id=service_id)
+    with pytest.raises(ValueError, match="invalide"):
+        db.reorder_catalog("offer", [first_offer, first_offer], service_id=service_id)
 
 
 def test_archived_catalog_items_are_hidden_but_preserved(mock_mongodb):
