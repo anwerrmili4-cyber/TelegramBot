@@ -626,6 +626,10 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
 .binance-copy { max-width:155px; display:flex; align-items:center; gap:6px; padding:0; border:0; overflow:hidden; color:#8ba0b5; background:transparent; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:8px; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }.binance-copy:disabled { cursor:default; opacity:.7; }.binance-copy svg { flex:0 0 auto; }
 .status-pill.processing,.status-pill.pending,.status-pill.awaiting_approval,.status-pill.awaiting_confirmation,.status-pill.email_sent,.status-pill.credited_locked { color:#fcd34d; background:rgba(251,191,36,.09); }.status-pill.completed { color:#6ee7b7; background:rgba(52,211,153,.09); }.status-pill.rejected,.status-pill.wrong_deposit { color:#fda4af; background:rgba(251,113,133,.09); }
 .binance-footnote { margin:2px 0 0; color:#60758c; font-size:8px; text-align:center; }
+.passkey-layout { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr); gap:1px; background:var(--line); }
+.passkey-status,.passkey-enroll { padding:16px; background:#091624; }.passkey-status { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:13px; }.passkey-status > svg { color:#fcd34d; }.passkey-status strong { font-size:11px; }.passkey-status p { margin:5px 0 0; color:var(--muted); font-size:8px; line-height:1.5; }
+.passkey-enroll { display:grid; grid-template-columns:1fr 1fr; gap:9px; }.passkey-enroll label { display:grid; gap:5px; }.passkey-enroll label span { color:var(--muted); font-size:8px; }.passkey-enroll input { min-width:0; height:37px; padding:0 10px; border:1px solid var(--line); border-radius:8px; outline:0; color:var(--text); background:#07131f; font-size:9px; }.passkey-enroll input:focus { border-color:rgba(245,158,11,.5); }.passkey-enroll button { grid-column:1/-1; justify-content:center; }
+.passkey-devices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px; border-top:1px solid var(--line); background:#081522; }.passkey-devices article { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:10px; padding:11px; border:1px solid var(--line); border-radius:10px; }.passkey-devices article > svg { color:#6ee7b7; }.passkey-devices article div { display:grid; gap:3px; }.passkey-devices strong { font-size:9px; }.passkey-devices small { color:var(--muted); font-size:7px; }.passkey-devices article > span { color:#6ee7b7; font-size:8px; font-weight:700; }.passkey-devices article > button { width:29px; height:29px; display:grid; place-items:center; border:1px solid rgba(251,113,133,.2); border-radius:8px; color:#fda4af; background:rgba(251,113,133,.06); cursor:pointer; }.passkey-devices article > button:disabled { opacity:.5; cursor:wait; }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes slide-in { from { transform: translateX(100%); } }
 @keyframes toast-center-enter { 0% { opacity:0; transform:translateY(-34px) scale(.96); filter:blur(6px); } 66% { opacity:1; transform:translateY(5px) scale(1.01); filter:blur(0); } 100% { opacity:1; transform:none; filter:blur(0); } }
@@ -647,6 +651,7 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
   .header-action { width: 39px; padding: 0; justify-content: center; }
   .order-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .binance-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }.binance-balance-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.binance-permissions > div { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .passkey-layout { grid-template-columns:1fr; }
 }
 
 @media (max-width: 900px) {
@@ -736,6 +741,7 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
   .dialog-actions .action-button { flex:1; }
   .order-kpis { gap:8px; }.order-kpis article { align-items:flex-start; flex-direction:column; padding:13px; }.order-kpis strong { font-size:16px; }.order-status-content { justify-content:center; flex-wrap:wrap; }.order-legend { flex:1 1 150px; }.order-line-chart { padding-left:11px; padding-right:11px; }
   .binance-kpis { gap:8px; }.binance-kpis article { padding:12px; }.binance-kpis strong { font-size:16px; }.binance-permissions > div { grid-template-columns:repeat(2,minmax(0,1fr)); }.binance-balance-grid { grid-template-columns:1fr; }.binance-toolbar { align-items:stretch; flex-direction:column; }.binance-toolbar > label { min-width:0; }.binance-toolbar > div { display:grid; grid-template-columns:repeat(3,1fr); }.binance-history-header { align-items:flex-start !important; flex-direction:column; }.binance-history-header label { width:100%; justify-content:space-between; }.binance-copy { max-width:110px; }
+  .passkey-status { grid-template-columns:auto 1fr; }.passkey-status button { grid-column:1/-1; justify-content:center; }.passkey-enroll { grid-template-columns:1fr; }.passkey-enroll button { grid-column:auto; }.passkey-devices { grid-template-columns:1fr; }
 }
 
 @media (max-width: 390px) {

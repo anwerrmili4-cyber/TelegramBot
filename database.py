@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -293,6 +293,10 @@ def init_db():
         [("bucket", ASCENDING), ("window", ASCENDING)], unique=True,
     )
     db.buyer_api_rate_limits.create_index("expire_at", expireAfterSeconds=0)
+    db.admin_passkeys.create_index("credential_id", unique=True)
+    db.admin_passkeys.create_index("created_at")
+    db.admin_webauthn_challenges.create_index("challenge_id", unique=True)
+    db.admin_webauthn_challenges.create_index("expires_at", expireAfterSeconds=0)
     db.affiliate_rewards.create_index([("referrer_id", ASCENDING), ("milestone", ASCENDING)], unique=True)
     db.loyalty.create_index("user_id", unique=True)
     db.pending_states.create_index("user_id", unique=True)
