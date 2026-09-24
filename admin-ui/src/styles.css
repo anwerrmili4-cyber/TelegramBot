@@ -599,6 +599,33 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
 .settings-card h3 { margin:0 0 3px; color:var(--text); font-size:12px; }
 .settings-card p { margin:0; color:var(--muted); font-size:8px; }
 .settings-submit { grid-column:1/-1; display:flex; justify-content:flex-end; }
+.binance-alert { display:flex; align-items:flex-start; gap:11px; margin-bottom:12px; padding:13px 15px; border:1px solid rgba(251,191,36,.23); border-radius:12px; color:#fcd34d; background:rgba(251,191,36,.055); }
+.binance-alert.safe { color:#6ee7b7; border-color:rgba(52,211,153,.24); background:rgba(52,211,153,.055); }
+.binance-alert.danger { color:#fda4af; border-color:rgba(251,113,133,.28); background:rgba(251,113,133,.06); }
+.binance-alert svg { flex:0 0 auto; margin-top:1px; }.binance-alert div { display:grid; gap:3px; }.binance-alert strong { font-size:10px; }.binance-alert p { margin:0; color:var(--muted); font-size:9px; line-height:1.5; }
+.binance-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; margin-bottom:13px; }
+.binance-kpis article { min-width:0; display:grid; gap:7px; padding:15px; border:1px solid var(--line); border-radius:13px; background:linear-gradient(145deg,#0d1c2d,#091522); }
+.binance-kpis span { color:#71859b; font-size:8px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; }.binance-kpis strong { overflow:hidden; color:var(--text); font-size:19px; text-overflow:ellipsis; white-space:nowrap; }.binance-kpis small { color:#60758c; font-size:8px; }
+.binance-permissions,.binance-panel { margin-bottom:13px; overflow:hidden; }
+.binance-permissions > header,.binance-panel > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); background:linear-gradient(90deg,rgba(245,158,11,.055),transparent); }
+.binance-permissions h3,.binance-panel h3 { margin:4px 0 0; font-size:13px; }.binance-panel > header > span { color:var(--muted); font-size:8px; }
+.binance-readonly-badge { padding:5px 8px; border-radius:9px; color:#6ee7b7; background:rgba(52,211,153,.1); font-size:8px; font-weight:800; }.binance-readonly-badge.unsafe { color:#fda4af; background:rgba(251,113,133,.11); }
+.binance-permissions > div { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:1px; background:var(--line); }
+.binance-permissions article { display:grid; gap:7px; padding:13px 15px; background:#0a1725; }.binance-permissions article span { color:var(--muted); font-size:8px; }.binance-permissions article strong { font-size:10px; }.binance-permissions .enabled { color:#6ee7b7; }.binance-permissions .disabled { color:#8295aa; }
+.binance-balance-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; padding:12px; }
+.binance-balance-grid article { min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:11px; padding:13px; border:1px solid var(--line); border-radius:11px; background:#091624; }
+.binance-asset-icon { width:42px; height:42px; display:grid; place-items:center; border:1px solid rgba(245,158,11,.2); border-radius:50%; color:#fcd34d; background:rgba(245,158,11,.08); font-size:8px; font-weight:900; }
+.binance-balance-grid article > div:not(.binance-asset-icon) { min-width:0; display:grid; gap:4px; }.binance-balance-grid article > div:last-child { justify-items:end; }.binance-balance-grid strong { overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }.binance-balance-grid span { color:var(--muted); font-size:7px; }
+.binance-loading { min-height:150px; display:flex; align-items:center; justify-content:center; gap:9px; color:var(--muted); font-size:9px; }
+.binance-history-header label { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:8px; }.binance-history-header select { height:33px; padding:0 28px 0 9px; border:1px solid var(--line); border-radius:8px; color:var(--text); background:#091624; font-size:9px; }
+.binance-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 13px; border-bottom:1px solid var(--line); }
+.binance-toolbar > label { min-width:230px; display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid var(--line); border-radius:9px; background:#081522; }.binance-toolbar input { width:100%; height:36px; border:0; outline:0; color:var(--text); background:transparent; font-size:9px; }
+.binance-toolbar > div { display:flex; gap:5px; }.binance-toolbar button { min-height:32px; padding:0 10px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:#081522; font-size:8px; cursor:pointer; }.binance-toolbar button[aria-pressed="true"] { color:#fcd34d; border-color:rgba(245,158,11,.3); background:rgba(245,158,11,.09); }
+.binance-table td { vertical-align:middle; }.binance-table td small { display:block; margin-top:3px; color:var(--muted); font-size:7px; }
+.binance-kind { display:inline-flex; padding:5px 7px; border-radius:8px; color:#6ee7b7; background:rgba(52,211,153,.09); font-size:8px; font-weight:800; }.binance-kind.withdrawal { color:#fda4af; background:rgba(251,113,133,.08); }
+.binance-copy { max-width:155px; display:flex; align-items:center; gap:6px; padding:0; border:0; overflow:hidden; color:#8ba0b5; background:transparent; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:8px; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }.binance-copy:disabled { cursor:default; opacity:.7; }.binance-copy svg { flex:0 0 auto; }
+.status-pill.processing,.status-pill.pending,.status-pill.awaiting_approval,.status-pill.awaiting_confirmation,.status-pill.email_sent,.status-pill.credited_locked { color:#fcd34d; background:rgba(251,191,36,.09); }.status-pill.completed { color:#6ee7b7; background:rgba(52,211,153,.09); }.status-pill.rejected,.status-pill.wrong_deposit { color:#fda4af; background:rgba(251,113,133,.09); }
+.binance-footnote { margin:2px 0 0; color:#60758c; font-size:8px; text-align:center; }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes slide-in { from { transform: translateX(100%); } }
 @keyframes toast-center-enter { 0% { opacity:0; transform:translateY(-34px) scale(.96); filter:blur(6px); } 66% { opacity:1; transform:translateY(5px) scale(1.01); filter:blur(0); } 100% { opacity:1; transform:none; filter:blur(0); } }
@@ -619,6 +646,7 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
   .header-action span { display: none; }
   .header-action { width: 39px; padding: 0; justify-content: center; }
   .order-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .binance-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }.binance-balance-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.binance-permissions > div { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 
 @media (max-width: 900px) {
@@ -707,6 +735,7 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
   .custom-api-grid article { align-items:flex-start; flex-wrap:wrap; }.custom-api-copy { min-width:calc(100% - 50px); }.custom-api-actions { width:100%; justify-content:flex-end; }
   .dialog-actions .action-button { flex:1; }
   .order-kpis { gap:8px; }.order-kpis article { align-items:flex-start; flex-direction:column; padding:13px; }.order-kpis strong { font-size:16px; }.order-status-content { justify-content:center; flex-wrap:wrap; }.order-legend { flex:1 1 150px; }.order-line-chart { padding-left:11px; padding-right:11px; }
+  .binance-kpis { gap:8px; }.binance-kpis article { padding:12px; }.binance-kpis strong { font-size:16px; }.binance-permissions > div { grid-template-columns:repeat(2,minmax(0,1fr)); }.binance-balance-grid { grid-template-columns:1fr; }.binance-toolbar { align-items:stretch; flex-direction:column; }.binance-toolbar > label { min-width:0; }.binance-toolbar > div { display:grid; grid-template-columns:repeat(3,1fr); }.binance-history-header { align-items:flex-start !important; flex-direction:column; }.binance-history-header label { width:100%; justify-content:space-between; }.binance-copy { max-width:110px; }
 }
 
 @media (max-width: 390px) {

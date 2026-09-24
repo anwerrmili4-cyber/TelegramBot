@@ -175,6 +175,33 @@ def test_reseller_provider_health_metadata_is_authenticated_and_safe(monkeypatch
     }
 
 
+def test_binance_wallet_endpoint_is_authenticated_and_never_cached(monkeypatch):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
+    monkeypatch.setattr(
+        webhook_module.binance_dashboard_service,
+        "snapshot",
+        lambda **kwargs: {"ok": True, "days": kwargs["days"], "balances": [], "transactions": []},
+    )
+    with running_server() as base_url:
+        try:
+            urlopen(f"{base_url}/admin/api/binance-wallet", timeout=5)
+            raise AssertionError("Expected authentication error")
+        except HTTPError as exc:
+            assert exc.code == 401
+
+        encoded = base64.b64encode(b"admin:secret").decode()
+        request = Request(
+            f"{base_url}/admin/api/binance-wallet?days=30",
+            headers={"Authorization": f"Basic {encoded}"},
+        )
+        with urlopen(request, timeout=5) as response:
+            payload = json.load(response)
+
+    assert response.status == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert payload == {"ok": True, "days": 30, "balances": [], "transactions": []}
+
+
 def test_pending_payment_monitor_requires_cron_secret_and_returns_cancellations(
     monkeypatch,
 ):

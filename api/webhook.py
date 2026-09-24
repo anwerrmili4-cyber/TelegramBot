@@ -39,6 +39,7 @@ from api.public_site import render_public_site
 from app import __version__, support_bridge
 from app.domain import (
     admin_ai_service,
+    binance_dashboard_service,
     buyer_api_service,
     external_api_service,
     inventory_service,
@@ -852,6 +853,23 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
             self._reply(200, binance_healthcheck())
+            return
+
+        elif path == "/admin/api/binance-wallet":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            try:
+                raw_days = parse_qs(url.query).get("days", ["90"])[0]
+                payload = binance_dashboard_service.snapshot(days=int(raw_days))
+                self._reply(200, payload, headers={"Cache-Control": "no-store"})
+            except (TypeError, ValueError):
+                self._reply(400, {"ok": False, "error": "Période invalide."})
+            except binance_dashboard_service.BinanceDashboardError as exc:
+                self._reply(503, {"ok": False, "error": str(exc)}, headers={"Cache-Control": "no-store"})
+            except Exception:
+                log.exception("Binance admin wallet request failed")
+                self._reply(503, {"ok": False, "error": "Portefeuille Binance temporairement indisponible."}, headers={"Cache-Control": "no-store"})
             return
 
         elif path == "/admin/api/bybit-health":

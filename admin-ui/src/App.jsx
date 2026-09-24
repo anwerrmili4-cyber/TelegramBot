@@ -37,6 +37,7 @@ import {
   Trash2,
   Users,
   Wrench,
+  WalletCards,
   X,
 } from "lucide-react";
 
@@ -56,6 +57,7 @@ const NAV_GROUPS = [
     { id: "deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
     { id: "withdrawals", label: "Retraits", icon: CircleDollarSign },
     { id: "finance", label: "Profit & pertes", icon: CalendarDays },
+    { id: "binance-wallet", label: "Portefeuille Binance", icon: WalletCards },
     { id: "api-clients", label: "Clients API", icon: KeyRound },
   ] },
   { label: "Administration", items: [
