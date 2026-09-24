@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -50,6 +51,21 @@ def _masked(value: object) -> str:
     if len(text) <= 12:
         return text
     return f"{text[:6]}…{text[-6:]}"
+
+
+def _timestamp_ms(value: object) -> int:
+    if isinstance(value, (int, float)):
+        numeric = int(value)
+        return numeric if numeric > 10_000_000_000 else numeric * 1000
+    text = str(value or "").strip()
+    if text.isdigit():
+        numeric = int(text)
+        return numeric if numeric > 10_000_000_000 else numeric * 1000
+    try:
+        parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+        return int(parsed.timestamp() * 1000)
+    except ValueError:
+        return 0
 
 
 def _binance_message(exc: HTTPError) -> str:
@@ -154,7 +170,7 @@ def _withdrawal_rows(start_ms: int, end_ms: int) -> list[dict]:
 def _transaction(item: dict, kind: str) -> dict:
     is_deposit = kind == "deposit"
     status_value = int(item.get("status") or 0)
-    timestamp = item.get("insertTime") if is_deposit else item.get("applyTime")
+    timestamp = _timestamp_ms(item.get("insertTime") if is_deposit else item.get("applyTime"))
     return {
         "id": str(item.get("id") or item.get("txId") or ""),
         "type": kind,
@@ -207,7 +223,7 @@ def snapshot(*, days: int = 90) -> dict:
         except BinanceDashboardError as exc:
             warnings.append(f"Historique {kind} indisponible: {exc}")
 
-    transactions.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+    transactions.sort(key=lambda item: int(item.get("timestamp") or 0), reverse=True)
     return {
         "ok": True,
         "read_only": True,

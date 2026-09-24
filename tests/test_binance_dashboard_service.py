@@ -86,6 +86,7 @@ def test_snapshot_returns_safe_balances_history_and_permissions(monkeypatch):
     assert result["summary"] == {"assets": 1, "deposits": 1, "withdrawals": 1, "btc_value": 0.0002}
     assert result["transactions"][0]["txid"] == "btc1234567890abcdef"
     assert result["transactions"][0]["address"] == "bc1234…abcdef"
+    assert result["transactions"][0]["timestamp"] == 1_699_999_200_000
     assert "private-secret" not in json.dumps(result)
     assert requests[0].method == "POST"
 
