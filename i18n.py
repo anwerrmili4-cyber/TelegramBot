@@ -366,19 +366,19 @@ TRANSLATIONS = {
         "ar": "🛍️ *كتالوج {shop}*\n\n🟢 المتجر يعمل\n⚡ تسليم سريع أو فوري\n🛡️ منتجات موثوقة مع الدعم\n\nاختر الفئة:",
     },
     "catalog_notifications_on": {
-        "fr": "Alertes catalogue : activées",
-        "en": "Catalog alerts: on",
-        "ar": "تنبيهات المتجر: مفعّلة",
+        "fr": "🔔 Alertes catalogue : activées",
+        "en": "🔔 Catalog alerts: on",
+        "ar": "🔔 تنبيهات المتجر: مفعّلة",
     },
     "catalog_notifications_off": {
-        "fr": "Alertes catalogue : désactivées",
-        "en": "Catalog alerts: off",
-        "ar": "تنبيهات المتجر: متوقفة",
+        "fr": "🔕 Alertes catalogue : désactivées",
+        "en": "🔕 Catalog alerts: off",
+        "ar": "🔕 تنبيهات المتجر: متوقفة",
     },
     "catalog_request_button": {
-        "fr": "Can't find what you need?",
-        "en": "Can't find what you need?",
-        "ar": "لا تجد ما تحتاجه؟",
+        "fr": "🔎 Can't find what you need?",
+        "en": "🔎 Can't find what you need?",
+        "ar": "🔎 لا تجد ما تحتاجه؟",
     },
     "catalog_request_prompt": {
         "fr": "✍️ *Tell us what you need*\n\nSend the product or service name and any useful details. Our team will review your request.",
@@ -422,9 +422,9 @@ TRANSLATIONS = {
         "ar": "❌ <b>نفد المخزون</b>\n\nيمكنك طلب هذا العرض مسبقاً مع <b>زيادة 10%</b>. التسليم خلال <b>ساعتين كحد أقصى</b>.",
     },
     "catalog_preorder_button": {
-        "fr": "Précommande",
-        "en": "Pre-order",
-        "ar": "طلب مسبق",
+        "fr": "⏳ Précommande",
+        "en": "⏳ Pre-order",
+        "ar": "⏳ طلب مسبق",
     },
     "preorder_catalog_title": {
         "fr": "⏳ *PRÉCOMMANDE*\n\nChoisissez un service en rupture de stock. Les offres sont affichées avec le supplément de *10 %* inclus.\n\n🚚 *Livraison sous 2 heures maximum.*",

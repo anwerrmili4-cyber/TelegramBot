@@ -1,8 +1,7 @@
 import SupportInbox from "./SupportInbox";
-import { createRefreshQueue } from "./refresh-queue";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readPreference, savePreference } from "./control-utils";
-import { CATALOG_FORMATS, catalogOfferPayload, catalogItemFormat, catalogStockLabel, catalogQueryString, filterCatalogServices, paginateCatalogServices, readCatalogQuery, reorderIds } from "./catalog-utils";
+import { catalogQueryString, filterCatalogServices, paginateCatalogServices, readCatalogQuery, reorderIds } from "./catalog-utils";
 import {
   Activity,
   ArrowLeft,
@@ -213,12 +212,11 @@ function Modal({ title, children, onClose, wide = false, fullScreen = false }) {
   );
 }
 
-function Field({ label, children, wide = false, help }) {
+function Field({ label, children, wide = false }) {
   return (
     <label className={`field ${wide ? "wide" : ""}`}>
       <span>{label}</span>
       {children}
-      {help && <small className="control-caption">{help}</small>}
     </label>
   );
 }
@@ -304,6 +302,7 @@ function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
     total: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [syncVersion, setSyncVersion] = useState(0);
   const query = new URLSearchParams(
     Object.entries(filters)
       .filter(([, value]) => value !== "" && value != null)
@@ -315,21 +314,39 @@ function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
     return () => window.clearTimeout(timer);
   }, [query]);
   useEffect(() => {
+    const synchronize = () => setSyncVersion((value) => value + 1);
+    window.addEventListener("admin:data-synced", synchronize);
+    return () => window.removeEventListener("admin:data-synced", synchronize);
+  }, []);
+  useEffect(() => {
+    if (!refreshInterval) return undefined;
+    const refresh = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) setSyncVersion((value) => value + 1);
+    };
+    const timer = window.setInterval(refresh, refreshInterval);
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [refreshInterval]);
+  useEffect(() => {
     let active = true;
-    let controller;
+    const controller = new AbortController();
     setLoading(true);
-    const queue = createRefreshQueue(async () => {
-      controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 20_000);
-      try {
-        const response = await fetch(`${endpoint}?${debouncedQuery}`, {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: controller.signal,
-        });
+    fetch(`${endpoint}?${debouncedQuery}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => {
         if (response.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
         if (!response.ok) throw new Error(`Erreur ${response.status}`);
-        const payload = await response.json();
+        return response.json();
+      })
+      .then((payload) => {
         if (!active) return;
         setResult({
           ...payload,
@@ -338,32 +355,16 @@ function useRemoteList(endpoint, filters, { refreshInterval = 0 } = {}) {
           pages: Math.max(1, Number(payload?.pages) || 1),
           total: Math.max(0, Number(payload?.total) || 0),
         });
-      } catch {
-        if (active) window.dispatchEvent(new CustomEvent("admin:read-error", { detail: "La liste n’a pas pu être actualisée. Réessayez avant d’agir." }));
-      } finally {
-        window.clearTimeout(timeout);
-        if (active) setLoading(false);
-      }
-    });
-    const refresh = () => {
-      if (document.visibilityState === "visible" && navigator.onLine) queue.refresh();
-    };
-    const synchronize = () => queue.refresh(true);
-    queue.refresh();
-    const timer = refreshInterval ? window.setInterval(refresh, refreshInterval) : null;
-    window.addEventListener("admin:data-synced", synchronize);
-    window.addEventListener("online", refresh);
-    document.addEventListener("visibilitychange", refresh);
+      })
+      .catch((error) => {
+        if (active && error.name !== "AbortError") window.dispatchEvent(new CustomEvent("admin:read-error", { detail: "La liste n’a pas pu être actualisée. Réessayez avant d’agir." }));
+      })
+      .finally(() => active && setLoading(false));
     return () => {
       active = false;
-      queue.dispose();
-      controller?.abort();
-      if (timer) window.clearInterval(timer);
-      window.removeEventListener("admin:data-synced", synchronize);
-      window.removeEventListener("online", refresh);
-      document.removeEventListener("visibilitychange", refresh);
+      controller.abort();
     };
-  }, [endpoint, debouncedQuery, refreshInterval]);
+  }, [endpoint, debouncedQuery, syncVersion]);
   return [result, loading];
 }
 
@@ -789,10 +790,12 @@ async function optimizeProductImage(file) {
   }
 }
 
-export function OfferForm({ services, offer, onAction, onClose }) {
+function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both" }) {
+  const currentChannels = offer?.sales_channels || ["bot"];
   const [form, setForm] = useState({
     service_id: offer?.service_id || services[0]?.id || "",
     name: offer?.name || "",
+    emoji: offer?.custom_emoji_id || offer?.emoji || "",
     price: offer?.price ?? "",
     bulk_quantity: offer?.bulk_quantity ?? 0,
     bulk_unit_price: offer?.bulk_unit_price ?? "",
@@ -801,21 +804,35 @@ export function OfferForm({ services, offer, onAction, onClose }) {
     period_value: offer?.period_value ?? offer?.period_days ?? 30,
     period_unit: offer?.period_unit || "days",
     warranty_value: offer?.warranty_value ?? offer?.warranty_days ?? (offer?.note === "NW" ? 0 : (Number((offer?.note || "").match(/\d+/)?.[0]) || 0)),
-    warranty_unit: offer?.warranty_unit || (offer?.warranty_days == null && /months?|mois/i.test(offer?.note || "") ? "months" : offer?.warranty_days == null && /years?|ans?/i.test(offer?.note || "") ? "years" : "days"),
+    warranty_unit: offer?.warranty_unit || "days",
     delivery_delay: offer?.delivery_delay || "Instantané après confirmation",
     low_stock_threshold: offer?.low_stock_threshold ?? 5,
-    auto_delivery: offer?.auto_delivery !== false && offer?.auto_delivery !== 0,
+    auto_delivery: offer?.auto_delivery !== false,
     initial_inventory: "",
+    sales_channel: "bot",
     name_ar: offer?.name_ar || "",
     description_ar: offer?.description_ar || "",
   });
-  const format = catalogItemFormat(offer || {}, services.find((service) => String(service.id) === String(form.service_id)));
-  const initialForm = useRef(form);
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const submit = async (event) => {
     event.preventDefault();
-    const payload = catalogOfferPayload(form, initialForm.current, offer);
+    const action = offer ? "update_offer" : "add_offer";
+    const factors = { days: 1, months: 30, years: 365 };
+    const periodDays = Number(form.period_value || 0) * factors[form.period_unit];
+    const warrantyDays = Number(form.warranty_value || 0) * factors[form.warranty_unit];
+    const payload = {
+      ...form,
+      period_days: periodDays,
+      warranty_days: warrantyDays,
+      note: warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`,
+      action,
+      custom_emoji_id: form.emoji,
+      ...(offer
+        ? { offer_id: offer.id, sort_order: offer.sort_order || 0 }
+        : {}),
+      auto_delivery: form.auto_delivery ? "on" : "",
+    };
     if (await onAction(payload)) onClose();
   };
   return (
@@ -824,7 +841,7 @@ export function OfferForm({ services, offer, onAction, onClose }) {
       onClose={onClose}
       wide
     >
-      <form onSubmit={submit} onInvalid={(event) => { const settings = event.target.closest("details"); if (settings) settings.open = true; }}>
+      <form onSubmit={submit}>
         <div className="form-grid">
           <Field label="Service">
             <select
@@ -845,9 +862,22 @@ export function OfferForm({ services, offer, onAction, onClose }) {
               onChange={(event) => set("name", event.target.value)}
             />
           </Field>
-          <Field label="Prix" help={offer && offer.price == null ? "Laissez vide pour conserver le prix à venir." : ""}>
+          <Field label="Emoji / Icône">
             <input
-              required={!offer}
+              value={form.emoji}
+              onChange={(event) => set("emoji", event.target.value)}
+              placeholder="Ex: 🤖, 🍿, ✈️..."
+              style={{ maxWidth: 100, textAlign: "center", fontSize: "1.2rem" }}
+            />
+          </Field>
+          <Field label="Canal de vente">
+            <select value={form.sales_channel} onChange={(event) => set("sales_channel", event.target.value)}>
+              <option value="bot">Bot uniquement</option>
+            </select>
+          </Field>
+          <Field label="Prix">
+            <input
+              required
               min="0"
               step="0.01"
               type="number"
@@ -855,11 +885,6 @@ export function OfferForm({ services, offer, onAction, onClose }) {
               onChange={(event) => set("price", event.target.value)}
             />
           </Field>
-        </div>
-        <details className="catalog-product-settings">
-          <summary>Réglages avancés · prix en gros, livraison et traductions</summary>
-          <p className="control-caption">Format : {CATALOG_FORMATS[format]}. Les médias, liens, canaux et paramètres de stock existants sont conservés. Gérez les médias et le stock manuel depuis le bot administrateur.</p>
-          <div className="form-grid">
           <Field label="Quantité en gros">
             <input
               min="0"
@@ -904,7 +929,7 @@ export function OfferForm({ services, offer, onAction, onClose }) {
           </Field>
           <Field label="Période">
             <div className="duration-input">
-              <input type="number" min={offer && Number(initialForm.current.period_value) === 0 ? 0 : 1} value={form.period_value} onChange={(event) => set("period_value", event.target.value)} required />
+              <input type="number" min="1" value={form.period_value} onChange={(event) => set("period_value", event.target.value)} required />
               <select value={form.period_unit} onChange={(event) => set("period_unit", event.target.value)}>
                 <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
               </select>
@@ -925,7 +950,7 @@ export function OfferForm({ services, offer, onAction, onClose }) {
                 onChange={(event) =>
                   set("initial_inventory", event.target.value)
                 }
-                placeholder="###&#10;Email: …&#10;Password: …&#10;###&#10;Code: …"
+                placeholder="#1&#10;Email: …&#10;Password: …"
               />
             </Field>
           )}
@@ -946,7 +971,6 @@ export function OfferForm({ services, offer, onAction, onClose }) {
             </label>
           </Field>
         </div>
-        </details>
         <div className="dialog-actions">
           <ActionButton secondary onClick={onClose} type="button">
             Annuler
@@ -964,8 +988,8 @@ export function CatalogPage({ data, onAction }) {
   const initialCatalogState = useRef(null);
   if (!initialCatalogState.current) {
     const query = readCatalogQuery(typeof window === "undefined" ? "" : window.location.search);
-    if (typeof window !== "undefined" && !new URLSearchParams(window.location.search).has("view")) query.view = readCatalogQuery(new URLSearchParams({ view: readPreference("catalog-view", query.view) }).toString()).view;
-    if (typeof window !== "undefined" && !new URLSearchParams(window.location.search).has("sort")) query.sort = readCatalogQuery(new URLSearchParams({ sort: readPreference("catalog-sort", query.sort) }).toString()).sort;
+    if (typeof window !== "undefined" && !new URLSearchParams(window.location.search).has("view")) query.view = readPreference("catalog-view", query.view);
+    if (typeof window !== "undefined" && !new URLSearchParams(window.location.search).has("sort")) query.sort = readPreference("catalog-sort", query.sort);
     initialCatalogState.current = query;
   }
   const initial = initialCatalogState.current;
@@ -988,11 +1012,10 @@ export function CatalogPage({ data, onAction }) {
   const [selectedOffers, setSelectedOffers] = useState(new Set());
   const [bulkOfferAction, setBulkOfferAction] = useState(null);
   const [bulkOfferValue, setBulkOfferValue] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState([initial.status, initial.stock, initial.source, initial.format].some((value) => value !== "all") || initial.sort !== "default");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [statusFilter, setStatusFilter] = useState(initial.status);
   const [stockFilter, setStockFilter] = useState(initial.stock);
   const [sourceFilter, setSourceFilter] = useState(initial.source);
-  const [formatFilter, setFormatFilter] = useState(initial.format);
   const [sortBy, setSortBy] = useState(initial.sort);
   const [viewMode, setViewMode] = useState(initial.view);
   const [page, setPage] = useState(initial.page);
@@ -1006,7 +1029,7 @@ export function CatalogPage({ data, onAction }) {
     setEditService(service);
     setEditServiceName(service.name || "");
     setEditServiceNameAr(service.name_ar || "");
-    setEditServiceChannel((service.sales_channels || ["bot"]).join(", "));
+    setEditServiceChannel("bot");
   };
 
   const updateService = async (event) => {
@@ -1018,6 +1041,9 @@ export function CatalogPage({ data, onAction }) {
         service_id: editService.id,
         name: editServiceName,
         name_ar: editServiceNameAr,
+        emoji: editService.emoji || "",
+        suffix_emoji: editService.suffix_emoji || "",
+        sales_channel: editServiceChannel,
       })
     )
       setEditService(null);
@@ -1039,22 +1065,22 @@ export function CatalogPage({ data, onAction }) {
   const totalStock = allOffers.filter((item) => !item.unlimited_stock).reduce((total, item) => total + Math.max(0, Number(item.stock || 0)), 0);
   const unlimitedOffers = allOffers.filter((item) => item.unlimited_stock).length;
   const activeOffers = allOffers.filter((item) => item.active !== 0).length;
-  const catalogFilters = { search, category, searchField, status: statusFilter, stock: stockFilter, source: sourceFilter, format: formatFilter, sort: sortBy };
+  const catalogFilters = { search, category, searchField, status: statusFilter, stock: stockFilter, source: sourceFilter, sort: sortBy };
   const visibleServices = filterCatalogServices(allServices, catalogFilters, providerLabel);
   const pagination = paginateCatalogServices(visibleServices, page, pageSize);
   const paginatedServices = pagination.items;
   const visibleOfferIds = paginatedServices.flatMap((service) => (service.offers || []).map((item) => item.id));
-  const canReorder = sortBy === "default" && !search && statusFilter === "all" && stockFilter === "all" && sourceFilter === "all" && formatFilter === "all";
+  const canReorder = sortBy === "default" && !search && statusFilter === "all" && stockFilter === "all" && sourceFilter === "all";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const query = catalogQueryString({ ...catalogFilters, view: viewMode, page: pagination.page, pageSize }, window.location.search);
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query}${window.location.hash}`);
-  }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, formatFilter, sortBy, viewMode, pagination.page, pageSize]);
+  }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, sortBy, viewMode, pagination.page, pageSize]);
   useEffect(() => {
     if (!filterResetReady.current) { filterResetReady.current = true; return; }
     setPage(1);
-  }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, formatFilter, sortBy, pageSize]);
+  }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, sortBy, pageSize]);
   useEffect(() => { if (page !== pagination.page) setPage(pagination.page); }, [page, pagination.page]);
   const toggleOfferSelection = (offerId) => setSelectedOffers((current) => {
     const next = new Set(current);
@@ -1063,7 +1089,7 @@ export function CatalogPage({ data, onAction }) {
   });
   const setCatalogView = (value) => { setViewMode(value); savePreference("catalog-view", value); };
   const setCatalogSort = (value) => { setSortBy(value); savePreference("catalog-sort", value); };
-  const resetAdvanced = () => { setStatusFilter("all"); setStockFilter("all"); setSourceFilter("all"); setFormatFilter("all"); setCatalogSort("default"); };
+  const resetAdvanced = () => { setStatusFilter("all"); setStockFilter("all"); setSourceFilter("all"); setCatalogSort("default"); };
   const toggleServiceCollapse = (serviceId) => setCollapsedServices((current) => {
     const next = new Set(current);
     if (next.has(serviceId)) next.delete(serviceId); else next.add(serviceId);
@@ -1145,15 +1171,14 @@ export function CatalogPage({ data, onAction }) {
       <div className="catalog-toolbar">
         <FilterBar search={search} setSearch={setSearch} searchField={searchField} setSearchField={setSearchField} options={[["all", "Tout type"], ["service", "Service"], ["product", "Produit"], ["provider", "API fournisseur"]]} resultCount={visibleServices.length} placeholder="Rechercher un nom, ID, prix, stock, API…" />
         <div className="catalog-toolbar-actions">
-          <button type="button" className={showAdvanced ? "active" : ""} aria-expanded={showAdvanced} aria-controls="catalog-advanced" onClick={() => setShowAdvanced((value) => !value)}><SlidersHorizontal size={16} /> Réglages avancés</button>
+          <button type="button" className={showAdvanced ? "active" : ""} aria-expanded={showAdvanced} onClick={() => setShowAdvanced((value) => !value)}><SlidersHorizontal size={16} /> Réglages avancés</button>
           <div className="catalog-view-switch" role="group" aria-label="Mode d’affichage"><button type="button" aria-pressed={viewMode === "grid"} title="Vue en grille" onClick={() => setCatalogView("grid")}><Columns3 size={16} /></button><button type="button" aria-pressed={viewMode === "list"} title="Vue en liste" onClick={() => setCatalogView("list")}><List size={16} /></button></div>
         </div>
       </div>
-      <div id="catalog-advanced" className={`catalog-advanced ${showAdvanced ? "visible" : ""}`} aria-hidden={!showAdvanced} inert={!showAdvanced}>
+      <div className={`catalog-advanced ${showAdvanced ? "visible" : ""}`} aria-hidden={!showAdvanced}>
         <label><span>Visibilité</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tous les statuts</option><option value="active">Actifs</option><option value="inactive">Désactivés</option></select></label>
         <label><span>Disponibilité</span><select value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}><option value="all">Tous les stocks</option><option value="available">En stock</option><option value="empty">Stock épuisé</option><option value="unlimited">Stock illimité</option></select></label>
         <label><span>Source</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="all">Toutes les sources</option><option value="internal">Stock interne</option><option value="api">API fournisseur</option></select></label>
-        <label><span>Format du produit</span><select value={formatFilter} onChange={(event) => setFormatFilter(event.target.value)}><option value="all">Tous les formats</option>{Object.entries(CATALOG_FORMATS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label><span>Trier par</span><select value={sortBy} onChange={(event) => setCatalogSort(event.target.value)}><option value="default">Ordre du catalogue</option><option value="name">Nom A–Z</option><option value="offers">Nombre de produits</option><option value="stock">Stock disponible</option></select></label>
         <button type="button" onClick={resetAdvanced}>Réinitialiser</button>
       </div>
@@ -1169,19 +1194,19 @@ export function CatalogPage({ data, onAction }) {
           <section
             className={`catalog-service ${collapsedServices.has(service.id) ? "collapsed" : ""} ${dragTarget === `service-${service.id}` ? "drag-target" : ""}`}
             key={service.id}
-            style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length], "--catalog-index": Math.min(serviceIndex, 6) }}
+            style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length], "--catalog-index": serviceIndex }}
             onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "service") { event.preventDefault(); setDragTarget(`service-${service.id}`); } }}
             onDrop={(event) => { event.preventDefault(); dropCatalogItem("service", service.id); }}
           >
             <header>
               <div>
                 {canReorder && !category && <button type="button" className="catalog-drag-handle" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "service", id: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("service", service.id, event.key === "ArrowUp" ? -1 : 1); } }} aria-label={`Réordonner la collection ${service.name}`} title="Glisser pour réordonner"><GripVertical size={17} /></button>}
-                <button type="button" className="catalog-service-icon" onClick={() => toggleServiceCollapse(service.id)} aria-controls={`catalog-offers-${service.id}`} aria-expanded={!collapsedServices.has(service.id)} aria-label={`${collapsedServices.has(service.id) ? "Déplier" : "Replier"} ${service.name}`}><Command size={18} /></button>
+                <button type="button" className="catalog-service-icon" onClick={() => toggleServiceCollapse(service.id)} aria-expanded={!collapsedServices.has(service.id)} aria-label={`${collapsedServices.has(service.id) ? "Déplier" : "Replier"} ${service.name}`}><Command size={18} /></button>
                 <div>
                   <h3>{service.name}</h3>
                   <small>
                     {service.offers?.length || 0} produit(s) ·{" "}
-                    {service.offers?.some((item) => item.unlimited_stock) ? "Stock illimité" : `${Math.max(0, service.total_stock || 0)} en stock`}
+                    {service.total_stock || 0} en stock
                   </small>
                   <div className="service-providers">
                     {providers.length ? providers.map((provider) => (
@@ -1204,7 +1229,7 @@ export function CatalogPage({ data, onAction }) {
                 </button>
               </div>
             </header>
-            <div id={`catalog-offers-${service.id}`} className="catalog-offers" inert={collapsedServices.has(service.id)} aria-hidden={collapsedServices.has(service.id)}><div className="catalog-offers-content">
+            <div className="catalog-offers">
               {service.offers?.map((item, index) => (
                 <article
                   className={`offer-card ${selectedOffers.has(item.id) ? "selected" : ""} ${dragTarget === `offer-${item.id}` ? "drag-target" : ""}`}
@@ -1217,14 +1242,14 @@ export function CatalogPage({ data, onAction }) {
                   <div>
                     <strong>{item.name}</strong>
                     <span>
-                      {item.price == null ? "Prix à venir" : money(item.price, item.currency || data.currency)} · Stock{" "}
-                      {catalogStockLabel(item)}
+                      {money(item.price, data.currency)} · Stock{" "}
+                      {item.stock || 0}
                     </span>
                     {Number(item.bulk_quantity || 0) > 0 && item.bulk_unit_price != null && (
                       <span>Gros: {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}</span>
                     )}
                     <span className="offer-channel">
-                      {CATALOG_FORMATS[catalogItemFormat(item, service)]}
+                      Bot
                     </span>
                     <span className={`offer-provider ${item.supplier_provider ? "api" : "internal"}`}>
                       {item.supplier_provider ? <Cloud size={11} /> : <Database size={11} />}
@@ -1233,9 +1258,8 @@ export function CatalogPage({ data, onAction }) {
                   </div>
                   <div className="offer-actions">
                     <button
-                      title={catalogItemFormat(item, service) === "inventory" ? "Ajouter du stock" : item.supplier_provider ? "Stock synchronisé par le fournisseur" : "Stock et contenu gérés depuis le bot administrateur"}
-                      disabled={catalogItemFormat(item, service) !== "inventory"}
-                      onClick={() => { setStock(""); setStockOffer(item); }}
+                      title="Ajouter du stock"
+                      onClick={() => setStockOffer(item)}
                     >
                       <Boxes size={15} />
                     </button>
@@ -1277,7 +1301,7 @@ export function CatalogPage({ data, onAction }) {
                   </div>
                 </article>
               ))}
-            </div></div>
+            </div>
           </section>
           );
         })}
@@ -1343,7 +1367,9 @@ export function CatalogPage({ data, onAction }) {
                 <input dir="rtl" value={editServiceNameAr} onChange={(event) => setEditServiceNameAr(event.target.value)} />
               </Field>
               <Field label="Canal" wide>
-                <input value={editServiceChannel} readOnly />
+                <select value={editServiceChannel} onChange={(event) => setEditServiceChannel(event.target.value)}>
+                  <option value="bot">Bot uniquement</option>
+                </select>
               </Field>
             </div>
             <div className="dialog-actions">
@@ -1359,11 +1385,11 @@ export function CatalogPage({ data, onAction }) {
           title={`Stock · ${stockOffer.name}`}
           onClose={() => setStockOffer(null)}
         >
-          <Field label="Éléments à chiffrer" help="Placez ### seul sur une ligne avant chaque compte ou code. Les autres caractères # sont conservés.">
+          <Field label="Éléments à chiffrer">
             <textarea
               value={stock}
               onChange={(event) => setStock(event.target.value)}
-              placeholder="###&#10;Compte: …&#10;Mot de passe: …&#10;###&#10;Code: …"
+              placeholder="#1&#10;Compte: …"
             />
           </Field>
           <div className="dialog-actions">

@@ -69,22 +69,15 @@ def clean_translated_button_text(value):
 
 def translated_button(
     lang, key, *, callback_data=None, url=None, style=None,
-    switch_inline_query=None, icon_custom_emoji_id=None, plain=False,
+    switch_inline_query=None, icon_custom_emoji_id=None,
 ):
-    """Build a translated button; catalog options can suppress decorative icons."""
-    label = clean_translated_button_text(t(lang, key))
-    if plain:
-        label = re.sub(
-            r"[\U0001f000-\U0001faff\u2190-\u27bf\u2b00-\u2bff\ufe0f\u200d\u20e3]",
-            "", label,
-        ).strip()
-        label = " ".join(label.split()) or key.replace("_", " ")[:64]
+    """Build an inline button with the admin-selected Premium emoji icon."""
     return InlineKeyboardButton(
-        label,
+        clean_translated_button_text(t(lang, key)),
         callback_data=callback_data, url=url, style=style,
         switch_inline_query=switch_inline_query,
         icon_custom_emoji_id=(
-            None if plain else icon_custom_emoji_id or db.get_text_override_icon(key, lang) or None
+            icon_custom_emoji_id or db.get_text_override_icon(key, lang) or None
         ),
     )
 
@@ -564,14 +557,14 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
         translated_button(
             lang,
             "catalog_preorder_button",
-            callback_data="preorder_catalog", plain=True,
+            callback_data="preorder_catalog",
             style="primary",
         ),
     ])
     buttons.append([
         translated_button(
             lang, "catalog_request_button",
-            callback_data="catalog_request", plain=True, style="primary",
+            callback_data="catalog_request", style="primary",
         ),
     ])
     notification_key = (
@@ -583,16 +576,16 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
         translated_button(
             lang,
             notification_key,
-            callback_data="catalog_notifications_toggle", plain=True,
+            callback_data="catalog_notifications_toggle",
             style="success" if catalog_notifications_enabled else "danger",
         ),
     ])
     buttons.append([
         translated_button(
-            lang, "btn_refresh_short", callback_data="catalog", plain=True, style="success",
+            lang, "btn_refresh_short", callback_data="catalog", style="success",
         ),
         translated_button(
-            lang, "btn_main_menu_short", callback_data="home", plain=True, style="danger",
+            lang, "btn_main_menu_short", callback_data="home", style="danger",
         ),
     ])
     return InlineKeyboardMarkup(buttons)
