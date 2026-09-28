@@ -136,6 +136,7 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
         else:
             query["$or"] = clauses
 
+    query = db.customer_order_query(query)
     collection = db.get_conn().orders
     total = collection.count_documents(query)
     sort_field = "total_price" if _first(params, "sort") == "amount" else "created_at"
@@ -839,7 +840,7 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
         "manual_review", "verification_failed", "paid", "payment_confirmed",
         "preparing_delivery", "stock_issue",
     ]
-    for order in conn.orders.find({"status": {"$in": order_statuses}}).sort("created_at", DESCENDING).limit(0 if complete else 40):
+    for order in conn.orders.find(db.customer_order_query({"status": {"$in": order_statuses}})).sort("created_at", DESCENDING).limit(0 if complete else 40):
         status = str(order.get("status") or "")
         order_id = order.get("id")
         age = max(0, now - int(_event_timestamp(order.get("paid_at") or order.get("created_at"))))
@@ -857,10 +858,10 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             created_at=order.get("updated_at") or order.get("paid_at") or order.get("created_at"),
         )
 
-    for order in conn.orders.find({
+    for order in conn.orders.find(db.customer_order_query({
         "status": "delivered",
         "created_at": {"$gte": now - 86400},
-    }).sort("created_at", DESCENDING).limit(0 if complete else 12):
+    })).sort("created_at", DESCENDING).limit(0 if complete else 12):
         order_id = order.get("id")
         add(
             f"order:{order_id}:delivered",

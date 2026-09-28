@@ -83,21 +83,27 @@ def test_order_detail_prefers_plain_description_snapshot(mock_mongodb):
     assert order["product_description_source"] == "order_snapshot"
 
 
-def test_order_analytics_exclude_admin_purchases_but_keep_order_history(monkeypatch, mock_mongodb):
+def test_dashboard_hides_admin_orders_from_list_stats_and_notifications(monkeypatch, mock_mongodb):
     monkeypatch.setattr("config.ADMIN_ID", 999)
     now = int(time.time())
     mock_mongodb.orders.insert_many([
         {"id": 10, "user_id": 42, "status": "delivered", "total_price": 8.0, "created_at": now},
         {"id": 11, "user_id": 999, "status": "delivered", "total_price": 200.0, "created_at": now},
+        {"id": 12, "user_id": 999, "status": "manual_review", "total_price": 5.0, "created_at": now},
     ])
 
     result = dashboard_api.list_orders({})
+    by_user = dashboard_api.list_orders({"user_id": ["999"]})
+    notifications = dashboard_api.list_admin_notifications(complete=True)
 
-    assert result["total"] == 2
-    assert {item["id"] for item in result["items"]} == {10, 11}
+    assert result["total"] == 1
+    assert [item["id"] for item in result["items"]] == [10]
+    assert by_user["total"] == 0
     assert result["analytics"]["total"] == 1
     assert result["analytics"]["delivered"] == 1
     assert result["analytics"]["revenue"] == 8.0
+    order_ids = {item["target"]["entity_id"] for item in notifications["items"] if item["category"] in {"order", "sale"}}
+    assert order_ids == {10}
 
 
 def test_finance_summary_combines_revenue_reseller_costs_and_daily_profit(mock_mongodb):
@@ -305,9 +311,9 @@ def test_order_attention_queue_combines_with_search(mock_mongodb, monkeypatch):
     now = 2_000_000
     monkeypatch.setattr(dashboard_api.time, "time", lambda: now)
     mock_mongodb.orders.insert_many([
-        {"id": 10, "user_id": 1, "offer_name": "Wanted", "status": "stock_issue", "created_at": now},
-        {"id": 11, "user_id": 2, "offer_name": "Other", "status": "stock_issue", "created_at": now},
-        {"id": 12, "user_id": 3, "offer_name": "Wanted", "status": "delivered", "created_at": now},
+        {"id": 10, "user_id": 101, "offer_name": "Wanted", "status": "stock_issue", "created_at": now},
+        {"id": 11, "user_id": 102, "offer_name": "Other", "status": "stock_issue", "created_at": now},
+        {"id": 12, "user_id": 103, "offer_name": "Wanted", "status": "delivered", "created_at": now},
     ])
 
     result = dashboard_api.list_orders({"queue": ["attention"], "search": ["Wanted"]})
