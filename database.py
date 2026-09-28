@@ -921,6 +921,16 @@ def list_services(active_only=True):
     return sorted(services, key=_service_sort_key)
 
 
+def get_official_subscriptions_service():
+    """Return the active official-subscriptions service shown on the home menu."""
+    for service in list_services():
+        if not is_official_subscriptions_service(service):
+            continue
+        if get_conn().offers.count_documents({"service_id": service["id"], "active": 1}, limit=1):
+            return service
+    return None
+
+
 def list_services_with_stock(active_only=True):
     """Return services and stock totals with two queries instead of one per service."""
     conn = get_conn()

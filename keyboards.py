@@ -312,6 +312,14 @@ def home_keyboard(lang, user_id):
             translated_button(lang, "menu_support", callback_data="support", style="danger"),
         ],
     ]
+    official = db.get_official_subscriptions_service()
+    if official:
+        candidate_rows.insert(1, [InlineKeyboardButton(
+            service_button_label(official, 46),
+            callback_data=f"svc:{official['id']}",
+            style="primary",
+            icon_custom_emoji_id=valid_custom_emoji_id(official.get("custom_emoji_id")),
+        )])
     rows = []
     for row in candidate_rows:
         visible = [button for button in row if button.callback_data not in hidden]
@@ -460,7 +468,11 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
     price_tbd = t(lang, "price_tbd")
     stock_icon = db.get_text_override_icon("stock_label", lang) or None
 
-    all_offers = db.list_catalog_offers()
+    # Official subscriptions have their own home-menu button.
+    all_offers = [
+        offer for offer in db.list_catalog_offers()
+        if not db.is_official_subscriptions_service(offer.get("service_name"))
+    ]
 
     # Group offers by service_id
     service_offers = {}
@@ -503,14 +515,11 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
                     "suffix_emoji": offer.get("service_suffix_emoji"),
                     "custom_emoji_id": service_icon,
                 }, 46)
-                grouped_category_buttons.append((
-                    InlineKeyboardButton(
-                        label,
-                        callback_data=f"svc:{sid}",
-                        style="primary",
-                        icon_custom_emoji_id=service_icon,
-                    ),
-                    db.is_official_subscriptions_service(service_name),
+                grouped_category_buttons.append(InlineKeyboardButton(
+                    label,
+                    callback_data=f"svc:{sid}",
+                    style="primary",
+                    icon_custom_emoji_id=service_icon,
                 ))
         else:
             safe_offer = dict(offer)
@@ -536,13 +545,7 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
 
     # 1. Place grouped category buttons (Adobe, ChatGPT, Telegram, VPNs, Netflix) AT THE TOP in rows of 2
     row = []
-    for btn, is_official in grouped_category_buttons:
-        if is_official:
-            if row:
-                buttons.append(row)
-                row = []
-            buttons.append([btn])
-            continue
+    for btn in grouped_category_buttons:
         row.append(btn)
         if len(row) == 2:
             buttons.append(row)
@@ -625,7 +628,10 @@ def offers_keyboard(lang, service_id):
             style=btn_style,
             icon_custom_emoji_id=button_icon,
         )])
-    buttons.append([translated_button(lang, "btn_back_services", callback_data="catalog")])
+    if db.is_official_subscriptions_service(service):
+        buttons.append([translated_button(lang, "btn_main_menu", callback_data="home")])
+    else:
+        buttons.append([translated_button(lang, "btn_back_services", callback_data="catalog")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -640,7 +646,11 @@ def offer_detail_keyboard(lang, offer):
         )])
     if offer.get("price") is not None and db.offer_has_stock(offer):
         buttons.append([translated_button(lang, "btn_buy", callback_data=f"buy:{offer['id']}")])
-    buttons.append([translated_button(lang, "btn_back", callback_data="catalog")])
+    back = "catalog"
+    service_id = offer.get("service_id")
+    if service_id is not None and db.is_official_subscriptions_service(db.get_service(service_id)):
+        back = f"svc:{service_id}" if len(db.list_offers(service_id)) > 1 else "home"
+    buttons.append([translated_button(lang, "btn_back", callback_data=back)])
     return InlineKeyboardMarkup(buttons)
 
 

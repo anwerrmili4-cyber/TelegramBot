@@ -583,21 +583,43 @@ def test_official_subscriptions_variant_is_first_and_sky_blue(monkeypatch):
     assert keyboard.inline_keyboard[1][0].callback_data == "svc:1"
 
 
-def test_official_grouped_catalog_is_first_and_sky_blue(mock_mongodb):
+def test_official_subscriptions_move_from_catalog_to_home(mock_mongodb):
     regular_id = db.add_service("Streaming", "🎬")
     official_id = db.add_service("officiels subscribes", "⭐")
     db.add_offer(regular_id, "Netflix", 5.0, 4)
     db.add_offer(regular_id, "Disney", 5.0, 4)
-    db.add_offer(official_id, "Official monthly", 4.0, 4)
+    monthly_id = db.add_offer(official_id, "Official monthly", 4.0, 4)
     db.add_offer(official_id, "Official yearly", 40.0, 4)
 
-    keyboard = kb.catalog_offers_keyboard("fr")
-    first_catalog_button = keyboard.inline_keyboard[0][0]
+    catalog_callbacks = [
+        button.callback_data
+        for row in kb.catalog_offers_keyboard("fr").inline_keyboard
+        for button in row
+    ]
+    assert f"svc:{official_id}" not in catalog_callbacks
+    assert f"svc:{regular_id}" in catalog_callbacks
 
-    assert first_catalog_button.callback_data == f"svc:{official_id}"
-    assert first_catalog_button.style == "primary"
-    assert len(keyboard.inline_keyboard[0]) == 1
-    assert keyboard.inline_keyboard[1][0].callback_data == f"svc:{regular_id}"
+    home = kb.home_keyboard("fr", 42)
+    assert home.inline_keyboard[0][0].callback_data == "catalog"
+    official_button = home.inline_keyboard[1][0]
+    assert official_button.callback_data == f"svc:{official_id}"
+    assert official_button.style == "primary"
+    assert len(home.inline_keyboard[1]) == 1
+
+    assert kb.offers_keyboard("fr", official_id).inline_keyboard[-1][0].callback_data == "home"
+    detail = kb.offer_detail_keyboard("fr", db.get_offer(monthly_id))
+    assert detail.inline_keyboard[-1][0].callback_data == f"svc:{official_id}"
+
+
+def test_home_hides_official_subscriptions_without_active_offers(mock_mongodb):
+    db.add_service("Officiels subscriptions", "⭐")
+
+    callbacks = [
+        button.callback_data
+        for row in kb.home_keyboard("fr", 42).inline_keyboard
+        for button in row
+    ]
+    assert not any(str(data).startswith("svc:") for data in callbacks)
 
 
 def test_premium_left_icon_keeps_unicode_suffix(monkeypatch):
