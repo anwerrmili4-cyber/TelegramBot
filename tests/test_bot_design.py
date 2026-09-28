@@ -1600,6 +1600,16 @@ def test_admin_text_editor_shows_rendered_telegram_preview_not_html_source(mock_
     assert "<b>New drop</b>" in preview
 
 
+def test_welcome_editor_preview_has_no_placeholder_links(mock_mongodb):
+    from bot import TERMS_OF_SERVICE_URL
+
+    preview = admin_text_preview("welcome")
+
+    assert 'href="{' not in preview
+    assert f'href="{TERMS_OF_SERVICE_URL}"' in preview
+    assert db.get_text_override("welcome", "en") is None
+
+
 def test_delivery_template_accepts_legacy_single_html_marker(mock_mongodb):
     db.set_text_override(
         "delivery_received",

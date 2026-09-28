@@ -611,8 +611,18 @@ OFFER_CARD_TEMPLATE_VARIABLES = (
 )
 
 
+def _preview_link_placeholders(value: str) -> str:
+    """Telegram rejects the whole message when a link points to ``{variable}``."""
+    def real_url(match):
+        url = TERMS_OF_SERVICE_URL if match.group(2) == "terms_url" else "https://t.me"
+        return f"href={match.group(1)}{html.escape(url, quote=True)}{match.group(1)}"
+
+    return re.sub(r"href=([\"'])\{(\w+)\}\1", real_url, str(value or ""))
+
+
 def render_admin_text_preview(key: str, value: str, lang: str = "en") -> str:
     """Render editor previews without treating template underscores as Markdown."""
+    value = _preview_link_placeholders(value)
     if key != "offer_card_template":
         return render_stored_rich_text(value)
     protected = decompose_legacy_bulk_line(value, lang)
