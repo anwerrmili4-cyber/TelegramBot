@@ -6358,16 +6358,6 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("adm_svcdel:"):
         sid = int(data.split(":")[1])
-        return
-    if data.startswith("adm_svctoggle:"):
-        sid = int(data.split(":")[1])
-        svc = db.get_service(sid)
-        db.update_service(sid, active=0 if svc["active"] else 1)
-        await q.edit_message_text("✅ Statut du service modifié.",
-                                  reply_markup=admin.catalog_admin_keyboard())
-        return
-    if data.startswith("adm_svcdel:"):
-        sid = int(data.split(":")[1])
         db.archive_service(sid)
         await q.edit_message_text("🗑 Service archivé avec ses offres.",
                                   reply_markup=admin.catalog_admin_keyboard())

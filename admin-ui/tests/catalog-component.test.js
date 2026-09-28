@@ -37,3 +37,27 @@ test("CatalogPage renders combined URL filters and a persisted view preference",
     if (previousStorage === undefined) delete globalThis.localStorage; else globalThis.localStorage = previousStorage;
   }
 });
+
+
+test("catalog renders all formats and safe advanced product controls", async () => {
+  const vite = await createServer({ configFile: false, root: fileURLToPath(new URL("../", import.meta.url)), appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+  try {
+    const { CatalogPage, OfferForm } = await vite.ssrLoadModule("/src/AdminPages.jsx");
+    const offers = [
+      { id: 1, name: "Manual", manual_stock: true, auto_delivery: false },
+      { id: 2, name: "Unlimited", unlimited_stock: true, stock: -1 },
+      { id: 3, name: "Media", method_media: [{ type: "document", file_id: "file" }] },
+      { id: 4, name: "Bot package", feature_key: "bot_like_mine" },
+      { id: 5, name: "Supplier", supplier_provider: "vex" },
+    ].map((offer) => ({ ...offer, service_id: 1, sales_channels: ["bot"], active: 1 }));
+    const services = [{ id: 1, name: "Products", offers }];
+    const markup = renderToStaticMarkup(React.createElement(CatalogPage, { data: { services }, onAction: async () => true }));
+    for (const label of ["Livraison manuelle", "Stock illimité", "Méthode / médias", "Pack bot", "API fournisseur", "Prix à venir"]) assert.ok(markup.includes(label), label);
+    assert.match(markup, /aria-hidden="true" inert=""/);
+    assert.doesNotMatch(markup, /Stock -1/);
+    const form = renderToStaticMarkup(React.createElement(OfferForm, { services, offer: offers[0], onAction: async () => true, onClose() {} }));
+    assert.match(form, /Réglages avancés/);
+    assert.match(form, /Livraison manuelle/);
+    assert.doesNotMatch(form, /Emoji|Icône|Canal de vente/);
+  } finally { await vite.close(); }
+});

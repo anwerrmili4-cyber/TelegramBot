@@ -231,7 +231,7 @@ def order_detail(order_id: int) -> dict[str, Any] | None:
 def _order_delivery_content(order: dict[str, Any]) -> str:
     """Resolve manual or encrypted inventory delivery for an authenticated admin."""
     stored = str(order.get("delivery_text") or "").strip()
-    if stored and stored != "[encrypted automatic delivery]":
+    if stored and stored not in {"[encrypted automatic delivery]", "[encrypted reseller delivery]"}:
         return stored
 
     order_id = order.get("id")
@@ -500,9 +500,12 @@ def inventory_summary() -> list[dict[str, Any]]:
         offer_id = row["_id"]["offer_id"]
         entry = grouped.setdefault(offer_id, {"offer_id": offer_id, "available": 0, "reserved": 0, "delivered": 0, "disabled": 0})
         entry[row["_id"]["status"]] = row["count"]
+    offers = {
+        offer["id"]: offer.get("name", "")
+        for offer in conn.offers.find({"id": {"$in": list(grouped)}}, {"id": 1, "name": 1})
+    } if grouped else {}
     for entry in grouped.values():
-        offer = conn.offers.find_one({"id": entry["offer_id"]}, {"name": 1})
-        entry["offer_name"] = offer.get("name", "") if offer else ""
+        entry["offer_name"] = offers.get(entry["offer_id"], "")
         entry["total"] = sum(entry.get(status, 0) for status in ("available", "reserved", "delivered", "disabled"))
     return list(grouped.values())
 

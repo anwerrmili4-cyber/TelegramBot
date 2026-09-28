@@ -473,7 +473,7 @@ export default function App() {
       background ? setRefreshing(true) : setLoading(true);
       if (!background) setError("");
       try {
-        const response = await fetch("/admin/api/data", { credentials: "same-origin", cache: "no-store" });
+        const response = await fetch("/admin/api/data", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(20_000) });
         if (response.status === 401) {
           setAuthenticated(false);
           setLoading(false);
@@ -717,8 +717,7 @@ export default function App() {
       if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Action refusée.");
       if (!quiet) setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
       if (refreshGlobal) {
-        await loadData(true, true);
-        await loadNotifications(true);
+        await Promise.all([loadData(true, true), loadNotifications(true)]);
       }
       syncChannelRef.current?.postMessage({ type: "data-changed", at: Date.now() });
       return payload;

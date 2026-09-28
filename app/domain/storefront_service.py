@@ -100,10 +100,11 @@ def catalog() -> dict[str, Any]:
         if not _site_visible(service):
             continue
         offers = []
-        for raw_offer in db.list_offers(int(service["id"]), active_only=True):
-            if not _site_visible(raw_offer):
+        # list_offers already resolves expired sales and the OTP price rules.
+        # Re-reading each offer adds two database round trips per product.
+        for offer in db.list_offers(int(service["id"]), active_only=True):
+            if not _site_visible(offer):
                 continue
-            offer = db.get_offer(int(raw_offer["id"])) or raw_offer
             category = _category(service, offer)
             used_categories.add(category)
             price_millimes = _price_millimes(offer)

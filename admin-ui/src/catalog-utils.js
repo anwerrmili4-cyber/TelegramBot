@@ -7,6 +7,7 @@ export const CATALOG_DEFAULTS = Object.freeze({
   status: "all",
   stock: "all",
   source: "all",
+  format: "all",
   sort: "default",
   view: "grid",
   page: 1,
@@ -18,6 +19,7 @@ const ALLOWED = {
   status: new Set(["all", "active", "inactive"]),
   stock: new Set(["all", "available", "empty", "unlimited"]),
   source: new Set(["all", "internal", "api"]),
+  format: new Set(["all", "inventory", "manual", "unlimited", "method", "bot", "supplier"]),
   sort: new Set(["default", "name", "offers", "stock"]),
   view: new Set(["grid", "list"]),
   pageSize: new Set([25, 50, 100]),
@@ -35,6 +37,7 @@ export function readCatalogQuery(search = "") {
     status: take("status", CATALOG_DEFAULTS.status),
     stock: take("stock", CATALOG_DEFAULTS.stock),
     source: take("source", CATALOG_DEFAULTS.source),
+    format: take("format", CATALOG_DEFAULTS.format),
     sort: take("sort", CATALOG_DEFAULTS.sort),
     view: take("view", CATALOG_DEFAULTS.view),
     page,
@@ -51,6 +54,7 @@ export function catalogQueryString(state, currentSearch = "") {
     status: state.status,
     stock: state.stock,
     source: state.source,
+    format: state.format || "all",
     sort: state.sort,
     view: state.view,
     page: Number(state.page) > 1 ? String(state.page) : "",
@@ -66,6 +70,7 @@ export function catalogQueryString(state, currentSearch = "") {
 }
 
 export function filterCatalogServices(services, filters, providerName = (value) => value || "Stock interne") {
+  filters = { ...CATALOG_DEFAULTS, ...filters };
   const normalizedSearch = normalizeSearchValue(filters.search?.trim());
   return (services || [])
     .filter((service) => !filters.category || String(service.id) === String(filters.category))
@@ -73,6 +78,7 @@ export function filterCatalogServices(services, filters, providerName = (value) 
       const serviceMatch = searchableText({ id: service.id, name: service.name, name_ar: service.name_ar }).includes(normalizedSearch);
       const offers = (service.offers || []).filter((item) => {
         if (!(item.sales_channels || ["bot"]).includes("bot")) return false;
+        if (filters.format !== "all" && catalogItemFormat(item, service) !== filters.format) return false;
         if (filters.status !== "all" && (item.active === 0 ? "inactive" : "active") !== filters.status) return false;
         if (filters.stock === "available" && Number(item.stock || 0) <= 0 && !item.unlimited_stock) return false;
         if (filters.stock === "empty" && (Number(item.stock || 0) > 0 || item.unlimited_stock)) return false;
@@ -85,14 +91,14 @@ export function filterCatalogServices(services, filters, providerName = (value) 
         const providerText = searchableText({ supplier_provider: item.supplier_provider, provider_label: providerName(item.supplier_provider) });
         const haystack = filters.searchField === "provider" ? providerText
           : filters.searchField === "product" ? productText
-            : `${searchableText(service)} ${productText} ${providerText}`;
+            : `${searchableText({ id: service.id, name: service.name, name_ar: service.name_ar })} ${productText} ${providerText}`;
         return haystack.includes(normalizedSearch);
       });
       return { ...service, offers, searchMatch: serviceMatch || offers.length > 0 };
     })
     .filter((service) => {
-      const hasFilters = filters.status !== "all" || filters.stock !== "all" || filters.source !== "all";
-      return (!normalizedSearch || service.searchMatch) && (!hasFilters || service.offers.length > 0);
+      const hasFilters = filters.status !== "all" || filters.stock !== "all" || filters.source !== "all" || filters.format !== "all";
+      return (!normalizedSearch || (filters.searchField === "service" ? service.searchMatch : service.offers.length > 0)) && (!hasFilters || service.offers.length > 0);
     })
     .sort((left, right) => {
       if (filters.sort === "name") return String(left.name || "").localeCompare(String(right.name || ""), "fr", { sensitivity: "base" });
@@ -100,6 +106,52 @@ export function filterCatalogServices(services, filters, providerName = (value) 
       if (filters.sort === "stock") return Number(right.total_stock || 0) - Number(left.total_stock || 0);
       return 0;
     });
+}
+
+export const CATALOG_FORMATS = Object.freeze({
+  inventory: "Comptes / codes", manual: "Livraison manuelle", unlimited: "Stock illimité",
+  method: "Méthode / médias", bot: "Pack bot", supplier: "API fournisseur",
+});
+
+export function catalogItemFormat(item, service = {}) {
+  if (item.supplier_provider) return "supplier";
+  if (item.feature_key === "bot_like_mine") return "bot";
+  if (item.method_media?.length || String(service.name || "").trim().toLowerCase() === "methods") return "method";
+  if (item.manual_stock) return "manual";
+  if (item.unlimited_stock) return "unlimited";
+  return "inventory";
+}
+
+export function catalogStockLabel(item) {
+  return item.unlimited_stock ? "Illimité" : String(Math.max(0, Number(item.stock) || 0));
+}
+
+export function catalogOfferPayload(form, initial, offer) {
+  const factors = { days: 1, months: 30, years: 365 };
+  const warrantyDays = Number(form.warranty_value || 0) * factors[form.warranty_unit];
+  const payload = {
+    ...form,
+    action: offer ? "update_offer" : "add_offer",
+    ...(offer ? { offer_id: offer.id } : {}),
+    auto_delivery: form.auto_delivery ? "on" : "",
+    period_days: Number(form.period_value || 0) * factors[form.period_unit],
+    warranty_days: warrantyDays,
+    note: warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`,
+  };
+  if (offer) {
+    // Legacy notes and absent settings must survive an unrelated name/price edit.
+    for (const prefix of ["period", "warranty"]) {
+      if (String(form[`${prefix}_value`]) === String(initial[`${prefix}_value`]) && form[`${prefix}_unit`] === initial[`${prefix}_unit`]) {
+        for (const suffix of ["days", "value", "unit"]) delete payload[`${prefix}_${suffix}`];
+        if (prefix === "warranty") delete payload.note;
+      }
+    }
+    for (const field of ["description", "name_ar", "description_ar", "delivery_delay", "auto_delivery", "low_stock_threshold", "bulk_quantity", "bulk_unit_price"]) {
+      if (String(form[field]) === String(initial[field])) delete payload[field];
+    }
+    delete payload.initial_inventory;
+  }
+  return payload;
 }
 
 export function paginateCatalogServices(services, page = 1, pageSize = 50) {

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import csv
 import hashlib
@@ -54,6 +53,7 @@ from app.domain import (
     warranty_service,
 )
 from app.web import dashboard_api, notification_service
+from app.web.async_runtime import AsyncRuntime
 from bot import (
     build_app,
     monitor_codex_number_deadlines,
@@ -70,7 +70,7 @@ from config import (
 from i18n import t
 from payment_verifier import binance_healthcheck, bybit_healthcheck
 
-_loop = asyncio.new_event_loop()
+_runtime = AsyncRuntime()
 _app = None
 _runtime_lock = threading.RLock()
 log = logging.getLogger(__name__)
@@ -359,9 +359,8 @@ def _legacy_public_site_html() -> str:
 
 
 def _run_async(awaitable):
-    """Serialize access to the shared Telegram asyncio event loop."""
-    with _runtime_lock:
-        return _loop.run_until_complete(awaitable)
+    """Run Telegram I/O without stopping background delivery watchers."""
+    return _runtime.run(awaitable)
 
 
 def _application():
@@ -1493,23 +1492,22 @@ class handler(BaseHTTPRequestHandler):
                 def input_file():
                     return InputFile(io.BytesIO(upload["body"]), filename=upload["filename"])
 
-                with _runtime_lock:
-                    try:
-                        if media_kind == "image":
-                            sent = _run_async(bot.send_photo(
-                                ticket["user_id"], photo=input_file(), caption=telegram_caption,
-                                parse_mode=ParseMode.HTML,
-                            ))
-                        else:
-                            sent = _run_async(bot.send_video(
-                                ticket["user_id"], video=input_file(), caption=telegram_caption,
-                                parse_mode=ParseMode.HTML, supports_streaming=True,
-                            ))
-                    except BadRequest:
-                        sent = _run_async(bot.send_document(
-                            ticket["user_id"], document=input_file(), caption=telegram_caption,
+                try:
+                    if media_kind == "image":
+                        sent = _run_async(bot.send_photo(
+                            ticket["user_id"], photo=input_file(), caption=telegram_caption,
                             parse_mode=ParseMode.HTML,
                         ))
+                    else:
+                        sent = _run_async(bot.send_video(
+                            ticket["user_id"], video=input_file(), caption=telegram_caption,
+                            parse_mode=ParseMode.HTML, supports_streaming=True,
+                        ))
+                except BadRequest:
+                    sent = _run_async(bot.send_document(
+                        ticket["user_id"], document=input_file(), caption=telegram_caption,
+                        parse_mode=ParseMode.HTML,
+                    ))
                 media = support_bridge.message_media(sent) or {
                     "type": media_kind,
                     "file_id": "",
@@ -1568,10 +1566,9 @@ class handler(BaseHTTPRequestHandler):
             if update_id is None or not db.claim_update(update_id):
                 self._reply(200, {"ok": True, "duplicate": True})
                 return
-            with _runtime_lock:
-                app = _application()
-                update = Update.de_json(payload, app.bot)
-                _run_async(app.process_update(update))
+            app = _application()
+            update = Update.de_json(payload, app.bot)
+            _run_async(_runtime.process_update(app, update))
             self._reply(200, {"ok": True})
         except Exception as exc:
             if "update_id" in locals() and update_id is not None:
@@ -1612,14 +1609,14 @@ class handler(BaseHTTPRequestHandler):
             elif action == "update_service":
                 sid = int(form["service_id"])
                 name = form["name"].strip()[:80]
-                emoji = form.get("emoji", "")[:12]
+                emoji = form["emoji"][:12] if "emoji" in form else None
                 db.update_service(
                     sid,
                     name=name,
                     emoji=emoji,
-                    suffix_emoji=form.get("suffix_emoji", "").strip()[:12],
-                    sales_channels=["bot"],
-                    name_ar=form.get("name_ar", "").strip(),
+                    suffix_emoji=form["suffix_emoji"].strip()[:12] if "suffix_emoji" in form else None,
+                    sales_channels=None,
+                    name_ar=form["name_ar"].strip() if "name_ar" in form else None,
                 )
                 db.audit_event("service.updated", details={"service_id": sid, "name": name})
 
@@ -1645,6 +1642,8 @@ class handler(BaseHTTPRequestHandler):
                 db.audit_event("service.archived", details={"service_id": sid, "name": service.get("name", "")})
 
             elif action == "add_offer":
+                initial_inventory_text = form.get("initial_inventory", "").strip()
+                initial_items = inventory_service.parse_bulk_inventory(initial_inventory_text) if initial_inventory_text else []
                 service_id_raw = form.get("service_id", "").strip()
                 if service_id_raw:
                     sid = int(service_id_raw)
@@ -1718,11 +1717,8 @@ class handler(BaseHTTPRequestHandler):
                 )
                 if emoji_val and sid:
                     db.update_service(sid, emoji=emoji_val)
-                initial_inventory_text = form.get("initial_inventory", "").strip()
-                if initial_inventory_text:
-                    inventory_service.add_items(
-                        oid, inventory_service.parse_bulk_inventory(initial_inventory_text),
-                    )
+                if initial_items:
+                    inventory_service.add_items(oid, initial_items)
                 db.audit_event("offer.created", details={"offer_id": oid, "name": name})
 
             elif action == "update_offer":
@@ -1733,39 +1729,45 @@ class handler(BaseHTTPRequestHandler):
                 target_service_id = int(form.get("service_id") or previous_offer["service_id"])
                 name = form["name"].strip()[:120]
                 price = None if form.get("price", "") == "" else float(form["price"])
-                bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
-                bulk_price_raw = form.get("bulk_unit_price", "").strip()
+                bulk_quantity = max(0, int(form.get("bulk_quantity", previous_offer.get("bulk_quantity", 0)) or 0))
+                bulk_price_raw = str(form.get("bulk_unit_price", previous_offer.get("bulk_unit_price")) or "").strip()
                 bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
                 effective_price = price if price is not None else float(previous_offer.get("price") or 0)
                 if bulk_unit_price is not None and bulk_unit_price < 0:
                     raise ValueError("Le prix en gros ne peut pas être négatif")
                 if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= effective_price):
                     raise ValueError("Le prix en gros doit être inférieur au prix normal")
-                period_value, period_unit, period_days = _duration_form_values(
-                    form, "period", int(previous_offer.get("period_days") or 30), allow_zero=False,
-                )
-                warranty_value, warranty_unit, warranty_days = _duration_form_values(
-                    form, "warranty", int(previous_offer.get("warranty_days") or 0), allow_zero=True,
-                )
-                note = form.get("note", "").strip()[:250]
-                if not note or note.isdigit() or note == "0":
+                period_value = period_unit = period_days = None
+                warranty_value = warranty_unit = warranty_days = None
+                if any(f"period_{field}" in form for field in ("value", "days")):
+                    period_value, period_unit, period_days = _duration_form_values(
+                        form, "period", int(previous_offer.get("period_days") or 30), allow_zero=False,
+                    )
+                if any(f"warranty_{field}" in form for field in ("value", "days")):
+                    warranty_value, warranty_unit, warranty_days = _duration_form_values(
+                        form, "warranty", int(previous_offer.get("warranty_days") or 0), allow_zero=True,
+                    )
+                note = form.get("note", previous_offer.get("note", "")).strip()[:250]
+                if warranty_days is not None and (not note or note.isdigit() or note == "0"):
                     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
-                emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
+                emoji_val = form.get("custom_emoji_id", form.get("emoji"))
+                if emoji_val is not None:
+                    emoji_val = emoji_val.strip()
                 db.update_offer(
                     oid,
                     service_id=target_service_id,
                     price=price,
                     name=name,
                     note=note if note else None,
-                    description=form.get("description", "").strip()[:1000],
-                    sort_order=max(0, int(form.get("sort_order", 0))),
-                    auto_delivery=form.get("auto_delivery", "") == "on",
-                    low_stock_threshold=max(0, int(form.get("low_stock_threshold", 5))),
-                    delivery_delay=form.get("delivery_delay", "").strip()[:120],
+                    description=form["description"].strip()[:1000] if "description" in form else None,
+                    sort_order=max(0, int(form["sort_order"])) if "sort_order" in form else None,
+                    auto_delivery=form["auto_delivery"] == "on" if "auto_delivery" in form else None,
+                    low_stock_threshold=max(0, int(form["low_stock_threshold"])) if "low_stock_threshold" in form else None,
+                    delivery_delay=form["delivery_delay"].strip()[:120] if "delivery_delay" in form else None,
                     custom_emoji_id=emoji_val,
-                    sales_channels=["bot"],
-                    name_ar=form.get("name_ar", "").strip(),
-                    description_ar=form.get("description_ar", "").strip(),
+                    sales_channels=None,
+                    name_ar=form["name_ar"].strip() if "name_ar" in form else None,
+                    description_ar=form["description_ar"].strip() if "description_ar" in form else None,
                     period_days=period_days,
                     warranty_days=warranty_days,
                     period_value=period_value,
@@ -1775,9 +1777,6 @@ class handler(BaseHTTPRequestHandler):
                     bulk_quantity=bulk_quantity,
                     bulk_unit_price=bulk_unit_price if bulk_unit_price is not None else 0,
                 )
-                existing_offer = db.get_offer(oid)
-                if emoji_val and existing_offer and existing_offer.get("service_id"):
-                    db.update_service(int(existing_offer["service_id"]), emoji=emoji_val)
                 db.audit_event("offer.updated", details={
                     "offer_id": oid,
                     "name": name,

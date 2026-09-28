@@ -203,16 +203,28 @@ def scheduler_loop(stop_event: threading.Event, port: int) -> None:
             10, int(os.environ.get("HP_CODEX_MONITOR_INTERVAL_SECONDS", "15"))
         ),
     }
-    due_at = {path: time.monotonic() + seconds for path, seconds in intervals.items()}
-    while not stop_event.is_set():
-        next_due = min(due_at.values())
-        if stop_event.wait(max(0.0, next_due - time.monotonic())):
-            break
-        now = time.monotonic()
-        for path, due in tuple(due_at.items()):
-            if due <= now:
-                _call_scheduled_endpoint(port, path, secret)
-                due_at[path] = time.monotonic() + intervals[path]
+    workers = []
+    for path, interval in intervals.items():
+        worker = threading.Thread(
+            target=_scheduled_job_loop,
+            args=(stop_event, port, path, secret, interval),
+            name="scheduler-" + path.rsplit("/", 1)[-1],
+            daemon=True,
+        )
+        worker.start()
+        workers.append(worker)
+    stop_event.wait()
+    for worker in workers:
+        worker.join(timeout=1)
+
+
+def _scheduled_job_loop(stop_event, port, path, secret, interval):
+    """A slow supplier must not delay payment checks or acceptance deadlines."""
+    while not stop_event.wait(interval):
+        try:
+            _call_scheduled_endpoint(port, path, secret)
+        except Exception:
+            log.exception("Scheduled job %s failed", path)
 
 
 def main() -> None:

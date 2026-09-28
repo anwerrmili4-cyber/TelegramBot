@@ -277,7 +277,7 @@ def test_catalog_has_a_dedicated_preorder_button(monkeypatch):
         if button.callback_data == "preorder_catalog"
     )
 
-    assert preorder.text == "⏳ Pre-order"
+    assert preorder.text == "Pre-order"
     assert preorder.style == "primary"
 
 
@@ -648,7 +648,7 @@ def test_admin_service_ignores_unicode_stored_as_custom_emoji_id(monkeypatch):
     assert button.text == "📦 𝐂𝐮𝐫𝐬𝐨𝐫 𝐏𝐫𝐨 𝟏𝟐𝐦"
 
 
-def test_admin_service_can_configure_both_button_emojis(monkeypatch):
+def test_admin_service_hides_legacy_emoji_options(monkeypatch):
     monkeypatch.setattr(admin.db, "get_service", lambda _service_id: {
         "id": 52, "name": "officiels subscribes", "active": 1,
     })
@@ -660,8 +660,8 @@ def test_admin_service_can_configure_both_button_emojis(monkeypatch):
         for button in row
     ]
 
-    assert "adm_svcemoji:52" in callbacks
-    assert "adm_svcsuffix:52" in callbacks
+    assert "adm_svcemoji:52" not in callbacks
+    assert "adm_svcsuffix:52" not in callbacks
 
 
 def test_admin_service_products_are_arranged_two_per_row(monkeypatch):
@@ -1257,3 +1257,25 @@ def test_ticket_conversation_keyboard_can_close_or_go_home():
     assert keyboard.inline_keyboard[0][0].callback_data == "ticket_close:17"
     assert keyboard.inline_keyboard[0][0].style == "danger"
     assert keyboard.inline_keyboard[1][0].callback_data == "home"
+
+
+def test_catalog_options_are_plain_even_with_saved_premium_overrides(mock_mongodb):
+    for lang in ("fr", "en", "ar"):
+        kb.db.set_text_override("catalog_notifications_on", "en" if lang == "fr" else lang, "🔔 Alerts enabled", "123456")
+        buttons = {button.callback_data: button for row in kb.catalog_offers_keyboard(lang).inline_keyboard for button in row}
+        assert buttons["catalog_notifications_toggle"].text == "Alerts enabled"
+        assert buttons["catalog_notifications_toggle"].icon_custom_emoji_id is None
+        assert buttons["catalog_notifications_toggle"].style == "success"
+        for callback in ("preorder_catalog", "catalog_request", "catalog", "home"):
+            assert buttons[callback].text
+            assert buttons[callback].icon_custom_emoji_id is None
+
+
+def test_admin_offer_options_keep_purchase_and_announcement_callbacks(mock_mongodb):
+    sid = kb.db.add_service("Accounts", "📦")
+    oid = kb.db.add_offer(sid, "Account", 2, 3)
+    buttons = {button.callback_data: button for row in admin.offer_admin_keyboard(oid).inline_keyboard for button in row}
+    for prefix in ("adm_inventory", "adm_setprice", "adm_broadcast_offer", "adm_unlimited", "adm_offdelay"):
+        assert f"{prefix}:{oid}" in buttons
+    assert f"adm_offemoji:{oid}" not in buttons
+    assert all(not any(ord(char) >= 0x1F000 or char in "▶♾" for char in button.text) for button in buttons.values())

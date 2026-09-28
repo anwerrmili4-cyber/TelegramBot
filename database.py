@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -249,6 +249,9 @@ def init_db():
     db.orders.create_index("id", unique=True)
     db.orders.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
     db.orders.create_index("status")
+    db.orders.create_index([("created_at", DESCENDING)])
+    db.orders.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
+    db.orders.create_index([("offer_id", ASCENDING), ("status", ASCENDING)])
     db.orders.create_index("txid", unique=True, partialFilterExpression={"txid": {"$gt": ""}})
     db.orders.create_index("expires_at")
     db.orders.create_index("tracking_token_hash", unique=True, sparse=True)
@@ -314,6 +317,10 @@ def init_db():
     if fingerprint_index:
         db.inventory.drop_index("fingerprint_1")
     db.inventory.create_index("reserved_order_id")
+    db.inventory.create_index([("delivered_order_id", ASCENDING), ("id", ASCENDING)])
+    db.inventory.create_index([("order_id", ASCENDING), ("status", ASCENDING), ("id", ASCENDING)])
+    db.inventory.create_index([("created_at", DESCENDING)])
+    db.inventory.create_index([("offer_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
     db.processed_updates.create_index("created_at", expireAfterSeconds=604800)
     db.audit_events.create_index("created_at")
     db.interaction_events.create_index([("created_at", DESCENDING)])
@@ -2515,22 +2522,34 @@ def dashboard_data():
         list(db.services.find({"archived": {"$ne": 1}})),
         key=_service_sort_key,
     )
+    offers_by_service = {}
+    for offer in db.offers.find({
+        "service_id": {"$in": [service["id"] for service in service_rows]},
+        "archived": {"$ne": 1},
+    }).sort([("sort_order", ASCENDING), ("id", ASCENDING)]):
+        offers_by_service.setdefault(offer["service_id"], []).append(offer)
+    offer_ids = [offer["id"] for offers in offers_by_service.values() for offer in offers]
+    sales_by_offer = {
+        row["_id"]: row
+        for row in db.orders.aggregate([
+            {"$match": customer_order_query({
+                "offer_id": {"$in": offer_ids}, "status": {"$in": paid_statuses},
+            })},
+            {"$group": {
+                "_id": "$offer_id", "count": {"$sum": 1},
+                "revenue": {"$sum": order_charge_total_expression()},
+            }},
+        ])
+    } if offer_ids else {}
     for svc in service_rows:
         svc_data = _public(svc)
-        offers = list(db.offers.find({"service_id": svc["id"], "archived": {"$ne": 1}}).sort([("sort_order", ASCENDING), ("id", ASCENDING)]))
+        offers = offers_by_service.get(svc["id"], [])
         svc_data["offers"] = [_public(offer) for offer in offers]
         svc_data["offer_count"] = len(offers)
         svc_data["total_stock"] = sum(o.get("stock", 0) for o in offers)
-        # Count sales
-        svc_data["total_sales"] = db.orders.count_documents(customer_order_query({
-            "offer_id": {"$in": [o["id"] for o in offers]},
-            "status": {"$in": paid_statuses},
-        })) if offers else 0
-        offer_ids = [offer["id"] for offer in offers]
-        svc_data["total_revenue"] = _revenue({
-            "offer_id": {"$in": offer_ids},
-            "status": {"$in": paid_statuses},
-        }) if offer_ids else 0.0
+        sales = [sales_by_offer.get(offer["id"], {}) for offer in offers]
+        svc_data["total_sales"] = sum(row.get("count", 0) for row in sales)
+        svc_data["total_revenue"] = round(sum(row.get("revenue", 0) for row in sales), 2)
         services_enriched.append(svc_data)
 
     summary = {

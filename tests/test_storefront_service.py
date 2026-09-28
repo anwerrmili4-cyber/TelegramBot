@@ -27,6 +27,26 @@ def test_catalog_uses_live_mongo_offers_and_tnd(mock_mongodb):
     assert {item["id"] for item in result["payment_methods"]} == {"d17", "flouci"}
 
 
+def test_catalog_does_not_refetch_each_offer_and_keeps_prices_live(mock_mongodb, monkeypatch):
+    from unittest.mock import Mock
+
+    _, offer_id = _catalog_offer()
+    mock_mongodb.offers.update_one({"id": offer_id}, {"$set": {
+        "tn_price_millimes": None, "price": 1.0, "flash_sale_active": True,
+        "flash_sale_ends_at": 1, "flash_sale_original_price": 6.0,
+    }})
+    get_offer = Mock(side_effect=AssertionError("Catalog should use its existing offer rows"))
+    monkeypatch.setattr(db, "get_offer", get_offer)
+    result = storefront_service.catalog()
+    offer = result["services"][0]["offers"][0]
+    assert offer["price_millimes"] == storefront_service._price_millimes({"price": 6.0})
+    assert offer["stock"] == 5
+    assert not get_offer.called
+
+    mock_mongodb.offers.update_one({"id": offer_id}, {"$set": {"stock": 0}})
+    assert storefront_service.catalog()["services"][0]["offers"][0]["available"] is False
+
+
 def test_create_order_waits_for_manual_whatsapp_verification(mock_mongodb):
     _, offer_id = _catalog_offer()
     result = storefront_service.create_order({

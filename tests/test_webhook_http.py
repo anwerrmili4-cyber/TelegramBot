@@ -533,3 +533,84 @@ def test_control_room_routes_support_direct_navigation():
             with urlopen(f"{base_url}/admin/{page}", timeout=5) as response:
                 assert response.status == 200
                 assert '<div id="root"></div>' in response.read().decode()
+
+
+def _catalog_action(base_url, token, values):
+    request = Request(base_url + "/admin", data=urlencode(values).encode(), headers={
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Dashboard-Write-Token": token,
+    }, method="POST")
+    with urlopen(request, timeout=5) as response:
+        return json.load(response)
+
+
+def test_catalog_edit_preserves_existing_delivery_contracts(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
+    token = webhook_module.dashboard_write_token()
+    sid = database_module.add_service("Formats", "🎬", suffix_emoji="⭐", sales_channels=["bot", "api"])
+    formats = [
+        {"manual_stock": True, "auto_delivery": False, "stock": 8},
+        {"unlimited_stock": True},
+        {"method_media": [{"type": "document", "file_id": "telegram-file"}], "unlimited_stock": True},
+        {"feature_key": "bot_like_mine", "delivery_url": "https://github.com/example/bot", "benefits_document_file_id": "doc"},
+        {"supplier_provider": "vex", "supplier_product_id": "external-1"},
+    ]
+    with running_server() as base_url:
+        for extra in formats:
+            oid = database_module.add_offer(sid, "Original", 2, 0, custom_emoji_id="123456", sales_channels=["bot", "api"])
+            mock_mongodb.offers.update_one({"id": oid}, {"$set": extra})
+            result = _catalog_action(base_url, token, {
+                "action": "update_offer", "offer_id": oid, "name": "Renamed", "price": "3",
+                "auto_delivery": "" if extra.get("auto_delivery") is False else "on",
+                "period_value": "3", "period_unit": "months", "warranty_value": "1", "warranty_unit": "years",
+            })
+            assert result["ok"]
+            saved = database_module.get_offer(oid)
+            assert saved["name"] == "Renamed"
+            assert saved["price"] == 3
+            assert saved["sales_channels"] == ["bot", "api"]
+            assert saved["custom_emoji_id"] == "123456"
+            assert saved["period_days"] == 90
+            assert saved["warranty_days"] == 365
+            for key, value in extra.items():
+                assert saved[key] == value
+        assert _catalog_action(base_url, token, {"action": "update_service", "service_id": sid, "name": "Renamed collection"})["ok"]
+    service = database_module.get_service(sid)
+    assert service["emoji"] == "🎬"
+    assert service["suffix_emoji"] == "⭐"
+    assert service["sales_channels"] == ["bot", "api"]
+
+
+def test_invalid_initial_inventory_does_not_create_a_catalog_item(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
+    before = mock_mongodb.offers.count_documents({})
+    with running_server() as base_url:
+        try:
+            _catalog_action(base_url, webhook_module.dashboard_write_token(), {
+                "action": "add_offer", "name": "Invalid import", "price": "2", "initial_inventory": "#1\npassword",
+            })
+        except HTTPError as exc:
+            assert exc.code == 400
+        else:
+            raise AssertionError("Malformed inventory was accepted")
+    assert mock_mongodb.offers.count_documents({}) == before
+    assert mock_mongodb.services.count_documents({"name": "Catalogue"}) == 0
+
+
+def test_catalog_name_edit_preserves_legacy_and_advanced_settings(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
+    sid = database_module.add_service("Legacy", "")
+    oid = database_module.add_offer(sid, "Original", 10, 0, "6 months", auto_delivery=False)
+    advanced = {"description": "Full description", "period_value": 3, "period_unit": "months", "period_days": 90,
+                "warranty_value": 6, "warranty_unit": "months", "warranty_days": 180,
+                "name_ar": "منتج", "description_ar": "وصف", "low_stock_threshold": 9,
+                "bulk_quantity": 10, "bulk_unit_price": 8, "delivery_delay": "2 hours", "sort_order": 7}
+    mock_mongodb.offers.update_one({"id": oid}, {"$set": advanced})
+    with running_server() as base_url:
+        assert _catalog_action(base_url, webhook_module.dashboard_write_token(), {"action": "update_offer", "offer_id": oid, "name": "Renamed"})["ok"]
+    saved = database_module.get_offer(oid)
+    assert saved["note"] == "6 months"
+    assert saved["auto_delivery"] is False
+    assert saved["price"] == 10
+    for key, value in advanced.items():
+        assert saved[key] == value

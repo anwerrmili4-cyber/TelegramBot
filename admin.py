@@ -900,8 +900,8 @@ def catalog_admin_keyboard():
     ) for s in db.list_services(active_only=False)]
     rows = _two_column_rows(service_buttons)
     rows.append([
-        InlineKeyboardButton("➕ Ajouter un service", callback_data="adm_addsvc"),
-        InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel"),
+        InlineKeyboardButton("Ajouter un service", callback_data="adm_addsvc"),
+        InlineKeyboardButton("Retour", callback_data="adm_panel"),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -921,15 +921,13 @@ def service_admin_keyboard(service_id):
         ))
     rows = _two_column_rows(offer_buttons)
     rows.extend([
-        [InlineKeyboardButton("➕ Ajouter une offre", callback_data=f"adm_addoff:{service_id}"),
-         InlineKeyboardButton("✏️ Nom", callback_data=f"adm_svcname:{service_id}")],
-        [InlineKeyboardButton("⬅️ Emoji gauche", callback_data=f"adm_svcemoji:{service_id}"),
-         InlineKeyboardButton("Emoji droit ➡️", callback_data=f"adm_svcsuffix:{service_id}")],
-        [InlineKeyboardButton("⏸ Désactiver" if svc["active"] else "▶️ Activer",
+        [InlineKeyboardButton("Ajouter une offre", callback_data=f"adm_addoff:{service_id}"),
+         InlineKeyboardButton("Nom", callback_data=f"adm_svcname:{service_id}")],
+        [InlineKeyboardButton("Désactiver" if svc["active"] else "Activer",
                               callback_data=f"adm_svctoggle:{service_id}"),
-         InlineKeyboardButton("🗑 Archiver", callback_data=f"adm_svcdel:{service_id}")],
+         InlineKeyboardButton("Archiver", callback_data=f"adm_svcdel:{service_id}")],
     ])
-    rows.append([InlineKeyboardButton("⬅️ Catalogue", callback_data="adm_catalog")])
+    rows.append([InlineKeyboardButton("Catalogue", callback_data="adm_catalog")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -943,32 +941,32 @@ def offer_admin_keyboard(offer_id):
     if is_bot_package:
         option_buttons.extend([
             InlineKeyboardButton(
-                "📄 Document client" + (" ✅" if off.get("benefits_document_file_id") else ""),
+                "Document client" + (" · Prêt" if off.get("benefits_document_file_id") else ""),
                 callback_data=f"adm_bot_package_doc:{offer_id}",
                 style="primary",
             ),
             InlineKeyboardButton(
-                "🔗 Lien GitHub de livraison" + (" ✅" if off.get("delivery_url") else ""),
+                "Lien GitHub de livraison" + (" · Prêt" if off.get("delivery_url") else ""),
                 callback_data=f"adm_bot_package_link:{offer_id}",
                 style="primary",
             ),
         ])
     if is_method:
         option_buttons.append(InlineKeyboardButton(
-            f"🎬 Method content ({len(method_media)})",
+            f"Method content ({len(method_media)})",
             callback_data=f"adm_method_media:{offer_id}",
             style="primary",
         ))
     else:
         option_buttons.append(InlineKeyboardButton(
-            "🔐 Ajouter plusieurs comptes", callback_data=f"adm_inventory:{offer_id}"
+            "Ajouter plusieurs comptes", callback_data=f"adm_inventory:{offer_id}"
         ))
     option_buttons.extend([
-        InlineKeyboardButton("🖼 Modifier l’image", callback_data=f"adm_offimage:{offer_id}"),
-        InlineKeyboardButton("💵 Modifier le prix", callback_data=f"adm_setprice:{offer_id}"),
+        InlineKeyboardButton("Modifier l’image", callback_data=f"adm_offimage:{offer_id}"),
+        InlineKeyboardButton("Modifier le prix", callback_data=f"adm_setprice:{offer_id}"),
         InlineKeyboardButton(
-            "⏹ Arrêter la vente flash" if off.get("flash_sale_active")
-            else "⚡ Lancer une vente flash",
+            "Arrêter la vente flash" if off.get("flash_sale_active")
+            else "Lancer une vente flash",
             callback_data=(
                 f"adm_flash_stop:{offer_id}"
                 if off.get("flash_sale_active")
@@ -976,30 +974,30 @@ def offer_admin_keyboard(offer_id):
             ),
         ),
         InlineKeyboardButton(
-            "📣 Envoyer une annonce (prix + stock)",
+            "Envoyer une annonce (prix + stock)",
             callback_data=f"adm_broadcast_offer:{offer_id}",
         ),
         InlineKeyboardButton(
-            "♾ Désactiver le stock illimité" if off.get("unlimited_stock")
-            else "♾ Activer le stock illimité",
+            "Désactiver le stock illimité" if off.get("unlimited_stock")
+            else "Activer le stock illimité",
             callback_data=f"adm_unlimited:{offer_id}",
         ),
-        InlineKeyboardButton("✏️ Modifier le nom", callback_data=f"adm_offname:{offer_id}"),
-        InlineKeyboardButton("📂 Déplacer vers un autre service", callback_data=f"adm_offmove:{offer_id}"),
-        InlineKeyboardButton("🎨 Emoji animé", callback_data=f"adm_offemoji:{offer_id}"),
-        InlineKeyboardButton("📄 Description", callback_data=f"adm_offdesc:{offer_id}"),
+        InlineKeyboardButton("Modifier le nom", callback_data=f"adm_offname:{offer_id}"),
+        InlineKeyboardButton("Déplacer vers un autre service", callback_data=f"adm_offmove:{offer_id}"),
+        InlineKeyboardButton("Description", callback_data=f"adm_offdesc:{offer_id}"),
+        InlineKeyboardButton("Délai de livraison", callback_data=f"adm_offdelay:{offer_id}"),
     ])
     if not is_method:
         option_buttons.extend([
-            InlineKeyboardButton("🛡 Garantie", callback_data=f"adm_offnote:{offer_id}"),
-            InlineKeyboardButton("📅 Période", callback_data=f"adm_offperiod:{offer_id}"),
+            InlineKeyboardButton("Garantie", callback_data=f"adm_offnote:{offer_id}"),
+            InlineKeyboardButton("Période", callback_data=f"adm_offperiod:{offer_id}"),
         ])
     rows = _two_column_rows(option_buttons)
     rows.extend([
-        [InlineKeyboardButton("⏸ Désactiver" if off["active"] else "▶️ Activer",
+        [InlineKeyboardButton("Désactiver" if off["active"] else "Activer",
                               callback_data=f"adm_offtoggle:{offer_id}"),
-         InlineKeyboardButton("🗑 Archiver", callback_data=f"adm_offdel:{offer_id}")],
-        [InlineKeyboardButton("⬅️ Retour", callback_data=f"adm_svc:{off['service_id']}")],
+         InlineKeyboardButton("Archiver", callback_data=f"adm_offdel:{offer_id}")],
+        [InlineKeyboardButton("Retour", callback_data=f"adm_svc:{off['service_id']}")],
     ])
     return InlineKeyboardMarkup(rows)
 

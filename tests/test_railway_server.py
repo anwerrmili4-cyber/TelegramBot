@@ -176,3 +176,36 @@ def test_admin_port_root_redirects_to_dashboard():
     assert response.headers["Location"] == "/admin"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+
+def test_slow_restock_does_not_block_payment_scheduler(monkeypatch):
+    stopped = threading.Event()
+    release = threading.Event()
+    restock_started = threading.Event()
+    payment_checked = threading.Event()
+    calls = []
+
+    class FastStop:
+        def wait(self, interval=None):
+            return stopped.wait(0.005 if interval is not None else None)
+
+    def call(_port, path, _secret):
+        calls.append(path)
+        if path == "/api/cron/restock":
+            restock_started.set()
+            release.wait(3)
+        elif path == "/api/cron/pending-payments":
+            payment_checked.set()
+
+    monkeypatch.setattr(railway_server, "_call_scheduled_endpoint", call)
+    scheduler = threading.Thread(target=railway_server.scheduler_loop, args=(FastStop(), 8081))
+    scheduler.start()
+    try:
+        assert restock_started.wait(2)
+        assert payment_checked.wait(2)
+        assert calls.count("/api/cron/restock") == 1
+    finally:
+        stopped.set()
+        release.set()
+        scheduler.join(timeout=3)
+    assert not scheduler.is_alive()

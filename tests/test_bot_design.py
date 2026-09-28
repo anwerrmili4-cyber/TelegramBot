@@ -3233,3 +3233,17 @@ def test_unarchive_offer_and_service_sanitizer(mock_mongodb):
     assert svc["emoji"] == "📦"
     assert svc["custom_emoji_id"] == "6307450973606389056"
 
+
+
+def test_admin_catalog_archive_reaches_the_archive_handler(monkeypatch, mock_mongodb):
+    sid = db.add_service("Archive me", "")
+    oid = db.add_offer(sid, "Historical product", 2, 1)
+    monkeypatch.setattr("bot.ADMIN_ID", 999)
+    query = SimpleNamespace(
+        data=f"adm_svcdel:{sid}", from_user=SimpleNamespace(id=999),
+        message=SimpleNamespace(text="Catalog"), answer=AsyncMock(), edit_message_text=AsyncMock(),
+    )
+    asyncio.run(cb_admin(SimpleNamespace(callback_query=query), SimpleNamespace()))
+    assert mock_mongodb.services.find_one({"id": sid})["archived"] == 1
+    assert mock_mongodb.offers.find_one({"id": oid})["archived"] == 1
+    query.edit_message_text.assert_awaited_once()

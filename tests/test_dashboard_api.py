@@ -14,6 +14,23 @@ from api.dashboard import render_dashboard
 from app.web import dashboard_api
 
 
+def test_supplier_delivery_detail_resolves_encrypted_items(mock_mongodb):
+    import database as db
+
+    mock_mongodb.orders.insert_one({
+        "id": 777, "user_id": 42, "status": "delivered",
+        "delivery_text": "[encrypted reseller delivery]",
+    })
+    cipher = db._fernet()
+    mock_mongodb.inventory.insert_many([
+        {"id": 2, "delivered_order_id": 777, "status": "delivered", "payload": cipher.encrypt(b"second item").decode()},
+        {"id": 1, "delivered_order_id": 777, "status": "delivered", "payload": cipher.encrypt(b"first item").decode()},
+        {"id": 3, "delivered_order_id": 778, "status": "delivered", "payload": cipher.encrypt(b"other customer").decode()},
+    ])
+
+    assert dashboard_api.order_detail(777)["delivery_content"] == "first item\n\nsecond item"
+
+
 def test_order_filters_and_pagination(mock_mongodb):
     mock_mongodb.orders.insert_many([
         {"id": 1, "user_id": 10, "offer_id": 5, "offer_name": "Alpha", "service_name": "AI", "status": "pending_payment", "created_at": 1},
