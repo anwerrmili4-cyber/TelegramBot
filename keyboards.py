@@ -122,6 +122,10 @@ def stock_badge(stock, unlimited=False):
     return "🟥"
 
 
+def offer_in_stock(offer):
+    return bool(offer.get("unlimited_stock")) or int(offer.get("stock") or 0) > 0
+
+
 def stock_button_style(stock):
     """Render available products green and unavailable products red."""
     return "success" if int(stock or 0) > 0 else "danger"
@@ -515,11 +519,14 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
                     "suffix_emoji": offer.get("service_suffix_emoji"),
                     "custom_emoji_id": service_icon,
                 }, 46)
-                grouped_category_buttons.append(InlineKeyboardButton(
-                    label,
-                    callback_data=f"svc:{sid}",
-                    style="primary",
-                    icon_custom_emoji_id=service_icon,
+                grouped_category_buttons.append((
+                    InlineKeyboardButton(
+                        label,
+                        callback_data=f"svc:{sid}",
+                        style="primary",
+                        icon_custom_emoji_id=service_icon,
+                    ),
+                    any(offer_in_stock(item) for item in offers_in_service),
                 ))
         else:
             safe_offer = dict(offer)
@@ -528,7 +535,7 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
             is_out = not offer.get("unlimited_stock") and stock <= 0
             cb_data = f"off:{offer['id']}"
             btn_style = "danger" if is_out else ("success" if offer.get("unlimited_stock") else stock_button_style(stock))
-            regular_offer_buttons.append([InlineKeyboardButton(
+            regular_offer_buttons.append(([InlineKeyboardButton(
                 offer_button_label(
                     lang, safe_offer,
                     stock_label=stock_label,
@@ -541,11 +548,16 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
                     offer.get("custom_emoji_id"),
                     offer.get("service_custom_emoji_id"),
                 ),
-            )])
+            )], not is_out))
+
+    # Sold-out entries sink below available ones; the sort is stable, so the
+    # admin-defined order is kept inside each group.
+    grouped_category_buttons.sort(key=lambda item: not item[1])
+    regular_offer_buttons.sort(key=lambda item: not item[1])
 
     # 1. Place grouped category buttons (Adobe, ChatGPT, Telegram, VPNs, Netflix) AT THE TOP in rows of 2
     row = []
-    for btn in grouped_category_buttons:
+    for btn, _in_stock in grouped_category_buttons:
         row.append(btn)
         if len(row) == 2:
             buttons.append(row)
@@ -554,7 +566,7 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
         buttons.append(row)
 
     # 2. Add individual offer buttons below
-    buttons.extend(regular_offer_buttons)
+    buttons.extend(row_buttons for row_buttons, _in_stock in regular_offer_buttons)
 
     buttons.append([
         translated_button(
@@ -598,7 +610,7 @@ def offers_keyboard(lang, service_id):
     buttons = []
     service = db.get_service(service_id)
     svc_emoji = (service.get("emoji") or "").strip() if service else ""
-    for off in db.list_offers(service_id):
+    for off in sorted(db.list_offers(service_id), key=lambda item: not offer_in_stock(item)):
         safe_offer = dict(off)
         off_name = (off.get("name") or f"Offre #{off['id']}").strip()
         clean_name = clean_button_name(off_name) or off_name

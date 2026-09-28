@@ -611,6 +611,35 @@ def test_official_subscriptions_move_from_catalog_to_home(mock_mongodb):
     assert detail.inline_keyboard[-1][0].callback_data == f"svc:{official_id}"
 
 
+def test_out_of_stock_items_sink_below_available_ones(mock_mongodb):
+    empty_service = db.add_service("Empty group", "📦")
+    db.add_offer(empty_service, "Empty A", 3.0, 0)
+    db.add_offer(empty_service, "Empty B", 3.0, 0)
+    full_service = db.add_service("Full group", "📦")
+    db.add_offer(full_service, "Full A", 3.0, 0)
+    db.add_offer(full_service, "Full B", 3.0, 2)
+    sold_out_single = db.add_offer(db.add_service("Single sold out", "📦"), "Sold out", 2.0, 0)
+    unlimited_single = db.add_offer(
+        db.add_service("Single unlimited", "📦"), "Unlimited", 2.0, 0, unlimited_stock=True,
+    )
+    official_id = db.add_service("Officiels subscriptions", "⭐")
+    official_empty = db.add_offer(official_id, "Official empty", 4.0, 0)
+    official_full = db.add_offer(official_id, "Official full", 4.0, 3)
+
+    callbacks = [
+        button.callback_data
+        for row in kb.catalog_offers_keyboard("en").inline_keyboard
+        for button in row
+    ]
+    assert callbacks.index(f"svc:{full_service}") < callbacks.index(f"svc:{empty_service}")
+    assert callbacks.index(f"off:{unlimited_single}") < callbacks.index(f"off:{sold_out_single}")
+
+    official_callbacks = [
+        row[0].callback_data for row in kb.offers_keyboard("en", official_id).inline_keyboard
+    ]
+    assert official_callbacks[:2] == [f"off:{official_full}", f"off:{official_empty}"]
+
+
 def test_home_hides_official_subscriptions_without_active_offers(mock_mongodb):
     db.add_service("Officiels subscriptions", "⭐")
 
