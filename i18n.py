@@ -99,9 +99,9 @@ TRANSLATIONS = {
     "menu_support": {"fr": "🛎️ Support", "en": "🛎️ Support", "ar": "🛎️ الدعم"},
     "menu_methods": {"fr": "🧠 Methods", "en": "🧠 Methods", "ar": "🧠 الطرق"},
     "menu_bot_like_mine": {
-        "fr": "🤖 BOT LIKE MINE",
-        "en": "🤖 BOT LIKE MINE",
-        "ar": "🤖 بوت مثلي",
+        "fr": "BOT LIKE MINE",
+        "en": "BOT LIKE MINE",
+        "ar": "بوت مثلي",
     },
     "menu_warranty": {"fr": "🛡️ Garantie", "en": "🛡️ Warranty", "ar": "🛡️ الضمان"},
     "menu_reseller_api": {"fr": "🔧 API Développeur", "en": "🔧 Developer API", "ar": "🔧 واجهة المطور"},

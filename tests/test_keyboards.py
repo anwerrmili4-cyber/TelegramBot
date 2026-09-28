@@ -1002,7 +1002,7 @@ def test_home_uses_green_shop_blue_actions_and_red_support(mock_mongodb):
     assert [button.callback_data for button in keyboard.inline_keyboard[3]] == [
         "language", "support",
     ]
-    assert actions["bot_like_mine"].text == "🤖 BOT LIKE MINE"
+    assert actions["bot_like_mine"].text == "BOT LIKE MINE"
     assert actions["bot_like_mine"].style == "success"
     assert "lovable" not in actions
 
