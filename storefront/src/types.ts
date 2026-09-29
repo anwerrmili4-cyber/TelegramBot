@@ -75,5 +75,12 @@ export type AuthSession = {
   customer: Customer;
 };
 
+/** Sign-up answer: no session until the emailed code is confirmed. */
+export type VerificationRequired = {
+  ok: boolean;
+  verification_required: true;
+  email: string;
+};
+
 /** A cart line: the live catalog offer plus the requested quantity. */
 export type CartLine = { offer: Offer; quantity: number };

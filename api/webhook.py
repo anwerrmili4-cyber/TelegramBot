@@ -257,6 +257,8 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/logout",
     "/api/storefront/auth/forgot-password",
     "/api/storefront/auth/reset-password",
+    "/api/storefront/auth/verify-email",
+    "/api/storefront/auth/resend-code",
 })
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
 
@@ -1375,9 +1377,13 @@ class handler(BaseHTTPRequestHandler):
             else:
                 payload = self._read_json_body(max_bytes=8_000)
                 if path == "/api/storefront/auth/register":
-                    result = storefront_auth_service.register(payload)
+                    result = storefront_auth_service.register(payload, self._client_ip())
                 elif path == "/api/storefront/auth/login":
                     result = storefront_auth_service.login(payload, self._client_ip())
+                elif path == "/api/storefront/auth/verify-email":
+                    result = storefront_auth_service.verify_email(payload, self._client_ip())
+                elif path == "/api/storefront/auth/resend-code":
+                    result = storefront_auth_service.resend_verification(payload, self._client_ip())
                 elif path == "/api/storefront/auth/forgot-password":
                     result = storefront_auth_service.forgot_password(payload, self._client_ip())
                 else:
@@ -1387,7 +1393,10 @@ class handler(BaseHTTPRequestHandler):
             headers = dict(cors)
             if exc.retry_after is not None:
                 headers["Retry-After"] = str(exc.retry_after)
-            self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=headers)
+            body = {"ok": False, "error": str(exc)}
+            if exc.code:
+                body["code"] = exc.code
+            self._reply(exc.status, body, headers=headers)
         except buyer_api_service.BuyerApiError:
             self._reply(400, {"ok": False, "error": "Requête invalide."}, headers=cors)
         except Exception:

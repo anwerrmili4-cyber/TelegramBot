@@ -347,6 +347,8 @@ def init_db():
     db.storefront_sessions.create_index("expires_at_date", expireAfterSeconds=0)
     db.storefront_password_resets.create_index("token_hash", unique=True)
     db.storefront_password_resets.create_index("expires_at_date", expireAfterSeconds=0)
+    db.storefront_email_codes.create_index("customer_id", unique=True)
+    db.storefront_email_codes.create_index("expires_at_date", expireAfterSeconds=0)
     if not schema or int(schema.get("version") or 0) < 15:
         _remove_legacy_announcement_overrides(db)
     if not schema or int(schema.get("version") or 0) < 17:

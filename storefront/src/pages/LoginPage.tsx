@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { errorMessage } from "@/lib/api";
+import { ApiError, errorMessage } from "@/lib/api";
 import { Link, navigate, ROUTES } from "@/lib/router";
 import { AuthLayout, EMAIL_PATTERN, PasswordField } from "@/pages/AuthLayout";
+import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -29,6 +30,10 @@ export function LoginPage() {
       await login(email.trim(), password);
       navigate(ROUTES.home, { replace: true });
     } catch (reason) {
+      if (reason instanceof ApiError && reason.code === "email_unverified") {
+        navigate(verifyEmailPath(email.trim().toLowerCase()));
+        return;
+      }
       setError(errorMessage(reason, "Connexion impossible."));
       setSubmitting(false);
     }

@@ -154,6 +154,28 @@
   font-weight: 600;
 }
 
+button.auth-inline-link {
+  justify-self: center;
+  padding: 4px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+button.auth-inline-link:disabled {
+  color: var(--text-mute);
+  font-weight: 600;
+  cursor: default;
+}
+
+.auth-form input.code-input {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .auth-foot {
   padding-top: 18px;
   border-top: 1px solid var(--line-soft);

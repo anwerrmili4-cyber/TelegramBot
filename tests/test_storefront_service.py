@@ -8,7 +8,7 @@ import database as db
 from app.constants import OrderStatus
 from app.domain import storefront_service
 
-CUSTOMER = {"name": "Amine Ben Salah", "phone": "21 111 222", "payment_method": "d17"}
+CUSTOMER = {"name": "Amine Ben Salah", "email": "Amine@Example.com", "phone": "21 111 222", "payment_method": "d17"}
 
 
 def _catalog_offer(name="ChatGPT Plus 1 mois", millimes=25000, stock=5, service="ChatGPT"):
@@ -166,6 +166,8 @@ def test_a_rejected_line_creates_no_orders_at_all(mock_mongodb):
     ({"items": []}, "panier"),
     ({"items": [{"offer_id": 999_999, "quantity": 1}]}, "disponible"),
     ({"name": "A"}, "nom complet"),
+    ({"email": ""}, "adresse email"),
+    ({"email": "pas-un-email"}, "adresse email"),
     ({"phone": "12345"}, "numéro tunisien"),
     ({"payment_method": "bitcoin"}, "D17"),
 ])
@@ -174,6 +176,19 @@ def test_invalid_checkout_payloads_are_rejected(mock_mongodb, payload, message):
     request = {**CUSTOMER, "items": [{"offer_id": offer_id, "quantity": 1}], **payload}
     with pytest.raises(ValueError, match=message):
         storefront_service.create_order(request)
+
+
+def test_checkout_stores_the_email_and_sends_the_order_received_email(mock_mongodb, sent_emails):
+    _, offer_id = _catalog_offer(millimes=25000)
+    result = _create(items=[{"offer_id": offer_id, "quantity": 2}])
+
+    assert mock_mongodb.orders.find_one({})["customer_email"] == "amine@example.com"
+    (message,) = sent_emails
+    assert message["to"] == ["amine@example.com"]
+    assert message["subject"] == f"Commande {result['reference']} reçue"
+    assert "2 x ChatGPT Plus 1 mois : 50,000 DT" in message["text"]
+    assert "par D17" in message["text"]
+    assert result["whatsapp_url"] in message["text"]
 
 
 def test_cart_larger_than_the_line_limit_is_rejected(mock_mongodb):

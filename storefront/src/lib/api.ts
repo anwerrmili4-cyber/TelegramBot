@@ -1,4 +1,4 @@
-import type { AuthSession, Catalog, CheckoutResult, Customer } from "@/types";
+import type { AuthSession, Catalog, CheckoutResult, Customer, VerificationRequired } from "@/types";
 
 const configured = (import.meta.env.VITE_STOREFRONT_API_URL ?? "").trim().replace(/\/+$/, "");
 
@@ -20,10 +20,13 @@ export function assetUrl(url: string): string {
 
 export class ApiError extends Error {
   readonly status: number;
+  /** Machine-readable reason, e.g. `email_unverified`. */
+  readonly code: string;
 
-  constructor(message: string, status = 0) {
+  constructor(message: string, status = 0, code = "") {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -45,11 +48,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // An error page or an empty body: fall through to the status check.
   }
 
-  const payload = (body ?? {}) as { error?: string; ok?: boolean };
+  const payload = (body ?? {}) as { error?: string; ok?: boolean; code?: string };
   if (!response.ok || payload.ok === false) {
     throw new ApiError(
       payload.error || "Le service est momentanément indisponible.",
       response.status,
+      payload.code ?? "",
     );
   }
   return body as T;
@@ -67,7 +71,15 @@ function postJson<T>(path: string, payload: unknown, token?: string): Promise<T>
 }
 
 export function register(payload: { name: string; email: string; password: string }) {
-  return postJson<AuthSession>("/api/storefront/auth/register", payload);
+  return postJson<VerificationRequired>("/api/storefront/auth/register", payload);
+}
+
+export function verifyEmail(payload: { email: string; code: string }) {
+  return postJson<AuthSession>("/api/storefront/auth/verify-email", payload);
+}
+
+export function resendVerificationCode(email: string) {
+  return postJson<{ ok: boolean }>("/api/storefront/auth/resend-code", { email });
 }
 
 export function login(payload: { email: string; password: string }) {
@@ -99,6 +111,7 @@ export function fetchCatalog(signal?: AbortSignal): Promise<Catalog> {
 
 export type CheckoutPayload = {
   name: string;
+  email: string;
   phone: string;
   payment_method: string;
   note?: string;

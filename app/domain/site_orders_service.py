@@ -3,7 +3,8 @@
 A storefront cart is stored as one order document per line, all sharing a
 ``cart_reference``. The admin always acts on the whole cart: the customer paid
 one D17/Flouci total for it, so its lines are confirmed, delivered or cancelled
-together.
+together, and the customer gets one email per step. Carts created before
+checkout asked for an email simply get no email.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Any
 
 import database as db
 from app.constants import OrderStatus
+from app.domain import email_service
 
 SALES_CHANNEL = "tn_site"
 
@@ -70,6 +72,7 @@ def _cart_summary(reference: str, lines: list[dict[str, Any]]) -> dict[str, Any]
         "reference": reference,
         "status": _cart_status(lines),
         "customer_name": first.get("customer_name", ""),
+        "customer_email": first.get("customer_email", ""),
         "customer_phone": phone,
         "customer_note": first.get("customer_note", ""),
         "whatsapp_url": f"https://wa.me/{phone_digits}" if phone_digits else "",
@@ -123,7 +126,11 @@ def list_carts(params: dict[str, list[str]]) -> dict[str, Any]:
     if search:
         pattern = {"$regex": re.escape(search), "$options": "i"}
         digits = re.sub(r"\D", "", search)
-        clauses: list[dict[str, Any]] = [{"cart_reference": pattern}, {"customer_name": pattern}]
+        clauses: list[dict[str, Any]] = [
+            {"cart_reference": pattern},
+            {"customer_name": pattern},
+            {"customer_email": pattern},
+        ]
         if digits and not re.search(r"[^\d\s+().-]", search):
             clauses.append({"customer_phone": {"$regex": re.escape(digits)}})
         query["$or"] = clauses
@@ -158,6 +165,21 @@ def _cart_lines(reference: str) -> list[dict[str, Any]]:
     return sorted(lines, key=lambda line: int(line.get("cart_position") or 0))
 
 
+def _email_items(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "offer_name": line.get("offer_name", ""),
+            "quantity": int(line.get("qty") or 1),
+            "total_millimes": int(line.get("total_millimes") or 0),
+        }
+        for line in lines
+    ]
+
+
+def _cart_total(lines: list[dict[str, Any]]) -> int:
+    return int(lines[0].get("cart_total_millimes") or 0) or sum(int(line.get("total_millimes") or 0) for line in lines)
+
+
 def _restock(conn: Any, line: dict[str, Any]) -> None:
     if not line.get("offer_id") or line.get("is_preorder"):
         return
@@ -189,23 +211,37 @@ def confirm_cart(reference: str) -> dict[str, Any]:
         raise SiteOrderError(f"Stock insuffisant pour « {name} ». Le panier {reference} n'a pas été confirmé.")
 
     db.audit_event("site_cart.confirmed", details={"cart_reference": reference, "order_ids": [line["id"] for line in lines]})
+    first = lines[0]
+    email_service.send_payment_confirmed(
+        first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(lines), _cart_total(lines)
+    )
     return {"reference": reference, "lines": len(lines)}
 
 
 def deliver_cart(reference: str, note: str = "") -> dict[str, Any]:
-    """Record that the admin delivered a confirmed cart over WhatsApp."""
+    """Deliver a confirmed cart, emailing the admin's note (the access details) to the customer."""
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
     if any(str(line.get("status")) not in _CONFIRMED for line in lines):
         raise SiteOrderError(f"Confirme d'abord le paiement du panier {reference}.")
 
     now = int(time.time())
-    note = str(note or "").strip()[:2000] or "Livré sur WhatsApp"
+    content = str(note or "").strip()[:2000]
     result = db.get_conn().orders.update_many(
         {"sales_channel": SALES_CHANNEL, "cart_reference": reference, "status": {"$in": sorted(_CONFIRMED)}},
-        {"$set": {"status": _DELIVERED, "delivery_text": note, "delivered_at": now, "updated_at": now}},
+        {"$set": {
+            "status": _DELIVERED,
+            "delivery_text": content or "Livré sur WhatsApp",
+            "delivered_at": now,
+            "updated_at": now,
+        }},
     )
     db.audit_event("site_cart.delivered", details={"cart_reference": reference, "lines": result.modified_count})
+    if result.modified_count:
+        first = lines[0]
+        email_service.send_order_delivered(
+            first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(lines), content
+        )
     return {"reference": reference, "lines": result.modified_count}
 
 
@@ -233,4 +269,7 @@ def cancel_cart(reference: str, reason: str = "") -> dict[str, Any]:
             _restock(conn, line)
 
     db.audit_event("site_cart.cancelled", details={"cart_reference": reference, "lines": cancelled, "reason": reason})
+    if cancelled:
+        first = lines[0]
+        email_service.send_order_cancelled(first.get("customer_email", ""), first.get("customer_name", ""), reference, reason)
     return {"reference": reference, "lines": cancelled}

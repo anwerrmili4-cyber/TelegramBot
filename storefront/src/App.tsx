@@ -16,10 +16,12 @@ import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
+import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
 
 const AUTH_PAGES: Record<string, ComponentType | undefined> = {
   [ROUTES.login]: LoginPage,
   [ROUTES.register]: RegisterPage,
+  [ROUTES.verifyEmail]: VerifyEmailPage,
   [ROUTES.forgotPassword]: ForgotPasswordPage,
   [ROUTES.resetPassword]: ResetPasswordPage,
 };

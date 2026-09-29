@@ -7,7 +7,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, fetchMe, login as apiLogin, logout as apiLogout, register as apiRegister } from "@/lib/api";
+import {
+  ApiError,
+  fetchMe,
+  login as apiLogin,
+  logout as apiLogout,
+  register as apiRegister,
+  verifyEmail as apiVerifyEmail,
+} from "@/lib/api";
 import type { AuthSession, Customer } from "@/types";
 
 const STORAGE_KEY = "blackmarket-tn-session";
@@ -17,7 +24,9 @@ type Auth = {
   /** True until a stored session has been checked against the server. */
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /** Creates the account and emails a code; no session is opened yet. */
   register: (name: string, email: string, password: string) => Promise<void>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -78,9 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [openSession],
   );
 
-  const register = useCallback(
-    async (name: string, email: string, password: string) =>
-      openSession(await apiRegister({ name, email, password })),
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    await apiRegister({ name, email, password });
+  }, []);
+
+  const verifyEmail = useCallback(
+    async (email: string, code: string) => openSession(await apiVerifyEmail({ email, code })),
     [openSession],
   );
 
@@ -93,8 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const value = useMemo(
-    () => ({ customer, loading, login, register, logout }),
-    [customer, loading, login, register, logout],
+    () => ({ customer, loading, login, register, verifyEmail, logout }),
+    [customer, loading, login, register, verifyEmail, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -4,6 +4,7 @@ export const ROUTES = {
   home: "/",
   login: "/connexion",
   register: "/inscription",
+  verifyEmail: "/verifier-email",
   forgotPassword: "/mot-de-passe-oublie",
   resetPassword: "/reinitialiser-mot-de-passe",
 } as const;

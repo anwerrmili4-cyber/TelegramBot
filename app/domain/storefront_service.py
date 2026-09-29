@@ -26,7 +26,7 @@ from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import manual_payment_service, site_settings_service
+from app.domain import email_service, manual_payment_service, site_settings_service
 
 CATEGORY_LABELS = {
     "ai": "Intelligence artificielle",
@@ -46,6 +46,7 @@ MAX_CART_LINES = 12
 # Ambiguous glyphs are excluded so a customer can read the reference out loud.
 _REFERENCE_ALPHABET = "ACDEFGHJKLMNPQRSTUVWXYZ2345679"
 _REFERENCE_PATTERN = re.compile(r"^TN-[A-Z0-9]{6}$")
+_EMAIL_PATTERN = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 
 
 class StorefrontError(ValueError):
@@ -218,6 +219,13 @@ def _customer_name(value: Any) -> str:
     return name
 
 
+def _customer_email(value: Any) -> str:
+    email = str(value or "").strip().lower()
+    if len(email) > 254 or not _EMAIL_PATTERN.fullmatch(email):
+        raise StorefrontError("Saisis une adresse email valide pour recevoir ta commande.")
+    return email
+
+
 def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int]]:
     """Normalise a cart payload into merged ``(offer_id, quantity)`` pairs.
 
@@ -318,6 +326,7 @@ def _insert_cart(documents: list[dict[str, Any]]) -> str:
 def create_order(payload: dict[str, Any]) -> dict[str, Any]:
     """Store a cart as MongoDB orders awaiting receipt verification on WhatsApp."""
     name = _customer_name(payload.get("name"))
+    email = _customer_email(payload.get("email"))
     phone = _tunisian_phone(payload.get("phone"))
     method = manual_payment_service.normalize_method(str(payload.get("payment_method") or ""))
     note = _plain_text(payload.get("note"), limit=400)
@@ -335,6 +344,7 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
             "source": "customer_site",
             "user_id": None,
             "customer_name": name,
+            "customer_email": email,
             "customer_phone": phone,
             "customer_note": note,
             "cart_position": position,
@@ -374,6 +384,29 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
             "total_millimes": cart_total,
         },
     )
+    items = [
+        {
+            "offer_id": line["offer_id"],
+            "offer_name": line["offer_name"],
+            "service_name": line["service_name"],
+            "quantity": line["quantity"],
+            "unit_millimes": line["unit_millimes"],
+            "total_millimes": line["total_millimes"],
+        }
+        for line in lines
+    ]
+    whatsapp_url = manual_payment_service.whatsapp_cart_url(
+        reference, method, cart_total, [(line["offer_name"], line["quantity"]) for line in lines]
+    )
+    email_service.send_order_received(
+        email,
+        name,
+        reference,
+        items,
+        cart_total,
+        site_settings_service.PAYMENT_METHOD_LABELS.get(method, method),
+        whatsapp_url,
+    )
     return {
         "ok": True,
         "reference": reference,
@@ -386,20 +419,8 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
         "total_millimes": cart_total,
         "currency": "TND",
         "automatic_confirmation": False,
-        "items": [
-            {
-                "offer_id": line["offer_id"],
-                "offer_name": line["offer_name"],
-                "service_name": line["service_name"],
-                "quantity": line["quantity"],
-                "unit_millimes": line["unit_millimes"],
-                "total_millimes": line["total_millimes"],
-            }
-            for line in lines
-        ],
-        "whatsapp_url": manual_payment_service.whatsapp_cart_url(
-            reference, method, cart_total, [(line["offer_name"], line["quantity"]) for line in lines]
-        ),
+        "items": items,
+        "whatsapp_url": whatsapp_url,
     }
 
 

@@ -707,7 +707,8 @@ def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, moc
     sid = database_module.add_service("Netflix", "🎬", sales_channels=["bot", "tn_site"])
     oid = database_module.add_offer(sid, "Netflix 1 mois", 6.0, 3, sales_channels=["bot", "tn_site"], tn_price_millimes=15000)
     cart = storefront_service.create_order({
-        "name": "Sana", "phone": "22 333 444", "payment_method": "d17", "items": [{"offer_id": oid, "quantity": 1}],
+        "name": "Sana", "email": "sana@example.com", "phone": "22 333 444", "payment_method": "d17",
+        "items": [{"offer_id": oid, "quantity": 1}],
     })
     reference = cart["reference"]
 

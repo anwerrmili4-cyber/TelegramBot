@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ArrowRight, BadgeCheck, Copy, ShieldAlert, X } from "lucide-react";
 import { Overlay } from "@/components/Overlay";
+import { useAuth } from "@/hooks/useAuth";
 import { errorMessage, submitCheckout } from "@/lib/api";
+import { EMAIL_PATTERN } from "@/pages/AuthLayout";
 import { displayPhone, isValidPhone, money, normalizePhoneInput, plural } from "@/lib/format";
 import { stagger } from "@/lib/motion";
 import type { Cart } from "@/hooks/useCart";
@@ -22,7 +24,9 @@ export function CheckoutDialog({
   onClose,
   onConfirmed,
 }: CheckoutDialogProps) {
+  const { customer } = useAuth();
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
   const [method, setMethod] = useState(paymentMethods[0]?.id ?? "d17");
@@ -32,6 +36,13 @@ export function CheckoutDialog({
   const [copied, setCopied] = useState(false);
   const methodLabel = paymentMethods.find((option) => option.id === method)?.label ?? method;
 
+  // Pre-fill from the account without overwriting anything already typed.
+  useEffect(() => {
+    if (!open || !customer) return;
+    setName((current) => current || customer.name);
+    setEmail((current) => current || customer.email);
+  }, [open, customer]);
+
   function close() {
     onClose();
     if (result) {
@@ -39,6 +50,7 @@ export function CheckoutDialog({
       // so a failed submission never loses their selection.
       setResult(null);
       setName("");
+      setEmail("");
       setPhone("");
       setNote("");
       setCopied(false);
@@ -49,6 +61,10 @@ export function CheckoutDialog({
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+    if (!EMAIL_PATTERN.test(email.trim())) {
+      setError("Saisis une adresse email valide pour recevoir ta commande.");
+      return;
+    }
     if (!isValidPhone(phone)) {
       setError("Saisis un numéro tunisien valide à 8 chiffres.");
       return;
@@ -59,6 +75,7 @@ export function CheckoutDialog({
       setResult(
         await submitCheckout({
           name: name.trim(),
+          email: email.trim(),
           phone: normalizePhoneInput(phone),
           payment_method: method,
           note: note.trim(),
@@ -138,8 +155,9 @@ export function CheckoutDialog({
             Ouvrir WhatsApp <ArrowRight size={17} aria-hidden="true" />
           </a>
           <p className="success-hint">
-            Garde la référence <strong>{result.reference}</strong> jusqu'à la livraison de tes{" "}
-            {result.order_ids.length} {plural(result.order_ids.length, "produit", "produits")}.
+            Un récapitulatif vient d'être envoyé à <strong>{email.trim()}</strong>. Garde la référence{" "}
+            <strong>{result.reference}</strong> jusqu'à la livraison de tes {result.order_ids.length}{" "}
+            {plural(result.order_ids.length, "produit", "produits")}.
           </p>
         </div>
       ) : (
@@ -161,6 +179,22 @@ export function CheckoutDialog({
               onChange={(event) => setName(event.target.value)}
               placeholder="Ex. Amine Ben Salah"
             />
+          </label>
+
+          <label>
+            Adresse email
+            <input
+              required
+              name="email"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="toi@exemple.com"
+              aria-describedby="email-hint"
+            />
+            <small id="email-hint">Ta confirmation et tes accès arriveront à cette adresse.</small>
           </label>
 
           <label>
@@ -207,7 +241,7 @@ export function CheckoutDialog({
               maxLength={400}
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="Précise un email de livraison, une préférence…"
+              placeholder="Une préférence, une précision…"
             />
           </label>
 

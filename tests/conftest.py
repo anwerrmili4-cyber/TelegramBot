@@ -25,3 +25,13 @@ def mock_mongodb(monkeypatch):
     database.init_db()
 
     return db
+
+
+@pytest.fixture(autouse=True)
+def sent_emails(monkeypatch):
+    """Capture Resend messages instead of posting them."""
+    from app.domain import email_service
+
+    sent: list[dict] = []
+    monkeypatch.setattr(email_service, "_dispatch", sent.append)
+    return sent

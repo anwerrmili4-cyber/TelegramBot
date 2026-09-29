@@ -6,7 +6,7 @@ import database as db
 from app.constants import OrderStatus
 from app.domain import site_orders_service, storefront_service
 
-CUSTOMER = {"name": "Amine Ben Salah", "phone": "21 111 222", "payment_method": "flouci"}
+CUSTOMER = {"name": "Amine Ben Salah", "email": "amine@example.com", "phone": "21 111 222", "payment_method": "flouci"}
 
 
 def _offer(name, stock=5, millimes=20000):
@@ -134,6 +134,50 @@ def test_cancel_unverified_cart_leaves_stock_untouched(mock_mongodb):
     site_orders_service.cancel_cart(cart["reference"], "Reçu jamais reçu")
     assert _statuses(cart["reference"]) == {str(OrderStatus.CANCELLED)}
     assert _stock(offer) == 4
+
+
+def test_each_admin_step_emails_the_customer(mock_mongodb, sent_emails):
+    netflix = _offer("Netflix", millimes=15000)
+    cart = _cart((netflix, 2))
+    reference = cart["reference"]
+    sent_emails.clear()
+
+    site_orders_service.confirm_cart(reference)
+    site_orders_service.deliver_cart(reference, "Email : compte@netflix.tn\nMot de passe : <secret>")
+
+    confirmed, delivered = sent_emails
+    assert confirmed["to"] == delivered["to"] == ["amine@example.com"]
+    assert confirmed["subject"] == f"Paiement confirmé — {reference}"
+    assert "Total : 30,000 DT" in confirmed["text"]
+    assert delivered["subject"] == f"Ta commande {reference} est livrée"
+    assert "Mot de passe : <secret>" in delivered["text"]
+    assert "Mot de passe : &lt;secret&gt;" in delivered["html"]
+
+    other = _cart((netflix, 1))["reference"]
+    site_orders_service.cancel_cart(other, "Reçu illisible")
+    assert sent_emails[-1]["subject"] == f"Commande {other} annulée"
+    assert "Motif : Reçu illisible" in sent_emails[-1]["text"]
+
+
+def test_delivery_without_a_note_says_access_went_by_whatsapp(mock_mongodb, sent_emails):
+    cart = _cart((_offer("Canva"), 1))
+    site_orders_service.confirm_cart(cart["reference"])
+    site_orders_service.deliver_cart(cart["reference"])
+
+    assert "envoyés sur WhatsApp" in sent_emails[-1]["text"]
+    assert site_orders_service.list_carts({"status": ["delivered"]})["items"][0]["delivery_note"] == "Livré sur WhatsApp"
+
+
+def test_carts_without_an_email_are_processed_silently(mock_mongodb, sent_emails):
+    cart = _cart((_offer("Figma"), 1))
+    mock_mongodb.orders.update_many({}, {"$unset": {"customer_email": ""}})
+    sent_emails.clear()
+
+    site_orders_service.confirm_cart(cart["reference"])
+    site_orders_service.deliver_cart(cart["reference"], "Accès")
+
+    assert sent_emails == []
+    assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
 
 
 def test_unknown_reference_is_reported(mock_mongodb):

@@ -4,6 +4,10 @@ Passwords are hashed with ``scrypt`` from the standard library. Sessions and
 reset links are random tokens that only ever reach MongoDB as SHA-256 hashes,
 so a database dump cannot be replayed as a login or a password reset.
 
+A new account stays unverified, without a session, until the customer types
+the six-digit code emailed to them. Accounts created before verification
+existed have no ``email_verified`` field and are treated as verified.
+
 A reset request answers the same way whether or not the address has an
 account, so the endpoint cannot be used to discover who is a customer.
 """
@@ -12,30 +16,30 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import logging
 import os
 import re
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.request
 from datetime import UTC, datetime
-from html import escape
 from typing import Any
 from urllib.parse import quote
 
 from pymongo.errors import DuplicateKeyError
 
 import database as db
+from app.domain import email_service
 
 log = logging.getLogger(__name__)
 
 SESSION_TTL_SECONDS = 30 * 24 * 3600
 RESET_TTL_SECONDS = 3600
+CODE_TTL_SECONDS = 15 * 60
+CODE_MAX_ATTEMPTS = 5
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 128
+EMAIL_UNVERIFIED = "email_unverified"
 
 RESET_PATH = "/reinitialiser-mot-de-passe"
 
@@ -49,6 +53,8 @@ _EMAIL_PATTERN = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 _ATTEMPT_WINDOW_SECONDS = 15 * 60
 _LOGIN_FAILURES_PER_KEY = 8
 _RESET_REQUESTS_PER_KEY = 5
+_CODE_SENDS_PER_KEY = 5
+_CODE_CHECKS_PER_IP = 20
 _attempts: dict[str, list[float]] = {}
 _attempts_lock = threading.Lock()
 
@@ -56,10 +62,13 @@ _attempts_lock = threading.Lock()
 class AuthError(ValueError):
     """Validation error safe to show to the customer."""
 
-    def __init__(self, message: str, status: int = 400, retry_after: int | None = None):
+    def __init__(
+        self, message: str, status: int = 400, retry_after: int | None = None, code: str | None = None
+    ):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+        self.code = code
 
 
 def _recent(key: str, now: float) -> list[float]:
@@ -180,25 +189,133 @@ def _open_session(customer: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "token": token, "expires_at": expires_at, "customer": _public_customer(customer)}
 
 
-def register(payload: dict[str, Any]) -> dict[str, Any]:
+def _is_verified(customer: dict[str, Any]) -> bool:
+    return customer.get("email_verified") is not False
+
+
+def _code_hash(customer_id: int, code: str) -> str:
+    return hashlib.sha256(f"{customer_id}:{code}".encode()).hexdigest()
+
+
+def _send_code(customer: dict[str, Any]) -> None:
+    """Replace any pending code for this customer and email a fresh one."""
+    code = f"{secrets.randbelow(10**6):06d}"
+    customer_id = int(customer["id"])
+    now = int(time.time())
+    expires_at = now + CODE_TTL_SECONDS
+    db.get_conn().storefront_email_codes.replace_one(
+        {"customer_id": customer_id},
+        {
+            "customer_id": customer_id,
+            "code_hash": _code_hash(customer_id, code),
+            "attempts": 0,
+            "created_at": now,
+            "expires_at": expires_at,
+            "expires_at_date": _expiry_date(expires_at),
+        },
+        upsert=True,
+    )
+    email_service.send_verification_code(
+        customer["email"], customer.get("name", ""), code, CODE_TTL_SECONDS // 60
+    )
+
+
+def _code_keys(email: str, client_ip: str) -> list[str]:
+    return [f"code-ip:{client_ip}", f"code-email:{email}"]
+
+
+def _send_code_limited(customer: dict[str, Any], client_ip: str) -> None:
+    keys = _code_keys(customer["email"], client_ip)
+    _check_limit(keys, _CODE_SENDS_PER_KEY)
+    _record(keys)
+    _send_code(customer)
+
+
+def _verification_required(email: str) -> dict[str, Any]:
+    return {"ok": True, "verification_required": True, "email": email}
+
+
+def register(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]:
     name = _name(payload.get("name"))
     email = _email(payload.get("email"))
     password = _password(payload.get("password"))
+    conn = db.get_conn()
     now = int(time.time())
-    customer = {
-        "id": db._next_id("storefront_customers"),
-        "name": name,
-        "email": email,
-        "password_hash": hash_password(password),
-        "created_at": now,
-        "updated_at": now,
-    }
-    try:
-        db.get_conn().storefront_customers.insert_one(customer)
-    except DuplicateKeyError as exc:
-        raise AuthError("Un compte existe déjà avec cette adresse email.", status=409) from exc
-    db.audit_event("storefront.customer_registered", details={"customer_id": customer["id"]})
+
+    existing = conn.storefront_customers.find_one({"email": email})
+    if existing and _is_verified(existing):
+        raise AuthError("Un compte existe déjà avec cette adresse email.", status=409)
+    code_keys = _code_keys(email, client_ip)
+    _check_limit(code_keys, _CODE_SENDS_PER_KEY)
+    if existing:
+        # Nobody has proven they own this address yet, so a new sign-up simply
+        # takes over the pending account; the code still has to be typed.
+        conn.storefront_customers.update_one(
+            {"id": existing["id"]},
+            {"$set": {"name": name, "password_hash": hash_password(password), "updated_at": now}},
+        )
+        customer = {**existing, "name": name}
+    else:
+        customer = {
+            "id": db._next_id("storefront_customers"),
+            "name": name,
+            "email": email,
+            "password_hash": hash_password(password),
+            "email_verified": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            conn.storefront_customers.insert_one(customer)
+        except DuplicateKeyError as exc:
+            raise AuthError("Un compte existe déjà avec cette adresse email.", status=409) from exc
+        db.audit_event("storefront.customer_registered", details={"customer_id": customer["id"]})
+    _record(code_keys)
+    _send_code(customer)
+    return _verification_required(email)
+
+
+def verify_email(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]:
+    email = _email(payload.get("email"))
+    code = re.sub(r"\D", "", str(payload.get("code") or ""))[:6]
+    ip_keys = [f"verify-ip:{client_ip}"]
+    _check_limit(ip_keys, _CODE_CHECKS_PER_IP)
+    _record(ip_keys)
+
+    conn = db.get_conn()
+    customer = conn.storefront_customers.find_one({"email": email})
+    if customer and _is_verified(customer):
+        raise AuthError("Cette adresse est déjà confirmée. Connecte-toi.", status=409)
+    pending = conn.storefront_email_codes.find_one({"customer_id": int(customer["id"])}) if customer else None
+    if (
+        not pending
+        or int(pending.get("expires_at") or 0) < time.time()
+        or int(pending.get("attempts") or 0) >= CODE_MAX_ATTEMPTS
+    ):
+        raise AuthError("Ce code a expiré. Demande un nouveau code.", status=410)
+    if len(code) != 6 or not hmac.compare_digest(_code_hash(int(customer["id"]), code), pending["code_hash"]):
+        conn.storefront_email_codes.update_one({"_id": pending["_id"]}, {"$inc": {"attempts": 1}})
+        left = CODE_MAX_ATTEMPTS - int(pending.get("attempts") or 0) - 1
+        if left <= 0:
+            raise AuthError("Code incorrect. Demande un nouveau code.", status=410)
+        raise AuthError(f"Code incorrect. Encore {left} essai{'s' if left > 1 else ''}.")
+
+    now = int(time.time())
+    conn.storefront_email_codes.delete_many({"customer_id": int(customer["id"])})
+    conn.storefront_customers.update_one(
+        {"id": customer["id"]}, {"$set": {"email_verified": True, "email_verified_at": now, "updated_at": now}}
+    )
+    db.audit_event("storefront.customer_email_verified", details={"customer_id": customer["id"]})
+    email_service.send_welcome(email, customer.get("name", ""), _site_url())
     return _open_session(customer)
+
+
+def resend_verification(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]:
+    email = _email(payload.get("email"))
+    customer = db.get_conn().storefront_customers.find_one({"email": email})
+    if customer and not _is_verified(customer):
+        _send_code_limited(customer, client_ip)
+    return {"ok": True}
 
 
 def login(payload: dict[str, Any], client_ip: str) -> dict[str, Any]:
@@ -212,6 +329,16 @@ def login(payload: dict[str, Any], client_ip: str) -> dict[str, Any]:
         _record(keys)
         raise AuthError("Email ou mot de passe incorrect.", status=401)
     _clear(keys)
+    if not _is_verified(customer):
+        try:
+            _send_code_limited(customer, client_ip)
+        except AuthError:
+            pass  # A code sent in the last minutes is still valid.
+        raise AuthError(
+            "Confirme d'abord ton adresse email avec le code que nous venons de t'envoyer.",
+            status=403,
+            code=EMAIL_UNVERIFIED,
+        )
     return _open_session(customer)
 
 
@@ -242,40 +369,6 @@ def _site_url() -> str:
     return os.environ.get("STOREFRONT_PUBLIC_URL", "").strip().rstrip("/")
 
 
-def _reset_email_html(name: str, link: str) -> str:
-    return (
-        f"<p>Bonjour {escape(name)},</p>"
-        "<p>Tu as demandé à réinitialiser le mot de passe de ton compte BLACKMARKET Tunisie.</p>"
-        f'<p><a href="{escape(link)}">Choisir un nouveau mot de passe</a></p>'
-        "<p>Ce lien expire dans une heure. Si tu n'es pas à l'origine de cette demande, "
-        "ignore simplement cet email.</p>"
-    )
-
-
-def _send_reset_email(email: str, name: str, link: str) -> None:
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
-    if not api_key or api_key == "re_xxxxxxxxx":
-        log.warning("RESEND_API_KEY is not set; password reset link for %s: %s", email, link)
-        return
-    body = json.dumps({
-        "from": os.environ.get("RESEND_FROM", "").strip() or "onboarding@resend.dev",
-        "to": [email],
-        "subject": "Réinitialise ton mot de passe",
-        "html": _reset_email_html(name, link),
-    }).encode()
-    request = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=body,
-        method="POST",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            response.read()
-    except (urllib.error.URLError, TimeoutError):
-        log.exception("Password reset email could not be sent through Resend")
-
-
 def forgot_password(payload: dict[str, Any], client_ip: str) -> dict[str, Any]:
     email = _email(payload.get("email"))
     keys = [f"reset-ip:{client_ip}", f"reset-email:{email}"]
@@ -297,11 +390,7 @@ def forgot_password(payload: dict[str, Any], client_ip: str) -> dict[str, Any]:
             "expires_at_date": _expiry_date(expires_at),
         })
         link = f"{site_url}{RESET_PATH}?token={quote(token)}"
-        # Sending in the background keeps the response time identical for
-        # addresses with and without an account.
-        threading.Thread(
-            target=_send_reset_email, args=(email, customer.get("name", ""), link), daemon=True
-        ).start()
+        email_service.send_password_reset(email, customer.get("name", ""), link)
     return {"ok": True}
 
 
@@ -312,11 +401,13 @@ def reset_password(payload: dict[str, Any]) -> dict[str, Any]:
     if not reset or int(reset.get("expires_at") or 0) < time.time():
         raise AuthError("Ce lien de réinitialisation est invalide ou a expiré.")
     customer_id = int(reset["customer_id"])
+    # Opening the reset link proves the customer owns the address.
     conn.storefront_customers.update_one(
         {"id": customer_id},
-        {"$set": {"password_hash": hash_password(password), "updated_at": int(time.time())}},
+        {"$set": {"password_hash": hash_password(password), "email_verified": True, "updated_at": int(time.time())}},
     )
     conn.storefront_sessions.delete_many({"customer_id": customer_id})
     conn.storefront_password_resets.delete_many({"customer_id": customer_id})
+    conn.storefront_email_codes.delete_many({"customer_id": customer_id})
     db.audit_event("storefront.customer_password_reset", details={"customer_id": customer_id})
     return {"ok": True}

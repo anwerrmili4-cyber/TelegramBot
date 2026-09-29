@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { errorMessage } from "@/lib/api";
 import { Link, navigate, ROUTES } from "@/lib/router";
 import { AuthLayout, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
+import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 
 export function RegisterPage() {
   const { register } = useAuth();
@@ -36,7 +37,7 @@ export function RegisterPage() {
     setError("");
     try {
       await register(name.trim(), email.trim(), password);
-      navigate(ROUTES.home, { replace: true });
+      navigate(verifyEmailPath(email.trim().toLowerCase()), { replace: true });
     } catch (reason) {
       setError(errorMessage(reason, "Impossible de créer le compte."));
       setSubmitting(false);

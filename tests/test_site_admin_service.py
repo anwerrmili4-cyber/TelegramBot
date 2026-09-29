@@ -14,7 +14,7 @@ def _offer(name="Netflix 1 mois", millimes=15000, service="Netflix", stock=10):
 
 def _cart(offer_id, phone="22 333 444", name="Sana", quantity=1, method="d17"):
     return storefront_service.create_order({
-        "name": name, "phone": phone, "payment_method": method,
+        "name": name, "email": "sana@example.com", "phone": phone, "payment_method": method,
         "items": [{"offer_id": offer_id, "quantity": quantity}],
     })
 
