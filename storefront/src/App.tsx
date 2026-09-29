@@ -4,6 +4,7 @@ import { CartDrawer } from "@/components/CartDrawer";
 import { CatalogSection } from "@/components/CatalogSection";
 import { CheckoutDialog } from "@/components/CheckoutDialog";
 import { Hero } from "@/components/Hero";
+import { IntroSplash } from "@/components/IntroSplash";
 import { HowItWorks } from "@/components/HowItWorks";
 import { ProductDialog } from "@/components/ProductDialog";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -50,6 +51,7 @@ export default function App() {
 
   return (
     <div className="page" id="top">
+      <IntroSplash />
       <SiteHeader cartCount={cart.count} cartTotalMillimes={cart.totalMillimes} onOpenCart={() => setCartOpen(true)} />
 
       <main>

@@ -228,41 +228,15 @@ button {
   font-size: 13px;
 }
 
-/* Static copy in index.html for crawlers and link previews; React replaces it on mount. */
+/* Static copy in index.html for crawlers and link previews; React replaces it
+   on mount. It stays out of sight so visitors never see it flash before the site. */
 .seo-fallback {
-  display: grid;
-  gap: 16px;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 120px 24px 80px;
-  color: var(--text-soft);
-}
-
-.seo-fallback h1 {
-  color: var(--text);
-  font-size: clamp(30px, 5vw, 48px);
-}
-
-.seo-fallback h2 {
-  margin-top: 12px;
-  color: var(--text);
-  font-size: 22px;
-}
-
-.seo-fallback ol,
-.seo-fallback ul {
-  display: grid;
-  gap: 6px;
-  padding-left: 20px;
-  list-style: disc;
-}
-
-.seo-fallback ol {
-  list-style: decimal;
-}
-
-.seo-fallback a {
-  color: var(--brand-hot);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
