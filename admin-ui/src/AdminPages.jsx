@@ -1166,33 +1166,40 @@ export function CatalogPage({ data, onAction }) {
         <div><ActionButton secondary icon={ToggleRight} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("activate")}>Activer</ActionButton><ActionButton secondary icon={ToggleLeft} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("deactivate")}>Désactiver</ActionButton><ActionButton secondary icon={CircleDollarSign} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("price")}>Prix</ActionButton><ActionButton secondary icon={ShoppingBag} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("move")}>Service</ActionButton><ActionButton danger icon={Archive} disabled={!selectedOffers.size} onClick={() => setBulkOfferAction("archive")}>Archiver</ActionButton></div>
       </div>
       {canReorder && <div className="catalog-order-hint"><GripVertical size={15} /><span>Glissez les poignées pour réordonner. Utilisez les flèches haut/bas lorsque la poignée est sélectionnée.</span></div>}
-      <div className={`catalog-react-grid ${viewMode === "list" ? "catalog-list-view" : ""}`}>
+      <div className={`catalog-react-grid catalog-table-template ${viewMode === "list" ? "catalog-list-view" : ""}`}>
         {paginatedServices.map((service, serviceIndex) => {
           const providers = [...new Set((service.offers || []).map((item) => item.supplier_provider || "").filter(Boolean))];
+          const collapsed = collapsedServices.has(service.id);
+          const serviceOffers = service.offers || [];
+          const selectedInService = serviceOffers.filter((item) => selectedOffers.has(item.id)).length;
+          const allServiceSelected = serviceOffers.length > 0 && selectedInService === serviceOffers.length;
+          const toggleServiceSelection = () => setSelectedOffers((current) => {
+            const next = new Set(current);
+            serviceOffers.forEach((item) => { if (allServiceSelected) next.delete(item.id); else next.add(item.id); });
+            return next;
+          });
           return (
           <section
-            className={`catalog-service ${collapsedServices.has(service.id) ? "collapsed" : ""} ${dragTarget === `service-${service.id}` ? "drag-target" : ""}`}
+            className={`data-panel catalog-collection ${collapsed ? "collapsed" : ""} ${dragTarget === `service-${service.id}` ? "drag-target" : ""} ${service.active === 0 ? "inactive" : ""}`}
             key={service.id}
             style={{ "--service-accent": SERVICE_COLORS[serviceIndex % SERVICE_COLORS.length], "--catalog-index": serviceIndex }}
             onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "service") { event.preventDefault(); setDragTarget(`service-${service.id}`); } }}
             onDrop={(event) => { event.preventDefault(); dropCatalogItem("service", service.id); }}
           >
-            <header>
-              <div>
+            <header className="panel-heading catalog-collection-heading">
+              <div className="catalog-collection-title">
                 {canReorder && !category && <button type="button" className="catalog-drag-handle" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "service", id: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("service", service.id, event.key === "ArrowUp" ? -1 : 1); } }} aria-label={`Réordonner la collection ${service.name}`} title="Glisser pour réordonner"><GripVertical size={17} /></button>}
-                <button type="button" className="catalog-service-icon" onClick={() => toggleServiceCollapse(service.id)} aria-expanded={!collapsedServices.has(service.id)} aria-label={`${collapsedServices.has(service.id) ? "Déplier" : "Replier"} ${service.name}`}><Command size={18} /></button>
+                <button type="button" className="catalog-collection-toggle" onClick={() => toggleServiceCollapse(service.id)} aria-expanded={!collapsed} aria-label={`${collapsed ? "Déplier" : "Replier"} ${service.name}`}><ChevronRight size={16} /></button>
                 <div>
-                  <h3>{service.name}</h3>
-                  <small>
-                    {service.offers?.length || 0} produit(s) ·{" "}
-                    {service.total_stock || 0} en stock
-                  </small>
+                  <span className="eyebrow">Collection · {serviceOffers.length} produit(s) · {service.total_stock || 0} en stock</span>
+                  <h2>{service.name}</h2>
                   <div className="service-providers">
                     {providers.length ? providers.map((provider) => (
                       <span key={provider}><Cloud size={11} />{providerLabel(provider)}</span>
                     )) : (
                       <span className="internal"><Database size={11} />Stock interne</span>
                     )}
+                    {service.active === 0 && <span className="status cancelled">Désactivée</span>}
                   </div>
                 </div>
               </div>
@@ -1209,77 +1216,79 @@ export function CatalogPage({ data, onAction }) {
               </div>
             </header>
             <div className="catalog-offers">
-              {service.offers?.map((item, index) => (
-                <article
-                  className={`offer-card ${selectedOffers.has(item.id) ? "selected" : ""} ${dragTarget === `offer-${item.id}` ? "drag-target" : ""}`}
-                  key={item.id || `${service.id}-${item.name}-${index}`}
-                  onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "offer" && Number(draggedCatalogItem.serviceId) === Number(service.id)) { event.preventDefault(); setDragTarget(`offer-${item.id}`); } }}
-                  onDrop={(event) => { event.preventDefault(); dropCatalogItem("offer", item.id, service.id); }}
-                >
-                  {canReorder && <button type="button" className="catalog-drag-handle offer-drag-handle" draggable onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "offer", id: item.id, serviceId: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("offer", item.id, event.key === "ArrowUp" ? -1 : 1, service.id); } }} aria-label={`Réordonner le produit ${item.name}`} title="Glisser pour réordonner"><GripVertical size={15} /></button>}
-                  <button className="offer-select" type="button" onClick={() => toggleOfferSelection(item.id)} aria-label={`${selectedOffers.has(item.id) ? "Désélectionner" : "Sélectionner"} ${item.name}`}>{selectedOffers.has(item.id) ? <Check size={13} /> : null}</button>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <span>
-                      {money(item.price, data.currency)} · Stock{" "}
-                      {item.stock || 0}
-                    </span>
-                    {Number(item.bulk_quantity || 0) > 0 && item.bulk_unit_price != null && (
-                      <span>Gros: {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}</span>
-                    )}
-                    <span className="offer-channel">
-                      Bot
-                    </span>
-                    <span className={`offer-provider ${item.supplier_provider ? "api" : "internal"}`}>
-                      {item.supplier_provider ? <Cloud size={11} /> : <Database size={11} />}
-                      {providerLabel(item.supplier_provider)}
-                    </span>
-                  </div>
-                  <div className="offer-actions">
-                    <button
-                      title="Ajouter du stock"
-                      onClick={() => setStockOffer(item)}
-                    >
-                      <Boxes size={15} />
-                    </button>
-                    <button
-                      title="Dupliquer"
-                      onClick={() =>
-                        onAction({
-                          action: "duplicate_offer",
-                          offer_id: item.id,
-                        })
-                      }
-                    >
-                      <Copy size={15} />
-                    </button>
-                    <button
-                      title="Modifier"
-                      onClick={() => {
-                        setOffer(item);
-                        setShowOffer(true);
-                      }}
-                    >
-                      <Edit3 size={15} />
-                    </button>
-                    <button
-                      title="Activer/désactiver"
-                      onClick={() =>
-                        onAction({ action: "toggle_offer", offer_id: item.id })
-                      }
-                    >
-                      {item.active === 0 ? (
-                        <ToggleLeft size={17} />
-                      ) : (
-                        <ToggleRight size={17} />
-                      )}
-                    </button>
-                    <button className="danger" title="Supprimer le produit" onClick={() => setDeleteTarget({ type: "offer", item })}>
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </article>
-              ))}
+              <div className="catalog-offers-content">
+                {serviceOffers.length ? (
+                <div className="responsive-table">
+                  <table className="catalog-offer-table">
+                    <thead>
+                      <tr>
+                        <th className="catalog-col-select"><button className={`offer-select ${allServiceSelected ? "checked" : ""}`} type="button" onClick={toggleServiceSelection} aria-pressed={allServiceSelected} aria-label={`${allServiceSelected ? "Désélectionner" : "Sélectionner"} tous les produits de ${service.name}`}>{allServiceSelected ? <Check size={13} /> : null}</button></th>
+                        {canReorder && <th className="catalog-col-drag" aria-label="Ordre" />}
+                        <th>Produit</th>
+                        <th>Prix</th>
+                        <th>Stock</th>
+                        <th className="catalog-col-secondary">Source</th>
+                        <th className="catalog-col-secondary">Canal</th>
+                        <th>Statut</th>
+                        <th className="catalog-col-actions" aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {serviceOffers.map((item, index) => (
+                        <tr
+                          className={`offer-row ${selectedOffers.has(item.id) ? "selected" : ""} ${dragTarget === `offer-${item.id}` ? "drag-target" : ""} ${item.active === 0 ? "inactive" : ""}`}
+                          key={item.id || `${service.id}-${item.name}-${index}`}
+                          onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "offer" && Number(draggedCatalogItem.serviceId) === Number(service.id)) { event.preventDefault(); setDragTarget(`offer-${item.id}`); } }}
+                          onDrop={(event) => { event.preventDefault(); dropCatalogItem("offer", item.id, service.id); }}
+                        >
+                          <td className="catalog-col-select"><button className="offer-select" type="button" onClick={() => toggleOfferSelection(item.id)} aria-pressed={selectedOffers.has(item.id)} aria-label={`${selectedOffers.has(item.id) ? "Désélectionner" : "Sélectionner"} ${item.name}`}>{selectedOffers.has(item.id) ? <Check size={13} /> : null}</button></td>
+                          {canReorder && <td className="catalog-col-drag"><button type="button" className="catalog-drag-handle offer-drag-handle" draggable onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "offer", id: item.id, serviceId: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("offer", item.id, event.key === "ArrowUp" ? -1 : 1, service.id); } }} aria-label={`Réordonner le produit ${item.name}`} title="Glisser pour réordonner"><GripVertical size={15} /></button></td>}
+                          <td className="catalog-col-name">
+                            <strong>{item.name}</strong>
+                            {Number(item.bulk_quantity || 0) > 0 && item.bulk_unit_price != null && (
+                              <small>Gros : {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}</small>
+                            )}
+                          </td>
+                          <td className="catalog-col-price"><strong>{money(item.price, data.currency)}</strong></td>
+                          <td className="catalog-col-stock">
+                            {item.unlimited_stock ? <span className="offer-stock unlimited">Illimité</span> : <span className={`offer-stock ${Number(item.stock || 0) > 0 ? "" : "empty"}`}>{item.stock || 0}</span>}
+                          </td>
+                          <td className="catalog-col-secondary">
+                            <span className={`offer-provider ${item.supplier_provider ? "api" : "internal"}`}>
+                              {item.supplier_provider ? <Cloud size={11} /> : <Database size={11} />}
+                              {providerLabel(item.supplier_provider)}
+                            </span>
+                          </td>
+                          <td className="catalog-col-secondary"><span className="offer-channel">Bot</span></td>
+                          <td><span className={`status ${item.active === 0 ? "cancelled" : "delivered"}`}>{item.active === 0 ? "Masqué" : "Visible"}</span></td>
+                          <td className="catalog-col-actions">
+                            <div className="offer-actions">
+                              <button title="Ajouter du stock" onClick={() => setStockOffer(item)}>
+                                <Boxes size={15} />
+                              </button>
+                              <button title="Dupliquer" onClick={() => onAction({ action: "duplicate_offer", offer_id: item.id })}>
+                                <Copy size={15} />
+                              </button>
+                              <button title="Modifier" onClick={() => { setOffer(item); setShowOffer(true); }}>
+                                <Edit3 size={15} />
+                              </button>
+                              <button title="Activer/désactiver" onClick={() => onAction({ action: "toggle_offer", offer_id: item.id })}>
+                                {item.active === 0 ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}
+                              </button>
+                              <button className="danger" title="Supprimer le produit" onClick={() => setDeleteTarget({ type: "offer", item })}>
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                ) : (
+                  <div className="catalog-collection-empty"><PackagePlus size={16} /><span>Aucun produit dans cette collection.</span><button type="button" onClick={() => { setOffer(undefined); setShowOffer(true); }}>Ajouter un produit</button></div>
+                )}
+              </div>
             </div>
           </section>
           );
