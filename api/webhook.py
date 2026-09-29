@@ -2484,6 +2484,18 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200, {"ok": True, "message": f"Service « {result['name']} » {state} sur le site."})
                 return
 
+            elif action == "site_service_save":
+                result = site_admin_service.save_service(form)
+                verb = "créé" if result["created"] else "mis à jour"
+                self._reply(200, {"ok": True, "service_id": result["service_id"], "message": f"Service « {result['name']} » {verb}."})
+                return
+
+            elif action == "site_offer_save":
+                result = site_admin_service.save_offer(form)
+                verb = "créé" if result["created"] else "mis à jour"
+                self._reply(200, {"ok": True, "offer_id": result["offer_id"], "message": f"Produit « {result['name']} » {verb}."})
+                return
+
             elif action == "site_settings_save":
                 site_settings_service.save(form)
                 self._reply(200, {"ok": True, "message": "Paramètres du site enregistrés."})

@@ -39,7 +39,7 @@ def test_catalog_groups_offers_by_site_status(mock_mongodb):
     site_admin_service.set_service_visibility({"service_id": hidden_service, "site_enabled": "0"})
 
     result = site_admin_service.catalog({})
-    assert result["counts"] == {"all": 3, "on_sale": 1, "no_price": 1, "hidden": 1}
+    assert result["counts"] == {"all": 3, "on_sale": 1, "no_price": 1, "hidden": 1, "disabled": 0}
     rows = {row["id"]: row for row in result["items"]}
     assert rows[priced]["on_sale"] is True
     assert rows[unpriced]["tn_price_millimes"] is None
@@ -76,6 +76,95 @@ def test_update_offer_rejects_invalid_input(mock_mongodb, form, message):
     _, offer_id = _offer()
     with pytest.raises(site_admin_service.SiteAdminError, match=message):
         site_admin_service.update_offer({"offer_id": str(offer_id), **form})
+
+
+def test_catalog_lists_disabled_offers_without_selling_them(mock_mongodb):
+    _, offer_id = _offer()
+    db.update_offer(offer_id, active=0)
+
+    result = site_admin_service.catalog({})
+    assert result["counts"]["disabled"] == 1
+    row = result["items"][0]
+    assert row["active"] is False
+    assert row["on_sale"] is False
+    assert storefront_service.catalog()["services"] == []
+
+
+def test_save_service_creates_and_renames(mock_mongodb):
+    created = site_admin_service.save_service({"name": " Netflix ", "emoji": "🎬", "site_enabled": "0"})
+    service = db.get_service(created["service_id"])
+    assert created["created"] is True
+    assert service["name"] == "Netflix"
+    assert service["site_enabled"] is False
+
+    site_admin_service.save_service({"service_id": str(created["service_id"]), "name": "Netflix TN", "site_enabled": "1"})
+    service = db.get_service(created["service_id"])
+    assert service["name"] == "Netflix TN"
+    assert service["site_enabled"] is True
+
+    with pytest.raises(site_admin_service.SiteAdminError, match="obligatoire"):
+        site_admin_service.save_service({"name": " "})
+
+
+def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
+    service_id = site_admin_service.save_service({"name": "Canva"})["service_id"]
+    site_settings_service.save({"tnd_per_usdt": "3,2", "payment_d17": "1", "details_d17": "21 000 000"})
+
+    result = site_admin_service.save_offer({
+        "service_id": str(service_id),
+        "name": "Canva Pro 1 an",
+        "tn_price": "32",
+        "site_description_fr": "Compte personnel",
+        "site_badge": "Nouveau",
+        "site_image_url": "https://cdn.example.com/canva.png",
+        "period_value": "1", "period_unit": "years",
+        "warranty_value": "3", "warranty_unit": "months",
+        "initial_inventory": "###\nuser1:pass\n###\nuser2:pass",
+    })
+    offer = db.get_offer(result["offer_id"])
+    assert result["created"] is True
+    assert offer["price"] == 10.0
+    assert offer["tn_price_millimes"] == 32000
+    assert offer["stock"] == 2
+    assert offer["period_days"] == 365
+    assert offer["warranty_days"] == 90
+    assert offer["site_image_url"] == "https://cdn.example.com/canva.png"
+
+    public = storefront_service.catalog()["services"][0]["offers"][0]
+    assert public["name"] == "Canva Pro 1 an"
+    assert public["price_millimes"] == 32000
+    assert public["description"] == "Compte personnel"
+    assert public["badge"] == "Nouveau"
+
+
+def test_save_offer_edits_bot_and_site_fields(mock_mongodb):
+    service_id, offer_id = _offer()
+    other_service = site_admin_service.save_service({"name": "Streaming"})["service_id"]
+
+    site_admin_service.save_offer({
+        "offer_id": str(offer_id), "service_id": str(other_service), "name": "Netflix 3 mois",
+        "price": "12,5", "tn_price": "", "stock_mode": "unlimited", "site_enabled": "1",
+    })
+    offer = db.get_offer(offer_id)
+    assert offer["service_id"] == other_service
+    assert offer["name"] == "Netflix 3 mois"
+    assert offer["price"] == 12.5
+    assert offer["unlimited_stock"] is True
+    assert "tn_price_millimes" not in mock_mongodb.offers.find_one({"id": offer_id})
+    assert service_id != other_service
+
+
+@pytest.mark.parametrize("form, message", [
+    ({"name": "X"}, "service"),
+    ({"service_id": "SERVICE", "name": ""}, "obligatoire"),
+    ({"service_id": "SERVICE", "name": "X"}, "au moins un prix"),
+    ({"service_id": "SERVICE", "name": "X", "tn_price": "5", "site_image_url": "http://x"}, "https"),
+])
+def test_save_offer_rejects_invalid_input(mock_mongodb, form, message):
+    service_id = site_admin_service.save_service({"name": "Canva"})["service_id"]
+    form = {key: str(service_id) if value == "SERVICE" else value for key, value in form.items()}
+    with pytest.raises(site_admin_service.SiteAdminError, match=message):
+        site_admin_service.save_offer(form)
 
 
 def test_overview_counts_revenue_only_for_confirmed_carts(mock_mongodb, site_customer):

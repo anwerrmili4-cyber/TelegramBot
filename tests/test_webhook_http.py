@@ -834,6 +834,16 @@ def test_site_admin_space_edits_catalog_and_settings(monkeypatch, mock_mongodb):
         assert updated["ok"] is True
         assert get(base_url, "/admin/api/site-catalog?status=on_sale")["items"][0]["tn_price_millimes"] == 12500
 
+        service = _catalog_action(base_url, token, {"action": "site_service_save", "name": "Spotify", "emoji": "🎧"})
+        assert service["message"] == "Service « Spotify » créé."
+        product = _catalog_action(base_url, token, {
+            "action": "site_offer_save", "service_id": str(service["service_id"]),
+            "name": "Spotify Premium", "tn_price": "9", "price": "2,5",
+        })
+        assert product["message"] == "Produit « Spotify Premium » créé."
+        on_sale = {row["id"] for row in get(base_url, "/admin/api/site-catalog?status=on_sale")["items"]}
+        assert product["offer_id"] in on_sale
+
         saved = _catalog_action(base_url, token, {
             "action": "site_settings_save", "tnd_per_usdt": "3,4",
             "payment_flouci": "1", "details_flouci": "Flouci : 55 000 000",
@@ -849,4 +859,4 @@ def test_site_admin_space_edits_catalog_and_settings(monkeypatch, mock_mongodb):
         assert "moyen de paiement" in json.load(rejected.value)["error"]
 
         overview = get(base_url, "/admin/api/site-overview")
-        assert overview["catalog"]["on_sale"] == 1
+        assert overview["catalog"]["on_sale"] == 2

@@ -12,7 +12,14 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import database as db
-from app.domain import site_orders_service, storefront_service, storefront_wallet_service
+from app.domain import (
+    inventory_service,
+    site_orders_service,
+    site_settings_service,
+    storefront_service,
+    storefront_wallet_service,
+    warranty_service,
+)
 from app.domain.site_orders_service import SALES_CHANNEL, STATUS_FILTERS
 
 # Tunisia stays on UTC+1 all year.
@@ -21,7 +28,7 @@ TUNIS_TZ = timezone(timedelta(hours=1))
 _REVENUE_STATUSES = [*STATUS_FILTERS["confirmed"], *STATUS_FILTERS["delivered"]]
 _MAX_SCANNED_LINES = 5000
 
-CATALOG_FILTERS = ("all", "on_sale", "no_price", "hidden")
+CATALOG_FILTERS = ("all", "on_sale", "no_price", "hidden", "disabled")
 
 
 class SiteAdminError(ValueError):
@@ -113,6 +120,10 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
     price = storefront_service._price_millimes(offer)
     unlimited = bool(offer.get("unlimited_stock"))
     configured_category = str(offer.get("site_category") or "").strip().lower()
+    active = bool(offer.get("active", 1))
+    service_active = bool(service.get("active", 1))
+    period_days = int(offer.get("period_days") or 0)
+    warranty_days = int(offer.get("warranty_days") or 0)
     return {
         "id": int(offer["id"]),
         "name": str(offer.get("name") or "Offre"),
@@ -120,8 +131,19 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "service_name": str(service.get("name") or "Service"),
         "service_emoji": str(service.get("emoji") or ""),
         "service_visible": storefront_service._site_visible(service),
+        "service_active": service_active,
+        "active": active,
         "bot_price_usdt": float(offer.get("price") or 0),
         "stock": -1 if unlimited else max(0, int(offer.get("stock") or 0)),
+        "unlimited_stock": unlimited,
+        "manual_stock": bool(offer.get("manual_stock")),
+        "supplier_provider": str(offer.get("supplier_provider") or ""),
+        "auto_delivery": offer.get("auto_delivery") is not False,
+        "delivery_delay": str(offer.get("delivery_delay") or ""),
+        "period_value": int(offer.get("period_value") or period_days or 0),
+        "period_unit": warranty_service.normalize_duration_unit(offer.get("period_unit") if offer.get("period_value") else "days"),
+        "warranty_value": int(offer.get("warranty_value") or warranty_days or 0),
+        "warranty_unit": warranty_service.normalize_duration_unit(offer.get("warranty_unit") if offer.get("warranty_value") else "days"),
         "tn_price_millimes": price or None,
         "suggested_price_millimes": storefront_service.suggested_price_millimes(offer),
         "site_enabled": offer.get("site_enabled") is not False,
@@ -130,11 +152,20 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "site_category": configured_category if configured_category in storefront_service.CATEGORY_LABELS else "",
         "effective_category": storefront_service._category(service, offer),
         "site_description_fr": str(offer.get("site_description_fr") or ""),
-        "on_sale": storefront_service._site_visible(service) and storefront_service._offer_on_sale(offer),
+        "site_image_url": str(offer.get("site_image_url") or ""),
+        "description": str(offer.get("description") or ""),
+        "on_sale": (
+            active
+            and service_active
+            and storefront_service._site_visible(service)
+            and storefront_service._offer_on_sale(offer)
+        ),
     }
 
 
 def _catalog_status(row: dict[str, Any]) -> str:
+    if not row["active"] or not row["service_active"]:
+        return "disabled"
     if row["on_sale"]:
         return "on_sale"
     if not row["site_enabled"] or not row["service_visible"]:
@@ -143,23 +174,31 @@ def _catalog_status(row: dict[str, Any]) -> str:
 
 
 def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
-    """Every active bot offer with its storefront settings."""
+    """Every non-archived bot offer with its storefront settings.
+
+    Disabled offers and services are listed too so they can be re-enabled from
+    the site space; they are simply never sold.
+    """
     status = _first(params, "status") or "all"
     search = _first(params, "search").lower()[:80]
     service_filter = _first(params, "service_id")
 
     services = []
     rows = []
-    for service in db.list_services(active_only=True):
+    for service in db.list_services(active_only=False):
+        if service.get("archived") == 1:
+            continue
         offers = [
             _catalog_row(service, offer)
-            for offer in db.list_offers(int(service["id"]), active_only=True)
+            for offer in db.list_offers(int(service["id"]), active_only=False)
             if offer.get("archived") != 1
         ]
         services.append({
             "id": int(service["id"]),
             "name": str(service.get("name") or "Service"),
+            "name_ar": str(service.get("name_ar") or ""),
             "emoji": str(service.get("emoji") or ""),
+            "active": bool(service.get("active", 1)),
             "site_enabled": storefront_service._site_visible(service),
             "offers": len(offers),
             "on_sale": sum(1 for row in offers if row["on_sale"]),
@@ -185,6 +224,7 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
         "status": status,
         "services": services,
         "categories": [{"id": key, "label": label} for key, label in storefront_service.CATEGORY_LABELS.items()],
+        "tnd_per_usdt": site_settings_service.tnd_per_usdt(),
     }
 
 
@@ -248,6 +288,200 @@ def set_service_visibility(form: dict[str, Any]) -> dict[str, Any]:
     service = db.get_service(service_id) or {}
     db.audit_event("site_catalog.service_visibility", details={"service_id": service_id, "site_enabled": enabled})
     return {"service_id": service_id, "name": service.get("name", ""), "site_enabled": enabled}
+
+
+def _optional_id(value: Any, label: str) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise SiteAdminError(f"{label} invalide.") from exc
+
+
+def save_service(form: dict[str, Any]) -> dict[str, Any]:
+    """Create a service, or rename one when ``service_id`` is given."""
+    service_id = _optional_id(form.get("service_id"), "Service")
+    name = str(form.get("name") or "").strip()[:80]
+    if not name:
+        raise SiteAdminError("Le nom du service est obligatoire.")
+    emoji = str(form.get("emoji") or "").strip()[:12] or "📦"
+    name_ar = str(form.get("name_ar") or "").strip()[:120]
+    site_enabled = _truthy(form.get("site_enabled", "1"))
+
+    if service_id is None:
+        service_id = db.add_service(name, emoji, sales_channels=["bot"], name_ar=name_ar)
+        created = True
+    else:
+        if not db.get_service(service_id):
+            raise SiteAdminError("Service introuvable.")
+        db.update_service(service_id, name=name, emoji=emoji, name_ar=name_ar)
+        created = False
+    db.get_conn().services.update_one({"id": service_id}, {"$set": {"site_enabled": site_enabled}})
+    db.audit_event(
+        "site_catalog.service_created" if created else "site_catalog.service_updated",
+        details={"service_id": service_id, "name": name, "site_enabled": site_enabled},
+    )
+    return {"service_id": service_id, "name": name, "created": created}
+
+
+def _usdt_price(value: Any) -> float | None:
+    text = str(value or "").strip().replace(" ", "").replace(",", ".")
+    if not text:
+        return None
+    try:
+        amount = Decimal(text)
+    except InvalidOperation as exc:
+        raise SiteAdminError("Le prix du bot doit être un nombre, par exemple 4,50.") from exc
+    if amount < 0 or amount > 100_000:
+        raise SiteAdminError("Le prix du bot doit être compris entre 0 et 100 000 USDT.")
+    return float(round(amount, 2))
+
+
+def _usdt_from_millimes(millimes: int) -> float:
+    rate = Decimal(str(site_settings_service.tnd_per_usdt() or 1))
+    return float(round(Decimal(millimes) / 1000 / rate, 2))
+
+
+def _duration(form: dict[str, Any], prefix: str, default: int, *, allow_zero: bool, label: str) -> tuple[int, str, int]:
+    unit = warranty_service.normalize_duration_unit(form.get(f"{prefix}_unit"))
+    raw = str(form.get(f"{prefix}_value") or "").strip()
+    try:
+        value = int(raw) if raw else default
+    except ValueError as exc:
+        raise SiteAdminError(f"{label} invalide.") from exc
+    if value < (0 if allow_zero else 1) or value > 10_000:
+        raise SiteAdminError(f"{label} invalide.")
+    return value, unit, warranty_service.duration_to_days(value, unit)
+
+
+def _image_url(value: Any) -> str:
+    url = str(value or "").strip()[:1000]
+    if url and not storefront_service._safe_image_url(url):
+        raise SiteAdminError("L’image doit être une adresse https://…")
+    return url
+
+
+def save_offer(form: dict[str, Any]) -> dict[str, Any]:
+    """Create or fully edit an offer from the site space.
+
+    The storefront sells the bot's own catalog, so a product created here is a
+    regular bot offer. Without an explicit bot price it is derived from the
+    dinar price at the configured rate.
+    """
+    offer_id = _optional_id(form.get("offer_id"), "Offre")
+    previous = db.get_offer(offer_id) if offer_id is not None else None
+    if offer_id is not None and not previous:
+        raise SiteAdminError("Offre introuvable.")
+
+    service_id = _optional_id(form.get("service_id"), "Service")
+    if service_id is None:
+        raise SiteAdminError("Choisissez un service.")
+    service = db.get_service(service_id)
+    if not service or service.get("archived") == 1:
+        raise SiteAdminError("Service introuvable.")
+
+    name = str(form.get("name") or "").strip()[:120]
+    if not name:
+        raise SiteAdminError("Le nom du produit est obligatoire.")
+    category = str(form.get("site_category") or "").strip().lower()
+    if category and category not in storefront_service.CATEGORY_LABELS:
+        raise SiteAdminError("Catégorie inconnue.")
+
+    tn_price = _dinar_millimes(form.get("tn_price"))
+    bot_price = _usdt_price(form.get("price"))
+    if bot_price is None:
+        if previous:
+            bot_price = float(previous.get("price") or 0)
+        elif tn_price:
+            bot_price = _usdt_from_millimes(tn_price)
+        else:
+            raise SiteAdminError("Indiquez au moins un prix en dinars ou un prix bot en USDT.")
+
+    period_value, period_unit, period_days = _duration(form, "period", 30, allow_zero=False, label="Durée")
+    warranty_value, warranty_unit, warranty_days = _duration(form, "warranty", 0, allow_zero=True, label="Garantie")
+    note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
+    description = str(form.get("site_description_fr") or "").strip()[:700]
+    unlimited = str(form.get("stock_mode") or "inventory") == "unlimited"
+    fields: dict[str, Any] = {
+        "name": name,
+        "price": bot_price,
+        "note": note,
+        "delivery_delay": str(form.get("delivery_delay") or "").strip()[:120] or "Instantané après confirmation",
+        "auto_delivery": _truthy(form.get("auto_delivery", "1")),
+        "unlimited_stock": unlimited,
+        "period_days": period_days,
+        "period_value": period_value,
+        "period_unit": period_unit,
+        "warranty_days": warranty_days,
+        "warranty_value": warranty_value,
+        "warranty_unit": warranty_unit,
+        "site_enabled": _truthy(form.get("site_enabled", "1")),
+        "site_featured": _truthy(form.get("site_featured")),
+        "site_badge": str(form.get("site_badge") or "").strip()[:48],
+        "site_category": category,
+        "site_description_fr": description,
+        "site_image_url": _image_url(form.get("site_image_url")),
+    }
+
+    conn = db.get_conn()
+    if previous is None:
+        initial_inventory = str(form.get("initial_inventory") or "").strip()
+        items = inventory_service.parse_bulk_inventory(initial_inventory) if initial_inventory and not unlimited else []
+        offer_id = db.add_offer(
+            service_id,
+            name,
+            bot_price,
+            0,
+            note,
+            description=description,
+            auto_delivery=fields["auto_delivery"],
+            delivery_delay=fields["delivery_delay"],
+            unlimited_stock=unlimited,
+            sales_channels=["bot"],
+            tn_price_millimes=tn_price,
+            site_description_fr=description,
+            site_image_url=fields["site_image_url"],
+            site_category=category,
+            site_badge=fields["site_badge"],
+            site_featured=fields["site_featured"],
+            period_days=period_days,
+            warranty_days=warranty_days,
+            period_value=period_value,
+            period_unit=period_unit,
+            warranty_value=warranty_value,
+            warranty_unit=warranty_unit,
+        )
+        conn.offers.update_one({"id": offer_id}, {"$set": {"site_enabled": fields["site_enabled"]}})
+        if items:
+            inventory_service.add_items(offer_id, items)
+        created = True
+    else:
+        if int(previous.get("service_id") or 0) != service_id:
+            try:
+                db.move_offer(offer_id, service_id)
+            except ValueError as exc:
+                raise SiteAdminError(str(exc)) from exc
+        # Supplier and manual offers manage their own stock figure.
+        externally_stocked = bool(previous.get("supplier_provider") or previous.get("manual_stock"))
+        if externally_stocked:
+            fields.pop("unlimited_stock")
+        update: dict[str, Any] = {"$set": fields}
+        if tn_price is None:
+            update["$unset"] = {"tn_price_millimes": ""}
+        else:
+            fields["tn_price_millimes"] = tn_price
+        conn.offers.update_one({"id": offer_id}, update)
+        if not externally_stocked and previous.get("unlimited_stock") and not unlimited:
+            inventory_service.sync_offer_stock(offer_id)
+        created = False
+
+    db.audit_event(
+        "site_catalog.offer_created" if created else "site_catalog.offer_updated",
+        details={"offer_id": offer_id, "service_id": service_id, "name": name, "tn_price_millimes": tn_price},
+    )
+    return {"offer_id": offer_id, "name": name, "created": created, "tn_price_millimes": tn_price}
 
 
 _SPENT_STATUSES = {"confirmed", "delivered", "partial"}
