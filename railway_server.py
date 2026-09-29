@@ -16,7 +16,7 @@ from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
 
 import config
-from api import webhook
+from api import storefront_site, webhook
 
 log = logging.getLogger("railway")
 _TELEGRAM_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
@@ -30,6 +30,7 @@ class RailwayHTTPServer(ThreadingHTTPServer):
 
 
 _ADMIN_PREFIXES = ("/admin", "/admin-v2", "/admin-legacy")
+_MAX_DISCARDED_BODY_BYTES = 1_000_000
 _TERMS_PAGE = Path(__file__).resolve().parent / "assets" / "terms.html"
 
 
@@ -95,6 +96,82 @@ class PublicHandler(webhook.handler):
     def do_OPTIONS(self) -> None:
         if _is_admin_path(self.path):
             self._block_admin()
+            return
+        super().do_OPTIONS()
+
+
+class StorefrontHandler(webhook.handler):
+    """Tunisian customer site: the built SPA plus its own storefront API.
+
+    This surface gets its own Railway domain, so it deliberately exposes
+    nothing but the storefront. The Telegram webhook, the buyer API, the cron
+    endpoints and the dashboard all stay on the other two ports.
+    """
+
+    _ALLOWED_API = ("/api/storefront/catalog", "/api/storefront/order", "/api/storefront/cart")
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header(
+            "Content-Security-Policy",
+            # Catalog artwork may be any https URL; fonts come from Google and
+            # inline styles carry the per-card animation offsets.
+            "default-src 'self'; img-src 'self' data: https:; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; connect-src 'self'; "
+            "base-uri 'none'; object-src 'none'; frame-ancestors 'none'",
+        )
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        super().end_headers()
+
+    def _not_found(self) -> None:
+        # Discard any request body first: closing the socket with bytes still
+        # unread makes the client see a reset instead of this response.
+        length = self.headers.get("Content-Length", "")
+        if length.isdigit():
+            self.rfile.read(min(int(length), _MAX_DISCARDED_BODY_BYTES))
+        self._reply(404, {"ok": False, "error": "NOT_FOUND"}, headers={"Cache-Control": "no-store"})
+
+    def _serve_app(self, path: str) -> None:
+        target = storefront_site.resolve(path)
+        if target is None:
+            self._reply(503, {
+                "ok": False,
+                "error": "storefront_not_built",
+                "message": storefront_site.BUILD_MISSING_MESSAGE,
+            })
+            return
+        body = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", storefront_site.content_type(target))
+        self.send_header("Cache-Control", storefront_site.cache_control(target))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        path = _normalized_request_path(self.path)
+        if path == "/health" or path in self._ALLOWED_API:
+            super().do_GET()
+            return
+        if path.startswith("/api/") or _is_admin_path(self.path):
+            self._not_found()
+            return
+        self._serve_app(path)
+
+    def do_POST(self) -> None:
+        if _normalized_request_path(self.path) != "/api/storefront/orders":
+            self._not_found()
+            return
+        super().do_POST()
+
+    def do_OPTIONS(self) -> None:
+        if _normalized_request_path(self.path) != "/api/storefront/orders":
+            self._not_found()
             return
         super().do_OPTIONS()
 
@@ -235,15 +312,18 @@ def main() -> None:
     try:
         port = int(os.environ.get("PORT", "8080"))
         admin_port = int(os.environ.get("ADMIN_PORT", "8081"))
+        storefront_port = int(os.environ.get("STOREFRONT_PORT", "8082"))
     except ValueError as exc:
-        raise RuntimeError("PORT and ADMIN_PORT must be integers") from exc
-    if not 1 <= port <= 65535 or not 1 <= admin_port <= 65535:
-        raise RuntimeError("PORT and ADMIN_PORT must be between 1 and 65535")
-    if port == admin_port:
-        raise RuntimeError("PORT and ADMIN_PORT must be different")
+        raise RuntimeError("PORT, ADMIN_PORT and STOREFRONT_PORT must be integers") from exc
+    ports = {"PORT": port, "ADMIN_PORT": admin_port, "STOREFRONT_PORT": storefront_port}
+    if any(not 1 <= value <= 65535 for value in ports.values()):
+        raise RuntimeError("PORT, ADMIN_PORT and STOREFRONT_PORT must be between 1 and 65535")
+    if len(set(ports.values())) != len(ports):
+        raise RuntimeError("PORT, ADMIN_PORT and STOREFRONT_PORT must all be different")
 
     public_server = RailwayHTTPServer(("0.0.0.0", port), PublicHandler)
     admin_server = RailwayHTTPServer(("0.0.0.0", admin_port), AdminHandler)
+    storefront_server = RailwayHTTPServer(("0.0.0.0", storefront_port), StorefrontHandler)
     try:
         # Initialize MongoDB and Telegram before Railway marks the deployment healthy.
         webhook._application()
@@ -255,6 +335,7 @@ def main() -> None:
     except Exception:
         public_server.server_close()
         admin_server.server_close()
+        storefront_server.server_close()
         raise
 
     stop_event = threading.Event()
@@ -277,6 +358,7 @@ def main() -> None:
         stop_event.set()
         threading.Thread(target=public_server.shutdown, daemon=True).start()
         threading.Thread(target=admin_server.shutdown, daemon=True).start()
+        threading.Thread(target=storefront_server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, request_shutdown)
     signal.signal(signal.SIGINT, request_shutdown)
@@ -286,6 +368,7 @@ def main() -> None:
         config.public_base_url_from_environment(),
     )
     log.info("Admin dashboard listening on 0.0.0.0:%s", admin_port)
+    log.info("Tunisian storefront listening on 0.0.0.0:%s", storefront_port)
     admin_thread = threading.Thread(
         target=admin_server.serve_forever,
         kwargs={"poll_interval": 0.5},
@@ -293,16 +376,26 @@ def main() -> None:
         daemon=True,
     )
     admin_thread.start()
+    storefront_thread = threading.Thread(
+        target=storefront_server.serve_forever,
+        kwargs={"poll_interval": 0.5},
+        name="railway-storefront-http",
+        daemon=True,
+    )
+    storefront_thread.start()
     try:
         public_server.serve_forever(poll_interval=0.5)
     finally:
         stop_event.set()
         admin_server.shutdown()
+        storefront_server.shutdown()
         admin_thread.join(timeout=5)
+        storefront_thread.join(timeout=5)
         scheduler.join(timeout=5)
         notification_worker.join(timeout=5)
         public_server.server_close()
         admin_server.server_close()
+        storefront_server.server_close()
 
 
 if __name__ == "__main__":

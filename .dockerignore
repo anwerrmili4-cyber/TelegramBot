@@ -13,7 +13,8 @@ __pycache__
 .codex-*
 
 admin-ui/node_modules
-storefront-ui/node_modules
+storefront/node_modules
+storefront/dist
 mobile-app
 outputs
 tests

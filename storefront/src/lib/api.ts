@@ -3,10 +3,12 @@ import type { Catalog, CheckoutResult } from "@/types";
 const configured = (import.meta.env.VITE_STOREFRONT_API_URL ?? "").trim().replace(/\/+$/, "");
 
 /**
- * Empty in development so requests stay same-origin and go through the Vite
- * proxy; a production build targets the deployed Python server.
+ * Same-origin by default: the site is served by `StorefrontHandler`, which also
+ * answers `/api/storefront/*` on its own domain. In development that origin is
+ * the Vite proxy. Set `VITE_STOREFRONT_API_URL` only when hosting the built
+ * app somewhere other than the Python server.
  */
-export const API_BASE = configured || (import.meta.env.DEV ? "" : "https://blackmarket.up.railway.app");
+export const API_BASE = configured;
 
 export const WHATSAPP_FALLBACK = "21621994132";
 

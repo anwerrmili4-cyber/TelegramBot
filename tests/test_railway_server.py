@@ -7,6 +7,8 @@ import threading
 from contextlib import contextmanager
 from http.server import HTTPServer
 
+import pytest
+
 import config
 import railway_server
 
@@ -176,6 +178,88 @@ def test_admin_port_root_redirects_to_dashboard():
     assert response.headers["Location"] == "/admin"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+
+def _get(port, path):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    connection.request("GET", path)
+    response = connection.getresponse()
+    body = response.read()
+    connection.close()
+    return response, body
+
+
+def test_storefront_port_serves_the_built_customer_site():
+    with running_surface(railway_server.StorefrontHandler) as port:
+        response, body = _get(port, "/")
+
+    assert response.status == 200
+    assert response.headers["Content-Type"] == "text/html; charset=utf-8"
+    assert response.headers["Cache-Control"] == "no-store, max-age=0"
+    assert b"BlackMarket Tunisie" in body
+    assert "img-src 'self' data: https:" in response.headers["Content-Security-Policy"]
+
+
+def test_storefront_port_falls_back_to_the_app_for_unknown_paths():
+    with running_surface(railway_server.StorefrontHandler) as port:
+        response, body = _get(port, "/une-page-inconnue")
+
+    assert response.status == 200
+    assert b"<div id=\"root\">" in body
+
+
+def test_storefront_port_refuses_paths_escaping_the_build():
+    with running_surface(railway_server.StorefrontHandler) as port:
+        response, body = _get(port, "/assets/%2e%2e%2f%2e%2e%2fconfig.py")
+
+    assert response.status == 200
+    assert b"MONGODB_URI" not in body
+
+
+def test_storefront_port_exposes_only_the_storefront_api():
+    blocked = (
+        "/api/webhook",
+        "/api/v2/telegram-buyer/products",
+        "/api/cron/restock",
+        "/api/openapi.json",
+        "/admin",
+        "/admin/api/data",
+    )
+    with running_surface(railway_server.StorefrontHandler) as port:
+        for path in blocked:
+            response, body = _get(port, path)
+
+            assert response.status == 404, path
+            assert b"NOT_FOUND" in body, path
+            assert response.headers.get("Location") is None
+
+
+def test_storefront_port_blocks_non_storefront_writes():
+    requests = (
+        ("POST", "/api/webhook"),
+        ("POST", "/admin/api/login"),
+        ("OPTIONS", "/admin/api/data"),
+    )
+    with running_surface(railway_server.StorefrontHandler) as port:
+        for method, path in requests:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            connection.request(method, path, body="{}", headers={"Content-Type": "application/json"})
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+
+            assert response.status == 404, path
+            assert b"NOT_FOUND" in body, path
+
+
+def test_all_three_surfaces_need_distinct_ports(monkeypatch):
+    monkeypatch.setattr(railway_server, "deployment_issues", lambda: [])
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setenv("ADMIN_PORT", "8081")
+    monkeypatch.setenv("STOREFRONT_PORT", "8080")
+
+    with pytest.raises(RuntimeError, match="must all be different"):
+        railway_server.main()
 
 
 def test_slow_restock_does_not_block_payment_scheduler(monkeypatch):
