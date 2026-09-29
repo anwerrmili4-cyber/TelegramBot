@@ -26,18 +26,11 @@
   gap: 11px;
 }
 
-.brand > span {
-  display: grid;
-  place-items: center;
+.brand > img {
+  display: block;
   width: 40px;
   height: 40px;
   flex: none;
-  border-radius: 11px;
-  background: linear-gradient(140deg, var(--brand), #8f1d18);
-  box-shadow: var(--shadow-brand);
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 800;
 }
 
 .brand strong {

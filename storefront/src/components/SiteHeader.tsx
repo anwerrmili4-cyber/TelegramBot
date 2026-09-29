@@ -27,7 +27,7 @@ export function SiteHeader({
   return (
     <header className="site-header">
       <a className="brand" href="#top">
-        <span aria-hidden="true">BM</span>
+        <img src="/logo.png" alt="" width="40" height="40" />
         <div>
           <strong>BLACKMARKET</strong>
           <small>Tunisie</small>

@@ -10,7 +10,7 @@ export function SiteFooter({ whatsappNumber }: { whatsappNumber: string }) {
   return (
     <footer className="site-footer">
       <div className="brand">
-        <span aria-hidden="true">BM</span>
+        <img src="/logo.png" alt="" width="40" height="40" />
         <div>
           <strong>BLACKMARKET</strong>
           <small>Tunisie</small>
