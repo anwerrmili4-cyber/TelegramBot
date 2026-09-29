@@ -1,4 +1,15 @@
-"""MongoDB-backed public catalog and manual storefront orders for Tunisia."""
+"""MongoDB-backed public catalog and manual cart checkout for Tunisia.
+
+The storefront sells from the very same live catalog as the Telegram bot. A
+customer cart is stored as one order document per line rather than a single
+document holding an item array: that is what lets the admin dashboard, the
+delivery pipeline, inventory and warranty treat a site sale exactly like a bot
+sale. A shared ``cart_reference`` is the only thing grouping the lines back
+together for the customer and for the WhatsApp receipt hand-off.
+
+No payment is ever confirmed here. Lines are created in ``MANUAL_REVIEW`` and an
+administrator remains the only way to mark them paid.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +21,8 @@ import time
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlsplit
+
+from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
@@ -26,6 +39,14 @@ CATEGORY_LABELS = {
     "security": "Sécurité",
     "other": "Autres services",
 }
+
+# A cart is a human hand-off on WhatsApp, so it stays small enough for an
+# administrator to verify one receipt against it.
+MAX_CART_LINES = 12
+
+# Ambiguous glyphs are excluded so a customer can read the reference out loud.
+_REFERENCE_ALPHABET = "ACDEFGHJKLMNPQRSTUVWXYZ2345679"
+_REFERENCE_PATTERN = re.compile(r"^TN-[A-Z0-9]{6}$")
 
 
 class StorefrontError(ValueError):
@@ -92,6 +113,39 @@ def _category(service: dict[str, Any], offer: dict[str, Any]) -> str:
     return next((key for key, terms in rules if any(term in name for term in terms)), "other")
 
 
+def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:
+    category = _category(service, offer)
+    price_millimes = _price_millimes(offer)
+    unlimited = bool(offer.get("unlimited_stock"))
+    stock = max(0, int(offer.get("stock") or 0))
+    minimum = max(1, int(offer.get("min_quantity") or 1))
+    return {
+        "id": int(offer["id"]),
+        "package_number": str(offer.get("package_number") or offer["id"]),
+        "name": str(offer.get("name") or "Offre")[:160],
+        "description": _plain_text(
+            offer.get("site_description_fr") or offer.get("description") or offer.get("note")
+        ),
+        "price_millimes": price_millimes,
+        "currency": "TND",
+        "available": unlimited or stock > 0,
+        "stock": -1 if unlimited else stock,
+        "min_quantity": minimum,
+        "max_quantity": max(minimum, int(offer.get("max_quantity") or 10)),
+        "delivery_delay": _plain_text(offer.get("delivery_delay"), limit=120),
+        "period_days": int(offer.get("period_days") or 0),
+        "warranty": _plain_text(offer.get("note"), limit=160),
+        "featured": bool(offer.get("site_featured")),
+        "badge": str(offer.get("site_badge") or "").strip()[:48],
+        "image_url": _safe_image_url(offer.get("site_image_url")),
+        "category": category,
+        "category_label": CATEGORY_LABELS[category],
+        "service_id": int(service["id"]),
+        "service_name": str(service.get("name") or "Service")[:120],
+        "service_emoji": str(service.get("emoji") or "✦")[:8],
+    }
+
+
 def catalog() -> dict[str, Any]:
     """Project the bot's live MongoDB catalog into a customer-safe response."""
     services: list[dict[str, Any]] = []
@@ -105,35 +159,9 @@ def catalog() -> dict[str, Any]:
         for offer in db.list_offers(int(service["id"]), active_only=True):
             if not _site_visible(offer):
                 continue
-            category = _category(service, offer)
-            used_categories.add(category)
-            price_millimes = _price_millimes(offer)
-            available = bool(
-                offer.get("unlimited_stock") or int(offer.get("stock") or 0) > 0
-            )
-            offers.append({
-                "id": int(offer["id"]),
-                "package_number": str(offer.get("package_number") or offer["id"]),
-                "name": str(offer.get("name") or "Offre")[:160],
-                "description": _plain_text(
-                    offer.get("site_description_fr") or offer.get("description") or offer.get("note")
-                ),
-                "price_millimes": price_millimes,
-                "price": price_millimes / 1000,
-                "currency": "TND",
-                "available": available,
-                "stock": -1 if offer.get("unlimited_stock") else max(0, int(offer.get("stock") or 0)),
-                "min_quantity": max(1, int(offer.get("min_quantity") or 1)),
-                "max_quantity": max(1, int(offer.get("max_quantity") or 10)),
-                "delivery_delay": _plain_text(offer.get("delivery_delay"), limit=120),
-                "period_days": int(offer.get("period_days") or 0),
-                "warranty": _plain_text(offer.get("note"), limit=160),
-                "featured": bool(offer.get("site_featured")),
-                "badge": str(offer.get("site_badge") or "").strip()[:48],
-                "image_url": _safe_image_url(offer.get("site_image_url")),
-                "category": category,
-                "category_label": CATEGORY_LABELS[category],
-            })
+            public = _public_offer(service, offer)
+            used_categories.add(public["category"])
+            offers.append(public)
         if offers:
             services.append({
                 "id": int(service["id"]),
@@ -145,6 +173,7 @@ def catalog() -> dict[str, Any]:
         "ok": True,
         "currency": "TND",
         "whatsapp": TN_WHATSAPP_NUMBER,
+        "max_cart_lines": MAX_CART_LINES,
         "services": services,
         "categories": [
             {"id": key, "label": label}
@@ -169,101 +198,251 @@ def _tunisian_phone(value: Any) -> str:
     return f"+216{digits}"
 
 
-def create_order(payload: dict[str, Any]) -> dict[str, Any]:
-    """Create a MongoDB order awaiting receipt verification on WhatsApp."""
-    name = re.sub(r"\s+", " ", str(payload.get("name") or "").strip())[:100]
+def _customer_name(value: Any) -> str:
+    name = re.sub(r"\s+", " ", str(value or "").strip())[:100]
     if len(name) < 2:
         raise StorefrontError("Saisis ton nom complet.")
-    phone = _tunisian_phone(payload.get("phone"))
-    try:
-        offer_id = int(payload.get("offer_id"))
-        quantity = int(payload.get("quantity") or 1)
-    except (TypeError, ValueError) as exc:
-        raise StorefrontError("Offre ou quantité invalide.") from exc
-    method = manual_payment_service.normalize_method(str(payload.get("payment_method") or ""))
+    return name
+
+
+def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int]]:
+    """Normalise a cart payload into merged ``(offer_id, quantity)`` pairs.
+
+    A single ``offer_id``/``quantity`` pair is still accepted so a cached copy
+    of an older frontend keeps working against this endpoint.
+    """
+    raw = payload.get("items")
+    if raw is None and payload.get("offer_id") is not None:
+        raw = [{"offer_id": payload.get("offer_id"), "quantity": payload.get("quantity")}]
+    if not isinstance(raw, list) or not raw:
+        raise StorefrontError("Ton panier est vide.")
+    if len(raw) > MAX_CART_LINES:
+        raise StorefrontError(f"Un panier accepte au maximum {MAX_CART_LINES} produits différents.")
+
+    merged: dict[int, int] = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            raise StorefrontError("Panier invalide.")
+        try:
+            offer_id = int(entry.get("offer_id"))
+            quantity = int(entry.get("quantity") or 1)
+        except (TypeError, ValueError) as exc:
+            raise StorefrontError("Offre ou quantité invalide.") from exc
+        if quantity < 1:
+            raise StorefrontError("Choisis au moins une unité par produit.")
+        merged[offer_id] = merged.get(offer_id, 0) + quantity
+    return list(merged.items())
+
+
+def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
+    """Validate one cart line against the live catalog and price it in TND."""
     offer = db.get_offer(offer_id)
     service = db.get_service(int(offer.get("service_id"))) if offer else None
     if not offer or not service or not offer.get("active", 1):
         raise StorefrontError("Cette offre n'est plus disponible.")
     if not _site_visible(offer) or not _site_visible(service):
         raise StorefrontError("Cette offre n'est pas disponible sur le site tunisien.")
+
+    name = str(offer.get("name") or "")[:200]
     minimum = max(1, int(offer.get("min_quantity") or 1))
     maximum = max(minimum, int(offer.get("max_quantity") or 10))
     if quantity < minimum or quantity > maximum:
-        raise StorefrontError(f"Choisis une quantité entre {minimum} et {maximum}.")
+        raise StorefrontError(f"« {name} » : choisis une quantité entre {minimum} et {maximum}.")
     if not offer.get("unlimited_stock") and int(offer.get("stock") or 0) < quantity:
-        raise StorefrontError("Le stock disponible est insuffisant.")
+        raise StorefrontError(f"« {name} » : le stock disponible est insuffisant.")
 
-    order_id = db._next_id("orders")
-    now = int(time.time())
     unit_millimes = _price_millimes(offer)
-    tracking_token = secrets.token_urlsafe(24)
-    order = {
-        "id": order_id,
-        "sales_channel": "tn_site",
-        "source": "customer_site",
-        "user_id": None,
-        "customer_name": name,
-        "customer_phone": phone,
-        "offer_id": offer_id,
-        "offer_name": str(offer.get("name") or "")[:200],
+    return {
+        "offer_id": int(offer["id"]),
+        "offer_name": name,
         "service_name": str(service.get("name") or "")[:120],
-        "qty": quantity,
         "quantity": quantity,
-        "unit_price_millimes": unit_millimes,
+        "unit_millimes": unit_millimes,
         "total_millimes": unit_millimes * quantity,
-        "total_price": (unit_millimes * quantity) / 1000,
-        "currency": "TND",
-        "payment_method": method,
-        "status": OrderStatus.MANUAL_REVIEW,
-        "verification_channel": "whatsapp",
-        "verification_recipient": TN_WHATSAPP_NUMBER,
-        "tracking_token_hash": hashlib.sha256(tracking_token.encode()).hexdigest(),
-        "txid": "",
-        "verify_method": "",
-        "created_at": now,
-        "updated_at": now,
-        "paid_at": None,
-        "delivered_at": None,
+        "period_days": int(offer.get("period_days") or 0),
     }
-    db.get_conn().orders.insert_one(order)
+
+
+def _cart_reference() -> str:
+    return "TN-" + "".join(secrets.choice(_REFERENCE_ALPHABET) for _ in range(6))
+
+
+def _normalized_reference(value: Any) -> str:
+    reference = str(value or "").strip().upper()
+    if not reference.startswith("TN-"):
+        reference = f"TN-{reference}"
+    if not _REFERENCE_PATTERN.fullmatch(reference):
+        raise StorefrontError("Référence de commande invalide.")
+    return reference
+
+
+def _token_hash(token: Any) -> str:
+    return hashlib.sha256(str(token or "").encode()).hexdigest()
+
+
+def _insert_cart(documents: list[dict[str, Any]]) -> str:
+    """Write the cart lines under a reference no other cart holds.
+
+    Line 1 exists in every cart, so inserting it first claims the reference
+    through the unique index before any sibling line is written.
+    """
+    orders = db.get_conn().orders
+    for _ in range(5):
+        reference = _cart_reference()
+        for document in documents:
+            document["cart_reference"] = reference
+        try:
+            orders.insert_one(documents[0])
+        except DuplicateKeyError:
+            documents[0].pop("_id", None)
+            continue
+        if len(documents) > 1:
+            orders.insert_many(documents[1:])
+        return reference
+    raise StorefrontError("Impossible de générer une référence. Réessaie dans un instant.")
+
+
+def create_order(payload: dict[str, Any]) -> dict[str, Any]:
+    """Store a cart as MongoDB orders awaiting receipt verification on WhatsApp."""
+    name = _customer_name(payload.get("name"))
+    phone = _tunisian_phone(payload.get("phone"))
+    method = manual_payment_service.normalize_method(str(payload.get("payment_method") or ""))
+    note = _plain_text(payload.get("note"), limit=400)
+    lines = [_resolved_line(offer_id, quantity) for offer_id, quantity in _requested_lines(payload)]
+
+    tracking_token = secrets.token_urlsafe(24)
+    cart_total = sum(line["total_millimes"] for line in lines)
+    now = int(time.time())
+
+    documents = []
+    for position, line in enumerate(lines, start=1):
+        documents.append({
+            "id": db._next_id("orders"),
+            "sales_channel": "tn_site",
+            "source": "customer_site",
+            "user_id": None,
+            "customer_name": name,
+            "customer_phone": phone,
+            "customer_note": note,
+            "cart_position": position,
+            "cart_size": len(lines),
+            "cart_total_millimes": cart_total,
+            "offer_id": line["offer_id"],
+            "offer_name": line["offer_name"],
+            "service_name": line["service_name"],
+            "period_days": line["period_days"],
+            "qty": line["quantity"],
+            "quantity": line["quantity"],
+            "unit_price_millimes": line["unit_millimes"],
+            "total_millimes": line["total_millimes"],
+            "total_price": line["total_millimes"] / 1000,
+            "currency": "TND",
+            "payment_method": method,
+            "status": OrderStatus.MANUAL_REVIEW,
+            "verification_channel": "whatsapp",
+            "verification_recipient": TN_WHATSAPP_NUMBER,
+            "cart_token_hash": _token_hash(tracking_token),
+            "txid": "",
+            "verify_method": "",
+            "created_at": now,
+            "updated_at": now,
+            "paid_at": None,
+            "delivered_at": None,
+        })
+
+    reference = _insert_cart(documents)
+    order_ids = [document["id"] for document in documents]
     db.audit_event(
-        "storefront.order_created",
-        details={"order_id": order_id, "offer_id": offer_id, "payment_method": method},
+        "storefront.cart_created",
+        details={
+            "cart_reference": reference,
+            "order_ids": order_ids,
+            "payment_method": method,
+            "total_millimes": cart_total,
+        },
     )
     return {
         "ok": True,
-        "order_id": order_id,
+        "reference": reference,
+        "order_ids": order_ids,
+        # A single-line cart keeps returning order_id so the WhatsApp receipt
+        # and any bookmarked confirmation still resolve to one order.
+        "order_id": order_ids[0],
         "tracking_token": tracking_token,
         "status": OrderStatus.MANUAL_REVIEW,
-        "total_millimes": order["total_millimes"],
+        "total_millimes": cart_total,
         "currency": "TND",
         "automatic_confirmation": False,
-        "whatsapp_url": manual_payment_service.whatsapp_url(order, method),
+        "items": [
+            {
+                "offer_id": line["offer_id"],
+                "offer_name": line["offer_name"],
+                "service_name": line["service_name"],
+                "quantity": line["quantity"],
+                "unit_millimes": line["unit_millimes"],
+                "total_millimes": line["total_millimes"],
+            }
+            for line in lines
+        ],
+        "whatsapp_url": manual_payment_service.whatsapp_cart_url(
+            reference, method, cart_total, [(line["offer_name"], line["quantity"]) for line in lines]
+        ),
+    }
+
+
+def _public_line(order: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(order["id"]),
+        "offer_name": order.get("offer_name", ""),
+        "service_name": order.get("service_name", ""),
+        "quantity": int(order.get("qty") or 1),
+        "total_millimes": int(order.get("total_millimes") or 0),
+        "status": str(order.get("status") or OrderStatus.MANUAL_REVIEW),
+        "created_at": order.get("created_at"),
+        "updated_at": order.get("updated_at"),
+    }
+
+
+def cart_status(reference: Any, tracking_token: Any) -> dict[str, Any]:
+    """Return every line of a cart, authenticated by its tracking token."""
+    reference = _normalized_reference(reference)
+    orders = list(db.get_conn().orders.find({
+        "sales_channel": "tn_site",
+        "cart_reference": reference,
+        "cart_token_hash": _token_hash(tracking_token),
+    }))
+    if not orders:
+        raise StorefrontError("Commande introuvable.")
+    orders.sort(key=lambda order: int(order.get("cart_position") or 0))
+    lines = [_public_line(order) for order in orders]
+    return {
+        "ok": True,
+        "reference": reference,
+        "currency": "TND",
+        "payment_method": orders[0].get("payment_method", ""),
+        "total_millimes": int(orders[0].get("cart_total_millimes") or 0)
+        or sum(line["total_millimes"] for line in lines),
+        "created_at": orders[0].get("created_at"),
+        "items": lines,
     }
 
 
 def order_status(order_id: int, tracking_token: str) -> dict[str, Any]:
-    token_hash = hashlib.sha256(str(tracking_token or "").encode()).hexdigest()
+    """Return a single cart line, authenticated by its tracking token."""
     order = db.get_conn().orders.find_one({
         "id": int(order_id),
         "sales_channel": "tn_site",
-        "tracking_token_hash": token_hash,
+        "cart_token_hash": _token_hash(tracking_token),
     })
     if not order:
         raise StorefrontError("Commande introuvable.")
+    line = _public_line(order)
     return {
         "ok": True,
         "order": {
-            "id": int(order["id"]),
-            "offer_name": order.get("offer_name", ""),
-            "service_name": order.get("service_name", ""),
-            "quantity": int(order.get("qty") or 1),
-            "total_millimes": int(order.get("total_millimes") or 0),
+            **line,
             "currency": "TND",
             "payment_method": order.get("payment_method", ""),
-            "status": str(order.get("status") or OrderStatus.MANUAL_REVIEW),
-            "created_at": order.get("created_at"),
-            "updated_at": order.get("updated_at"),
+            "reference": order.get("cart_reference", ""),
         },
     }

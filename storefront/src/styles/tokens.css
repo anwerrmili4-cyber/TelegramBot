@@ -1,0 +1,45 @@
+:root {
+  color-scheme: dark;
+
+  --ink-900: #07080a;
+  --ink-800: #0b0d11;
+  --ink-700: #12151b;
+  --ink-600: #191d25;
+  --ink-500: #21262f;
+
+  --line: #262c37;
+  --line-soft: #1c212a;
+
+  --text: #f3f4f7;
+  --text-soft: #a6acb9;
+  --text-mute: #767d8b;
+
+  --brand: #e03a30;
+  --brand-hot: #ff5147;
+  --brand-wash: rgba(224, 58, 48, 0.12);
+  --gold: #f0b429;
+  --mint: #3ddc97;
+  --danger: #ff6b6b;
+
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+
+  --shadow-card: 0 18px 40px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 24px 70px rgba(0, 0, 0, 0.55);
+  --shadow-brand: 0 14px 34px rgba(224, 58, 48, 0.28);
+
+  --page: min(1220px, 100% - 2 * var(--gutter));
+  --gutter: 24px;
+
+  --font-display: Sora, "Segoe UI", system-ui, sans-serif;
+  --font-body: Inter, "Segoe UI", system-ui, sans-serif;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (max-width: 760px) {
+  :root {
+    --gutter: 16px;
+  }
+}

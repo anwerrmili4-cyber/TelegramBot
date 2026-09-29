@@ -585,12 +585,14 @@ class handler(BaseHTTPRequestHandler):
                 })
             return
 
-        if path == "/api/storefront/order":
+        if path in {"/api/storefront/order", "/api/storefront/cart"}:
             params = parse_qs(url.query)
+            token = params.get("token", [""])[0]
             try:
-                payload = storefront_service.order_status(
-                    int(params.get("id", [0])[0]), params.get("token", [""])[0]
-                )
+                if path.endswith("/cart"):
+                    payload = storefront_service.cart_status(params.get("ref", [""])[0], token)
+                else:
+                    payload = storefront_service.order_status(int(params.get("id", [0])[0]), token)
                 self._reply(200, payload, headers={
                     "Access-Control-Allow-Origin": "*",
                     "Cache-Control": "no-store",

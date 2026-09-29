@@ -1,0 +1,299 @@
+/* All motion lives here so it can be reasoned about — and disabled — in one
+   place. Every effect is progressive: the layout is complete and usable when a
+   browser supports none of these features. */
+
+@property --aurora-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root {
+  /* Overshooting easing approximating a lightly damped spring. */
+  --ease-spring: linear(
+    0,
+    0.006,
+    0.025 2.8%,
+    0.101 6.1%,
+    0.539 18.9%,
+    0.721 25.3%,
+    0.849 31.5%,
+    0.937 38.1%,
+    0.968 41.8%,
+    0.991 45.7%,
+    1.006 50.1%,
+    1.015 55%,
+    1.006 72.5%,
+    1
+  );
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* ---------- Hero aurora ---------- */
+
+.hero::after {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset: -40% -10% 30%;
+  background: conic-gradient(
+    from var(--aurora-angle),
+    transparent 0%,
+    rgba(224, 58, 48, 0.16) 18%,
+    transparent 38%,
+    rgba(240, 180, 41, 0.12) 58%,
+    transparent 78%
+  );
+  filter: blur(70px);
+  animation: aurora-drift 22s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes aurora-drift {
+  to {
+    --aurora-angle: 360deg;
+  }
+}
+
+/* ---------- Page entry ---------- */
+
+.hero-eyebrow,
+.hero h1,
+.hero-lead,
+.hero-actions,
+.hero-trust {
+  animation: rise-in 0.7s var(--ease) both;
+}
+
+.hero h1 {
+  animation-delay: 60ms;
+}
+
+.hero-lead {
+  animation-delay: 120ms;
+}
+
+.hero-actions {
+  animation-delay: 180ms;
+}
+
+.hero-trust {
+  animation-delay: 240ms;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+/* ---------- Scroll-driven reveals ---------- */
+
+@supports (animation-timeline: view()) {
+  .section-head,
+  .catalog-toolbar,
+  .steps-grid li,
+  .site-footer > * {
+    animation: reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 8% cover 24%;
+  }
+
+  /* The toolbar is sticky: animating its transform would detach it. */
+  .catalog-toolbar {
+    animation-name: reveal-fade;
+  }
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(26px);
+  }
+}
+
+@keyframes reveal-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---------- Catalog cards ---------- */
+
+.offer,
+.offer-skeleton {
+  animation: card-in 0.5s var(--ease) both;
+  /* Cards cascade in reading order; the cap keeps a long grid from crawling. */
+  animation-delay: calc(min(var(--index, 0), 11) * 45ms);
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+}
+
+.offer > footer .button-primary svg,
+.hero-actions .button svg,
+.cart-bar svg:last-child {
+  transition: transform 0.24s var(--ease);
+}
+
+.offer > footer .button-primary:hover svg,
+.hero-actions .button:hover svg,
+.cart-bar:hover svg:last-child {
+  transform: translateX(3px);
+}
+
+/* Cards keep their identity across a filter change instead of being
+   rebuilt: persisting cards glide to their new grid position. */
+@supports (view-transition-name: none) {
+  ::view-transition-group(*) {
+    animation-duration: 340ms;
+    animation-timing-function: var(--ease);
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 260ms;
+  }
+}
+
+/* ---------- Cart affordances ---------- */
+
+.cart-button > b {
+  animation: badge-pop 0.42s var(--ease-spring) both;
+}
+
+@keyframes badge-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+.cart-bar {
+  transition:
+    opacity 0.25s var(--ease),
+    translate 0.35s var(--ease-spring),
+    display 0.35s allow-discrete;
+}
+
+@starting-style {
+  .cart-bar {
+    opacity: 0;
+    translate: 0 130%;
+  }
+}
+
+.stepper button:active:not(:disabled) svg {
+  scale: 0.82;
+  transition: scale 0.12s var(--ease);
+}
+
+/* ---------- Overlays ---------- */
+
+.overlay[data-state="open"] .overlay-backdrop {
+  animation: fade-in 0.22s var(--ease) both;
+}
+
+.overlay[data-state="closing"] .overlay-backdrop {
+  animation: fade-in 0.2s var(--ease-exit) reverse both;
+}
+
+.overlay-drawer[data-state="open"] .overlay-panel {
+  animation: drawer-in 0.42s var(--ease-spring) both;
+}
+
+.overlay-drawer[data-state="closing"] .overlay-panel {
+  animation: drawer-out 0.24s var(--ease-exit) both;
+}
+
+.overlay-dialog[data-state="open"] .overlay-panel {
+  animation: dialog-in 0.34s var(--ease-spring) both;
+}
+
+.overlay-dialog[data-state="closing"] .overlay-panel {
+  animation: dialog-out 0.2s var(--ease-exit) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    translate: 100% 0;
+  }
+}
+
+@keyframes drawer-out {
+  to {
+    translate: 100% 0;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    scale: 0.94;
+    translate: 0 12px;
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+.cart-lines li {
+  animation: card-in 0.36s var(--ease) both;
+  animation-delay: calc(min(var(--index, 0), 8) * 40ms);
+}
+
+.success-mark {
+  animation: badge-pop 0.55s var(--ease-spring) 80ms both;
+}
+
+.success-lines li {
+  animation: rise-in 0.4s var(--ease) both;
+  animation-delay: calc(140ms + min(var(--index, 0), 8) * 50ms);
+}
+
+/* ---------- Opt out ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .hero::after {
+    animation: none;
+  }
+
+  .hero-eyebrow,
+  .hero h1,
+  .hero-lead,
+  .hero-actions,
+  .hero-trust,
+  .offer,
+  .offer-skeleton,
+  .cart-lines li,
+  .success-mark,
+  .success-lines li,
+  .cart-button > b,
+  .overlay-panel,
+  .overlay-backdrop,
+  .section-head,
+  .catalog-toolbar,
+  .steps-grid li,
+  .site-footer > * {
+    animation: none !important;
+  }
+
+  .cart-bar {
+    transition: none;
+  }
+}

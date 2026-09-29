@@ -8,6 +8,7 @@ and generates the customer-facing WhatsApp handoff.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import quote
 
@@ -38,6 +39,30 @@ def whatsapp_url(order: dict[str, Any], method: str) -> str:
     message = (
         "Bonjour, je souhaite faire vérifier mon paiement "
         f"{method.upper()} pour la commande #{order_id}.{amount_line}\n"
+        "Je joins le justificatif de paiement à ce message."
+    )
+    return f"https://wa.me/{TN_WHATSAPP_NUMBER}?text={quote(message)}"
+
+
+def whatsapp_cart_url(
+    reference: str,
+    method: str,
+    total_millimes: int,
+    items: Sequence[tuple[str, int]],
+) -> str:
+    """Return the prefilled WhatsApp link for a storefront cart.
+
+    The administrator verifies one receipt against the whole cart, so the
+    message quotes the grand total and every line rather than a single order id.
+    """
+    method = normalize_method(method)
+    amount = f"{int(total_millimes) / 1000:.3f}".replace(".", ",")
+    lines = "\n".join(f"• {quantity} × {name}" for name, quantity in items)
+    message = (
+        "Bonjour, je souhaite faire vérifier mon paiement "
+        f"{method.upper()} pour la commande {reference}.\n"
+        f"{lines}\n"
+        f"Total : {amount} DT\n"
         "Je joins le justificatif de paiement à ce message."
     )
     return f"https://wa.me/{TN_WHATSAPP_NUMBER}?text={quote(message)}"

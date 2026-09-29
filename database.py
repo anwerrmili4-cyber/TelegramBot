@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -255,6 +255,15 @@ def init_db():
     db.orders.create_index("txid", unique=True, partialFilterExpression={"txid": {"$gt": ""}})
     db.orders.create_index("expires_at")
     db.orders.create_index("tracking_token_hash", unique=True, sparse=True)
+    # Storefront carts span several orders sharing one token, so the token is
+    # only a lookup key; uniqueness belongs to the cart reference instead. Line
+    # 1 exists in every cart, so this index rejects a colliding reference.
+    db.orders.create_index("cart_token_hash")
+    db.orders.create_index(
+        [("cart_reference", ASCENDING), ("cart_position", ASCENDING)],
+        unique=True,
+        partialFilterExpression={"cart_reference": {"$exists": True}},
+    )
     db.orders.create_index([("sales_channel", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
     db.settings.create_index("key", unique=True)
     db.text_overrides.create_index([("key", ASCENDING), ("lang", ASCENDING)], unique=True)
