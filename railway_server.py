@@ -108,7 +108,13 @@ class StorefrontHandler(webhook.handler):
     endpoints and the dashboard all stay on the other two ports.
     """
 
-    _ALLOWED_API = ("/api/storefront/catalog", "/api/storefront/order", "/api/storefront/cart")
+    _ALLOWED_API = (
+        "/api/storefront/catalog",
+        "/api/storefront/order",
+        "/api/storefront/cart",
+        *webhook.STOREFRONT_AUTH_GET_PATHS,
+    )
+    _ALLOWED_POST = frozenset({"/api/storefront/orders", *webhook.STOREFRONT_AUTH_POST_PATHS})
 
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -164,13 +170,14 @@ class StorefrontHandler(webhook.handler):
         self._serve_app(path)
 
     def do_POST(self) -> None:
-        if _normalized_request_path(self.path) != "/api/storefront/orders":
+        if _normalized_request_path(self.path) not in self._ALLOWED_POST:
             self._not_found()
             return
         super().do_POST()
 
     def do_OPTIONS(self) -> None:
-        if _normalized_request_path(self.path) != "/api/storefront/orders":
+        path = _normalized_request_path(self.path)
+        if path not in self._ALLOWED_POST and path not in webhook.STOREFRONT_AUTH_PATHS:
             self._not_found()
             return
         super().do_OPTIONS()

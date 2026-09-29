@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { ArrowRight, ShoppingCart } from "lucide-react";
 import { CartDrawer } from "@/components/CartDrawer";
 import { CatalogSection } from "@/components/CatalogSection";
@@ -11,6 +11,18 @@ import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { WHATSAPP_FALLBACK } from "@/lib/api";
 import { money, plural } from "@/lib/format";
+import { ROUTES, usePathname } from "@/lib/router";
+import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { LoginPage } from "@/pages/LoginPage";
+import { RegisterPage } from "@/pages/RegisterPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
+
+const AUTH_PAGES: Record<string, ComponentType | undefined> = {
+  [ROUTES.login]: LoginPage,
+  [ROUTES.register]: RegisterPage,
+  [ROUTES.forgotPassword]: ForgotPasswordPage,
+  [ROUTES.resetPassword]: ResetPasswordPage,
+};
 
 const DEFAULT_MAX_LINES = 12;
 const DEFAULT_METHODS = [
@@ -26,6 +38,7 @@ export default function App() {
 
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const AuthPage = AUTH_PAGES[usePathname()];
 
   // Closing the last line should not leave an empty drawer or dialog on screen.
   useEffect(() => {
@@ -44,21 +57,27 @@ export default function App() {
       />
 
       <main>
-        <Hero whatsappNumber={whatsappNumber} />
-        <CatalogSection
-          offers={offers}
-          categories={catalog?.categories ?? []}
-          loading={loading}
-          error={error}
-          cart={cart}
-          onReload={reload}
-        />
-        <HowItWorks />
+        {AuthPage ? (
+          <AuthPage />
+        ) : (
+          <>
+            <Hero whatsappNumber={whatsappNumber} />
+            <CatalogSection
+              offers={offers}
+              categories={catalog?.categories ?? []}
+              loading={loading}
+              error={error}
+              cart={cart}
+              onReload={reload}
+            />
+            <HowItWorks />
+          </>
+        )}
       </main>
 
       <SiteFooter whatsappNumber={whatsappNumber} />
 
-      {cart.count && !cartOpen && !checkoutOpen ? (
+      {cart.count && !cartOpen && !checkoutOpen && !AuthPage ? (
         <button type="button" className="cart-bar" onClick={() => setCartOpen(true)}>
           <ShoppingCart size={18} aria-hidden="true" />
           <span>

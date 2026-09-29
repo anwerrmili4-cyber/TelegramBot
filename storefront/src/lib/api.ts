@@ -1,4 +1,4 @@
-import type { Catalog, CheckoutResult } from "@/types";
+import type { AuthSession, Catalog, CheckoutResult, Customer } from "@/types";
 
 const configured = (import.meta.env.VITE_STOREFRONT_API_URL ?? "").trim().replace(/\/+$/, "");
 
@@ -18,7 +18,14 @@ export function assetUrl(url: string): string {
   return `${API_BASE}${url}`;
 }
 
-class ApiError extends Error {}
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status = 0) {
+    super(message);
+    this.status = status;
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
@@ -40,9 +47,50 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const payload = (body ?? {}) as { error?: string; ok?: boolean };
   if (!response.ok || payload.ok === false) {
-    throw new ApiError(payload.error || "Le service est momentanément indisponible.");
+    throw new ApiError(
+      payload.error || "Le service est momentanément indisponible.",
+      response.status,
+    );
   }
   return body as T;
+}
+
+function postJson<T>(path: string, payload: unknown, token?: string): Promise<T> {
+  return request<T>(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function register(payload: { name: string; email: string; password: string }) {
+  return postJson<AuthSession>("/api/storefront/auth/register", payload);
+}
+
+export function login(payload: { email: string; password: string }) {
+  return postJson<AuthSession>("/api/storefront/auth/login", payload);
+}
+
+export function logout(token: string) {
+  return postJson<{ ok: boolean }>("/api/storefront/auth/logout", {}, token);
+}
+
+export function fetchMe(token: string, signal?: AbortSignal) {
+  return request<{ ok: boolean; customer: Customer }>("/api/storefront/auth/me", {
+    signal,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function requestPasswordReset(email: string) {
+  return postJson<{ ok: boolean }>("/api/storefront/auth/forgot-password", { email });
+}
+
+export function resetPassword(token: string, password: string) {
+  return postJson<{ ok: boolean }>("/api/storefront/auth/reset-password", { token, password });
 }
 
 export function fetchCatalog(signal?: AbortSignal): Promise<Catalog> {

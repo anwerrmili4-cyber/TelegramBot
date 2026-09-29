@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { MessageCircle, Menu, ShoppingCart, X } from "lucide-react";
+import { LogOut, MessageCircle, Menu, ShoppingCart, UserRound, X } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
+import { Link, ROUTES } from "@/lib/router";
 
 type SiteHeaderProps = {
   cartCount: number;
@@ -16,6 +18,8 @@ export function SiteHeader({
   onOpenCart,
 }: SiteHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { customer, loading, logout } = useAuth();
+  const firstName = customer?.name.split(" ")[0] ?? "";
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -26,21 +30,21 @@ export function SiteHeader({
 
   return (
     <header className="site-header">
-      <a className="brand" href="#top">
+      <Link className="brand" to={ROUTES.home}>
         <img src="/logo.png" alt="" width="40" height="40" />
         <div>
           <strong>BLACKMARKET</strong>
           <small>Tunisie</small>
         </div>
-      </a>
+      </Link>
 
       <nav className={menuOpen ? "site-nav open" : "site-nav"} aria-label="Navigation principale">
-        <a href="#catalogue" onClick={() => setMenuOpen(false)}>
+        <Link to="/#catalogue" onClick={() => setMenuOpen(false)}>
           Catalogue
-        </a>
-        <a href="#fonctionnement" onClick={() => setMenuOpen(false)}>
+        </Link>
+        <Link to="/#fonctionnement" onClick={() => setMenuOpen(false)}>
           Comment ça marche
-        </a>
+        </Link>
         <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noreferrer">
           Assistance
         </a>
@@ -56,6 +60,21 @@ export function SiteHeader({
           <MessageCircle size={16} aria-hidden="true" />
           <span>Aide</span>
         </a>
+
+        {customer ? (
+          <div className="account-chip">
+            <UserRound size={16} aria-hidden="true" />
+            <span title={customer.email}>{firstName}</span>
+            <button type="button" onClick={() => void logout()} aria-label="Se déconnecter">
+              <LogOut size={15} aria-hidden="true" />
+            </button>
+          </div>
+        ) : loading ? null : (
+          <Link className="account-link" to={ROUTES.login} aria-label="Connexion">
+            <UserRound size={16} aria-hidden="true" />
+            <span>Connexion</span>
+          </Link>
+        )}
 
         <button type="button" className="cart-button" onClick={onOpenCart}>
           <ShoppingCart size={17} aria-hidden="true" />

@@ -61,5 +61,19 @@ export type CheckoutResult = {
   whatsapp_url: string;
 };
 
+export type Customer = {
+  id: number;
+  name: string;
+  email: string;
+  created_at: number;
+};
+
+export type AuthSession = {
+  ok: boolean;
+  token: string;
+  expires_at: number;
+  customer: Customer;
+};
+
 /** A cart line: the live catalog offer plus the requested quantity. */
 export type CartLine = { offer: Offer; quantity: number };

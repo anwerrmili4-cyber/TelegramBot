@@ -51,6 +51,7 @@ from app.domain import (
     site_admin_service,
     site_orders_service,
     site_settings_service,
+    storefront_auth_service,
     storefront_service,
     support_service,
     wallet_service,
@@ -247,6 +248,17 @@ def record_login_failure(ip: str, now: float | None = None) -> None:
 def clear_login_failures(ip: str) -> None:
     with _login_failures_lock:
         _login_failures.pop(f"ip:{ip}", None)
+
+
+STOREFRONT_AUTH_GET_PATHS = frozenset({"/api/storefront/auth/me"})
+STOREFRONT_AUTH_POST_PATHS = frozenset({
+    "/api/storefront/auth/register",
+    "/api/storefront/auth/login",
+    "/api/storefront/auth/logout",
+    "/api/storefront/auth/forgot-password",
+    "/api/storefront/auth/reset-password",
+})
+STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
 
 
 def reseller_dashboard_summary() -> dict:
@@ -586,6 +598,10 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(503, {"ok": False, "error": "Catalogue temporairement indisponible."}, headers={
                     "Access-Control-Allow-Origin": "*",
                 })
+            return
+
+        if path in STOREFRONT_AUTH_GET_PATHS:
+            self._handle_storefront_auth(path)
             return
 
         if path in {"/api/storefront/order", "/api/storefront/cart"}:
@@ -1345,8 +1361,49 @@ class handler(BaseHTTPRequestHandler):
             raise buyer_api_service.BuyerApiError(400, "INVALID_BODY", "JSON body must be an object.")
         return payload
 
+    def _bearer_token(self) -> str:
+        scheme, _, token = self.headers.get("Authorization", "").partition(" ")
+        return token.strip() if scheme.lower() == "bearer" else ""
+
+    def _handle_storefront_auth(self, path: str) -> None:
+        cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
+        try:
+            if path == "/api/storefront/auth/me":
+                result = storefront_auth_service.me(self._bearer_token())
+            elif path == "/api/storefront/auth/logout":
+                result = storefront_auth_service.logout(self._bearer_token())
+            else:
+                payload = self._read_json_body(max_bytes=8_000)
+                if path == "/api/storefront/auth/register":
+                    result = storefront_auth_service.register(payload)
+                elif path == "/api/storefront/auth/login":
+                    result = storefront_auth_service.login(payload, self._client_ip())
+                elif path == "/api/storefront/auth/forgot-password":
+                    result = storefront_auth_service.forgot_password(payload, self._client_ip())
+                else:
+                    result = storefront_auth_service.reset_password(payload)
+            self._reply(200, result, headers=cors)
+        except storefront_auth_service.AuthError as exc:
+            headers = dict(cors)
+            if exc.retry_after is not None:
+                headers["Retry-After"] = str(exc.retry_after)
+            self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=headers)
+        except buyer_api_service.BuyerApiError:
+            self._reply(400, {"ok": False, "error": "Requête invalide."}, headers=cors)
+        except Exception:
+            log.exception("Storefront auth request failed: %s", path)
+            self._reply(503, {"ok": False, "error": "Service momentanément indisponible."}, headers=cors)
+
     def do_OPTIONS(self):
         path = urlsplit(self.path).path.rstrip("/")
+        if path in STOREFRONT_AUTH_PATHS:
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.end_headers()
+            return
         if path == "/api/storefront/orders":
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1367,6 +1424,9 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/")
+        if path in STOREFRONT_AUTH_POST_PATHS:
+            self._handle_storefront_auth(path)
+            return
         if path == "/api/storefront/orders":
             try:
                 payload = self._read_json_body(max_bytes=16_000)

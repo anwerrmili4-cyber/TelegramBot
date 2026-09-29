@@ -1,0 +1,12 @@
+{
+  "name": "resend-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "send": "node --env-file=../../.env send-email.js"
+  },
+  "dependencies": {
+    "resend": "^4.0.0"
+  }
+}
