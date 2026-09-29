@@ -43,15 +43,21 @@ def _post(message: dict[str, Any]) -> None:
         RESEND_ENDPOINT,
         data=json.dumps({"from": _sender(), **message}).encode(),
         method="POST",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        # Cloudflare in front of the Resend API rejects urllib's default
+        # User-Agent with "error code: 1010".
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "blackmarket-storefront/1.0",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             response.read()
     except urllib.error.HTTPError as exc:
-        log.error("Resend rejected %r (%s): %s", message["subject"], exc.code, exc.read()[:500])
+        log.error("Resend rejected an email (%s): %s", exc.code, exc.read()[:500])
     except (urllib.error.URLError, TimeoutError):
-        log.exception("Email %r could not be sent through Resend", message["subject"])
+        log.exception("An email could not be sent through Resend")
 
 
 def _dispatch(message: dict[str, Any]) -> None:
