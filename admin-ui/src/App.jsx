@@ -19,6 +19,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  Globe2,
   Headphones,
   KeyRound,
   LockKeyhole,
@@ -46,6 +47,7 @@ const NAV_GROUPS = [
   { label: "Espace de travail", items: [
     { id: "overview", label: "Accueil", icon: LayoutDashboard },
     { id: "orders", label: "Commandes", icon: ClipboardList },
+    { id: "site-orders", label: "Site Tunisie", icon: Globe2 },
     { id: "customers", label: "Clients", icon: Users },
     { id: "support", label: "Support", icon: Headphones },
     { id: "product-requests", label: "Demandes produits", icon: PackageSearch },
@@ -134,6 +136,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const pendingOrders = data?.summary?.pending_orders || 0;
   const openTickets = data?.summary?.open_tickets || 0;
   const productRequests = data?.summary?.product_requests || 0;
+  const siteCarts = data?.summary?.site_carts_to_verify || 0;
   const [collapsedGroups, setCollapsedGroups] = useState(readCollapsedGroups);
   const updateCollapsed = (update) => setCollapsedGroups((current) => {
     const next = new Set(current);
@@ -163,7 +166,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
 
         <nav className="nav-list" aria-label="Navigation principale">
           {NAV_GROUPS.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
-            const count = id === "orders" ? pendingOrders : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
+            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
         </nav>
@@ -345,7 +348,7 @@ function ErrorState({ message, onRetry }) {
   return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le tableau de bord</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
 }
 
-const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_)/;
+const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|site_cart_(deliver|cancel)$)/;
 const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog"]);
 
 function describeAdminChange(params = {}) {
@@ -362,6 +365,7 @@ function describeAdminChange(params = {}) {
     save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
     save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],
     save_settings: ["Enregistrer les paramètres", "Les nouveaux réglages seront appliqués au fonctionnement du bot."],
+    site_cart_confirm: ["Confirmer le paiement du panier", "Vérifiez que le reçu D17 ou Flouci reçu sur WhatsApp correspond au total. Le stock de chaque article sera réservé."],
     close_all_tickets: ["Fermer tous les tickets", "Toutes les conversations encore ouvertes seront fermées en une seule opération."],
     close_ticket: ["Fermer ce ticket", "La conversation sera fermée et pourra ensuite être archivée."],
     ticket_archive: ["Archiver ce ticket", "Le ticket disparaîtra de la boîte active, mais son historique restera disponible dans les archives."],
@@ -384,7 +388,8 @@ function describeAdminChange(params = {}) {
     "Confirmer la modification",
     "Cette modification sera appliquée aux données du bot et enregistrée dans le journal d’activité.",
   ];
-  const target = params.order_id != null ? `Commande #${params.order_id}`
+  const target = params.reference ? `Panier ${params.reference}`
+    : params.order_id != null ? `Commande #${params.order_id}`
     : params.user_id != null ? `Client ${params.user_id}`
     : params.offer_id != null ? `Produit #${params.offer_id}`
     : params.service_id != null ? `Service #${params.service_id}`

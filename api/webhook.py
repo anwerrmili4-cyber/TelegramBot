@@ -48,6 +48,7 @@ from app.domain import (
     payment_service,
     reseller_comparison_service,
     reseller_service,
+    site_orders_service,
     storefront_service,
     support_service,
     wallet_service,
@@ -816,7 +817,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-orders", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1173,6 +1174,13 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200 if order else 404, order or {"ok": False, "error": "Not found"})
             else:
                 self._reply(200, dashboard_api.list_orders(params))
+            return
+
+        elif path == "/admin/api/site-orders":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, site_orders_service.list_carts(parse_qs(url.query)))
             return
 
         elif path == "/admin/api/tickets":
@@ -2302,6 +2310,21 @@ class handler(BaseHTTPRequestHandler):
                     "notification_sent": notification_sent,
                     "message": f"Paiement de la commande #{oid} confirmé manuellement.",
                 })
+                return
+
+            elif action == "site_cart_confirm":
+                result = site_orders_service.confirm_cart(form.get("reference", ""))
+                self._reply(200, {"ok": True, "message": f"Paiement du panier {result['reference']} confirmé."})
+                return
+
+            elif action == "site_cart_deliver":
+                result = site_orders_service.deliver_cart(form.get("reference", ""), form.get("note", ""))
+                self._reply(200, {"ok": True, "message": f"Panier {result['reference']} marqué comme livré."})
+                return
+
+            elif action == "site_cart_cancel":
+                result = site_orders_service.cancel_cart(form.get("reference", ""), form.get("reason", ""))
+                self._reply(200, {"ok": True, "message": f"Panier {result['reference']} annulé."})
                 return
 
             elif action == "cancel_order":

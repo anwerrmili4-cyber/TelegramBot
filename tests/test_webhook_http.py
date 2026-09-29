@@ -697,3 +697,42 @@ def test_login_throttle_expires_and_is_per_ip():
     assert webhook_module.login_retry_after("2.2.2.2", now=1_001) == 0
     later = 1_000 + webhook_module.LOGIN_FAILURE_WINDOW_SECONDS + 1
     assert webhook_module.login_retry_after("1.1.1.1", now=later) == 0
+
+
+def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, mock_mongodb):
+    from app.domain import storefront_service
+
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "site-test")
+    token = webhook_module.dashboard_write_token()
+    sid = database_module.add_service("Netflix", "🎬", sales_channels=["bot", "tn_site"])
+    oid = database_module.add_offer(sid, "Netflix 1 mois", 6.0, 3, sales_channels=["bot", "tn_site"], tn_price_millimes=15000)
+    cart = storefront_service.create_order({
+        "name": "Sana", "phone": "22 333 444", "payment_method": "d17", "items": [{"offer_id": oid, "quantity": 1}],
+    })
+    reference = cart["reference"]
+
+    with running_server() as base_url:
+        with pytest.raises(HTTPError) as unauthorized:
+            urlopen(f"{base_url}/admin/api/site-orders", timeout=5)
+        assert unauthorized.value.code == 401
+
+        request = Request(f"{base_url}/admin/api/site-orders?status=to_verify", headers={"Authorization": _basic_auth("site-test")})
+        with urlopen(request, timeout=5) as response:
+            listed = json.load(response)
+        assert [item["reference"] for item in listed["items"]] == [reference]
+
+        with urlopen(f"{base_url}/admin/site-orders", timeout=5) as response:
+            assert '<div id="root">' in response.read().decode()
+
+        confirmed = _catalog_action(base_url, token, {"action": "site_cart_confirm", "reference": reference})
+        assert confirmed == {"ok": True, "message": f"Paiement du panier {reference} confirmé."}
+        delivered = _catalog_action(base_url, token, {"action": "site_cart_deliver", "reference": reference, "note": "Envoyé"})
+        assert delivered["ok"] is True
+
+        with pytest.raises(HTTPError) as rejected:
+            _catalog_action(base_url, token, {"action": "site_cart_cancel", "reference": reference, "reason": "x"})
+        assert rejected.value.code == 400
+        assert "ne peut plus être annulé" in json.load(rejected.value)["error"]
+
+    assert database_module.get_offer(oid)["stock"] == 2
+    assert {row["status"] for row in mock_mongodb.orders.find({"cart_reference": reference})} == {"delivered"}

@@ -2425,6 +2425,7 @@ def dashboard_data():
     orders_today = db.orders.count_documents(customer_order_query({"created_at": {"$gte": today_start}}))
     orders_yesterday = db.orders.count_documents(customer_order_query({"created_at": {"$gte": yesterday_start, "$lt": today_start}}))
     pending_orders = db.orders.count_documents(customer_order_query({"status": {"$in": ["pending_payment", "awaiting_verification", "manual_review"]}}))
+    site_carts_to_verify = len(db.orders.distinct("cart_reference", {"sales_channel": "tn_site", "status": "manual_review"}))
 
     paid_statuses = ["paid", "payment_confirmed", "delivered"]
     paid_orders = db.orders.count_documents(customer_order_query({"status": {"$in": paid_statuses}}))
@@ -2581,6 +2582,7 @@ def dashboard_data():
         "orders_yesterday": orders_yesterday,
         "orders_day_delta": orders_today - orders_yesterday,
         "pending_orders": pending_orders,
+        "site_carts_to_verify": site_carts_to_verify,
         "paid_orders": paid_orders,
         "delivered_orders": delivered_orders,
         "revenue_today": revenue_today,
