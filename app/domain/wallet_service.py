@@ -437,3 +437,27 @@ def refund_balance(user_id: int, amount: float, order_id: int) -> bool:
         return False
     conn.wallets.update_one({"user_id": user_id}, {"$inc": {"balance_cents": cents}}, upsert=True)
     return True
+
+
+def refund_order_to_wallet(order_id: int) -> float:
+    """Credit the full charged amount of a refunded order to the buyer's wallet once.
+
+    Returns the credited amount, or 0 when nothing was credited (already done,
+    no buyer, or nothing charged).
+    """
+    conn = db.get_conn()
+    order = conn.orders.find_one_and_update(
+        {"id": order_id, "refund_credited": {"$ne": True}},
+        {"$set": {"refund_credited": True}},
+    )
+    if not order or order.get("user_id") is None:
+        return 0.0
+    charged = db.order_charge_total(order)
+    if order.get("wallet_refunded"):
+        charged -= float(order.get("wallet_amount") or 0)
+    cents = round(max(0.0, charged) * 100)
+    if cents:
+        conn.wallets.update_one({"user_id": order["user_id"]}, {"$inc": {"balance_cents": cents}}, upsert=True)
+    conn.orders.update_one({"id": order_id}, {"$set": {"refund_credited_cents": cents}})
+    db.audit_event("wallet.order_refund", details={"order_id": order_id, "user_id": order["user_id"], "amount_cents": cents})
+    return cents / 100

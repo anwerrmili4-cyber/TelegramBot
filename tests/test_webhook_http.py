@@ -12,9 +12,16 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 
+import pytest
+
 import api.webhook as webhook_module
 import database as database_module
 from api.webhook import handler
+
+
+@pytest.fixture(autouse=True)
+def reset_login_throttle(monkeypatch):
+    monkeypatch.setattr(webhook_module, "_login_failures", {})
 
 
 @contextmanager
@@ -40,9 +47,14 @@ def test_public_health_endpoint():
     assert payload["timestamp"]
 
 
+def _basic_auth(password):
+    return "Basic " + base64.b64encode(f"admin:{password}".encode()).decode()
+
+
 def test_notification_routes_require_auth_and_sync_reads(monkeypatch):
     monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "notification-test")
     token = webhook_module.dashboard_write_token()
+    auth = _basic_auth("notification-test")
     with running_server() as base_url:
         for path in ("/admin/api/notifications", "/admin/api/notifications/config"):
             try:
@@ -51,10 +63,10 @@ def test_notification_routes_require_auth_and_sync_reads(monkeypatch):
             except HTTPError as exc:
                 assert exc.code == 401
         request = Request(base_url + "/admin/api/notifications", data=json.dumps({"action": "read", "ids": ["order:123"]}).encode(),
-                          headers={"Content-Type": "application/json", "X-Dashboard-Write-Token": token}, method="POST")
+                          headers={"Content-Type": "application/json", "X-Dashboard-Write-Token": token, "Authorization": auth}, method="POST")
         with urlopen(request, timeout=5) as response:
             assert json.load(response)["ok"]
-        request = Request(base_url + "/admin/api/notifications", headers={"X-Dashboard-Write-Token": token})
+        request = Request(base_url + "/admin/api/notifications", headers={"Authorization": auth})
         with urlopen(request, timeout=5) as response:
             result = json.load(response)
             assert "order:123" in result["read_ids"]
@@ -245,6 +257,7 @@ def test_bulk_price_update_is_audited_and_reversible(monkeypatch, mock_mongodb):
         headers={
             "Authorization": f"Basic {encoded}",
             "Content-Type": "application/x-www-form-urlencoded",
+            "X-Dashboard-Write-Token": webhook_module.dashboard_write_token(),
         },
         method="POST",
     )
@@ -539,6 +552,7 @@ def _catalog_action(base_url, token, values):
     request = Request(base_url + "/admin", data=urlencode(values).encode(), headers={
         "Content-Type": "application/x-www-form-urlencoded",
         "X-Dashboard-Write-Token": token,
+        "Authorization": _basic_auth(webhook_module.DASHBOARD_PASSWORD),
     }, method="POST")
     with urlopen(request, timeout=5) as response:
         return json.load(response)
@@ -614,3 +628,72 @@ def test_catalog_name_edit_preserves_legacy_and_advanced_settings(monkeypatch, m
     assert saved["price"] == 10
     for key, value in advanced.items():
         assert saved[key] == value
+
+
+def _status(opener, request):
+    try:
+        with opener(request, timeout=5) as response:
+            return response.status
+    except HTTPError as exc:
+        return exc.code
+
+
+def test_write_token_alone_does_not_authenticate(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
+    token = webhook_module.dashboard_write_token()
+    with running_server() as base_url:
+        read = Request(base_url + "/admin/api/data", headers={"X-Dashboard-Write-Token": token})
+        assert _status(urlopen, read) == 401
+        write = Request(base_url + "/admin", data=b"action=save_settings", method="POST", headers={
+            "Content-Type": "application/x-www-form-urlencoded", "X-Dashboard-Write-Token": token,
+        })
+        assert _status(urlopen, write) == 401
+
+
+def test_admin_actions_require_session_bound_write_token(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
+    opener = build_opener(HTTPCookieProcessor(CookieJar()))
+    with running_server() as base_url:
+        login = Request(base_url + "/admin/api/login", method="POST",
+                        data=json.dumps({"username": "admin", "password": "secret"}).encode(),
+                        headers={"Content-Type": "application/json"})
+        with opener.open(login, timeout=5):
+            pass
+        with opener.open(base_url + "/admin/api/data", timeout=5) as response:
+            session_token = json.load(response)["dashboard_write_token"]
+        assert session_token and session_token != webhook_module.dashboard_write_token()
+
+        def action(token):
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            if token is not None:
+                headers["X-Dashboard-Write-Token"] = token
+            return Request(base_url + "/admin", data=b"action=unknown_action", method="POST", headers=headers)
+
+        assert _status(opener.open, action(None)) == 403
+        assert _status(opener.open, action(webhook_module.dashboard_write_token())) == 403
+        assert _status(opener.open, action(session_token)) != 403
+
+
+def test_login_is_throttled_after_repeated_failures(monkeypatch):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
+
+    def login(password):
+        return Request(base_url + "/admin/api/login", method="POST",
+                       data=json.dumps({"username": "admin", "password": password}).encode(),
+                       headers={"Content-Type": "application/json"})
+
+    with running_server() as base_url:
+        for _ in range(webhook_module.LOGIN_MAX_FAILURES_PER_IP):
+            assert _status(urlopen, login("wrong")) == 401
+        assert _status(urlopen, login("wrong")) == 429
+        assert _status(urlopen, login("secret")) == 429
+
+
+def test_login_throttle_expires_and_is_per_ip():
+    webhook_module._login_failures.clear()
+    for _ in range(webhook_module.LOGIN_MAX_FAILURES_PER_IP):
+        webhook_module.record_login_failure("1.1.1.1", now=1_000)
+    assert webhook_module.login_retry_after("1.1.1.1", now=1_001) > 0
+    assert webhook_module.login_retry_after("2.2.2.2", now=1_001) == 0
+    later = 1_000 + webhook_module.LOGIN_FAILURE_WINDOW_SECONDS + 1
+    assert webhook_module.login_retry_after("1.1.1.1", now=later) == 0

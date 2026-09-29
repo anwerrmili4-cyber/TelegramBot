@@ -226,7 +226,10 @@ function Conversation({ ticket, onAction, onArchive, onBack, onNavigate, draft, 
   </section>;
 }
 
-function UserInitial({ ticket }) { return String(ticket.full_name || ticket.username || ticket.user_id || "C").slice(0, 2).toUpperCase(); }
+function UserInitial({ ticket }) {
+  const words = customer(ticket).replace(/^@/, "").split(/\s+/).filter(Boolean);
+  return ((words[0]?.[0] || "C") + (words[1]?.[0] || "")).toUpperCase();
+}
 
 export default function SupportInbox({ result, loading, search, setSearch, status, setStatus, searchField, setSearchField, targetTicketId, pagination, onAction, onNavigate, writeToken, variant = "support", showBulkActions = true }) {
   const [selected, setSelected] = useState(null);

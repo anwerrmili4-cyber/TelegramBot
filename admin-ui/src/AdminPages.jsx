@@ -30,7 +30,6 @@ import {
   Headphones,
   GripVertical,
   KeyRound,
-  Layers3,
   List,
   MessageSquareText,
   PackageCheck,
@@ -156,13 +155,12 @@ function date(value) {
       }).format(parsed);
 }
 
-function PageHeader({ eyebrow, title, description, actions }) {
+function PageHeader({ title, description, actions }) {
   return (
     <div className="page-heading">
       <div>
-        <span className="eyebrow">{eyebrow}</span>
         <h2>{title}</h2>
-        <p>{description}</p>
+        {description && <p>{description}</p>}
       </div>
       {actions && <div className="page-actions">{actions}</div>}
     </div>
@@ -482,7 +480,7 @@ function OrderDetailPage({ order, onAction, onBack, onNavigate, onReload, curren
           <div className="order-secondary-actions"><button type="button" onClick={() => submit("reset_order")}><RefreshCw size={15} />Réinitialiser</button><button type="button" onClick={() => submit("resend_delivery")}><Send size={15} />Renvoyer</button></div>
           <hr />
           <div className="order-danger-actions"><button type="button" onClick={() => requestSensitiveAction("refund_order", "Confirmer le remboursement", { reason: note || "Remboursement depuis le dashboard React" })}><CircleDollarSign size={15} />Rembourser</button><button type="button" onClick={() => requestSensitiveAction("cancel_order", "Confirmer l’annulation", { reason: note || "Annulée depuis le dashboard React" })}><X size={15} />Annuler</button></div>
-          {confirmation && <div className="order-confirmation" role="alertdialog" aria-label={confirmation.label}><div><strong>{confirmation.label} ?</strong><span>Cette action peut notifier le client.</span></div><button type="button" onClick={() => setConfirmation(null)}>Retour</button><button type="button" className="danger" onClick={() => submit(confirmation.action, confirmation.extra)}>Confirmer</button></div>}
+          {confirmation && <div className="order-confirmation" role="alertdialog" aria-label={confirmation.label}><div><strong>{confirmation.label} ?</strong><span>{confirmation.action === "refund_order" ? `${money(order.charged_total, currency)} seront crédités une seule fois sur le portefeuille du client, qui sera notifié.` : "Cette action peut notifier le client."}</span></div><button type="button" onClick={() => setConfirmation(null)}>Retour</button><button type="button" className="danger" onClick={() => submit(confirmation.action, confirmation.extra)}>Confirmer</button></div>}
         </aside>
       </div>
     </div>
@@ -627,9 +625,8 @@ function OrdersPage({ data, onAction, onNavigate }) {
   return (
     <>
       <PageHeader
-        eyebrow="Ventes"
-        title="Vos commandes, en un seul endroit."
-        description="Suivez les paiements, livraisons et interventions manuelles."
+        title="Commandes"
+        description="Suivez les paiements, les livraisons et les interventions manuelles."
       />
       <section className="order-kpis" aria-label="Statistiques des commandes">
         <article><span className="order-kpi-icon violet"><ClipboardList size={19} /></span><div><small>Total commandes</small><strong>{analytics.total || 0}</strong><em>Volume global</em></div></article>
@@ -1134,38 +1131,20 @@ export function CatalogPage({ data, onAction }) {
   };
   return (
     <>
-      <section className="catalog-hero">
-        <div className="catalog-hero-copy">
-          <span className="eyebrow">Commerce / Mon catalogue</span>
-          <h2>Le centre de contrôle<br /><span>de vos offres.</span></h2>
-          <p>Organisez, filtrez et publiez vos produits Telegram depuis une vue conçue pour les catalogues de toute taille.</p>
-          <div className="catalog-hero-actions">
-            <ActionButton
-              secondary
-              icon={Plus}
-              onClick={() => setShowService(true)}
-            >
-              Service
-            </ActionButton>
-            <ActionButton
-              icon={PackagePlus}
-              onClick={() => {
-                setOffer(undefined);
-                setShowOffer(true);
-              }}
-            >
-              Produit
-            </ActionButton>
-          </div>
-        </div>
-        <div className="catalog-hero-visual" aria-hidden="true"><span><Layers3 size={28} /></span><i /><i /><i /></div>
-      </section>
+      <PageHeader
+        title="Mon catalogue"
+        description="Organisez, filtrez et publiez vos produits Telegram."
+        actions={<>
+          <ActionButton secondary icon={Plus} onClick={() => setShowService(true)}>Nouveau service</ActionButton>
+          <ActionButton icon={PackagePlus} onClick={() => { setOffer(undefined); setShowOffer(true); }}>Nouveau produit</ActionButton>
+        </>}
+      />
       <div className="catalog-command-bar">
-        <div><span>COLLECTIONS</span><strong>{allServices.length}</strong><small>catégories actives</small></div>
-        <div><span>OFFRES</span><strong>{allOffers.length}</strong><small>{activeOffers} visibles dans le bot</small></div>
-        <div><span>STOCK MESURÉ</span><strong>{totalStock}</strong><small>unités prêtes à livrer</small></div>
-        <div><span>STOCK ILLIMITÉ</span><strong>{unlimitedOffers}</strong><small>offres sans plafond</small></div>
-        <div><span>SÉLECTION</span><strong>{selectedOffers.size}</strong><small>pour une action groupée</small></div>
+        <div><span>Collections</span><strong>{allServices.length}</strong><small>catégories actives</small></div>
+        <div><span>Offres</span><strong>{allOffers.length}</strong><small>{activeOffers} visibles dans le bot</small></div>
+        <div><span>Stock mesuré</span><strong>{totalStock}</strong><small>unités prêtes à livrer</small></div>
+        <div><span>Stock illimité</span><strong>{unlimitedOffers}</strong><small>offres sans plafond</small></div>
+        <div><span>Sélection</span><strong>{selectedOffers.size}</strong><small>pour une action groupée</small></div>
       </div>
       <div className="workspace-tabs" role="group" aria-label="Collections du catalogue"><button aria-pressed={!category} onClick={() => { setCategory(""); setSelectedOffers(new Set()); }}>Toutes les collections</button>{(data.services || []).map((service) => <button key={service.id} aria-pressed={category === String(service.id)} onClick={() => { setCategory(String(service.id)); setSelectedOffers(new Set()); }}>{service.name}<small> {(service.offers || []).length}</small></button>)}</div>
       <div className="catalog-toolbar">
@@ -1612,8 +1591,7 @@ function ApiProductsPage({ data, onAction, setToast }) {
   return (
     <>
       <PageHeader
-        eyebrow="Approvisionnement / Intégrations"
-        title="Votre réseau de fournisseurs."
+        title="Fournisseurs & API"
         description="Connectez les fournisseurs et publiez leurs produits dans votre boutique."
         actions={
           <div className="inline-actions">
@@ -1807,6 +1785,8 @@ function BuyerKeys({ setToast, writeToken }) {
   const [userId, setUserId] = useState("");
   const [label, setLabel] = useState("Buyer API");
   const [issued, setIssued] = useState("");
+  const [revoking, setRevoking] = useState(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
   const load = () =>
     fetch("/admin/api/buyer-keys", {
       credentials: "same-origin",
@@ -1873,9 +1853,9 @@ function BuyerKeys({ setToast, writeToken }) {
                 <td>
                   <button
                     className="row-action"
-                    onClick={() =>
-                      request({ action: "revoke", key_id: key.id })
-                    }
+                    onClick={() => setRevoking(key)}
+                    title="Révoquer la clé"
+                    aria-label={`Révoquer la clé #${key.id}`}
                   >
                     <Trash2 size={15} />
                   </button>
@@ -1886,6 +1866,12 @@ function BuyerKeys({ setToast, writeToken }) {
         </table>
       </div>
       {!keys.length && <Empty icon={KeyRound} title="Aucune clé active" />}
+      {revoking && (
+        <Modal title="Révoquer la clé Buyer API" onClose={() => setRevoking(null)}>
+          <div className="delete-confirmation"><span><Trash2 size={22} /></span><div><h4>Révoquer la clé #{revoking.id} « {revoking.label} » ?</h4><p>Le client {revoking.user_id} ne pourra plus utiliser cette clé. Cette action est définitive.</p></div></div>
+          <div className="dialog-actions"><ActionButton secondary onClick={() => setRevoking(null)}>Annuler</ActionButton><ActionButton danger icon={Trash2} disabled={revokeBusy} onClick={async () => { setRevokeBusy(true); try { if (await request({ action: "revoke", key_id: revoking.id })) setRevoking(null); } finally { setRevokeBusy(false); } }}>Révoquer</ActionButton></div>
+        </Modal>
+      )}
       {show && (
         <Modal title="Créer une clé Buyer API" onClose={() => setShow(false)}>
           <div className="form-grid">
@@ -2288,7 +2274,6 @@ function InventoryPage({ data, onAction }) {
   return (
     <>
       <PageHeader
-        eyebrow="Livraison"
         title="Inventaire"
         description="Stock chiffré, réservations et livraisons automatiques."
         actions={
@@ -2559,10 +2544,45 @@ function CustomerDetail({ customer, onAction, onClose, onNavigate, currency }) {
   );
 }
 
+const shortTxid = (txid) => (txid ? `${txid.slice(0, 9)}…${txid.slice(-6)}` : "—");
+
+const topupCustomerName = (topup) => topup.username
+  ? `@${topup.username}`
+  : topup.full_name || topup.first_name || `Client ${topup.user_id}`;
+
+function TopupDecisionModal({ decision, busy, onCancel, onConfirm }) {
+  const { topup, approved } = decision;
+  const amount = money(topup.amount, topup.currency || "USDT");
+  const customer = topupCustomerName(topup);
+  return (
+    <Modal title={approved ? "Accepter ce dépôt" : "Refuser ce dépôt"} onClose={onCancel}>
+      <div className="delete-confirmation">
+        <span>{approved ? <Check size={22} /> : <X size={22} />}</span>
+        <div>
+          <h4>{approved ? `Créditer ${amount} à ${customer} ?` : `Refuser le dépôt de ${amount} de ${customer} ?`}</h4>
+          <p>{approved
+            ? "Vérifiez que ce TXID correspond à un paiement réellement reçu : le portefeuille sera crédité immédiatement."
+            : "Le dépôt sera marqué comme refusé et le portefeuille ne sera pas crédité."}</p>
+          <p style={{ wordBreak: "break-all" }}>TXID : {topup.explorer_url && topup.txid
+            ? <a className="txid-link" href={topup.explorer_url} target="_blank" rel="noreferrer">{topup.txid}</a>
+            : topup.txid || "—"}</p>
+        </div>
+      </div>
+      <div className="dialog-actions">
+        <ActionButton secondary onClick={onCancel}>Annuler</ActionButton>
+        <ActionButton danger={!approved} icon={approved ? Check : X} disabled={busy} onClick={onConfirm}>
+          {approved ? "Accepter et créditer" : "Refuser le dépôt"}
+        </ActionButton>
+      </div>
+    </Modal>
+  );
+}
+
 function PendingWalletTopups({ onAction }) {
   const [topups, setTopups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [decision, setDecision] = useState(null);
   const load = () => {
     setLoading(true);
     return fetch("/admin/api/wallet-topups?status=manual_review", {
@@ -2584,6 +2604,7 @@ function PendingWalletTopups({ onAction }) {
       if (result) await load();
     } finally {
       setBusyId(null);
+      setDecision(null);
     }
   };
   if (!loading && !topups.length) return null;
@@ -2607,12 +2628,12 @@ function PendingWalletTopups({ onAction }) {
                 <td><strong>{topup.username ? `@${topup.username}` : topup.first_name || `Client ${topup.user_id}`}</strong><small>{topup.user_id}</small></td>
                 <td><span className="status manual_review">{topup.network === "bsc" ? "BSC (BEP20)" : "Polygon"}</span></td>
                 <td><strong>{money(topup.amount, topup.currency || "USDT")}</strong></td>
-                <td><a className="txid-link" href={topup.explorer_url} target="_blank" rel="noreferrer" title={topup.txid}>{`${topup.txid.slice(0, 9)}…${topup.txid.slice(-6)}`}</a></td>
+                <td>{topup.explorer_url && topup.txid ? <a className="txid-link" href={topup.explorer_url} target="_blank" rel="noreferrer" title={topup.txid}>{shortTxid(topup.txid)}</a> : <span className="txid-text" title={topup.txid || ""}>{shortTxid(topup.txid)}</span>}</td>
                 <td>{date(topup.created_at)}</td>
                 <td>
                   <div className="topup-actions">
-                    <ActionButton icon={Check} disabled={busyId === topup.id} onClick={() => decide(topup, true)}>Accepter</ActionButton>
-                    <ActionButton danger icon={X} disabled={busyId === topup.id} onClick={() => decide(topup, false)}>Refuser</ActionButton>
+                    <ActionButton icon={Check} disabled={busyId === topup.id} onClick={() => setDecision({ topup, approved: true })}>Accepter</ActionButton>
+                    <ActionButton danger icon={X} disabled={busyId === topup.id} onClick={() => setDecision({ topup, approved: false })}>Refuser</ActionButton>
                   </div>
                 </td>
               </tr>
@@ -2621,6 +2642,7 @@ function PendingWalletTopups({ onAction }) {
         </table>
       </div>
       {loading && <div className="table-loading">Chargement des demandes…</div>}
+      {decision && <TopupDecisionModal decision={decision} busy={busyId === decision.topup.id} onCancel={() => setDecision(null)} onConfirm={() => decide(decision.topup, decision.approved)} />}
     </section>
   );
 }
@@ -2642,6 +2664,7 @@ function DepositsPage({ data, onAction }) {
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState(null);
+  const [decision, setDecision] = useState(null);
   const [result, loading] = useRemoteList("/admin/api/wallet-topups", {
     search,
     search_field: searchField,
@@ -2662,17 +2685,14 @@ function DepositsPage({ data, onAction }) {
       });
     } finally {
       setBusyId(null);
+      setDecision(null);
     }
   };
-  const customerName = (topup) => topup.username
-    ? `@${topup.username}`
-    : topup.full_name || topup.first_name || `Client ${topup.user_id}`;
   return (
     <>
       <PageHeader
-        eyebrow="Portefeuilles clients"
-        title="Historique des dépôts"
-        description="Tous les dépôts effectués par tous les clients, quel que soit le moyen de paiement."
+        title="Dépôts & paiements"
+        description="Tous les dépôts des clients, quel que soit le moyen de paiement."
       />
       <div className="order-kpis deposit-kpis">
         <article><div className="order-kpi-icon violet"><Database size={19} /></div><div><small>Dépôts affichés</small><strong>{summary.count || 0}</strong><em>selon les filtres actifs</em></div></article>
@@ -2717,14 +2737,14 @@ function DepositsPage({ data, onAction }) {
               {result.items.map((topup, index) => (
                 <tr key={topup.id ?? `${topup.txid}-${index}`}>
                   <td><strong>{topup.id ? `#${topup.id}` : "—"}</strong></td>
-                  <td><strong>{customerName(topup)}</strong><small>{topup.user_id}</small></td>
+                  <td><strong>{topupCustomerName(topup)}</strong><small>{topup.user_id}</small></td>
                   <td><span className="deposit-provider">{DEPOSIT_PROVIDER_LABELS[topup.provider] || topup.provider}</span></td>
                   <td><strong>{money(topup.amount, topup.currency || data.currency || "USDT")}</strong></td>
                   <td>{topup.source_amount ? `${topup.source_amount} ${topup.source_currency || ""}` : "—"}</td>
-                  <td>{topup.explorer_url ? <a className="txid-link" href={topup.explorer_url} target="_blank" rel="noreferrer" title={topup.txid}>{`${topup.txid.slice(0, 9)}…${topup.txid.slice(-6)}`}</a> : <span className="txid-text" title={topup.txid}>{topup.txid ? `${topup.txid.slice(0, 9)}…${topup.txid.slice(-6)}` : "—"}</span>}</td>
+                  <td>{topup.explorer_url && topup.txid ? <a className="txid-link" href={topup.explorer_url} target="_blank" rel="noreferrer" title={topup.txid}>{shortTxid(topup.txid)}</a> : <span className="txid-text" title={topup.txid || ""}>{shortTxid(topup.txid)}</span>}</td>
                   <td><span className={`status ${topup.status}`}>{STATUS_LABELS[topup.status] || topup.status}</span></td>
                   <td>{date(topup.created_at)}</td>
-                  <td>{topup.status === "manual_review" && <div className="topup-actions"><button className="row-action approve" disabled={busyId === topup.id} onClick={() => decide(topup, true)} title="Accepter"><Check size={15} /></button><button className="row-action reject" disabled={busyId === topup.id} onClick={() => decide(topup, false)} title="Refuser"><X size={15} /></button></div>}</td>
+                  <td>{topup.status === "manual_review" && <div className="topup-actions"><button className="row-action approve" disabled={busyId === topup.id} onClick={() => setDecision({ topup, approved: true })} title="Accepter" aria-label={`Accepter le dépôt #${topup.id}`}><Check size={15} /></button><button className="row-action reject" disabled={busyId === topup.id} onClick={() => setDecision({ topup, approved: false })} title="Refuser" aria-label={`Refuser le dépôt #${topup.id}`}><X size={15} /></button></div>}</td>
                 </tr>
               ))}
             </tbody>
@@ -2733,6 +2753,7 @@ function DepositsPage({ data, onAction }) {
         {loading ? <div className="table-loading">Chargement de l’historique…</div> : !result.items.length && <Empty icon={CircleDollarSign} title="Aucun dépôt" text="Aucun dépôt ne correspond aux filtres sélectionnés." />}
         <Pagination value={result} onChange={setPage} />
       </section>
+      {decision && <TopupDecisionModal decision={decision} busy={busyId === decision.topup.id} onCancel={() => setDecision(null)} onConfirm={() => decide(decision.topup, decision.approved)} />}
     </>
   );
 }
@@ -2765,7 +2786,7 @@ function FinancePage({ data }) {
     : "le lancement du bot";
   return (
     <>
-      <PageHeader eyebrow="Finance" title="Gains, dépenses et profit." description={`Résultats des ventes et achats API reseller depuis ${startedAt}.`} />
+      <PageHeader title="Profit & pertes" description={`Ventes et achats API reseller depuis ${startedAt}.`} />
       <section className="finance-kpis" aria-label="Résumé financier">
         <article className="income"><span><TrendingUp size={20} /></span><div><small>Argent gagné</small><strong>{money(totals.revenue, currency)}</strong><em>Ventes encaissées</em></div></article>
         <article className="expense"><span><TrendingDown size={20} /></span><div><small>Argent dépensé</small><strong>{money(totals.cost, currency)}</strong><em>Achats API reseller</em></div></article>
@@ -2882,9 +2903,8 @@ function CustomersPage({ data, onAction, onNavigate }) {
   return (
     <>
       <PageHeader
-        eyebrow="CRM"
-        title="Profils clients"
-        description="Une vue complète de chaque client : identité, portefeuille, achats, dépôts, affiliation, support et activité."
+        title="Clients"
+        description="Identité, portefeuille, achats, dépôts, affiliation et support de chaque client."
         actions={
           <ActionButton
             icon={CircleDollarSign}
@@ -3074,7 +3094,6 @@ function ResellerClientsPage({ data }) {
   return (
     <>
       <PageHeader
-        eyebrow="API revendeur"
         title="Clients API"
         description="Suivez les accès, portefeuilles, commandes et dépenses des revendeurs utilisant votre API."
         actions={
@@ -3191,7 +3210,7 @@ function WithdrawalsPage({ onAction, data }) {
     if (completed) { setEditor(null); setNote(""); refresh(); }
   };
   return <div className="operations-page">
-    <PageHeader eyebrow="Portefeuille" title="Retraits" description="Traitez les demandes créées dans le bot et suivez les paiements déjà terminés." />
+    <PageHeader title="Retraits" description="Traitez les demandes créées dans le bot et suivez les paiements déjà terminés." />
     <OperationsSummary items={[["En attente", result.summary?.pending || 0, "warning"], ["Montant réservé", money(result.summary?.pending_amount, data.currency), "accent"], ["Terminés", result.summary?.completed || 0, "success"], ["Refusés", result.summary?.rejected || 0, "danger"]]} />
     <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="ID, client, méthode ou destination…" resultCount={result.total}>
       <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut du retrait"><option value="all">Tous les statuts</option><option value="pending">En attente</option><option value="completed">Terminés</option><option value="rejected">Refusés</option></select>
@@ -3224,7 +3243,7 @@ function WarrantiesPage({ onAction, data }) {
   };
   const openEditor = (type, item) => { setEditor({ type, item }); setValue(""); };
   return <div className="operations-page warranty-page">
-    <PageHeader eyebrow="Après-vente" title="Garanties" description="Examinez les demandes du bot, remboursez le portefeuille ou livrez un remplacement." />
+    <PageHeader title="Garanties" description="Examinez les demandes du bot, remboursez le portefeuille ou livrez un remplacement." />
     <OperationsSummary items={[["À traiter", result.summary?.actionable || 0, "warning"], ["Nouvelles", result.summary?.pending || 0, "accent"], ["Acceptées", result.summary?.accepted || 0, "info"], ["Terminées", result.summary?.completed || 0, "success"]]} />
     <FilterBar search={search} setSearch={(next) => { setSearch(next); setPage(1); }} placeholder="Demande, commande, client ou motif…" resultCount={result.total}>
       <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut de garantie"><option value="">Tous les statuts</option><option value="pending_admin_check">Contrôle admin</option><option value="accepted">Acceptées</option><option value="replacement_pending">Remplacement requis</option><option value="replacement_delivered">Remplacements livrés</option><option value="refunded">Remboursées</option><option value="refused">Refusées</option></select>
@@ -3300,9 +3319,8 @@ function ProductRequestsPage({ onAction, onNavigate, data }) {
   const summary = result.summary || {};
   return <div className="product-requests-page">
     <PageHeader
-      eyebrow="Veille catalogue"
-      title="Demandes de produits"
-      description="Centralisez les produits recherchés par vos clients, échangez avec eux dans Telegram et repérez les prochaines offres à ajouter au bot."
+      title="Demandes produits"
+      description="Les produits recherchés par vos clients, pour repérer les prochaines offres à ajouter."
     />
     <OperationsSummary items={[
       ["Total demandes", summary.total || 0, "accent"],
@@ -3322,6 +3340,14 @@ function ProductRequestsPage({ onAction, onNavigate, data }) {
       showBulkActions={false} />
   </div>;
 }
+
+const INTERACTION_TYPE_LABELS = {
+  button: "Bouton",
+  message: "Message",
+  command: "Commande",
+  media: "Média",
+  other: "Autre",
+};
 
 function InteractionsPage({ data }) {
   const analytics = data.interactions || {};
@@ -3347,7 +3373,6 @@ function InteractionsPage({ data }) {
   return (
     <>
       <PageHeader
-        eyebrow="Analyse"
         title="Interactions"
         description="Messages, commandes et clics enregistrés dans le bot."
       />
@@ -3393,10 +3418,10 @@ function InteractionsPage({ data }) {
         resultCount={events.length}
         placeholder="Nom, utilisateur, message ou action…"
       >
-        <select value={type} onChange={(event) => setType(event.target.value)}>
+        <select value={type} onChange={(event) => setType(event.target.value)} aria-label="Type d’interaction">
           <option value="">Tous les types</option>
-          {["button", "message", "command", "media", "other"].map((value) => (
-            <option key={value}>{value}</option>
+          {Object.entries(INTERACTION_TYPE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
           ))}
         </select>
       </FilterBar>
@@ -3425,7 +3450,7 @@ function InteractionsPage({ data }) {
                     </small>
                   </td>
                   <td>
-                    <span className="status">{event.interaction_type}</span>
+                    <span className="status">{INTERACTION_TYPE_LABELS[event.interaction_type] || event.interaction_type}</span>
                   </td>
                   <td>
                     <code>{event.action || "—"}</code>
@@ -3460,8 +3485,7 @@ function ActivityPage({ data, onAction }) {
   return (
     <>
       <PageHeader
-        eyebrow="Sécurité"
-        title="Journal d’activité"
+        title="Journal des actions"
         description="Historique des actions administratives et événements système."
       />
       <FilterBar
@@ -3539,7 +3563,6 @@ function SettingsPage({ data, onAction, onHealthCheck }) {
   return (
     <>
       <PageHeader
-        eyebrow="Configuration"
         title="Paramètres"
         description="Personnalisez la boutique, le paiement, l’affiliation et les messages."
         actions={
@@ -3823,9 +3846,8 @@ function BinanceWalletPage({ setToast }) {
   return (
     <>
       <PageHeader
-        eyebrow="Binance / lecture seule"
         title="Portefeuille Binance"
-        description="Consultez les soldes Spot et les mouvements récents sans autoriser le trading, l’envoi ou le retrait de fonds."
+        description="Soldes et mouvements récents, en lecture seule : aucun trading, envoi ni retrait possible."
         actions={<ActionButton icon={RefreshCw} secondary disabled={loading} onClick={() => setRefreshVersion((value) => value + 1)}>{loading ? "Synchronisation…" : "Actualiser"}</ActionButton>}
       />
 
@@ -3848,7 +3870,7 @@ function BinanceWalletPage({ setToast }) {
       </section>
 
       <section className="binance-panel panel">
-        <header><div><span className="eyebrow">Spot wallet</span><h3>Soldes disponibles</h3></div><span>{balances.length} actif(s)</span></header>
+        <header><div><span className="eyebrow">Portefeuille Spot</span><h3>Soldes disponibles</h3></div><span>{balances.length} actif(s)</span></header>
         {loading && !wallet ? <div className="binance-loading"><RefreshCw className="spin" size={20} />Synchronisation sécurisée…</div> : balances.length ? <div className="binance-balance-grid">{balances.map((item) => <article key={item.asset}><div className="binance-asset-icon">{item.asset.slice(0, 3)}</div><div><strong>{item.asset}</strong><span>Total</span></div><div><strong>{cryptoAmount(item.total)}</strong><span>{item.locked > 0 ? `${cryptoAmount(item.locked)} verrouillé` : "Disponible"}</span></div></article>)}</div> : <Empty icon={WalletCards} title="Aucun solde" text={error ? "Réessayez après avoir corrigé la connexion." : "Aucun actif non nul pour ce filtre."} />}
       </section>
 
@@ -3866,11 +3888,11 @@ function BinanceWalletPage({ setToast }) {
 }
 
 const AI_QUICK_PROMPTS = [
-  ["Bot overview", "Give me an operational overview of the bot and the top three priorities right now."],
-  ["Orders to review", "Analyze recent orders and identify those that need administrator attention."],
-  ["Critical stock", "Analyze inventory and propose the most urgent actions without executing them."],
-  ["Optimize sales", "Analyze sales, pricing, and the catalog, then suggest concrete improvements."],
-  ["Urgent support", "Summarize support tickets and alerts that need a fast response."],
+  ["Vue d’ensemble", "Donne-moi une vue d’ensemble opérationnelle du bot et les trois priorités du moment."],
+  ["Commandes à vérifier", "Analyse les commandes récentes et identifie celles qui demandent l’attention d’un administrateur."],
+  ["Stock critique", "Analyse l’inventaire et propose les actions les plus urgentes, sans les exécuter."],
+  ["Optimiser les ventes", "Analyse les ventes, les prix et le catalogue, puis suggère des améliorations concrètes."],
+  ["Support urgent", "Résume les tickets de support et les alertes qui demandent une réponse rapide."],
 ];
 
 function AiManagerPage({ data, onAction, setToast }) {
@@ -3878,7 +3900,7 @@ function AiManagerPage({ data, onAction, setToast }) {
   const [model, setModel] = useState(window.localStorage.getItem("ai-manager-model") || "");
   const [messages, setMessages] = useState([{
     role: "assistant",
-    content: "Hello. I can answer questions across the bot database, analyze operations, and propose administrative actions for your confirmation.",
+    content: "Bonjour. Je peux répondre à vos questions sur les données du bot, analyser l’activité et proposer des actions d’administration, toujours soumises à votre confirmation.",
   }]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -3889,13 +3911,13 @@ function AiManagerPage({ data, onAction, setToast }) {
     fetch("/admin/api/ai-manager/config", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || "AI configuration is unavailable.");
+        if (!response.ok) throw new Error(payload.error || "La configuration de l’assistant est indisponible.");
         if (!active) return;
         setConfig(payload);
         const selected = payload.models?.includes(model) ? model : payload.models?.[0] || "";
         setModel(selected);
       })
-      .catch((error) => active && setToast({ type: "error", title: "AI Bot Manager", message: error.message }));
+      .catch((error) => active && setToast({ type: "error", title: "Assistant IA", message: error.message }));
     return () => { active = false; };
   }, []);
 
@@ -3926,7 +3948,7 @@ function AiManagerPage({ data, onAction, setToast }) {
         }),
       });
       const payload = await response.json();
-      if (!response.ok || payload.ok === false) throw new Error(payload.error || "The AI response is unavailable.");
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || "La réponse de l’assistant est indisponible.");
       setMessages((current) => [...current, {
         role: "assistant",
         content: payload.reply,
@@ -3946,7 +3968,7 @@ function AiManagerPage({ data, onAction, setToast }) {
     if (completed) {
       setMessages((current) => [...current, {
         role: "assistant",
-        content: `Action “${pendingAction.label}” was executed and the bot data was refreshed.`,
+        content: `L’action « ${pendingAction.label} » a été exécutée et les données du bot ont été actualisées.`,
       }]);
     }
     setPendingAction(null);
@@ -3955,38 +3977,37 @@ function AiManagerPage({ data, onAction, setToast }) {
   return (
     <>
       <PageHeader
-        eyebrow="Administrator copilot"
-        title="AI Bot Manager"
-        description="Ask questions across the bot database and manage operations by conversation. Every change requires your confirmation."
+        title="Assistant IA"
+        description="Interrogez les données du bot et gérez les opérations en conversation. Chaque modification demande votre confirmation."
         actions={(
           <div className={`ai-manager-status ${config.configured ? "ready" : ""}`}>
-            <span />{config.configured ? "OpenAI configured" : "OpenAI key required"}
+            <span />{config.configured ? "OpenAI configuré" : "Clé OpenAI requise"}
           </div>
         )}
       />
       <section className="ai-manager-layout">
         <aside className="ai-manager-sidebar">
-          <div className="ai-manager-brand"><Sparkles size={21} /><div><strong>Full admin assistant</strong><span>Database context refreshed for every question</span></div></div>
-          <label className="ai-model-select"><span>Active model</span><select value={model} onChange={(event) => selectModel(event.target.value)}>{config.models?.map((item) => <option key={item} value={item}>{item}</option>)}</select>{config.endpoint_host && <small>API: {config.provider || config.endpoint_host}</small>}</label>
-          <div className="ai-quick-list"><span>Quick questions</span>{AI_QUICK_PROMPTS.map(([label, prompt]) => <button key={label} disabled={sending || !config.configured} onClick={() => send(prompt)}><Sparkles size={13} />{label}</button>)}</div>
-          <div className="ai-safety-note"><ShieldCheck size={17} /><div><strong>Human control</strong><span>The AI proposes. You confirm every action before execution.</span></div></div>
+          <div className="ai-manager-brand"><Sparkles size={21} /><div><strong>Assistant d’administration</strong><span>Données du bot actualisées à chaque question</span></div></div>
+          <label className="ai-model-select"><span>Modèle actif</span><select value={model} onChange={(event) => selectModel(event.target.value)}>{config.models?.map((item) => <option key={item} value={item}>{item}</option>)}</select>{config.endpoint_host && <small>API: {config.provider || config.endpoint_host}</small>}</label>
+          <div className="ai-quick-list"><span>Questions rapides</span>{AI_QUICK_PROMPTS.map(([label, prompt]) => <button key={label} disabled={sending || !config.configured} onClick={() => send(prompt)}><Sparkles size={13} />{label}</button>)}</div>
+          <div className="ai-safety-note"><ShieldCheck size={17} /><div><strong>Contrôle humain</strong><span>L’assistant propose, vous confirmez chaque action avant son exécution.</span></div></div>
         </aside>
         <div className="ai-chat-panel">
           <div className="ai-chat-messages">
             {messages.map((message, index) => (
               <article className={`ai-message ${message.role} ${message.error ? "error" : ""}`} key={`${message.role}-${index}`}>
                 <div className="ai-message-avatar">{message.role === "assistant" ? <Sparkles size={15} /> : "A"}</div>
-                <div className="ai-message-body"><div className="ai-message-meta"><strong>{message.role === "assistant" ? "AI Bot Manager" : "You"}</strong>{message.model && <span>{message.model}</span>}</div><p>{message.content}</p>
-                  {!!message.actions?.length && <div className="ai-proposals">{message.actions.map((action, actionIndex) => <div className={`ai-proposal risk-${action.risk}`} key={`${action.action}-${actionIndex}`}><div><span>{action.risk === "high" ? "High risk" : action.risk === "medium" ? "Confirmation required" : "Low risk"}</span><strong>{action.label}</strong><p>{action.description}</p></div><button onClick={() => setPendingAction(action)}>Review and execute</button></div>)}</div>}
+                <div className="ai-message-body"><div className="ai-message-meta"><strong>{message.role === "assistant" ? "Assistant IA" : "Vous"}</strong>{message.model && <span>{message.model}</span>}</div><p>{message.content}</p>
+                  {!!message.actions?.length && <div className="ai-proposals">{message.actions.map((action, actionIndex) => <div className={`ai-proposal risk-${action.risk}`} key={`${action.action}-${actionIndex}`}><div><span>{action.risk === "high" ? "Risque élevé" : action.risk === "medium" ? "Confirmation requise" : "Risque faible"}</span><strong>{action.label}</strong><p>{action.description}</p></div><button onClick={() => setPendingAction(action)}>Vérifier et exécuter</button></div>)}</div>}
                 </div>
               </article>
             ))}
-            {sending && <article className="ai-message assistant"><div className="ai-message-avatar"><RefreshCw className="spin" size={15} /></div><div className="ai-message-body"><p>Analyzing the current bot database…</p></div></article>}
+            {sending && <article className="ai-message assistant"><div className="ai-message-avatar"><RefreshCw className="spin" size={15} /></div><div className="ai-message-body"><p>Analyse des données du bot…</p></div></article>}
           </div>
-          <form className="ai-chat-composer" onSubmit={(event) => { event.preventDefault(); send(); }}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder={config.configured ? "Ask about any database record, analysis, or admin action…" : "Add HP_OPENAI_API_KEY in Railway first"} disabled={!config.configured || sending} rows={2} /><button type="submit" disabled={!input.trim() || sending || !config.configured}><Send size={17} /></button></form>
+          <form className="ai-chat-composer" onSubmit={(event) => { event.preventDefault(); send(); }}><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } }} placeholder={config.configured ? "Posez une question sur les données, une analyse ou une action…" : "Ajoutez d’abord HP_OPENAI_API_KEY dans Railway"} disabled={!config.configured || sending} rows={2} /><button type="submit" disabled={!input.trim() || sending || !config.configured}><Send size={17} /></button></form>
         </div>
       </section>
-      {pendingAction && <Modal title="Confirm AI action" onClose={() => setPendingAction(null)}><div className="ai-confirm"><ShieldCheck size={30} /><strong>{pendingAction.label}</strong><p>{pendingAction.confirmation}</p><pre>{JSON.stringify(pendingAction.parameters, null, 2)}</pre><div><ActionButton secondary onClick={() => setPendingAction(null)}>Cancel</ActionButton><ActionButton danger={pendingAction.risk === "high"} icon={Check} onClick={executeAction}>Confirm and execute</ActionButton></div></div></Modal>}
+      {pendingAction && <Modal title="Confirmer l’action proposée" onClose={() => setPendingAction(null)}><div className="ai-confirm"><ShieldCheck size={30} /><strong>{pendingAction.label}</strong><p>{pendingAction.confirmation}</p><pre>{JSON.stringify(pendingAction.parameters, null, 2)}</pre><div><ActionButton secondary onClick={() => setPendingAction(null)}>Annuler</ActionButton><ActionButton danger={pendingAction.risk === "high"} icon={Check} onClick={executeAction}>Confirmer et exécuter</ActionButton></div></div></Modal>}
     </>
   );
 }

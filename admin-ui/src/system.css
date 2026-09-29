@@ -1,0 +1,118 @@
+/* Shared component definitions. Loaded last so each component has exactly one final look.
+   Colors, sizes and radii come from tokens.css. */
+
+/* Top bar: breadcrumb on the left, search in the middle, actions on the right. */
+.topbar { min-height: 64px; padding: 12px 28px; gap: 16px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); }
+.topbar-breadcrumb { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: var(--fs-md); }
+.topbar-breadcrumb > span { overflow: hidden; color: var(--muted); font-size: var(--fs-md); font-weight: 500; letter-spacing: 0; text-transform: none; white-space: nowrap; text-overflow: ellipsis; }
+.topbar-breadcrumb > svg { flex: 0 0 auto; opacity: .6; }
+.topbar-breadcrumb h1 { margin: 0; overflow: hidden; color: var(--text); font-size: var(--fs-md); font-weight: 650; letter-spacing: 0; white-space: nowrap; text-overflow: ellipsis; }
+.global-search-trigger { height: var(--control-h); border-radius: var(--radius-sm); }
+.global-search-trigger span { font-size: var(--fs-sm); }
+.topbar .icon-button, .topbar .avatar { width: 38px; height: 38px; border-radius: var(--radius-sm); }
+.topbar .icon-button { border: 1px solid transparent; color: var(--muted); background: transparent; box-shadow: none; }
+.topbar .icon-button:hover:not(:disabled) { color: var(--text); background: var(--panel-soft); border-color: transparent; transform: none; }
+
+@media (max-width: 900px) {
+  .topbar { padding: 10px 16px; }
+  .topbar-breadcrumb > span, .topbar-breadcrumb > svg { display: none; }
+  .global-search-trigger { width: 38px; height: 38px; justify-self: end; justify-content: center; padding: 0; border-color: transparent; background: transparent; }
+  .global-search-trigger:hover { background: var(--panel-soft); }
+  .global-search-trigger span, .global-search-trigger kbd { display: none; }
+}
+
+/* Sidebar: the white pill marks the active page; no extra underline or playful motion. */
+.nav-item::after { display: none; }
+.nav-item:hover, .nav-item:hover svg { transform: none; }
+.nav-item { min-height: 38px; border-radius: var(--radius-sm); }
+.nav-item span { font-size: var(--fs-md); }
+button.nav-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border: 0; border-radius: var(--radius-sm); color: #a8a8a8; background: transparent; font: inherit; font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+button.nav-heading:hover { color: #fff; background: transparent; transform: none; }
+button.nav-heading svg { transition: transform var(--motion-fast, .15s) ease; }
+button.nav-heading[aria-expanded="false"] svg { transform: rotate(-90deg); }
+
+/* Page header: title + one line of context, actions aligned right. */
+.content .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 0 0 20px; padding: 0 0 18px; border-bottom: 1px solid var(--line); }
+.content .page-heading > div:first-child { min-width: 0; }
+.content .page-heading .eyebrow { display: none; }
+.content .page-heading h2 { max-width: none; margin: 0; color: var(--text); font-size: var(--fs-2xl); font-weight: 650; line-height: 1.2; letter-spacing: -.5px; }
+.content .page-heading p { max-width: 680px; margin: 6px 0 0; color: var(--muted); font-size: var(--fs-md); line-height: 1.5; }
+.content .page-heading .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 640px) {
+  .content .page-heading h2 { font-size: var(--fs-xl); }
+  .content .page-heading .page-actions { width: 100%; }
+}
+
+/* Section labels stay quiet; the accent is reserved for interaction and key data. */
+.eyebrow { color: var(--muted); font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .08em; }
+
+/* KPI cards: sentence-case label, strong value, muted caption. */
+:is(.order-kpis, .finance-kpis, .finance-averages, .deposit-kpis, .operations-summary, .customer-directory-kpis) article { border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+:is(.order-kpis, .finance-kpis, .deposit-kpis, .customer-directory-kpis) small,
+.workspace-scoreboard span,
+.catalog-command-bar span { color: var(--muted); font-size: var(--fs-sm); font-weight: 500; letter-spacing: 0; text-transform: none; }
+:is(.order-kpis, .finance-kpis, .deposit-kpis, .customer-directory-kpis) em,
+.workspace-scoreboard small { color: var(--muted); font-size: var(--fs-xs); font-style: normal; }
+:is(.stat-card, .finance-kpis article, .finance-averages article, .order-kpis article):hover { transform: none; box-shadow: var(--shadow-sm); }
+
+/* Form controls: one height, one radius, one border. */
+:where(.content, .form-dialog) :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), select) {
+  min-height: var(--control-h);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background-color: var(--panel);
+  font-size: var(--fs-md);
+}
+:where(.content, .form-dialog) textarea { border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); background-color: var(--panel); font-size: var(--fs-md); }
+.content :is(input, select, textarea)::placeholder, .form-dialog :is(input, textarea)::placeholder { color: color-mix(in srgb, var(--muted) 80%, transparent); }
+.content :is(input, select, textarea):focus-visible, .form-dialog :is(input, select, textarea):focus-visible { border-color: var(--accent); outline: 3px solid color-mix(in srgb, var(--accent) 18%, transparent); outline-offset: 0; }
+.filter-bar .smart-search, .filter-bar > label.smart-search, .explorer-toolbar > label { min-height: var(--control-h); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+.filter-bar .smart-search input, .explorer-toolbar > label input { min-height: 0; border: 0; outline: 0; background: transparent; }
+.filter-bar .smart-search:focus-within, .explorer-toolbar > label:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent) !important; }
+.search-field-select { min-height: var(--control-h); border-radius: var(--radius-sm); }
+.search-field-select select { min-height: 0; border: 0; background: transparent; }
+.content :is(.filter-bar, .customer-filter-field, .catalog-advanced, .support-filters, .binance-history-header, .ai-model-select, .explorer-toolbar, .field) select,
+.content :is(.binance-toolbar, .field, .customer-search-box, .support-search) input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+.content :is(.filter-bar label.smart-search, .search-field-select) {
+  height: var(--control-h);
+  min-height: var(--control-h);
+  font-size: var(--fs-md);
+}
+.content .search-field-select select { height: 100%; min-height: 0; }
+.field > span, .search-field-select > span { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .02em; text-transform: none; }
+
+/* Buttons: primary is ink, secondary is outlined, danger is red. No lift on hover. */
+:is(.action-button, .primary-button, .secondary-button) { min-height: var(--control-h); padding: 0 16px; border-radius: var(--radius-sm); font-size: var(--fs-md); font-weight: 600; }
+:where(.primary-button, .action-button:not(.secondary):not(.danger), .login-submit):hover:not(:disabled) { color: var(--mono-action-text); background: color-mix(in srgb, var(--mono-action) 86%, var(--accent)); border-color: color-mix(in srgb, var(--mono-action) 86%, var(--accent)); transform: none; box-shadow: none; }
+:where(.secondary-button, .action-button.secondary, .pagination button, .row-action):hover:not(:disabled) { color: var(--text); background: var(--panel-soft); border-color: var(--line-bright); transform: none; }
+.action-button.danger:hover:not(:disabled) { transform: none; box-shadow: none; }
+.row-action { border-radius: var(--radius-sm); }
+
+/* Status badges. */
+.status { padding: 3px 9px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; line-height: 1.5; letter-spacing: 0; }
+
+/* Tables. */
+.content th { padding: 11px 16px; color: var(--muted); background: var(--panel-soft); font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .06em; }
+.content td { padding: 13px 16px; color: var(--text); font-size: var(--fs-md); }
+.content td small, .content td:first-child span { color: var(--muted); font-size: var(--fs-xs); }
+.content tbody tr:hover { background: color-mix(in srgb, var(--panel-soft) 70%, transparent); }
+
+/* Links inside data. */
+.txid-link, .text-button { color: var(--accent); }
+
+/* Support inbox: framed like every other page on desktop, edge-to-edge on phones. */
+@media (min-width: 901px) {
+  .main-shell.page-support > .content.page-support { padding: 0 28px 24px; }
+  .main-shell.page-support .support-inbox { border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden; }
+}
+.support-bulk-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; }
+.support-bulk-actions button { flex: 0 0 auto; min-height: 30px; justify-content: center; padding: 0 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: transparent; font-size: var(--fs-sm); }
+.support-bulk-actions button:hover:not(:disabled) { color: var(--text); background: var(--panel-soft); border-color: var(--line-bright); transform: none; }
+.support-sidebar > header h3::after { display: none; }
+
+/* Page entrance: one short fade instead of a slow staggered slide. */
+.content > .page-heading, .content > section, .content > div:not(.preview-notice) { animation-duration: .18s; animation-delay: 0s; }
+
+/* Panels. */
+:is(.data-panel, .panel, .filter-bar, .settings-card) { border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }

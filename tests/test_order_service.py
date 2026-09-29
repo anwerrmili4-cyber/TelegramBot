@@ -405,6 +405,28 @@ def test_reset_for_payment_and_refund(mock_mongodb):
     assert db.get_order(50)["status"] == OrderStatus.REFUNDED
 
 
+def test_refund_credits_full_charge_to_wallet_once(mock_mongodb):
+    conn = db.get_conn()
+    conn.orders.insert_one({
+        "id": 51, "user_id": 777, "status": OrderStatus.DELIVERED,
+        "total_price": 7.5, "wallet_amount": 2.5,
+    })
+    assert order_service.mark_refunded(51, "Customer request") is True
+    assert order_service.mark_refunded(51, "Customer request") is True
+    assert conn.wallets.find_one({"user_id": 777})["balance_cents"] == 1000
+    assert db.get_order(51)["refund_credited_cents"] == 1000
+
+
+def test_refund_does_not_recredit_wallet_portion_already_returned(mock_mongodb):
+    conn = db.get_conn()
+    conn.orders.insert_one({
+        "id": 52, "user_id": 778, "status": OrderStatus.PAID,
+        "total_price": 5, "wallet_amount": 3, "wallet_refunded": True,
+    })
+    assert order_service.mark_refunded(52) is True
+    assert conn.wallets.find_one({"user_id": 778})["balance_cents"] == 500
+
+
 def test_admin_update_order_fields(mock_mongodb):
     conn = db.get_conn()
     conn.orders.insert_one({

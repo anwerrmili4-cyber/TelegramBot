@@ -195,6 +195,57 @@ def dashboard_write_token() -> str:
     ).hexdigest()
 
 
+def session_write_token(session_value: str) -> str:
+    """Bind the anti-CSRF token to one login session so it expires with it."""
+    if not DASHBOARD_PASSWORD or not session_value:
+        return ""
+    return hmac.new(
+        DASHBOARD_PASSWORD.encode("utf-8"),
+        f"telegram-bot-dashboard-csrf-v2:{session_value}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+LOGIN_FAILURE_WINDOW_SECONDS = 15 * 60
+LOGIN_MAX_FAILURES_PER_IP = 5
+LOGIN_MAX_FAILURES_GLOBAL = 100
+_login_failures: dict[str, list[float]] = {}
+_login_failures_lock = threading.Lock()
+
+
+def _recent_login_failures(key: str, now: float) -> list[float]:
+    recent = [at for at in _login_failures.get(key, []) if now - at < LOGIN_FAILURE_WINDOW_SECONDS]
+    if recent:
+        _login_failures[key] = recent
+    else:
+        _login_failures.pop(key, None)
+    return recent
+
+
+def login_retry_after(ip: str, now: float | None = None) -> int:
+    """Return seconds to wait before another login attempt, or 0 when allowed."""
+    now = time.time() if now is None else now
+    with _login_failures_lock:
+        blocked = []
+        for key, limit in ((f"ip:{ip}", LOGIN_MAX_FAILURES_PER_IP), ("global", LOGIN_MAX_FAILURES_GLOBAL)):
+            recent = _recent_login_failures(key, now)
+            if len(recent) >= limit:
+                blocked.append(int(recent[-limit] + LOGIN_FAILURE_WINDOW_SECONDS - now) + 1)
+        return max(blocked, default=0)
+
+
+def record_login_failure(ip: str, now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    with _login_failures_lock:
+        for key in (f"ip:{ip}", "global"):
+            _login_failures.setdefault(key, []).append(now)
+
+
+def clear_login_failures(ip: str) -> None:
+    with _login_failures_lock:
+        _login_failures.pop(f"ip:{ip}", None)
+
+
 def reseller_dashboard_summary() -> dict:
     """Return provider-aware dashboard state without exposing API keys."""
     providers = reseller_service.provider_summaries()
@@ -848,7 +899,7 @@ class handler(BaseHTTPRequestHandler):
                 body = render_dashboard(
                     data,
                     active_tab=active_tab,
-                    dashboard_write_token=dashboard_write_token(),
+                    dashboard_write_token=self._request_write_token(),
                 ).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -872,7 +923,7 @@ class handler(BaseHTTPRequestHandler):
                 data["bot_username"] = os.environ.get(
                     "HP_BOT_USERNAME", "blackmarketa_bot"
                 ).strip().lstrip("@")
-                data["dashboard_write_token"] = dashboard_write_token()
+                data["dashboard_write_token"] = self._request_write_token()
                 data["reseller"] = reseller_dashboard_summary()
                 self._reply(200, data)
             except Exception as exc:
@@ -1193,12 +1244,10 @@ class handler(BaseHTTPRequestHandler):
         # Health check par défaut
         self._reply(200, health_payload())
 
-    def _dashboard_authorized(self) -> bool:
+    def _admin_session(self) -> str:
+        """Return the valid admin session cookie value, or an empty string."""
         if not DASHBOARD_PASSWORD:
-            return False
-        write_token = self.headers.get("X-Dashboard-Write-Token", "")
-        if write_token and hmac.compare_digest(write_token, dashboard_write_token()):
-            return True
+            return ""
         try:
             cookies = SimpleCookie(self.headers.get("Cookie", ""))
             session = cookies.get(ADMIN_SESSION_COOKIE)
@@ -1208,9 +1257,25 @@ class handler(BaseHTTPRequestHandler):
                 if expires_at >= int(time.time()) and hmac.compare_digest(
                     session.value, admin_session_token(expires_at)
                 ):
-                    return True
+                    return session.value
         except (KeyError, TypeError, ValueError):
             pass
+        return ""
+
+    def _request_write_token(self) -> str:
+        session = self._admin_session()
+        return session_write_token(session) if session else dashboard_write_token()
+
+    def _write_token_valid(self) -> bool:
+        token = self.headers.get("X-Dashboard-Write-Token", "")
+        expected = self._request_write_token()
+        return bool(token and expected) and hmac.compare_digest(token, expected)
+
+    def _dashboard_authorized(self) -> bool:
+        if not DASHBOARD_PASSWORD:
+            return False
+        if self._admin_session():
+            return True
         header = self.headers.get("Authorization", "")
         if not header.startswith("Basic "):
             return False
@@ -1297,6 +1362,14 @@ class handler(BaseHTTPRequestHandler):
                 })
             return
         if path == "/admin/api/login":
+            client_ip = self._client_ip()
+            retry_after = login_retry_after(client_ip)
+            if retry_after:
+                self._reply(429, {
+                    "ok": False,
+                    "error": f"Trop de tentatives. Réessayez dans {max(1, retry_after // 60)} min.",
+                }, headers={"Retry-After": str(retry_after)})
+                return
             try:
                 payload = self._read_json_body(max_bytes=4_000)
                 username = str(payload.get("username") or "").strip().lower()
@@ -1307,11 +1380,13 @@ class handler(BaseHTTPRequestHandler):
                     and hmac.compare_digest(password, DASHBOARD_PASSWORD)
                 )
                 if not valid:
+                    record_login_failure(client_ip)
                     self._reply(401, {
                         "ok": False,
                         "error": "Identifiant ou mot de passe incorrect.",
                     })
                     return
+                clear_login_failures(client_ip)
                 expires_at = int(time.time()) + ADMIN_SESSION_TTL_SECONDS
                 cookie = (
                     f"{ADMIN_SESSION_COOKIE}={admin_session_token(expires_at)}; "
@@ -1330,8 +1405,7 @@ class handler(BaseHTTPRequestHandler):
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
-            token = self.headers.get("X-Dashboard-Write-Token", "")
-            if not token or not hmac.compare_digest(token, dashboard_write_token()):
+            if not self._write_token_valid():
                 self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
                 return
             try:
@@ -1425,6 +1499,9 @@ class handler(BaseHTTPRequestHandler):
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
+            if not self._write_token_valid():
+                self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
+                return
             try:
                 payload = self._read_json_body()
                 action = str(payload.get("action") or "create").lower()
@@ -1447,8 +1524,7 @@ class handler(BaseHTTPRequestHandler):
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
-            token = self.headers.get("X-Dashboard-Write-Token", "")
-            if not token or not hmac.compare_digest(token, dashboard_write_token()):
+            if not self._write_token_valid():
                 self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
                 return
             try:
@@ -1587,6 +1663,9 @@ class handler(BaseHTTPRequestHandler):
     def _dashboard_action(self):
         if not self._dashboard_authorized():
             self._reply(401, {"ok": False, "error": "Unauthorized"})
+            return
+        if not self._write_token_valid():
+            self._reply(403, {"ok": False, "error": "Session expirée. Rechargez le tableau de bord."})
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
@@ -2251,10 +2330,15 @@ class handler(BaseHTTPRequestHandler):
                 if not order_service.mark_refunded(oid, reason):
                     raise ValueError("La commande ne peut pas être remboursée")
                 order = db.get_order(oid)
+                credited = int(order.get("refund_credited_cents") or 0) / 100
+                credit_line = (
+                    f"{credited:.2f} {CURRENCY} ont été crédités sur votre portefeuille.\n\n"
+                    if credited else ""
+                )
                 _run_async(
                     _application().bot.send_message(
                         order["user_id"],
-                        f"💸 <b>Commande #{oid} remboursée</b>\n\n{html.escape(reason)}",
+                        f"💸 <b>Commande #{oid} remboursée</b>\n\n{credit_line}{html.escape(reason)}",
                         parse_mode=ParseMode.HTML,
                     )
                 )

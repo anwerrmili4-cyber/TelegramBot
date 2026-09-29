@@ -10,6 +10,7 @@ import {
   Bot,
   Boxes,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
   CheckCheck,
   CircleDollarSign,
@@ -120,11 +121,31 @@ function initials(value = "BM") {
     .toUpperCase();
 }
 
+function readCollapsedGroups() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem("admin-nav-collapsed") ?? '["Administration"]');
+    return new Set(Array.isArray(stored) ? stored : []);
+  } catch {
+    return new Set(["Administration"]);
+  }
+}
+
 function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const pendingOrders = data?.summary?.pending_orders || 0;
   const openTickets = data?.summary?.open_tickets || 0;
   const productRequests = data?.summary?.product_requests || 0;
-  const navItems = BOT_NAV_ITEMS;
+  const [collapsedGroups, setCollapsedGroups] = useState(readCollapsedGroups);
+  const updateCollapsed = (update) => setCollapsedGroups((current) => {
+    const next = new Set(current);
+    update(next);
+    window.localStorage.setItem("admin-nav-collapsed", JSON.stringify([...next]));
+    return next;
+  });
+  const toggleGroup = (label) => updateCollapsed((next) => (next.has(label) ? next.delete(label) : next.add(label)));
+  useEffect(() => {
+    const activeGroup = NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label;
+    if (activeGroup && collapsedGroups.has(activeGroup)) updateCollapsed((next) => next.delete(activeGroup));
+  }, [activePage]);
 
   return (
     <>
@@ -141,7 +162,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
         </div>
 
         <nav className="nav-list" aria-label="Navigation principale">
-          {NAV_GROUPS.map((group) => <div className="nav-group" key={group.label}><span className="nav-heading">{group.label}</span>{group.items.map(({ id, label, icon: Icon }) => {
+          {NAV_GROUPS.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
             const count = id === "orders" ? pendingOrders : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
@@ -163,7 +184,7 @@ function Header({ activePage, alertCount, busyAction, density, isRefreshing, onL
     <header className="topbar">
       <div className="topbar-title">
         <button className="icon-button menu-button" onClick={onMenu} aria-label="Ouvrir le menu"><Menu size={21} /></button>
-        <div><span>Workspace / {NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label}</span><h1>{current.label}</h1></div>
+        <nav className="topbar-breadcrumb" aria-label="Fil d’Ariane"><span>{NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label}</span><ChevronRight size={14} aria-hidden="true" /><h1>{current.label}</h1></nav>
       </div>
       <button className="global-search-trigger" onClick={onSearch} aria-label="Rechercher dans le panneau">
         <Search size={17} />
@@ -321,7 +342,7 @@ function LoadingState() {
 }
 
 function ErrorState({ message, onRetry }) {
-  return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le dashboard</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
+  return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le tableau de bord</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
 }
 
 const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_)/;

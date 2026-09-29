@@ -457,12 +457,13 @@ def reset_for_payment(order_id: int) -> bool:
 
 
 def mark_refunded(order_id: int, reason: str = "") -> bool:
-    """Mark a paid or delivered order as refunded, idempotently."""
+    """Mark a paid or delivered order as refunded and credit the buyer's wallet, idempotently."""
     conn = db.get_conn()
     existing = conn.orders.find_one({"id": order_id})
     if not existing:
         return False
     if existing.get("status") == OrderStatus.REFUNDED:
+        wallet_service.refund_order_to_wallet(order_id)
         return True
     result = conn.orders.update_one(
         {
@@ -486,6 +487,7 @@ def mark_refunded(order_id: int, reason: str = "") -> bool:
     )
     if result.modified_count:
         db.audit_event("order.refunded", details={"order_id": order_id, "reason": reason})
+        wallet_service.refund_order_to_wallet(order_id)
         return True
     return False
 

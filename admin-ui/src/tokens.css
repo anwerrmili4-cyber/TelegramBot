@@ -1,0 +1,93 @@
+/* Single source of truth for the admin design system: black & white with one violet accent.
+   Every other stylesheet must read these variables instead of hardcoding colors. */
+:root,
+html[data-admin-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f6f6f7;
+  --panel: #ffffff;
+  --panel-soft: #f2f2f4;
+  --sidebar: #0a0a0a;
+  --line: #e4e4e7;
+  --line-bright: #b4b4bb;
+  --text: #0a0a0a;
+  --muted: #5c5c66;
+
+  --accent: #5b45c9;
+  --accent-soft: #efecfb;
+  --accent-contrast: #ffffff;
+
+  --green: #0f7a4d;
+  --amber: #9a5b06;
+  --red: #c42a41;
+
+  --mono-action: #0a0a0a;
+  --mono-action-text: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(10, 10, 10, .05);
+  --shadow-md: 0 10px 30px rgba(10, 10, 10, .08);
+}
+
+html[data-admin-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #09090b;
+  --panel: #111113;
+  --panel-soft: #1a1a1d;
+  --sidebar: #050505;
+  --line: #2a2a2f;
+  --line-bright: #55555e;
+  --text: #f4f4f5;
+  --muted: #a8a8b3;
+
+  --accent: #a797ff;
+  --accent-soft: #221d3d;
+  --accent-contrast: #0a0a0a;
+
+  --green: #5fd49a;
+  --amber: #f5c05a;
+  --red: #ff8497;
+
+  --mono-action: #ffffff;
+  --mono-action-text: #0a0a0a;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-md: 0 14px 40px rgba(0, 0, 0, .45);
+}
+
+:root {
+  /* Legacy names still used across the stylesheets, mapped onto the tokens above. */
+  --cyan: var(--text);
+  --cyan-dark: var(--text);
+  --violet: var(--accent);
+  --title-accent: var(--accent);
+  --accent-violet: var(--accent);
+  --accent-blue: var(--accent);
+  --accent-coral: var(--red);
+  --catalog-accent: var(--accent);
+  --workspace-accent: var(--accent);
+
+  --font-sans: "Inter", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --workspace-radius: var(--radius-lg);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --control-h: 40px;
+}
