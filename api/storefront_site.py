@@ -17,6 +17,8 @@ BUILD_MISSING_MESSAGE = "Run `npm install && npm run build` in storefront."
 
 # Everything else is a hashed Vite bundle and may be cached indefinitely.
 _NEVER_CACHE = {".html", ".webmanifest"}
+# Unhashed files from storefront/public keep a fixed URL, so they must revalidate.
+_SHORT_CACHE = {".txt", ".xml", ".png", ".ico"}
 
 
 def resolve(relative_path: str) -> Path | None:
@@ -41,7 +43,9 @@ def content_type(path: Path) -> str:
     if path.suffix == ".html":
         return "text/html; charset=utf-8"
     guessed = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    if path.suffix in {".js", ".css", ".svg", ".json"}:
+    if path.suffix == ".xml":
+        return "application/xml; charset=utf-8"
+    if path.suffix in {".js", ".css", ".svg", ".json", ".txt"}:
         return f"{guessed}; charset=utf-8"
     return guessed
 
@@ -49,4 +53,6 @@ def content_type(path: Path) -> str:
 def cache_control(path: Path) -> str:
     if path.suffix in _NEVER_CACHE:
         return "no-store, max-age=0"
+    if path.suffix in _SHORT_CACHE:
+        return "public, max-age=3600"
     return "public, max-age=31536000, immutable"

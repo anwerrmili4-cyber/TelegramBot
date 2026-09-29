@@ -208,6 +208,23 @@ def test_storefront_port_falls_back_to_the_app_for_unknown_paths():
     assert b"<div id=\"root\">" in body
 
 
+@pytest.mark.parametrize(
+    ("path", "content_type", "marker"),
+    [
+        ("/robots.txt", "text/plain; charset=utf-8", b"Sitemap: https://www.ourblackmarket.com/sitemap.xml"),
+        ("/sitemap.xml", "application/xml; charset=utf-8", b"<loc>https://www.ourblackmarket.com/</loc>"),
+    ],
+)
+def test_storefront_port_serves_crawler_files(path, content_type, marker):
+    with running_surface(railway_server.StorefrontHandler) as port:
+        response, body = _get(port, path)
+
+    assert response.status == 200
+    assert response.headers["Content-Type"] == content_type
+    assert response.headers["Cache-Control"] == "public, max-age=3600"
+    assert marker in body
+
+
 def test_storefront_port_refuses_paths_escaping_the_build():
     with running_surface(railway_server.StorefrontHandler) as port:
         response, body = _get(port, "/assets/%2e%2e%2f%2e%2e%2fconfig.py")
