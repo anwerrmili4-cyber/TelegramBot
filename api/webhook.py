@@ -48,7 +48,9 @@ from app.domain import (
     payment_service,
     reseller_comparison_service,
     reseller_service,
+    site_admin_service,
     site_orders_service,
+    site_settings_service,
     storefront_service,
     support_service,
     wallet_service,
@@ -817,7 +819,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-orders", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-catalog", "site-customers", "site-settings", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1181,6 +1183,22 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
             self._reply(200, site_orders_service.list_carts(parse_qs(url.query)))
+            return
+
+        elif path in {"/admin/api/site-overview", "/admin/api/site-catalog", "/admin/api/site-customers", "/admin/api/site-settings"}:
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            query = parse_qs(url.query)
+            if path == "/admin/api/site-overview":
+                payload = site_admin_service.overview()
+            elif path == "/admin/api/site-catalog":
+                payload = site_admin_service.catalog(query)
+            elif path == "/admin/api/site-customers":
+                payload = site_admin_service.customers(query)
+            else:
+                payload = {"ok": True, **site_settings_service.get()}
+            self._reply(200, payload)
             return
 
         elif path == "/admin/api/tickets":
@@ -2325,6 +2343,22 @@ class handler(BaseHTTPRequestHandler):
             elif action == "site_cart_cancel":
                 result = site_orders_service.cancel_cart(form.get("reference", ""), form.get("reason", ""))
                 self._reply(200, {"ok": True, "message": f"Panier {result['reference']} annulé."})
+                return
+
+            elif action == "site_offer_update":
+                result = site_admin_service.update_offer(form)
+                self._reply(200, {"ok": True, "message": f"Offre « {result['name']} » mise à jour sur le site."})
+                return
+
+            elif action == "site_service_visibility":
+                result = site_admin_service.set_service_visibility(form)
+                state = "affiché" if result["site_enabled"] else "masqué"
+                self._reply(200, {"ok": True, "message": f"Service « {result['name']} » {state} sur le site."})
+                return
+
+            elif action == "site_settings_save":
+                site_settings_service.save(form)
+                self._reply(200, {"ok": True, "message": "Paramètres du site enregistrés."})
                 return
 
             elif action == "cancel_order":

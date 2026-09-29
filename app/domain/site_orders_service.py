@@ -124,7 +124,7 @@ def list_carts(params: dict[str, list[str]]) -> dict[str, Any]:
         pattern = {"$regex": re.escape(search), "$options": "i"}
         digits = re.sub(r"\D", "", search)
         clauses: list[dict[str, Any]] = [{"cart_reference": pattern}, {"customer_name": pattern}]
-        if digits:
+        if digits and not re.search(r"[^\d\s+().-]", search):
             clauses.append({"customer_phone": {"$regex": re.escape(digits)}})
         query["$or"] = clauses
 

@@ -26,8 +26,7 @@ from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import manual_payment_service
-from config import TN_MANUAL_PAYMENT_METHODS, TN_TND_PER_USDT, TN_WHATSAPP_NUMBER
+from app.domain import manual_payment_service, site_settings_service
 
 CATEGORY_LABELS = {
     "ai": "Intelligence artificielle",
@@ -60,18 +59,29 @@ def _site_visible(row: dict[str, Any]) -> bool:
 
 
 def _price_millimes(offer: dict[str, Any]) -> int:
-    configured = offer.get("tn_price_millimes")
-    if configured is not None:
-        try:
-            return max(0, int(configured))
-        except (TypeError, ValueError):
-            pass
+    """Return the admin-set dinar price, or 0 when the offer has none yet.
+
+    Converting the USDT bot price produced absurd dinar amounts for cheap bulk
+    offers, so an offer without its own dinar price is not sold on the site.
+    """
+    try:
+        return max(0, int(offer.get("tn_price_millimes") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def suggested_price_millimes(offer: dict[str, Any]) -> int:
+    """Convert the bot's USDT price at the configured rate, rounded to 100 millimes."""
     try:
         price = Decimal(str(offer.get("price") or 0))
-        converted = price * Decimal(str(TN_TND_PER_USDT)) * 1000
-        return max(0, int(converted.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+        converted = price * Decimal(str(site_settings_service.tnd_per_usdt())) * 10
+        return max(0, int(converted.quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * 100)
     except (InvalidOperation, TypeError, ValueError):
         return 0
+
+
+def _offer_on_sale(offer: dict[str, Any]) -> bool:
+    return _site_visible(offer) and _price_millimes(offer) > 0
 
 
 def _plain_text(value: Any, *, limit: int = 700) -> str:
@@ -101,8 +111,9 @@ def _category(service: dict[str, Any], offer: dict[str, Any]) -> str:
     if configured in CATEGORY_LABELS:
         return configured
     name = f"{service.get('name', '')} {offer.get('name', '')}".lower()
+    words = set(re.findall(r"[a-z0-9]+", name))
     rules = (
-        ("ai", ("chatgpt", "openai", "gemini", "claude", "manus", "ai", " ia ")),
+        ("ai", ("chatgpt", "openai", "gemini", "claude", "manus")),
         ("streaming", ("netflix", "spotify", "youtube", "stream")),
         ("design", ("adobe", "canva", "capcut", "framer", "design")),
         ("cloud", ("supabase", "cloud", "hosting", "developer")),
@@ -110,6 +121,8 @@ def _category(service: dict[str, Any], offer: dict[str, Any]) -> str:
         ("security", ("vpn", "security", "number", "otp")),
         ("productivity", ("office", "microsoft", "notion", "quillbot")),
     )
+    if words & {"ai", "ia"}:
+        return "ai"
     return next((key for key, terms in rules if any(term in name for term in terms)), "other")
 
 
@@ -157,7 +170,7 @@ def catalog() -> dict[str, Any]:
         # list_offers already resolves expired sales and the OTP price rules.
         # Re-reading each offer adds two database round trips per product.
         for offer in db.list_offers(int(service["id"]), active_only=True):
-            if not _site_visible(offer):
+            if not _offer_on_sale(offer):
                 continue
             public = _public_offer(service, offer)
             used_categories.add(public["category"])
@@ -172,7 +185,7 @@ def catalog() -> dict[str, Any]:
     return {
         "ok": True,
         "currency": "TND",
-        "whatsapp": TN_WHATSAPP_NUMBER,
+        "whatsapp": site_settings_service.whatsapp_number(),
         "max_cart_lines": MAX_CART_LINES,
         "services": services,
         "categories": [
@@ -181,8 +194,8 @@ def catalog() -> dict[str, Any]:
             if key in used_categories
         ],
         "payment_methods": [
-            {"id": method, "label": method.upper() if method == "d17" else "Flouci"}
-            for method in sorted(TN_MANUAL_PAYMENT_METHODS)
+            {"id": method, "label": site_settings_service.PAYMENT_METHOD_LABELS[method]}
+            for method in site_settings_service.payment_methods()
         ],
     }
 
@@ -240,7 +253,7 @@ def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
     service = db.get_service(int(offer.get("service_id"))) if offer else None
     if not offer or not service or not offer.get("active", 1):
         raise StorefrontError("Cette offre n'est plus disponible.")
-    if not _site_visible(offer) or not _site_visible(service):
+    if not _offer_on_sale(offer) or not _site_visible(service):
         raise StorefrontError("Cette offre n'est pas disponible sur le site tunisien.")
 
     name = str(offer.get("name") or "")[:200]
@@ -340,7 +353,7 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
             "payment_method": method,
             "status": OrderStatus.MANUAL_REVIEW,
             "verification_channel": "whatsapp",
-            "verification_recipient": TN_WHATSAPP_NUMBER,
+            "verification_recipient": site_settings_service.whatsapp_number(),
             "cart_token_hash": _token_hash(tracking_token),
             "txid": "",
             "verify_method": "",

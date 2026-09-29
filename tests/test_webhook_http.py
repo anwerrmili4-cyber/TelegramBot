@@ -736,3 +736,49 @@ def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, moc
 
     assert database_module.get_offer(oid)["stock"] == 2
     assert {row["status"] for row in mock_mongodb.orders.find({"cart_reference": reference})} == {"delivered"}
+
+
+def test_site_admin_space_edits_catalog_and_settings(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "site-test")
+    token = webhook_module.dashboard_write_token()
+    sid = database_module.add_service("Canva", "🎨", sales_channels=["bot"])
+    oid = database_module.add_offer(sid, "Canva Pro", 2.0, 5, sales_channels=["bot"])
+    auth = {"Authorization": _basic_auth("site-test")}
+
+    def get(base_url, path):
+        with urlopen(Request(f"{base_url}{path}", headers=auth), timeout=5) as response:
+            return json.load(response)
+
+    with running_server() as base_url:
+        for path in ("site-overview", "site-catalog", "site-customers", "site-settings"):
+            with pytest.raises(HTTPError) as unauthorized:
+                urlopen(f"{base_url}/admin/api/{path}", timeout=5)
+            assert unauthorized.value.code == 401
+            with urlopen(f"{base_url}/admin/{path}", timeout=5) as response:
+                assert '<div id="root">' in response.read().decode()
+
+        listed = get(base_url, "/admin/api/site-catalog?status=no_price")
+        assert [row["id"] for row in listed["items"]] == [oid]
+
+        updated = _catalog_action(base_url, token, {
+            "action": "site_offer_update", "offer_id": str(oid), "tn_price": "12,500",
+            "site_enabled": "1", "site_featured": "1", "site_badge": "Promo", "site_category": "design",
+        })
+        assert updated["ok"] is True
+        assert get(base_url, "/admin/api/site-catalog?status=on_sale")["items"][0]["tn_price_millimes"] == 12500
+
+        saved = _catalog_action(base_url, token, {
+            "action": "site_settings_save", "whatsapp_number": "21 994 132", "tnd_per_usdt": "3,4", "payment_flouci": "1",
+        })
+        assert saved["ok"] is True
+        settings = get(base_url, "/admin/api/site-settings")
+        assert settings["whatsapp_number"] == "21621994132"
+        assert settings["payment_methods"] == ["flouci"]
+
+        with pytest.raises(HTTPError) as rejected:
+            _catalog_action(base_url, token, {"action": "site_settings_save", "whatsapp_number": "21621994132", "tnd_per_usdt": "3"})
+        assert rejected.value.code == 400
+        assert "moyen de paiement" in json.load(rejected.value)["error"]
+
+        overview = get(base_url, "/admin/api/site-overview")
+        assert overview["catalog"]["on_sale"] == 1

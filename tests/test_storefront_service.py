@@ -45,20 +45,51 @@ def test_catalog_does_not_refetch_each_offer_and_keeps_prices_live(mock_mongodb,
     from unittest.mock import Mock
 
     _, offer_id = _catalog_offer()
-    mock_mongodb.offers.update_one({"id": offer_id}, {"$set": {
-        "tn_price_millimes": None, "price": 1.0, "flash_sale_active": True,
-        "flash_sale_ends_at": 1, "flash_sale_original_price": 6.0,
-    }})
     get_offer = Mock(side_effect=AssertionError("Catalog should use its existing offer rows"))
     monkeypatch.setattr(db, "get_offer", get_offer)
     result = storefront_service.catalog()
     offer = result["services"][0]["offers"][0]
-    assert offer["price_millimes"] == storefront_service._price_millimes({"price": 6.0})
+    assert offer["price_millimes"] == 25000
     assert offer["stock"] == 5
     assert not get_offer.called
 
     mock_mongodb.offers.update_one({"id": offer_id}, {"$set": {"stock": 0}})
     assert storefront_service.catalog()["services"][0]["offers"][0]["available"] is False
+
+
+def test_offer_without_a_dinar_price_is_hidden_and_cannot_be_ordered(mock_mongodb):
+    _, priced = _catalog_offer(millimes=25000)
+    _, unpriced = _catalog_offer(name="Outlook Mail", millimes=None, service="Mails")
+
+    offers = [offer["id"] for service in storefront_service.catalog()["services"] for offer in service["offers"]]
+    assert offers == [priced]
+    with pytest.raises(storefront_service.StorefrontError, match="pas disponible"):
+        _create(items=[{"offer_id": unpriced, "quantity": 1}])
+
+
+@pytest.mark.parametrize("service, offer, category", [
+    ("Mails", "Outlook Mail Accounts", "communication"),
+    ("Tools", "Perplexity AI Pro", "ai"),
+    ("ChatGPT", "Plus 1 mois", "ai"),
+])
+def test_category_matches_whole_words(service, offer, category):
+    assert storefront_service._category({"name": service}, {"name": offer}) == category
+
+
+def test_runtime_settings_change_whatsapp_and_payment_methods(mock_mongodb):
+    from app.domain import site_settings_service
+
+    _, offer_id = _catalog_offer()
+    site_settings_service.save({"whatsapp_number": "+216 55 000 111", "tnd_per_usdt": "3.3", "payment_flouci": "on"})
+
+    result = storefront_service.catalog()
+    assert result["whatsapp"] == "21655000111"
+    assert [item["id"] for item in result["payment_methods"]] == ["flouci"]
+    with pytest.raises(ValueError, match="Flouci"):
+        _create(items=[{"offer_id": offer_id, "quantity": 1}])
+    cart = _create(payment_method="flouci", items=[{"offer_id": offer_id, "quantity": 1}])
+    assert cart["whatsapp_url"].startswith("https://wa.me/21655000111?text=")
+    assert storefront_service.suggested_price_millimes({"price": 6.0}) == 19800
 
 
 def test_cart_stores_one_order_per_line_under_a_shared_reference(mock_mongodb):

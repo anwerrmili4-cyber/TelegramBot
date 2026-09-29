@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminPage from "./AdminPages";
+import SitePage, { SITE_PAGE_IDS } from "./SitePages";
 import NotificationSettings, { NOTIFICATION_CATEGORIES, notificationAction } from "./NotificationSettings";
 import WorkspaceHome from "./WorkspaceHome";
 import { ControlCenter, DataExplorer } from "./ControlCenter";
@@ -47,7 +48,6 @@ const NAV_GROUPS = [
   { label: "Espace de travail", items: [
     { id: "overview", label: "Accueil", icon: LayoutDashboard },
     { id: "orders", label: "Commandes", icon: ClipboardList },
-    { id: "site-orders", label: "Site Tunisie", icon: Globe2 },
     { id: "customers", label: "Clients", icon: Users },
     { id: "support", label: "Support", icon: Headphones },
     { id: "product-requests", label: "Demandes produits", icon: PackageSearch },
@@ -73,9 +73,20 @@ const NAV_GROUPS = [
     { id: "settings", label: "Paramètres", icon: Settings },
   ] },
 ];
+const SITE_NAV_GROUPS = [
+  { label: "Site Tunisie", items: [
+    { id: "site-overview", label: "Tableau de bord", icon: LayoutDashboard },
+    { id: "site-orders", label: "Commandes", icon: ClipboardList },
+    { id: "site-catalog", label: "Catalogue du site", icon: ShoppingBag },
+    { id: "site-customers", label: "Clients", icon: Users },
+    { id: "site-settings", label: "Paramètres", icon: Settings },
+  ] },
+];
 const BOT_NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
-const ALL_NAV_ITEMS = BOT_NAV_ITEMS;
+const ALL_NAV_GROUPS = [...NAV_GROUPS, ...SITE_NAV_GROUPS];
+const ALL_NAV_ITEMS = ALL_NAV_GROUPS.flatMap((group) => group.items);
+const isSitePage = (page) => SITE_PAGE_IDS.has(page);
 
 const STATUS_LABELS = {
   pending_payment: "Paiement en attente",
@@ -146,9 +157,11 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   });
   const toggleGroup = (label) => updateCollapsed((next) => (next.has(label) ? next.delete(label) : next.add(label)));
   useEffect(() => {
-    const activeGroup = NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label;
+    const activeGroup = ALL_NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label;
     if (activeGroup && collapsedGroups.has(activeGroup)) updateCollapsed((next) => next.delete(activeGroup));
   }, [activePage]);
+  const siteMode = isSitePage(activePage);
+  const groups = siteMode ? SITE_NAV_GROUPS : NAV_GROUPS;
 
   return (
     <>
@@ -164,30 +177,37 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
           <button className="icon-button mobile-only" onClick={onClose} aria-label="Fermer"><X size={20} /></button>
         </div>
 
+        <div className="workspace-switch" role="tablist" aria-label="Espace d’administration">
+          <button type="button" role="tab" aria-selected={!siteMode} onClick={() => siteMode && onNavigate("overview")}><Bot size={15} />Bot Telegram</button>
+          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts > 0 && <small>{siteCarts}</small>}</button>
+        </div>
+
         <nav className="nav-list" aria-label="Navigation principale">
-          {NAV_GROUPS.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
+          {groups.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
             const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
         </nav>
 
-        <div className="sidebar-footer">
+        {siteMode ? <a className="sidebar-footer" href="https://www.ourblackmarket.com" target="_blank" rel="noreferrer">
+          <div className="connection-dot neutral" />
+          <div><strong>Site en ligne</strong><span>ourblackmarket.com</span></div>
+        </a> : <div className="sidebar-footer">
           <div className="connection-dot neutral" />
           <div><strong>Bot configuré</strong><span>@{data?.bot_username || "—"}</span></div>
-        </div>
+        </div>}
       </aside>
     </>
   );
 }
 
 function Header({ activePage, alertCount, busyAction, density, isRefreshing, onLogout, onMenu, onNotifications, onRefresh, onRepairTelegram, onSearch, onTestBinance, onToggleDensity, onToggleTheme, theme }) {
-  const navItems = BOT_NAV_ITEMS;
-  const current = navItems.find((item) => item.id === activePage) || navItems[0];
+  const current = ALL_NAV_ITEMS.find((item) => item.id === activePage) || BOT_NAV_ITEMS[0];
   return (
     <header className="topbar">
       <div className="topbar-title">
         <button className="icon-button menu-button" onClick={onMenu} aria-label="Ouvrir le menu"><Menu size={21} /></button>
-        <nav className="topbar-breadcrumb" aria-label="Fil d’Ariane"><span>{NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label}</span><ChevronRight size={14} aria-hidden="true" /><h1>{current.label}</h1></nav>
+        <nav className="topbar-breadcrumb" aria-label="Fil d’Ariane"><span>{ALL_NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label}</span><ChevronRight size={14} aria-hidden="true" /><h1>{current.label}</h1></nav>
       </div>
       <button className="global-search-trigger" onClick={onSearch} aria-label="Rechercher dans le panneau">
         <Search size={17} />
@@ -348,7 +368,7 @@ function ErrorState({ message, onRetry }) {
   return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le tableau de bord</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
 }
 
-const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|site_cart_(deliver|cancel)$)/;
+const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|site_(cart_deliver|cart_cancel|offer_update|service_visibility|settings_save)$)/;
 const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog"]);
 
 function describeAdminChange(params = {}) {
@@ -848,13 +868,15 @@ export default function App() {
         <div className={`sync-status ${syncError ? "has-error" : ""}`} role="status"><span>{syncError || (lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")}` : "Connexion au panneau…")}</span>{syncError && <button onClick={() => loadData(true)}>Réessayer</button>}</div>
         <main className={`content page-${activePage}`} id="main-content">
           {data?.preview_mode && <p className="preview-notice" role="status">Prévisualisation locale · données fictives · aucune écriture réelle</p>}
-          {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message="La session administrateur n’a pas pu être restaurée." onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
+          {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message="La session administrateur n’a pas pu être restaurée." onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : isSitePage(activePage) ? <SitePage key={activePage} page={activePage} data={data} onAction={adminAction} onNavigate={navigate} setToast={setToast} /> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
         </main>
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}
       {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
       {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
-      {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{[["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]].map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
+      {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{(isSitePage(activePage)
+          ? [["site-overview", "Tableau", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-catalog", "Catalogue", ShoppingBag], ["site-customers", "Clients", Users]]
+          : [["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]]).map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>
   );

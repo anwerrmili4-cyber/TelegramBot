@@ -14,13 +14,15 @@ from urllib.parse import quote
 
 import database as db
 from app.constants import OrderStatus
-from config import TN_MANUAL_PAYMENT_METHODS, TN_WHATSAPP_NUMBER
+from app.domain import site_settings_service
 
 
 def normalize_method(method: str) -> str:
     value = str(method or "").strip().lower()
-    if value not in TN_MANUAL_PAYMENT_METHODS:
-        raise ValueError("Le moyen de paiement doit être D17 ou Flouci.")
+    enabled = site_settings_service.payment_methods()
+    if value not in enabled:
+        labels = " ou ".join(site_settings_service.PAYMENT_METHOD_LABELS[key] for key in enabled)
+        raise ValueError(f"Le moyen de paiement doit être {labels}.")
     return value
 
 
@@ -41,7 +43,7 @@ def whatsapp_url(order: dict[str, Any], method: str) -> str:
         f"{method.upper()} pour la commande #{order_id}.{amount_line}\n"
         "Je joins le justificatif de paiement à ce message."
     )
-    return f"https://wa.me/{TN_WHATSAPP_NUMBER}?text={quote(message)}"
+    return f"https://wa.me/{site_settings_service.whatsapp_number()}?text={quote(message)}"
 
 
 def whatsapp_cart_url(
@@ -65,7 +67,7 @@ def whatsapp_cart_url(
         f"Total : {amount} DT\n"
         "Je joins le justificatif de paiement à ce message."
     )
-    return f"https://wa.me/{TN_WHATSAPP_NUMBER}?text={quote(message)}"
+    return f"https://wa.me/{site_settings_service.whatsapp_number()}?text={quote(message)}"
 
 
 def request_manual_review(order_id: int, method: str) -> dict[str, Any]:
@@ -96,7 +98,7 @@ def request_manual_review(order_id: int, method: str) -> dict[str, Any]:
                 "payment_method": method,
                 "status": OrderStatus.MANUAL_REVIEW,
                 "verification_channel": "whatsapp",
-                "verification_recipient": TN_WHATSAPP_NUMBER,
+                "verification_recipient": site_settings_service.whatsapp_number(),
                 "updated_at": now,
             }
         },
@@ -114,6 +116,6 @@ def request_manual_review(order_id: int, method: str) -> dict[str, Any]:
         "status": str(updated.get("status") or OrderStatus.MANUAL_REVIEW),
         "automatic_confirmation": False,
         "verification_channel": "whatsapp",
-        "whatsapp_number": TN_WHATSAPP_NUMBER,
+        "whatsapp_number": site_settings_service.whatsapp_number(),
         "whatsapp_url": whatsapp_url(updated, method),
     }

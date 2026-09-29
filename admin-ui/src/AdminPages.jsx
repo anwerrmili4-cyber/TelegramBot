@@ -3276,63 +3276,6 @@ function WithdrawalsPage({ onAction, data }) {
   </div>;
 }
 
-const SITE_CART_STATUS = {
-  to_verify: ["À vérifier", "manual_review"],
-  confirmed: ["Paiement confirmé", "payment_confirmed"],
-  delivered: ["Livré", "delivered"],
-  cancelled: ["Annulé", "cancelled"],
-  mixed: ["Statuts mixtes", "stock_issue"],
-};
-
-function dinars(millimes) {
-  return `${(Number(millimes || 0) / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} DT`;
-}
-
-function SiteOrdersPage({ onAction }) {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("to_verify");
-  const [page, setPage] = useState(1);
-  const [editor, setEditor] = useState(null);
-  const [note, setNote] = useState("");
-  const [result, loading] = useRemoteList("/admin/api/site-orders", { search, status, page, per_page: 20 }, { refreshInterval: 15000 });
-  const counts = result.counts || {};
-  const refresh = () => window.dispatchEvent(new CustomEvent("admin:data-synced"));
-  const run = async (payload) => {
-    const completed = await onAction(payload);
-    if (completed) { setEditor(null); setNote(""); refresh(); }
-  };
-  const openEditor = (type, cart) => { setEditor({ type, cart }); setNote(""); };
-  return <div className="operations-page">
-    <PageHeader title="Site Tunisie" description="Commandes passées sur ourblackmarket.com : vérifiez le reçu D17 ou Flouci reçu sur WhatsApp, confirmez, puis livrez." />
-    <OperationsSummary items={[["À vérifier", counts.to_verify || 0, "warning"], ["À livrer", counts.confirmed || 0, "accent"], ["Livrés", counts.delivered || 0, "success"], ["Annulés", counts.cancelled || 0, "danger"]]} />
-    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="Référence TN-…, nom ou téléphone…" resultCount={result.total}>
-      <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut du panier"><option value="to_verify">À vérifier</option><option value="confirmed">À livrer</option><option value="delivered">Livrés</option><option value="cancelled">Annulés</option><option value="all">Tous</option></select>
-    </FilterBar>
-    <section className="operations-panel" aria-busy={loading}>
-      {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des commandes du site…</div> : !result.items.length ? <Empty icon={Globe2} title="Aucune commande" text="Les paniers validés sur le site tunisien apparaîtront ici." /> : <div className="operation-list">{result.items.map((cart) => {
-        const [statusLabel, statusClass] = SITE_CART_STATUS[cart.status] || [cart.status, ""];
-        return <article key={cart.reference} className="operation-card">
-          <header><span className="operation-icon"><Globe2 size={20} /></span><div><small>{cart.reference}</small><strong>{cart.customer_name || "Client"}</strong></div><span className={`status ${statusClass}`}>{statusLabel}</span></header>
-          <div className="operation-amount"><strong>{dinars(cart.total_millimes)}</strong><span>{String(cart.payment_method || "").toUpperCase() || "Paiement"}</span></div>
-          <dl>
-            <div><dt>Téléphone</dt><dd>{cart.whatsapp_url ? <a href={cart.whatsapp_url} target="_blank" rel="noreferrer">{cart.customer_phone} <ExternalLink size={12} /></a> : cart.customer_phone || "—"}</dd></div>
-            <div><dt>Articles</dt><dd>{cart.items.map((item) => <span key={item.order_id} style={{ display: "block" }}>{item.quantity} × {item.service_name ? `${item.service_name} — ` : ""}{item.offer_name} <small>({dinars(item.total_millimes)})</small></span>)}</dd></div>
-            <div><dt>Commandé le</dt><dd>{date(cart.created_at)}</dd></div>
-            {cart.customer_note && <div><dt>Note client</dt><dd>{cart.customer_note}</dd></div>}
-            {cart.status === "delivered" && <div><dt>Livraison</dt><dd>{cart.delivery_note || "—"} · {date(cart.delivered_at)}</dd></div>}
-            {cart.status === "cancelled" && cart.admin_note && <div><dt>Motif d’annulation</dt><dd>{cart.admin_note}</dd></div>}
-          </dl>
-          {cart.status === "to_verify" && <footer><ActionButton icon={CheckCircle2} onClick={() => run({ action: "site_cart_confirm", reference: cart.reference })}>Confirmer le paiement</ActionButton><ActionButton icon={X} danger onClick={() => openEditor("cancel", cart)}>Annuler</ActionButton></footer>}
-          {cart.status === "confirmed" && <footer><ActionButton icon={PackageCheck} onClick={() => openEditor("deliver", cart)}>Marquer livré</ActionButton><ActionButton icon={X} danger onClick={() => openEditor("cancel", cart)}>Annuler</ActionButton></footer>}
-        </article>;
-      })}</div>}
-      <Pagination value={result} onChange={setPage} />
-    </section>
-    {editor?.type === "deliver" && <Modal title={`Livrer le panier ${editor.cart.reference}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_deliver", reference: editor.cart.reference, note }); }}><p>Envoyez les accès au client sur WhatsApp, puis enregistrez la livraison ici.</p><Field label="Ce qui a été envoyé (optionnel)" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={4} placeholder="Ex. compte Netflix envoyé sur WhatsApp à 14h" autoFocus /></Field><div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck}>Marquer livré</ActionButton></div></form></Modal>}
-    {editor?.type === "cancel" && <Modal title={`Annuler le panier ${editor.cart.reference}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_cancel", reference: editor.cart.reference, reason: note }); }}><p>{editor.cart.status === "confirmed" ? "Le stock réservé sera remis en vente. Le remboursement D17/Flouci éventuel reste à faire de votre côté." : "Le panier sera retiré de la file de vérification."}</p><Field label="Motif" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={4} required autoFocus /></Field><div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X}>Annuler le panier</ActionButton></div></form></Modal>}
-  </div>;
-}
-
 function WarrantiesPage({ onAction, data }) {
   const initial = new URLSearchParams(window.location.search).get("warranty") || "";
   const [search, setSearch] = useState(initial);
@@ -4117,6 +4060,8 @@ function AiManagerPage({ data, onAction, setToast }) {
   );
 }
 
+export { ActionButton, Empty, Field, FilterBar, Modal, OperationsSummary, PageHeader, Pagination, date, useRemoteList };
+
 export default function AdminPage({
   page,
   data,
@@ -4129,7 +4074,6 @@ export default function AdminPage({
   if (page === "binance-wallet") return <BinanceWalletPage {...props} />;
   if (page === "ai-manager") return <AiManagerPage {...props} />;
   if (page === "orders") return <OrdersPage {...props} />;
-  if (page === "site-orders") return <SiteOrdersPage {...props} />;
   if (page === "catalog") return <CatalogPage {...props} />;
   if (page === "api-products") return <ApiProductsPage {...props} />;
   if (page === "api-clients") return <ResellerClientsPage {...props} />;

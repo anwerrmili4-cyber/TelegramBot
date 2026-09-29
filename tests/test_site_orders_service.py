@@ -57,6 +57,15 @@ def test_list_filters_by_status_and_searches_reference_name_and_phone(mock_mongo
     assert site_orders_service.list_carts({"status": ["all"], "search": ["21 111"]})["total"] == 2
 
 
+def test_reference_search_does_not_match_phone_digits(mock_mongodb):
+    offer = _offer("Canva")
+    first, _ = _cart((offer, 1)), _cart((offer, 1))
+    db.get_conn().orders.update_many({"cart_reference": first["reference"]}, {"$set": {"cart_reference": "TN-A21111"}})
+
+    result = site_orders_service.list_carts({"status": ["all"], "search": ["TN-A21111"]})
+    assert [cart["reference"] for cart in result["items"]] == ["TN-A21111"]
+
+
 def test_list_ignores_bot_orders(mock_mongodb):
     offer = _offer("Bot only")
     db.create_order(123, db.get_offer(offer), 1)
