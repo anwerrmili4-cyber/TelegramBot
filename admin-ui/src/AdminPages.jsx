@@ -1592,6 +1592,7 @@ function ApiProductsPage({ data, onAction, setToast }) {
     const haystack = searchField === "all" ? Object.values(searchable).join(" ") : searchable[searchField] || "";
     return !search || haystack.toLowerCase().includes(search.toLowerCase());
   }).sort((left, right) => Number(Boolean(right.enabled)) - Number(Boolean(left.enabled)));
+  const supplierName = catalog?.supplier_name || providerMeta.find((item) => item.id === provider)?.name || provider || "";
   const saveProduct = async (payload) => {
     const result = await onAction(payload);
     if (result) await loadProvider(provider, { selectCatalog: true });
@@ -1736,31 +1737,69 @@ function ApiProductsPage({ data, onAction, setToast }) {
         resultCount={visibleProducts.length}
         placeholder="Nom, ID fournisseur ou description…"
       />
-      <section className="data-panel">
-        <div className="product-api-grid">
-          {visibleProducts.map((product) => (
-            <article className={product.enabled ? "api-product-used" : "api-product-unused"} key={product.id}>
-              <header>
-                <div className="api-product-badges"><span className={product.enabled ? "api-usage-badge used" : "api-usage-badge unused"}>{product.enabled ? <CheckCircle2 size={11} /> : <Archive size={11} />}{product.enabled ? "Utilisé" : "Non utilisé"}</span><span
-                  className={product.stock > 0 ? "api-online" : "api-offline"}
-                >
-                  {product.stock > 0 ? `${product.stock} en stock` : "Épuisé"}
-                </span></div>
-                <button aria-label={`Configurer ${product.display_name || product.name}`} onClick={() => setEditing(product)}>
-                  <Edit3 size={15} />
-                </button>
-              </header>
-              <h3>{product.display_name || product.name}</h3>
-              <p>{product.description || "Produit fournisseur"}</p>
-              <div>
-                <span>
-                  Achat {money(product.wholesale_price, product.currency)}
-                </span>
-                <strong>{money(product.retail_price, product.currency)}</strong>
-              </div>
-            </article>
-          ))}
-        </div>
+      <section className="data-panel supplier-products">
+        {!!supplierName && (
+          <header className="panel-heading">
+            <div>
+              <span className="eyebrow">Catalogue fournisseur</span>
+              <h2>{supplierName}</h2>
+            </div>
+            <span className="supplier-products-count">{visibleProducts.length} produit(s) affiché(s)</span>
+          </header>
+        )}
+        {!!visibleProducts.length && (
+          <div className="responsive-table">
+            <table className="supplier-product-table">
+              <thead>
+                <tr>
+                  <th>Produit</th>
+                  <th className="supplier-col-desc">Description</th>
+                  <th>Achat</th>
+                  <th>Vente</th>
+                  <th>Marge</th>
+                  <th>Stock</th>
+                  <th>Utilisation</th>
+                  <th className="supplier-col-actions" aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {visibleProducts.map((product) => {
+                  const wholesale = Number(product.wholesale_price);
+                  const retail = Number(product.retail_price);
+                  const margin = Number.isFinite(wholesale) && retail > 0 ? retail - wholesale : null;
+                  const marginPercent = margin != null && wholesale > 0 ? Math.round((margin / wholesale) * 100) : null;
+                  return (
+                    <tr
+                      className={product.enabled ? "api-product-used" : "api-product-unused"}
+                      key={product.id}
+                      onClick={() => setEditing(product)}
+                    >
+                      <td>
+                        <strong>{product.display_name || product.name}</strong>
+                        <small>ID {product.id}</small>
+                      </td>
+                      <td className="supplier-col-desc"><span>{product.description || "Produit fournisseur"}</span></td>
+                      <td>{money(product.wholesale_price, product.currency)}</td>
+                      <td><strong className="supplier-retail">{money(product.retail_price, product.currency)}</strong></td>
+                      <td>
+                        {margin == null ? "—" : <span className={`supplier-margin ${margin < 0 ? "negative" : ""}`}>{money(margin, product.currency)}{marginPercent != null && <small> {marginPercent}%</small>}</span>}
+                      </td>
+                      <td><span className={product.stock > 0 ? "api-online" : "api-offline"}>{product.stock > 0 ? `${product.stock} en stock` : "Épuisé"}</span></td>
+                      <td><span className={product.enabled ? "api-usage-badge used" : "api-usage-badge unused"}>{product.enabled ? <CheckCircle2 size={11} /> : <Archive size={11} />}{product.enabled ? "Utilisé" : "Non utilisé"}</span></td>
+                      <td className="supplier-col-actions">
+                        <div className="inline-actions">
+                          <button aria-label={`Configurer ${product.display_name || product.name}`} title="Configurer" onClick={(event) => { event.stopPropagation(); setEditing(product); }}>
+                            <Edit3 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
         {loading && (
           <div className="table-loading">Connexion au fournisseur…</div>
         )}

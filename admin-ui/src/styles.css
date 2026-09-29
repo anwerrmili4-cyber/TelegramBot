@@ -225,9 +225,6 @@ html[data-admin-density="compact"] .page-heading { margin-bottom:15px; }
 html[data-admin-density="compact"] .responsive-table th,html[data-admin-density="compact"] .responsive-table td { padding-top:8px; padding-bottom:8px; }
 html[data-admin-density="compact"] .stat-card,html[data-admin-density="compact"] .order-kpis article { min-height:auto; padding:11px; }
 html[data-admin-density="compact"] .offer-card { padding-top:8px; padding-bottom:8px; }
-html[data-admin-density="compact"] .product-api-grid { gap:7px; padding:8px; }
-html[data-admin-density="compact"] .product-api-grid article { padding:10px; }
-
 .column-picker-trigger { min-height:38px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--line); border-radius:9px; color:var(--muted); background:var(--panel); font-size:10px; font-weight:700; cursor:pointer; }
 .column-picker-trigger:hover { color:var(--text); border-color:var(--line-bright); }
 .column-picker { display:grid; gap:8px; }
@@ -300,7 +297,7 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
 .sort-button { display:inline-flex; align-items:center; gap:5px; padding:0; border:0; color:inherit; background:transparent; font:inherit; font-weight:inherit; letter-spacing:inherit; text-transform:inherit; cursor:pointer; }.sort-button:hover,.sort-button.active { color:var(--accent); }.sort-button span { font-size:11px; }
 .responsive-table { width:100%; overflow-x:auto; }
 .responsive-table td small { display:block; margin-top:3px; color:var(--muted); }
-.row-action,.inline-actions button,.offer-actions button,.catalog-service-actions button,.product-api-grid article header button { width:31px; height:31px; display:grid; place-items:center; padding:0; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:var(--panel); cursor:pointer; }
+.row-action,.inline-actions button,.offer-actions button,.catalog-service-actions button { width:31px; height:31px; display:grid; place-items:center; padding:0; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:var(--panel); cursor:pointer; }
 .inline-actions,.offer-actions { display:flex; gap:5px; }
 .table-loading { padding:28px; color:var(--muted); font-size:11px; text-align:center; }
 .page-empty { min-height:190px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--muted); text-align:center; }
@@ -396,18 +393,8 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
 .api-usage-classifier button:hover,.api-usage-classifier button.active { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 34%,transparent); background:color-mix(in srgb,var(--accent) 9%,transparent); }
 .api-usage-classifier button.used.active { color:var(--green); border-color:color-mix(in srgb,var(--green) 32%,transparent); background:color-mix(in srgb,var(--green) 7%,transparent); }.api-usage-classifier button.used.active b { color:var(--green); background:color-mix(in srgb,var(--green) 10%,transparent); }
 .api-usage-classifier button.unused.active { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 30%,transparent); background:color-mix(in srgb,var(--amber) 6%,transparent); }.api-usage-classifier button.unused.active b { color:var(--amber); background:color-mix(in srgb,var(--amber) 10%,transparent); }
-.product-api-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:12px; }
-.product-api-grid article { padding:13px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
-.product-api-grid article.api-product-used { border-color:color-mix(in srgb,var(--green) 20%,transparent); background:linear-gradient(145deg,color-mix(in srgb,var(--green) 6%,transparent),var(--panel) 42%); }
-.product-api-grid article.api-product-unused { opacity:.86; }
-.product-api-grid article > header { display:flex; justify-content:space-between; align-items:center; }
-.api-product-badges { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
 .api-usage-badge { min-height:20px; display:inline-flex; align-items:center; gap:4px; padding:0 7px; border-radius:8px; font-size:10px; font-weight:800; }
 .api-usage-badge.used { color:var(--green); background:color-mix(in srgb,var(--green) 9%,transparent); }.api-usage-badge.unused { color:var(--amber); background:color-mix(in srgb,var(--amber) 8%,transparent); }
-.product-api-grid h3 { margin:13px 0 6px; font-size:12px; }
-.product-api-grid p { min-height:32px; margin:0 0 14px; color:var(--muted); font-size:11px; line-height:1.5; }
-.product-api-grid article > div { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:10px; }
-.product-api-grid article > div strong { color:var(--accent); font-size:10px; }
 .ai-comparison-panel { margin-bottom:14px; padding:15px; border:1px solid color-mix(in srgb,var(--accent) 30%,transparent); border-radius:13px; background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 10%,transparent),var(--panel) 42%); }
 .ai-comparison-panel > header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:13px; }
 .ai-comparison-panel h2 { margin:7px 0 4px; font-size:17px; }
@@ -617,7 +604,6 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
   .orders-panel, .service-panel { grid-column: auto; }
   .catalog-react-grid,.settings-layout { grid-template-columns:1fr; }
   .settings-card.full,.settings-submit { grid-column:auto; }
-  .product-api-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .comparison-grid { grid-template-columns:1fr; }
   .custom-api-grid { grid-template-columns:1fr; }
   .order-analytics-grid { grid-template-columns:1fr; }
@@ -678,7 +664,6 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
   .form-grid,.detail-grid { grid-template-columns:1fr; }
   .field.wide { grid-column:auto; }
   .api-summary,.mini-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .product-api-grid { grid-template-columns:1fr; }
   .custom-apis > header { align-items:flex-start; }.custom-apis > header .action-button { width:40px; padding:0; font-size:0; }
   .custom-api-grid article { align-items:flex-start; flex-wrap:wrap; }.custom-api-copy { min-width:calc(100% - 50px); }.custom-api-actions { width:100%; justify-content:flex-end; }
   .dialog-actions .action-button { flex:1; }
