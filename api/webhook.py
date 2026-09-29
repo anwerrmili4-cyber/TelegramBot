@@ -49,6 +49,7 @@ from app.domain import (
     reseller_comparison_service,
     reseller_service,
     site_admin_service,
+    site_logo_service,
     site_orders_service,
     site_settings_service,
     storefront_auth_service,
@@ -613,6 +614,22 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(503, {"ok": False, "error": "Catalogue temporairement indisponible."}, headers={
                     "Access-Control-Allow-Origin": "*",
                 })
+            return
+
+        if path == site_logo_service.PUBLIC_PATH:
+            logo = site_logo_service.load(parse_qs(url.query).get("id", [""])[0])
+            if not logo:
+                self._reply(404, {"ok": False, "error": "Logo introuvable."})
+                return
+            data, content_type = logo
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
             return
 
         if path in STOREFRONT_AUTH_GET_PATHS:

@@ -29,6 +29,7 @@ import database as db
 from app.constants import OrderStatus
 from app.domain import (
     email_service,
+    site_logo_service,
     site_orders_service,
     site_settings_service,
     storefront_receipt_service,
@@ -164,6 +165,7 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "service_id": int(service["id"]),
         "service_name": str(service.get("name") or "Service")[:120],
         "service_emoji": str(service.get("emoji") or "✦")[:8],
+        "service_logo_url": site_logo_service.logo_url(service),
     }
 
 
@@ -188,6 +190,7 @@ def catalog() -> dict[str, Any]:
                 "id": int(service["id"]),
                 "name": str(service.get("name") or "Service")[:120],
                 "emoji": str(service.get("emoji") or "✦")[:8],
+                "logo_url": site_logo_service.logo_url(service),
                 "offers": offers,
             })
     return {

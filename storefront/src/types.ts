@@ -23,6 +23,8 @@ export type Offer = {
   service_id: number;
   service_name: string;
   service_emoji: string;
+  /** Empty when the service has no uploaded logo. */
+  service_logo_url: string;
 };
 
 export type Category = { id: string; label: string };
@@ -34,7 +36,7 @@ export type Catalog = {
   ok: boolean;
   currency: string;
   max_cart_lines: number;
-  services: { id: number; name: string; emoji: string; offers: Offer[] }[];
+  services: { id: number; name: string; emoji: string; logo_url: string; offers: Offer[] }[];
   categories: Category[];
   payment_methods: PaymentMethod[];
 };

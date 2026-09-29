@@ -14,6 +14,7 @@ from typing import Any
 import database as db
 from app.domain import (
     inventory_service,
+    site_logo_service,
     site_orders_service,
     site_settings_service,
     storefront_service,
@@ -130,6 +131,7 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "service_id": int(service["id"]),
         "service_name": str(service.get("name") or "Service"),
         "service_emoji": str(service.get("emoji") or ""),
+        "service_logo_url": site_logo_service.logo_url(service),
         "service_visible": storefront_service._site_visible(service),
         "service_active": service_active,
         "active": active,
@@ -198,6 +200,7 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
             "name": str(service.get("name") or "Service"),
             "name_ar": str(service.get("name_ar") or ""),
             "emoji": str(service.get("emoji") or ""),
+            "logo_url": site_logo_service.logo_url(service),
             "active": bool(service.get("active", 1)),
             "site_enabled": storefront_service._site_visible(service),
             "offers": len(offers),
@@ -309,6 +312,12 @@ def save_service(form: dict[str, Any]) -> dict[str, Any]:
     emoji = str(form.get("emoji") or "").strip()[:12] or "📦"
     name_ar = str(form.get("name_ar") or "").strip()[:120]
     site_enabled = _truthy(form.get("site_enabled", "1"))
+    logo = None
+    if str(form.get("logo") or "").strip():
+        try:
+            logo = site_logo_service.decode(form.get("logo"))
+        except site_logo_service.LogoError as exc:
+            raise SiteAdminError(str(exc)) from exc
 
     if service_id is None:
         service_id = db.add_service(name, emoji, sales_channels=["bot"], name_ar=name_ar)
@@ -319,9 +328,16 @@ def save_service(form: dict[str, Any]) -> dict[str, Any]:
         db.update_service(service_id, name=name, emoji=emoji, name_ar=name_ar)
         created = False
     db.get_conn().services.update_one({"id": service_id}, {"$set": {"site_enabled": site_enabled}})
+    logo_change = None
+    if logo:
+        site_logo_service.save(service_id, *logo)
+        logo_change = "updated"
+    elif _truthy(form.get("remove_logo")):
+        site_logo_service.remove(service_id)
+        logo_change = "removed"
     db.audit_event(
         "site_catalog.service_created" if created else "site_catalog.service_updated",
-        details={"service_id": service_id, "name": name, "site_enabled": site_enabled},
+        details={"service_id": service_id, "name": name, "site_enabled": site_enabled, "logo": logo_change},
     )
     return {"service_id": service_id, "name": name, "created": created}
 

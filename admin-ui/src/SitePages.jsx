@@ -21,6 +21,7 @@ import {
   ToggleRight,
   Trash2,
   TrendingUp,
+  Upload,
   Users,
   Wallet,
   X,
@@ -410,17 +411,43 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
   </Modal>;
 }
 
+const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const MAX_LOGO_BYTES = 500_000;
+
 function ServiceEditor({ service, onClose, onSave }) {
   const [form, setForm] = useState({
     name: service?.name || "",
     emoji: service?.emoji || "",
     name_ar: service?.name_ar || "",
     site_enabled: service ? service.site_enabled : true,
+    logo: "",
+    remove_logo: false,
   });
+  const [logoError, setLogoError] = useState("");
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const logoPreview = form.logo || (!form.remove_logo && service?.logo_url) || "";
+  const pickLogo = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!LOGO_TYPES.includes(file.type)) { setLogoError("Format accepté : PNG, JPEG ou WebP."); return; }
+    if (file.size > MAX_LOGO_BYTES) { setLogoError("Le logo doit peser moins de 500 Ko."); return; }
+    setLogoError("");
+    const reader = new FileReader();
+    reader.onload = () => setForm((current) => ({ ...current, logo: String(reader.result || ""), remove_logo: false }));
+    reader.onerror = () => setLogoError("Impossible de lire ce fichier.");
+    reader.readAsDataURL(file);
+  };
+  const clearLogo = () => setForm((current) => ({ ...current, logo: "", remove_logo: Boolean(service?.logo_url) }));
   const submit = (event) => {
     event.preventDefault();
-    onSave({ action: "site_service_save", ...(service ? { service_id: service.id } : {}), ...form, site_enabled: form.site_enabled ? "1" : "0" });
+    onSave({
+      action: "site_service_save",
+      ...(service ? { service_id: service.id } : {}),
+      ...form,
+      site_enabled: form.site_enabled ? "1" : "0",
+      remove_logo: form.remove_logo ? "1" : "0",
+    });
   };
   return <Modal title={service ? `Modifier le service · ${service.name}` : "Nouveau service"} onClose={onClose}>
     <form className="operation-form" onSubmit={submit}>
@@ -429,6 +456,14 @@ function ServiceEditor({ service, onClose, onSave }) {
         <Field label="Nom"><input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={80} required autoFocus placeholder="Ex. Netflix" /></Field>
         <Field label="Emoji"><input value={form.emoji} onChange={(event) => set("emoji", event.target.value)} maxLength={12} placeholder="📦" /></Field>
         <Field label="Nom arabe (bot, optionnel)" wide><input dir="rtl" value={form.name_ar} onChange={(event) => set("name_ar", event.target.value)} maxLength={120} /></Field>
+        <Field label="Logo du service (site, optionnel)" wide>
+          <div className="site-logo-picker">
+            <span className="site-logo-preview">{logoPreview ? <img src={logoPreview} alt="Logo du service" /> : form.emoji || <ImageIcon size={18} />}</span>
+            <label className="action-button secondary site-logo-upload"><Upload size={15} />{logoPreview ? "Remplacer" : "Importer un logo"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickLogo} /></label>
+            {logoPreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearLogo}>Retirer</ActionButton>}
+          </div>
+          {logoError ? <small className="site-hint"><AlertTriangle size={13} />{logoError}</small> : <small className="site-field-help">PNG, JPEG ou WebP, 500 Ko max. Idéalement carré (256 × 256 px). Remplace l’emoji sur le site.</small>}
+        </Field>
         <Field label="Affichage" wide><label className="switch"><input type="checkbox" checked={form.site_enabled} onChange={(event) => set("site_enabled", event.target.checked)} /><span />Afficher ce service sur le site</label></Field>
       </div>
       <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={service ? Save : Plus}>{service ? "Enregistrer" : "Créer le service"}</ActionButton></div>
@@ -507,7 +542,7 @@ function SiteCatalogPage({ onAction }) {
             const canStock = !row.unlimited_stock && !row.supplier_provider && !row.manual_stock;
             return <tr key={row.id} className={row.active && row.service_active ? "" : "site-row-disabled"}>
               <td><div className="site-offer-cell">
-                {row.site_image_url ? <img className="site-thumb" src={row.site_image_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
+                {row.site_image_url || row.service_logo_url ? <img className="site-thumb" src={row.site_image_url || row.service_logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
                 <div><strong>{row.name}</strong><small>{row.service_name}{row.site_featured && <em className="site-chip"><Sparkles size={11} />Vedette</em>}{row.site_badge && <em className="site-chip">{row.site_badge}</em>}</small></div>
               </div></td>
               <td>{row.bot_price_usdt} USDT</td>
@@ -530,7 +565,8 @@ function SiteCatalogPage({ onAction }) {
       <header><h3><Globe2 size={17} />Services</h3><small>Masquer un service retire ses offres du site sans toucher au bot. Le désactiver le retire des deux.</small></header>
       {!services.length ? <Empty icon={Globe2} title="Aucun service" text="Créez un premier service pour y ranger vos produits." />
         : <div className="site-service-grid">{services.map((service) => <div key={service.id} className={`site-service${service.active ? "" : " site-row-disabled"}`}>
-          <span><strong>{service.emoji} {service.name}</strong><small>{service.active ? `${service.on_sale}/${service.offers} offre(s) en vente` : "Désactivé (site et bot)"}</small></span>
+          {service.logo_url ? <img className="site-thumb" src={service.logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{service.emoji || <Globe2 size={15} />}</span>}
+          <span><strong>{service.name}</strong><small>{service.active ? `${service.on_sale}/${service.offers} offre(s) en vente` : "Désactivé (site et bot)"}</small></span>
           <span className="site-row-actions">
             <button type="button" title="Ajouter un produit" aria-label={`Ajouter un produit à ${service.name}`} onClick={() => setEditor({ type: "product", serviceId: service.id })}><Plus size={15} /></button>
             <button type="button" title="Modifier" aria-label={`Modifier ${service.name}`} onClick={() => setEditor({ type: "service", service })}><Edit3 size={15} /></button>

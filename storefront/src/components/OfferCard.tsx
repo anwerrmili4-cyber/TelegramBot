@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CalendarClock, Check, ChevronRight, ShieldCheck, ShoppingBag, Truck } from "lucide-react";
 import { QuantityStepper } from "@/components/QuantityStepper";
+import { ServiceMark } from "@/components/ServiceMark";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { stagger } from "@/lib/motion";
@@ -30,9 +31,7 @@ export function OfferCard({ offer, index, inCart, cartIsFull, onAdd, onOpen }: O
       style={{ ...stagger(index), viewTransitionName: `offer-${offer.id}` }}
     >
       <header>
-        <span className="offer-service" aria-hidden="true">
-          {offer.service_emoji}
-        </span>
+        <ServiceMark offer={offer} />
         <div>
           <p>{offer.service_name}</p>
           <span>Pack #{offer.package_number}</span>

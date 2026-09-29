@@ -140,6 +140,18 @@
   font-size: 18px;
 }
 
+.offer-service-logo {
+  overflow: hidden;
+  padding: 4px;
+  background: #fff;
+}
+
+.offer-service-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .offer > header > div {
   min-width: 0;
 }

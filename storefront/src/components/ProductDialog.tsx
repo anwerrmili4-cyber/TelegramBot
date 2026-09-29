@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
+import { ServiceMark } from "@/components/ServiceMark";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import type { Offer } from "@/types";
@@ -67,9 +68,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
       <div className="product-dialog">
         <header className="dialog-head">
           <div className="product-service">
-            <span className="offer-service" aria-hidden="true">
-              {shown.service_emoji}
-            </span>
+            <ServiceMark offer={shown} />
             <div>
               <span className="kicker">{shown.service_name}</span>
               <small>Pack #{shown.package_number}</small>

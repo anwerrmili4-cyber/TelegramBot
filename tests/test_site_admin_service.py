@@ -1,5 +1,6 @@
 """Admin space for the Tunisian storefront: overview, catalog, customers, settings."""
 
+import base64
 import itertools
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 import database as db
 from app.domain import (
     site_admin_service,
+    site_logo_service,
     site_orders_service,
     site_settings_service,
     storefront_service,
@@ -104,6 +106,42 @@ def test_save_service_creates_and_renames(mock_mongodb):
 
     with pytest.raises(site_admin_service.SiteAdminError, match="obligatoire"):
         site_admin_service.save_service({"name": " "})
+
+
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def _data_url(data: bytes, content_type: str = "image/png") -> str:
+    return f"data:{content_type};base64,{base64.b64encode(data).decode()}"
+
+
+def test_save_service_uploads_replaces_and_removes_logo(mock_mongodb):
+    service_id = site_admin_service.save_service({"name": "Netflix", "logo": _data_url(_PNG)})["service_id"]
+    service = db.get_service(service_id)
+    url = site_logo_service.logo_url(service)
+    assert url.startswith(f"/api/storefront/service-logo?id={service_id}&v=")
+    assert site_logo_service.load(service_id) == (_PNG, "image/png")
+    (listed,) = site_admin_service.catalog({})["services"]
+    assert listed["logo_url"] == url
+
+    site_admin_service.save_service({"service_id": str(service_id), "name": "Netflix"})
+    assert site_logo_service.load(service_id) is not None
+
+    site_admin_service.save_service({"service_id": str(service_id), "name": "Netflix", "remove_logo": "1"})
+    assert site_logo_service.load(service_id) is None
+    assert site_logo_service.logo_url(db.get_service(service_id)) == ""
+
+
+@pytest.mark.parametrize("logo, message", [
+    ("https://example.com/logo.png", "PNG, JPEG ou WebP"),
+    ("data:image/svg+xml;base64,PHN2Zz4=", "PNG, JPEG ou WebP"),
+    (_data_url(b"GIF89a" + b"\x00" * 16), "illisible"),
+    (_data_url(_PNG + b"\x00" * site_logo_service.MAX_LOGO_BYTES), "500 Ko"),
+], ids=["url", "svg", "gif", "too_large"])
+def test_save_service_rejects_invalid_logo_without_creating(mock_mongodb, logo, message):
+    with pytest.raises(site_admin_service.SiteAdminError, match=message):
+        site_admin_service.save_service({"name": "Canva", "logo": logo})
+    assert site_admin_service.catalog({})["services"] == []
 
 
 def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
