@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowRight, BadgeCheck, Copy, ShieldAlert, X } from "lucide-react";
+import { ArrowRight, BadgeCheck, Clock3, LogIn, PackageCheck, Wallet as WalletIcon, X } from "lucide-react";
 import { Overlay } from "@/components/Overlay";
+import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { errorMessage, submitCheckout } from "@/lib/api";
-import { EMAIL_PATTERN } from "@/pages/AuthLayout";
-import { displayPhone, isValidPhone, money, normalizePhoneInput, plural } from "@/lib/format";
+import { errorMessage, fetchWallet, submitCheckout } from "@/lib/api";
+import { money, plural } from "@/lib/format";
 import { stagger } from "@/lib/motion";
+import { navigate, ROUTES, withNext } from "@/lib/router";
+import { accountPath } from "@/pages/AccountPage";
 import type { Cart } from "@/hooks/useCart";
 import type { CheckoutResult, PaymentMethod } from "@/types";
 
@@ -17,31 +19,37 @@ type CheckoutDialogProps = {
   onConfirmed: () => void;
 };
 
-export function CheckoutDialog({
-  open,
-  cart,
-  paymentMethods,
-  onClose,
-  onConfirmed,
-}: CheckoutDialogProps) {
-  const { customer } = useAuth();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+type PayWith = "wallet" | "transfer";
+
+export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirmed }: CheckoutDialogProps) {
+  const { customer, token, handleError } = useAuth();
+  const [balance, setBalance] = useState<number | null>(null);
+  const [payWith, setPayWith] = useState<PayWith>("wallet");
+  const [method, setMethod] = useState(paymentMethods[0]?.id ?? "");
+  const [reference, setReference] = useState("");
+  const [receipt, setReceipt] = useState("");
   const [note, setNote] = useState("");
-  const [method, setMethod] = useState(paymentMethods[0]?.id ?? "d17");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CheckoutResult | null>(null);
-  const [copied, setCopied] = useState(false);
-  const methodLabel = paymentMethods.find((option) => option.id === method)?.label ?? method;
 
-  // Pre-fill from the account without overwriting anything already typed.
+  const total = cart.totalMillimes;
+  const walletEnough = balance !== null && balance >= total;
+  const chosenMethod = paymentMethods.find((option) => option.id === method) ?? paymentMethods[0];
+
   useEffect(() => {
-    if (!open || !customer) return;
-    setName((current) => current || customer.name);
-    setEmail((current) => current || customer.email);
-  }, [open, customer]);
+    if (!open || !token) return;
+    const controller = new AbortController();
+    fetchWallet(token, controller.signal)
+      .then((wallet) => {
+        setBalance(wallet.balance_millimes);
+        if (wallet.balance_millimes < total) setPayWith("transfer");
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted) handleError(reason);
+      });
+    return () => controller.abort();
+  }, [open, token, total, handleError]);
 
   function close() {
     onClose();
@@ -49,11 +57,9 @@ export function CheckoutDialog({
       // The cart is only discarded once the customer leaves a confirmed order,
       // so a failed submission never loses their selection.
       setResult(null);
-      setName("");
-      setEmail("");
-      setPhone("");
+      setReference("");
+      setReceipt("");
       setNote("");
-      setCopied(false);
       onConfirmed();
     }
   }
@@ -61,35 +67,43 @@ export function CheckoutDialog({
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
-    if (!EMAIL_PATTERN.test(email.trim())) {
-      setError("Saisis une adresse email valide pour recevoir ta commande.");
+    if (payWith === "wallet" && !walletEnough) {
+      setError("Solde insuffisant : recharge ton portefeuille ou paie par virement.");
       return;
     }
-    if (!isValidPhone(phone)) {
-      setError("Saisis un numéro tunisien valide à 8 chiffres.");
-      return;
+    if (payWith === "transfer") {
+      if (reference.trim().length < 3) {
+        setError("Saisis la référence de la transaction indiquée sur ton reçu.");
+        return;
+      }
+      if (!receipt) {
+        setError("Ajoute une capture de ton reçu.");
+        return;
+      }
     }
     setSubmitting(true);
     setError("");
     try {
-      setResult(
-        await submitCheckout({
-          name: name.trim(),
-          email: email.trim(),
-          phone: normalizePhoneInput(phone),
-          payment_method: method,
-          note: note.trim(),
-          items: cart.lines.map((line) => ({
-            offer_id: line.offer.id,
-            quantity: line.quantity,
-          })),
-        }),
-      );
+      const created = await submitCheckout(token, {
+        payment_method: payWith === "wallet" ? "wallet" : chosenMethod?.id ?? "",
+        transaction_reference: payWith === "transfer" ? reference.trim() : undefined,
+        receipt: payWith === "transfer" ? receipt : undefined,
+        note: note.trim(),
+        items: cart.lines.map((line) => ({ offer_id: line.offer.id, quantity: line.quantity })),
+      });
+      setResult(created);
+      setBalance(created.balance_millimes);
     } catch (reason) {
+      handleError(reason);
       setError(errorMessage(reason, "Impossible de créer la commande."));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function goToAccount(tab: "commandes" | "portefeuille") {
+    close();
+    navigate(accountPath(tab));
   }
 
   return (
@@ -97,139 +111,127 @@ export function CheckoutDialog({
       <header className="dialog-head">
         <div>
           <span className="kicker">{result ? "Commande enregistrée" : "Finaliser"}</span>
-          <h2 id="checkout-title">
-            {result ? `Référence ${result.reference}` : "Tes coordonnées"}
-          </h2>
+          <h2 id="checkout-title">{result ? `Référence ${result.reference}` : "Paiement"}</h2>
         </div>
         <button type="button" className="icon-button" onClick={close} aria-label="Fermer">
           <X size={18} aria-hidden="true" />
         </button>
       </header>
 
-      {result ? (
+      {!customer ? (
         <div className="checkout-success">
           <span className="success-mark">
-            <BadgeCheck size={30} aria-hidden="true" />
+            <LogIn size={28} aria-hidden="true" />
           </span>
           <p className="success-copy">
-            Il reste une étape : envoie ton reçu {methodLabel} sur WhatsApp. Aucun paiement n'est
-            confirmé automatiquement.
+            Connecte-toi pour payer : tes accès seront livrés par email et resteront disponibles dans ton
+            espace client. Ton panier est conservé.
           </p>
-
           <button
             type="button"
-            className="reference-copy"
+            className="button button-primary button-block"
             onClick={() => {
-              void navigator.clipboard?.writeText(result.reference).then(() => setCopied(true));
+              onClose();
+              navigate(withNext(ROUTES.login, "/"));
             }}
           >
-            <span>
-              <small>Ta référence</small>
-              <strong>{result.reference}</strong>
-            </span>
-            <Copy size={16} aria-hidden="true" />
-            <em aria-live="polite">{copied ? "Copiée" : ""}</em>
+            Se connecter <ArrowRight size={17} aria-hidden="true" />
           </button>
-
-          <ul className="success-lines">
-            {result.items.map((item, index) => (
-              <li key={item.offer_id} style={stagger(index)}>
-                <span>
-                  {item.quantity} × {item.offer_name}
-                </span>
-                <b>{money(item.total_millimes)}</b>
-              </li>
-            ))}
-          </ul>
-          <div className="cart-total">
-            <span>Total à vérifier</span>
-            <strong>{money(result.total_millimes)}</strong>
-          </div>
-
-          <a
-            className="button button-primary button-block"
-            href={result.whatsapp_url}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            className="button button-ghost button-block"
+            onClick={() => {
+              onClose();
+              navigate(withNext(ROUTES.register, "/"));
+            }}
           >
-            Ouvrir WhatsApp <ArrowRight size={17} aria-hidden="true" />
-          </a>
-          <p className="success-hint">
-            Un récapitulatif vient d'être envoyé à <strong>{email.trim()}</strong>. Garde la référence{" "}
-            <strong>{result.reference}</strong> jusqu'à la livraison de tes {result.order_ids.length}{" "}
-            {plural(result.order_ids.length, "produit", "produits")}.
-          </p>
+            Créer un compte
+          </button>
         </div>
+      ) : result ? (
+        <CheckoutSuccess result={result} onOpenAccount={goToAccount} />
       ) : (
         <form className="checkout-form" onSubmit={onSubmit} noValidate>
           <div className="checkout-recap">
             <span>
               {cart.count} {plural(cart.count, "article", "articles")}
             </span>
-            <strong>{money(cart.totalMillimes)}</strong>
+            <strong>{money(total)}</strong>
           </div>
 
-          <label>
-            Nom complet
-            <input
-              required
-              name="name"
-              autoComplete="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Ex. Amine Ben Salah"
-            />
-          </label>
-
-          <label>
-            Adresse email
-            <input
-              required
-              name="email"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="toi@exemple.com"
-              aria-describedby="email-hint"
-            />
-            <small id="email-hint">Ta confirmation et tes accès arriveront à cette adresse.</small>
-          </label>
-
-          <label>
-            Numéro WhatsApp
-            <span className="phone-field">
-              <i>+216</i>
+          <fieldset className="pay-with">
+            <legend>Payer avec</legend>
+            <label className={payWith === "wallet" ? "selected" : ""}>
               <input
-                required
-                name="phone"
-                inputMode="numeric"
-                autoComplete="tel-national"
-                value={displayPhone(phone)}
-                onChange={(event) => setPhone(normalizePhoneInput(event.target.value))}
-                placeholder="21 994 132"
-                aria-describedby="phone-hint"
+                type="radio"
+                name="pay_with"
+                checked={payWith === "wallet"}
+                onChange={() => setPayWith("wallet")}
               />
-            </span>
-            <small id="phone-hint">8 chiffres, c'est là que la vérification se fera.</small>
-          </label>
-
-          <fieldset className="method-choice">
-            <legend>Moyen de paiement</legend>
-            {paymentMethods.map((option) => (
-              <label key={option.id} className={method === option.id ? "selected" : ""}>
-                <input
-                  type="radio"
-                  name="payment_method"
-                  value={option.id}
-                  checked={method === option.id}
-                  onChange={() => setMethod(option.id)}
-                />
-                {option.label}
-              </label>
-            ))}
+              <WalletIcon size={18} aria-hidden="true" />
+              <span>
+                <strong>Mon portefeuille</strong>
+                <small>
+                  {balance === null
+                    ? "Chargement du solde…"
+                    : walletEnough
+                      ? `Solde : ${money(balance)} · livraison immédiate`
+                      : `Solde : ${money(balance)} · insuffisant`}
+                </small>
+              </span>
+            </label>
+            <label className={payWith === "transfer" ? "selected" : ""}>
+              <input
+                type="radio"
+                name="pay_with"
+                checked={payWith === "transfer"}
+                onChange={() => setPayWith("transfer")}
+                disabled={!paymentMethods.length}
+              />
+              <Clock3 size={18} aria-hidden="true" />
+              <span>
+                <strong>Virement avec reçu</strong>
+                <small>{paymentMethods.map((option) => option.label).join(", ") || "Indisponible"}</small>
+              </span>
+            </label>
           </fieldset>
+
+          {payWith === "wallet" ? (
+            balance !== null && !walletEnough ? (
+              <p className="manual-warning">
+                <WalletIcon size={18} aria-hidden="true" />
+                <span>
+                  <strong>Il te manque {money(total - balance)}</strong>
+                  Recharge ton portefeuille depuis ton espace, ou paie cette commande par virement.
+                  <button type="button" className="auth-inline-link" onClick={() => goToAccount("portefeuille")}>
+                    Recharger mon portefeuille
+                  </button>
+                </span>
+              </p>
+            ) : null
+          ) : (
+            <>
+              <MethodPicker
+                methods={paymentMethods}
+                value={chosenMethod?.id ?? ""}
+                onChange={setMethod}
+                name="payment_method"
+              />
+              <PaymentInstructions method={chosenMethod} amountMillimes={total} />
+              <label>
+                Référence de la transaction
+                <input
+                  required
+                  name="transaction_reference"
+                  value={reference}
+                  maxLength={64}
+                  onChange={(event) => setReference(event.target.value)}
+                  placeholder="Ex. 123456789"
+                />
+              </label>
+              <ReceiptField value={receipt} onChange={setReceipt} onError={setError} />
+            </>
+          )}
 
           <label>
             <span className="field-label">
@@ -245,15 +247,6 @@ export function CheckoutDialog({
             />
           </label>
 
-          <p className="manual-warning">
-            <ShieldAlert size={18} aria-hidden="true" />
-            <span>
-              <strong>Vérification humaine</strong>
-              Après validation, WhatsApp s'ouvre avec ta référence. Un administrateur contrôle ton
-              reçu avant la livraison.
-            </span>
-          </p>
-
           {error ? (
             <p className="form-error" role="alert">
               {error}
@@ -263,13 +256,64 @@ export function CheckoutDialog({
           <button
             type="submit"
             className="button button-primary button-block"
-            disabled={submitting || !cart.lines.length}
+            disabled={submitting || !cart.lines.length || (payWith === "wallet" && !walletEnough)}
           >
-            {submitting ? "Création en cours…" : "Valider et payer"}
+            {submitting
+              ? "Paiement en cours…"
+              : payWith === "wallet"
+                ? `Payer ${money(total)}`
+                : "Envoyer mon reçu"}
             {submitting ? null : <ArrowRight size={17} aria-hidden="true" />}
           </button>
         </form>
       )}
     </Overlay>
+  );
+}
+
+function CheckoutSuccess({
+  result,
+  onOpenAccount,
+}: {
+  result: CheckoutResult;
+  onOpenAccount: (tab: "commandes" | "portefeuille") => void;
+}) {
+  const delivered = result.status === "delivered";
+  const waiting = result.status === "to_verify";
+  return (
+    <div className="checkout-success">
+      <span className="success-mark">
+        {delivered ? <PackageCheck size={30} aria-hidden="true" /> : <BadgeCheck size={30} aria-hidden="true" />}
+      </span>
+      <p className="success-copy">
+        {delivered
+          ? "Commande livrée ! Tes accès viennent d'arriver par email et sont disponibles dans ton espace."
+          : waiting
+            ? "Ton reçu a bien été envoyé. Un administrateur le vérifie, puis tes accès arrivent par email et dans ton espace."
+            : "Paiement confirmé. Ta livraison est en préparation : tu recevras tes accès par email et dans ton espace."}
+      </p>
+
+      <ul className="success-lines">
+        {result.items.map((item, index) => (
+          <li key={item.offer_id} style={stagger(index)}>
+            <span>
+              {item.quantity} × {item.offer_name}
+            </span>
+            <b>{money(item.total_millimes)}</b>
+          </li>
+        ))}
+      </ul>
+      <div className="cart-total">
+        <span>{waiting ? "Total à vérifier" : "Total payé"}</span>
+        <strong>{money(result.total_millimes)}</strong>
+      </div>
+      {result.payment_method === "wallet" ? (
+        <p className="success-hint">Nouveau solde : {money(result.balance_millimes)}</p>
+      ) : null}
+
+      <button type="button" className="button button-primary button-block" onClick={() => onOpenAccount("commandes")}>
+        {delivered ? "Voir mes accès" : "Suivre ma commande"} <ArrowRight size={17} aria-hidden="true" />
+      </button>
+    </div>
   );
 }

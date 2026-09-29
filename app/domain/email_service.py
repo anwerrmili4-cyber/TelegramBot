@@ -131,6 +131,24 @@ def _greeting(name: str) -> str:
     return f"Bonjour {name}," if name else "Bonjour,"
 
 
+ACCOUNT_PATH = "/mon-compte"
+
+
+def _account_url(section: str = "") -> str:
+    site = os.environ.get("STOREFRONT_PUBLIC_URL", "").strip().rstrip("/")
+    if not site:
+        return ""
+    return f"{site}{ACCOUNT_PATH}" + (f"?onglet={section}" if section else "")
+
+
+def _account_button(label: str, section: str = "") -> tuple[str, str]:
+    """The HTML button and plain-text line pointing to the customer's space."""
+    url = _account_url(section)
+    if not url:
+        return "", ""
+    return _button(label, url), f"\n\n{label} : {url}"
+
+
 def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
     body = (
         _paragraph(escape(_greeting(name)))
@@ -151,17 +169,17 @@ def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
 def send_welcome(to: str, name: str, site_url: str) -> None:
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ton compte {BRAND} est prêt. Tu peux maintenant commander plus vite.")
+        + _paragraph(f"Ton compte {BRAND} est prêt.")
         + _paragraph(
-            "Chaque commande est vérifiée par un administrateur sur WhatsApp, puis livrée "
-            "par email dès que ton paiement est confirmé."
+            "Recharge ton portefeuille par D17, Flouci, IZI ou Wafa Cash, puis achète en un clic : "
+            "tes accès arrivent par email et restent disponibles dans ton espace client."
         )
         + (_button("Découvrir le catalogue", site_url) if site_url else "")
     )
     text = (
-        f"{_greeting(name)}\n\nTon compte {BRAND} est prêt. Tu peux maintenant commander plus vite.\n"
-        "Chaque commande est vérifiée par un administrateur sur WhatsApp, puis livrée par email "
-        "dès que ton paiement est confirmé."
+        f"{_greeting(name)}\n\nTon compte {BRAND} est prêt.\n"
+        "Recharge ton portefeuille par D17, Flouci, IZI ou Wafa Cash, puis achète en un clic : "
+        "tes accès arrivent par email et restent disponibles dans ton espace client."
         + (f"\n\n{site_url}" if site_url else "")
     )
     send(to, f"Bienvenue sur {BRAND}", _layout("Bienvenue !", body), text)
@@ -189,23 +207,25 @@ def send_order_received(
     items: Sequence[dict[str, Any]],
     total_millimes: int,
     method_label: str,
-    whatsapp_url: str,
 ) -> None:
+    """A transfer-paid cart: the receipt is waiting for an administrator."""
+    button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Nous avons bien reçu ta commande <strong>{escape(reference)}</strong>.")
         + _items_table(items, total_millimes)
         + _paragraph(
-            f"Dernière étape : paie <strong>{_money(total_millimes)}</strong> par {escape(method_label)}, "
-            "puis envoie ton reçu sur WhatsApp avec ta référence. Un administrateur le vérifie avant la livraison."
+            f"Ton reçu {escape(method_label)} est en cours de vérification par un administrateur. "
+            "Dès qu'il est validé, tes accès arrivent par email et dans ton espace client."
         )
-        + _button("Envoyer mon reçu sur WhatsApp", whatsapp_url)
+        + button
     )
     text = (
         f"{_greeting(name)}\n\nNous avons bien reçu ta commande {reference}.\n\n"
         f"{_items_text(items, total_millimes)}\n\n"
-        f"Dernière étape : paie {_money(total_millimes)} par {method_label}, puis envoie ton reçu "
-        f"sur WhatsApp avec ta référence : {whatsapp_url}"
+        f"Ton reçu {method_label} est en cours de vérification par un administrateur. "
+        "Dès qu'il est validé, tes accès arrivent par email et dans ton espace client."
+        + link
     )
     send(to, f"Commande {reference} reçue", _layout("Commande reçue", body), text)
 
@@ -217,57 +237,122 @@ def send_payment_confirmed(
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Ton paiement pour la commande <strong>{escape(reference)}</strong> est confirmé.")
         + _items_table(items, total_millimes)
-        + _paragraph("Nous préparons ta livraison. Tu recevras tes accès par email dès qu'elle est prête.")
+        + _paragraph(
+            "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
+        )
     )
     text = (
         f"{_greeting(name)}\n\nTon paiement pour la commande {reference} est confirmé.\n\n"
         f"{_items_text(items, total_millimes)}\n\n"
-        "Nous préparons ta livraison. Tu recevras tes accès par email dès qu'elle est prête."
+        "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
     )
     send(to, f"Paiement confirmé — {reference}", _layout("Paiement confirmé", body), text)
 
 
-def send_order_delivered(to: str, name: str, reference: str, items: Sequence[dict[str, Any]], content: str) -> None:
-    """Email the delivery; without ``content`` the access details were sent on WhatsApp only."""
+def send_order_delivered(
+    to: str,
+    name: str,
+    reference: str,
+    items: Sequence[dict[str, Any]],
+    content: str,
+    *,
+    remaining: int = 0,
+) -> None:
+    """Email the access details; ``remaining`` counts lines still being prepared."""
     lines = "".join(f"<li>{int(item['quantity'])} × {escape(str(item['offer_name']))}</li>" for item in items)
-    if content:
-        access_html = (
-            _paragraph("<strong>Tes accès</strong>")
-            + '<pre style="margin:0 0 18px;padding:14px;background:#0b0b0c;border:1px solid #26262a;'
-            "border-radius:10px;white-space:pre-wrap;word-break:break-word;font-size:14px;color:#ffffff;"
-            f'font-family:Menlo,Consolas,monospace">{escape(content)}</pre>'
-            + _paragraph("Garde cet email en lieu sûr.")
-        )
-        access_text = f"Tes accès :\n{content}\n\nGarde cet email en lieu sûr."
-    else:
-        access_html = _paragraph("Tes accès t'ont été envoyés sur WhatsApp.")
-        access_text = "Tes accès t'ont été envoyés sur WhatsApp."
+    button, link = _account_button("Voir dans mon espace", "commandes")
+    later = (
+        f"{remaining} autre{'s' if remaining > 1 else ''} article{'s' if remaining > 1 else ''} de cette commande "
+        f"{'sont' if remaining > 1 else 'est'} en préparation : tu recevras un autre email."
+        if remaining
+        else ""
+    )
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Ta commande <strong>{escape(reference)}</strong> est livrée :")
         + f'<ul style="margin:0 0 16px;padding-left:20px">{lines}</ul>'
-        + access_html
-        + _paragraph("En cas de problème, contacte-nous sur WhatsApp avec ta référence.")
+        + _paragraph("<strong>Tes accès</strong>")
+        + '<pre style="margin:0 0 18px;padding:14px;background:#0b0b0c;border:1px solid #26262a;'
+        "border-radius:10px;white-space:pre-wrap;word-break:break-word;font-size:14px;color:#ffffff;"
+        f'font-family:Menlo,Consolas,monospace">{escape(content)}</pre>'
+        + _paragraph("Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client.")
+        + (_paragraph(escape(later)) if later else "")
+        + button
     )
     items_text = "\n".join(f"- {int(item['quantity'])} x {item['offer_name']}" for item in items)
     text = (
         f"{_greeting(name)}\n\nTa commande {reference} est livrée :\n{items_text}\n\n"
-        f"{access_text}\n\n"
-        "En cas de problème, contacte-nous sur WhatsApp avec ta référence."
+        f"Tes accès :\n{content}\n\n"
+        "Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client."
+        + (f"\n\n{later}" if later else "")
+        + link
     )
     send(to, f"Ta commande {reference} est livrée", _layout("Commande livrée", body), text)
 
 
-def send_order_cancelled(to: str, name: str, reference: str, reason: str) -> None:
+def send_order_cancelled(to: str, name: str, reference: str, reason: str, refunded_millimes: int = 0) -> None:
+    refund = (
+        f"{_money(refunded_millimes)} ont été remboursés sur ton portefeuille."
+        if refunded_millimes
+        else ""
+    )
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Ta commande <strong>{escape(reference)}</strong> a été annulée.")
         + (_paragraph(f"Motif : {escape(reason)}") if reason else "")
-        + _paragraph("Si tu penses qu'il s'agit d'une erreur, contacte-nous sur WhatsApp avec ta référence.")
+        + (_paragraph(f"<strong>{escape(refund)}</strong>") if refund else "")
     )
     text = (
         f"{_greeting(name)}\n\nTa commande {reference} a été annulée."
         + (f"\nMotif : {reason}" if reason else "")
-        + "\n\nSi tu penses qu'il s'agit d'une erreur, contacte-nous sur WhatsApp avec ta référence."
+        + (f"\n\n{refund}" if refund else "")
     )
     send(to, f"Commande {reference} annulée", _layout("Commande annulée", body), text)
+
+
+def send_deposit_received(to: str, name: str, amount_millimes: int, method_label: str, reference: str) -> None:
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(
+            f"Nous avons bien reçu ta demande de recharge de <strong>{_money(amount_millimes)}</strong> "
+            f"par {escape(method_label)} (référence {escape(reference)})."
+        )
+        + _paragraph("Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation.")
+    )
+    text = (
+        f"{_greeting(name)}\n\nNous avons bien reçu ta demande de recharge de {_money(amount_millimes)} "
+        f"par {method_label} (référence {reference}).\n"
+        "Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation."
+    )
+    send(to, "Recharge en cours de vérification", _layout("Recharge reçue", body), text)
+
+
+def send_deposit_approved(to: str, name: str, credited_millimes: int, balance_millimes: int) -> None:
+    button, link = _account_button("Voir mon portefeuille", "portefeuille")
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"Ta recharge est validée : <strong>{_money(credited_millimes)}</strong> ont été crédités.")
+        + _paragraph(f"Nouveau solde : <strong>{_money(balance_millimes)}</strong>.")
+        + button
+    )
+    text = (
+        f"{_greeting(name)}\n\nTa recharge est validée : {_money(credited_millimes)} ont été crédités.\n"
+        f"Nouveau solde : {_money(balance_millimes)}."
+        + link
+    )
+    send(to, f"Portefeuille crédité de {_money(credited_millimes)}", _layout("Recharge validée", body), text)
+
+
+def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str) -> None:
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"Ta demande de recharge de <strong>{_money(amount_millimes)}</strong> n'a pas pu être validée.")
+        + _paragraph(f"Motif : {escape(reason)}")
+        + _paragraph("Tu peux envoyer une nouvelle demande depuis ton espace client avec un reçu lisible.")
+    )
+    text = (
+        f"{_greeting(name)}\n\nTa demande de recharge de {_money(amount_millimes)} n'a pas pu être validée.\n"
+        f"Motif : {reason}\n\n"
+        "Tu peux envoyer une nouvelle demande depuis ton espace client avec un reçu lisible."
+    )
+    send(to, "Recharge refusée", _layout("Recharge refusée", body), text)

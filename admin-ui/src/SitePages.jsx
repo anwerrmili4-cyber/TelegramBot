@@ -3,9 +3,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
+  Coins,
   Edit3,
   ExternalLink,
   Globe2,
+  Image as ImageIcon,
   PackageCheck,
   RefreshCw,
   Save,
@@ -13,7 +15,9 @@ import {
   Sparkles,
   TrendingUp,
   Users,
+  Wallet,
   X,
+  Zap,
 } from "lucide-react";
 import { ActionButton, Empty, Field, FilterBar, Modal, OperationsSummary, PageHeader, Pagination, date, useRemoteList } from "./AdminPages";
 
@@ -22,10 +26,36 @@ const SITE_URL = "https://www.ourblackmarket.com";
 const SITE_CART_STATUS = {
   to_verify: ["À vérifier", "manual_review"],
   confirmed: ["Paiement confirmé", "payment_confirmed"],
+  partial: ["Livraison partielle", "payment_confirmed"],
   delivered: ["Livré", "delivered"],
   cancelled: ["Annulé", "cancelled"],
   mixed: ["Statuts mixtes", "stock_issue"],
 };
+
+const LINE_STATUS = {
+  manual_review: "à vérifier",
+  payment_confirmed: "à livrer",
+  paid: "à livrer",
+  preparing_delivery: "en livraison",
+  delivered: "livré",
+  cancelled: "annulé",
+};
+
+const DEPOSIT_STATUS = {
+  pending: ["À vérifier", "manual_review"],
+  approved: ["Créditée", "delivered"],
+  rejected: ["Refusée", "cancelled"],
+};
+
+const receiptUrl = (id) => `/admin/api/site-receipt?id=${encodeURIComponent(id)}`;
+
+function Receipt({ id }) {
+  if (!id) return <span>—</span>;
+  return <a className="site-receipt" href={receiptUrl(id)} target="_blank" rel="noreferrer" title="Ouvrir le reçu en grand">
+    <img src={receiptUrl(id)} alt="Reçu du client" loading="lazy" />
+    <span><ImageIcon size={13} />Voir le reçu</span>
+  </a>;
+}
 
 const CATALOG_STATUS = {
   on_sale: ["En vente", "delivered"],
@@ -67,11 +97,16 @@ function SiteOverviewPage({ onNavigate }) {
       actions={<a className="action-button secondary" href={SITE_URL} target="_blank" rel="noreferrer"><ExternalLink size={16} />Ouvrir le site</a>}
     />
     <OperationsSummary items={[
-      ["À vérifier", carts.to_verify || 0, "warning"],
+      ["Commandes à vérifier", carts.to_verify || 0, "warning"],
       ["À livrer", carts.confirmed || 0, "accent"],
+      ["Recharges à vérifier", result.deposits_pending || 0, "warning"],
       ["CA aujourd’hui", dinars(result.revenue_today_millimes), "success"],
       ["CA ce mois", dinars(result.revenue_month_millimes), "info"],
     ]} />
+    {result.deposits_pending > 0 && <button type="button" className="site-alert" onClick={() => onNavigate("site-deposits")}>
+      <Wallet size={18} />
+      <span><strong>{result.deposits_pending} recharge(s) de portefeuille</strong> attendent la vérification de leur reçu.</span>
+    </button>}
     {catalog.no_price > 0 && <button type="button" className="site-alert" onClick={() => onNavigate("site-catalog")}>
       <AlertTriangle size={18} />
       <span><strong>{catalog.no_price} offre(s) sans prix en dinars</strong> sont masquées du site. Fixez leur prix dans le catalogue pour les mettre en vente.</span>
@@ -118,32 +153,103 @@ function SiteOrdersPage({ onAction }) {
     if (completed) { setEditor(null); setNote(""); refreshLists(); }
   };
   const openEditor = (type, cart) => { setEditor({ type, cart }); setNote(""); };
+  const waitingItems = (cart) => cart.items.filter((item) => ["payment_confirmed", "paid"].includes(item.status));
+  const paidTotal = (cart) => cart.items.filter((item) => ["payment_confirmed", "paid"].includes(item.status)).reduce((sum, item) => sum + item.total_millimes, 0);
   return <div className="operations-page site-page">
-    <PageHeader title="Commandes du site" description="Vérifiez le reçu D17 ou Flouci reçu sur WhatsApp, confirmez, puis livrez." />
+    <PageHeader title="Commandes du site" description="Vérifiez le reçu joint par le client puis confirmez : les produits en stock sont livrés automatiquement, les autres attendent vos accès. Les paiements par portefeuille arrivent déjà confirmés." />
     <OperationsSummary items={[["À vérifier", counts.to_verify || 0, "warning"], ["À livrer", counts.confirmed || 0, "accent"], ["Livrés", counts.delivered || 0, "success"], ["Annulés", counts.cancelled || 0, "danger"]]} />
-    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="Référence TN-…, nom, email ou téléphone…" resultCount={result.total}>
+    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="Référence TN-…, nom, email, réf. de transaction…" resultCount={result.total}>
       <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut du panier"><option value="to_verify">À vérifier</option><option value="confirmed">À livrer</option><option value="delivered">Livrés</option><option value="cancelled">Annulés</option><option value="all">Tous</option></select>
     </FilterBar>
     <section className="operations-panel" aria-busy={loading}>
       {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des commandes du site…</div> : !result.items.length ? <Empty icon={Globe2} title="Aucune commande" text="Les paniers validés sur le site tunisien apparaîtront ici." /> : <div className="operation-list">{result.items.map((cart) => <article key={cart.reference} className="operation-card">
-        <header><span className="operation-icon"><Globe2 size={20} /></span><div><small>{cart.reference}</small><strong>{cart.customer_name || "Client"}</strong></div><CartStatus status={cart.status} /></header>
-        <div className="operation-amount"><strong>{dinars(cart.total_millimes)}</strong><span>{String(cart.payment_method || "").toUpperCase() || "Paiement"}</span></div>
+        <header><span className="operation-icon">{cart.payment_method === "wallet" ? <Wallet size={20} /> : <Globe2 size={20} />}</span><div><small>{cart.reference}</small><strong>{cart.customer_name || "Client"}</strong></div><CartStatus status={cart.status} /></header>
+        <div className="operation-amount"><strong>{dinars(cart.total_millimes)}</strong><span>{cart.payment_label || "Paiement"}</span></div>
         <dl>
-          <div><dt>Téléphone</dt><dd>{cart.whatsapp_url ? <a href={cart.whatsapp_url} target="_blank" rel="noreferrer">{cart.customer_phone} <ExternalLink size={12} /></a> : cart.customer_phone || "—"}</dd></div>
           <div><dt>Email</dt><dd>{cart.customer_email ? <a href={`mailto:${cart.customer_email}`}>{cart.customer_email}</a> : "—"}</dd></div>
-          <div><dt>Articles</dt><dd>{cart.items.map((item) => <span key={item.order_id} style={{ display: "block" }}>{item.quantity} × {item.service_name ? `${item.service_name} — ` : ""}{item.offer_name} <small>({dinars(item.total_millimes)})</small></span>)}</dd></div>
+          {cart.customer_phone && <div><dt>Téléphone</dt><dd>{cart.customer_phone}</dd></div>}
+          <div><dt>Articles</dt><dd>{cart.items.map((item) => <span key={item.order_id} className="site-line">
+            {item.quantity} × {item.service_name ? `${item.service_name} — ` : ""}{item.offer_name} <small>({dinars(item.total_millimes)} · {LINE_STATUS[item.status] || item.status}{item.automatic ? " automatiquement" : ""})</small>
+            {item.automatic && <em className="site-chip"><Zap size={11} />Stock</em>}
+          </span>)}</dd></div>
+          <div><dt>Paiement</dt><dd>{cart.payment_label}{cart.transaction_reference ? <> · réf. <strong>{cart.transaction_reference}</strong></> : ""}</dd></div>
+          {cart.receipt_id && <div><dt>Reçu</dt><dd><Receipt id={cart.receipt_id} /></dd></div>}
           <div><dt>Commandé le</dt><dd>{date(cart.created_at)}</dd></div>
           {cart.customer_note && <div><dt>Note client</dt><dd>{cart.customer_note}</dd></div>}
-          {cart.status === "delivered" && <div><dt>Livraison</dt><dd>{cart.delivery_note || "—"} · {date(cart.delivered_at)}</dd></div>}
-          {cart.status === "cancelled" && cart.admin_note && <div><dt>Motif d’annulation</dt><dd>{cart.admin_note}</dd></div>}
+          {cart.delivery_note && <div><dt>Accès envoyés</dt><dd className="site-delivery">{cart.delivery_note}</dd></div>}
+          {cart.delivered_at && <div><dt>Livré le</dt><dd>{date(cart.delivered_at)}</dd></div>}
+          {cart.admin_note && <div><dt>Motif d’annulation</dt><dd>{cart.admin_note}</dd></div>}
+          {cart.refunded_millimes > 0 && <div><dt>Remboursé</dt><dd>{dinars(cart.refunded_millimes)} sur le portefeuille</dd></div>}
         </dl>
-        {cart.status === "to_verify" && <footer><ActionButton icon={CheckCircle2} onClick={() => run({ action: "site_cart_confirm", reference: cart.reference })}>Confirmer le paiement</ActionButton><ActionButton icon={X} danger onClick={() => openEditor("cancel", cart)}>Annuler</ActionButton></footer>}
-        {cart.status === "confirmed" && <footer><ActionButton icon={PackageCheck} onClick={() => openEditor("deliver", cart)}>Marquer livré</ActionButton><ActionButton icon={X} danger onClick={() => openEditor("cancel", cart)}>Annuler</ActionButton></footer>}
+        {cart.status === "to_verify" && <footer><ActionButton icon={CheckCircle2} onClick={() => run({ action: "site_cart_confirm", reference: cart.reference })}>Reçu valide : confirmer</ActionButton><ActionButton icon={X} danger onClick={() => openEditor("cancel", cart)}>Refuser</ActionButton></footer>}
+        {["confirmed", "partial"].includes(cart.status) && <footer><ActionButton icon={PackageCheck} onClick={() => openEditor("deliver", cart)}>Envoyer les accès</ActionButton><ActionButton icon={X} danger onClick={() => openEditor("cancel", cart)}>Annuler et rembourser</ActionButton></footer>}
       </article>)}</div>}
       <Pagination value={result} onChange={setPage} />
     </section>
-    {editor?.type === "deliver" && <Modal title={`Livrer le panier ${editor.cart.reference}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_deliver", reference: editor.cart.reference, note }); }}><p>{editor.cart.customer_email ? <>Le contenu ci-dessous sera envoyé par email à <strong>{editor.cart.customer_email}</strong>. Laissez vide si les accès ont été envoyés uniquement sur WhatsApp.</> : "Ce panier n’a pas d’email : envoyez les accès sur WhatsApp, puis enregistrez la livraison ici."}</p><Field label={editor.cart.customer_email ? "Accès à livrer au client" : "Ce qui a été envoyé (optionnel)"} wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={6} placeholder={editor.cart.customer_email ? "Ex. Email : compte@exemple.com\nMot de passe : ••••••••" : "Ex. compte Netflix envoyé sur WhatsApp à 14h"} autoFocus /></Field><div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck}>Marquer livré</ActionButton></div></form></Modal>}
-    {editor?.type === "cancel" && <Modal title={`Annuler le panier ${editor.cart.reference}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_cancel", reference: editor.cart.reference, reason: note }); }}><p>{editor.cart.status === "confirmed" ? "Le stock réservé sera remis en vente. Le remboursement D17/Flouci éventuel reste à faire de votre côté." : "Le panier sera retiré de la file de vérification."}{editor.cart.customer_email ? " Le client recevra ce motif par email." : ""}</p><Field label="Motif" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={4} required autoFocus /></Field><div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X}>Annuler le panier</ActionButton></div></form></Modal>}
+    {editor?.type === "deliver" && <Modal title={`Livrer le panier ${editor.cart.reference}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_deliver", reference: editor.cart.reference, note }); }}>
+      <p>Ces accès seront envoyés par email à <strong>{editor.cart.customer_email || "le client"}</strong> et affichés dans son espace client pour : {waitingItems(editor.cart).map((item) => `${item.quantity} × ${item.offer_name}`).join(", ")}.</p>
+      <Field label="Accès à livrer au client" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={4000} rows={7} required placeholder={"Ex. Email : compte@exemple.com\nMot de passe : ••••••••"} autoFocus /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck}>Envoyer et marquer livré</ActionButton></div>
+    </form></Modal>}
+    {editor?.type === "cancel" && <Modal title={`Annuler le panier ${editor.cart.reference}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_cancel", reference: editor.cart.reference, reason: note }); }}>
+      <p>{editor.cart.status === "to_verify" ? "Le reçu est refusé et la commande retirée de la file. Rien n’est débité ni remboursé." : <>Les articles non livrés sont annulés et le stock remis en vente. <strong>{dinars(paidTotal(editor.cart))}</strong> seront remboursés sur le portefeuille du client.</>} Le client recevra ce motif par email.</p>
+      <Field label="Motif" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={4} required autoFocus placeholder={editor.cart.status === "to_verify" ? "Ex. Reçu illisible, montant incorrect…" : "Ex. Produit en rupture"} /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X}>{editor.cart.status === "to_verify" ? "Refuser la commande" : "Annuler et rembourser"}</ActionButton></div>
+    </form></Modal>}
+  </div>;
+}
+
+function SiteDepositsPage({ onAction }) {
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("pending");
+  const [page, setPage] = useState(1);
+  const [editor, setEditor] = useState(null);
+  const [value, setValue] = useState("");
+  const [result, loading] = useRemoteList("/admin/api/site-deposits", { search, status, page, per_page: 20 }, { refreshInterval: 15000 });
+  const counts = result.counts || {};
+  const open = (type, deposit) => { setEditor({ type, deposit }); setValue(type === "approve" ? dinarInput(deposit.amount_millimes) : ""); };
+  const run = async (payload) => {
+    if (await onAction(payload)) { setEditor(null); setValue(""); refreshLists(); }
+  };
+  return <div className="operations-page site-page">
+    <PageHeader title="Recharges du portefeuille" description="Comparez le reçu au montant et à la référence déclarés, puis créditez le portefeuille du client. Vous pouvez corriger le montant si le virement reçu est différent." />
+    <OperationsSummary items={[["À vérifier", counts.pending || 0, "warning"], ["Créditées", counts.approved || 0, "success"], ["Refusées", counts.rejected || 0, "danger"]]} />
+    <FilterBar search={search} setSearch={(next) => { setSearch(next); setPage(1); }} placeholder="Nom, email ou référence de transaction…" resultCount={result.total}>
+      <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} aria-label="Statut de la recharge"><option value="pending">À vérifier</option><option value="approved">Créditées</option><option value="rejected">Refusées</option><option value="all">Toutes</option></select>
+    </FilterBar>
+    <section className="operations-panel" aria-busy={loading}>
+      {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des recharges…</div>
+        : !result.items.length ? <Empty icon={Wallet} title="Aucune recharge" text="Les demandes de recharge envoyées depuis l’espace client apparaîtront ici." />
+        : <div className="operation-list">{result.items.map((deposit) => {
+          const [label, className] = DEPOSIT_STATUS[deposit.status] || [deposit.status, ""];
+          return <article key={deposit.id} className="operation-card">
+            <header><span className="operation-icon"><Coins size={20} /></span><div><small>Recharge #{deposit.id}</small><strong>{deposit.customer_name || "Client"}</strong></div><span className={`status ${className}`}>{label}</span></header>
+            <div className="operation-amount"><strong>{dinars(deposit.status === "approved" ? deposit.credited_millimes : deposit.amount_millimes)}</strong><span>{deposit.method_label}</span></div>
+            <dl>
+              <div><dt>Email</dt><dd>{deposit.customer_email ? <a href={`mailto:${deposit.customer_email}`}>{deposit.customer_email}</a> : "—"}</dd></div>
+              <div><dt>Référence</dt><dd><strong>{deposit.transaction_reference}</strong></dd></div>
+              <div><dt>Montant déclaré</dt><dd>{dinars(deposit.amount_millimes)}</dd></div>
+              <div><dt>Reçu</dt><dd><Receipt id={deposit.receipt_id} /></dd></div>
+              <div><dt>Solde actuel</dt><dd>{dinars(deposit.balance_millimes)}</dd></div>
+              <div><dt>Envoyée le</dt><dd>{date(deposit.created_at)}</dd></div>
+              {deposit.reviewed_at && <div><dt>Traitée le</dt><dd>{date(deposit.reviewed_at)}</dd></div>}
+              {deposit.reason && <div><dt>Motif du refus</dt><dd>{deposit.reason}</dd></div>}
+            </dl>
+            {deposit.status === "pending" && <footer><ActionButton icon={CheckCircle2} onClick={() => open("approve", deposit)}>Créditer</ActionButton><ActionButton icon={X} danger onClick={() => open("reject", deposit)}>Refuser</ActionButton></footer>}
+          </article>;
+        })}</div>}
+      <Pagination value={result} onChange={setPage} />
+    </section>
+    {editor?.type === "approve" && <Modal title={`Créditer la recharge #${editor.deposit.id}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_deposit_approve", deposit_id: editor.deposit.id, amount: value }); }}>
+      <p>{editor.deposit.customer_name} a déclaré <strong>{dinars(editor.deposit.amount_millimes)}</strong> par {editor.deposit.method_label} (réf. {editor.deposit.transaction_reference}). Indiquez le montant réellement reçu.</p>
+      <Field label="Montant à créditer (DT)"><input value={value} onChange={(event) => setValue(event.target.value)} inputMode="decimal" required autoFocus /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={CheckCircle2}>Créditer le portefeuille</ActionButton></div>
+    </form></Modal>}
+    {editor?.type === "reject" && <Modal title={`Refuser la recharge #${editor.deposit.id}`} onClose={() => setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_deposit_reject", deposit_id: editor.deposit.id, reason: value }); }}>
+      <p>Le client recevra ce motif par email et pourra envoyer une nouvelle demande.</p>
+      <Field label="Motif" wide><textarea value={value} onChange={(event) => setValue(event.target.value)} maxLength={500} rows={4} required autoFocus placeholder="Ex. Aucun virement reçu avec cette référence" /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X}>Refuser</ActionButton></div>
+    </form></Modal>}
   </div>;
 }
 
@@ -262,38 +368,62 @@ function SiteCatalogPage({ onAction }) {
   </div>;
 }
 
-function SiteCustomersPage() {
+function SiteCustomersPage({ onAction }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
+  const [adjusting, setAdjusting] = useState(null);
+  const [adjustment, setAdjustment] = useState({ amount: "", note: "" });
   const [result, loading] = useRemoteList("/admin/api/site-customers", { search, page, per_page: 25 });
+  const openAdjust = (customer) => { setAdjusting(customer); setAdjustment({ amount: "", note: "" }); };
+  const submitAdjust = async (event) => {
+    event.preventDefault();
+    if (await onAction({ action: "site_wallet_adjust", customer_id: adjusting.id, ...adjustment })) {
+      setAdjusting(null);
+      setSelected(null);
+      refreshLists();
+    }
+  };
   return <div className="operations-page site-page">
-    <PageHeader title="Clients du site" description="Clients identifiés par leur numéro de téléphone, avec leur historique et le total dépensé." />
-    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="Nom ou numéro de téléphone…" resultCount={result.total} />
+    <PageHeader title="Clients du site" description="Comptes clients avec leur solde de portefeuille, leurs achats et le total dépensé." />
+    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="Nom, email ou téléphone…" resultCount={result.total} />
     <section className="data-panel" aria-busy={loading}>
       {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des clients…</div>
-        : !result.items.length ? <Empty icon={Users} title="Aucun client" text="Les clients apparaîtront après leur première commande sur le site." />
+        : !result.items.length ? <Empty icon={Users} title="Aucun client" text="Les comptes créés sur le site apparaîtront ici." />
         : <div className="responsive-table"><table className="site-catalog-table">
-          <thead><tr><th>Client</th><th>Paniers</th><th>Total dépensé</th><th>Dernière commande</th><th /></tr></thead>
-          <tbody>{result.items.map((customer) => <tr key={customer.phone}>
-            <td><strong>{customer.name || "Client"}</strong><small><a href={customer.whatsapp_url} target="_blank" rel="noreferrer">{customer.phone} <ExternalLink size={11} /></a></small></td>
+          <thead><tr><th>Client</th><th>Portefeuille</th><th>Paniers</th><th>Total dépensé</th><th>Dernière commande</th><th /></tr></thead>
+          <tbody>{result.items.map((customer) => <tr key={customer.id}>
+            <td><strong>{customer.name || "Client"}</strong><small>{customer.email}{customer.phone ? ` · ${customer.phone}` : ""}</small></td>
+            <td><strong>{dinars(customer.balance_millimes)}</strong></td>
             <td>{customer.carts_count}{customer.pending_count > 0 && <small>{customer.pending_count} à vérifier</small>}</td>
             <td><strong>{dinars(customer.total_spent_millimes)}</strong></td>
-            <td>{date(customer.last_order_at)}</td>
-            <td><ActionButton secondary onClick={() => setSelected(customer)}>Historique</ActionButton></td>
+            <td>{customer.last_order_at ? date(customer.last_order_at) : "—"}</td>
+            <td><ActionButton secondary onClick={() => setSelected(customer)}>Détails</ActionButton></td>
           </tr>)}</tbody>
         </table></div>}
       <Pagination value={result} onChange={setPage} />
     </section>
-    {selected && <Modal title={`${selected.name || "Client"} · ${selected.phone}`} onClose={() => setSelected(null)} wide>
-      <OperationsSummary items={[["Paniers", selected.carts_count, "info"], ["À vérifier", selected.pending_count, "warning"], ["Total dépensé", dinars(selected.total_spent_millimes), "success"], ["Client depuis", date(selected.first_order_at), ""]]} />
-      <ul className="site-recent site-history">{selected.carts.map((cart) => <li key={cart.reference}>
-        <div><strong>{cart.reference}</strong><small>{date(cart.created_at)} · {String(cart.payment_method || "").toUpperCase()}</small><small>{cart.items.map((item) => `${item.quantity} × ${item.offer_name}`).join(", ")}</small></div>
-        <b>{dinars(cart.total_millimes)}</b>
-        <CartStatus status={cart.status} />
-      </li>)}</ul>
-      <div className="dialog-actions"><a className="action-button" href={selected.whatsapp_url} target="_blank" rel="noreferrer"><ExternalLink size={16} />Écrire sur WhatsApp</a></div>
+    {selected && <Modal title={`${selected.name || "Client"} · ${selected.email}`} onClose={() => setSelected(null)} wide>
+      <OperationsSummary items={[["Portefeuille", dinars(selected.balance_millimes), "accent"], ["Paniers", selected.carts_count, "info"], ["Total dépensé", dinars(selected.total_spent_millimes), "success"], ["Client depuis", date(selected.created_at), ""]]} />
+      {!selected.carts.length ? <Empty icon={ShoppingBag} title="Aucun achat" text="Ce client n’a pas encore commandé." />
+        : <ul className="site-recent site-history">{selected.carts.map((cart) => <li key={cart.reference}>
+          <div><strong>{cart.reference}</strong><small>{date(cart.created_at)} · {cart.payment_label}</small><small>{cart.items.map((item) => `${item.quantity} × ${item.offer_name}`).join(", ")}</small></div>
+          <b>{dinars(cart.total_millimes)}</b>
+          <CartStatus status={cart.status} />
+        </li>)}</ul>}
+      <div className="dialog-actions">
+        {selected.email && <a className="action-button secondary" href={`mailto:${selected.email}`}><ExternalLink size={16} />Écrire un email</a>}
+        <ActionButton icon={Wallet} onClick={() => openAdjust(selected)}>Ajuster le solde</ActionButton>
+      </div>
     </Modal>}
+    {adjusting && <Modal title={`Ajuster le portefeuille de ${adjusting.name || adjusting.email}`} onClose={() => setAdjusting(null)}><form className="operation-form" onSubmit={submitAdjust}>
+      <p>Solde actuel : <strong>{dinars(adjusting.balance_millimes)}</strong>. Saisissez un montant positif pour créditer (ex. 10) ou négatif pour débiter (ex. -5). L’opération apparaît dans l’historique du client.</p>
+      <div className="form-grid">
+        <Field label="Montant (DT)"><input value={adjustment.amount} onChange={(event) => setAdjustment({ ...adjustment, amount: event.target.value })} inputMode="decimal" placeholder="Ex. 10 ou -5" required autoFocus /></Field>
+        <Field label="Motif visible par le client"><input value={adjustment.note} onChange={(event) => setAdjustment({ ...adjustment, note: event.target.value })} maxLength={200} placeholder="Ex. Geste commercial" required /></Field>
+      </div>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={() => setAdjusting(null)}>Retour</ActionButton><ActionButton type="submit" icon={Save}>Appliquer</ActionButton></div>
+    </form></Modal>}
   </div>;
 }
 
@@ -301,11 +431,11 @@ function SiteSettingsPage({ onAction }) {
   const [result, loading] = useRemoteList("/admin/api/site-settings", {});
   const [form, setForm] = useState(null);
   useEffect(() => {
-    if (form || !result.whatsapp_number) return;
+    if (form || !result.available_payment_methods) return;
     setForm({
-      whatsapp_number: result.whatsapp_number,
       tnd_per_usdt: String(result.tnd_per_usdt).replace(".", ","),
       methods: new Set(result.payment_methods || []),
+      details: { ...(result.payment_details || {}) },
     });
   }, [form, result]);
   const methods = result.available_payment_methods || [];
@@ -314,10 +444,14 @@ function SiteSettingsPage({ onAction }) {
     if (next.has(id)) next.delete(id); else next.add(id);
     return { ...current, methods: next };
   });
+  const setDetails = (id, value) => setForm((current) => ({ ...current, details: { ...current.details, [id]: value } }));
   const submit = async (event) => {
     event.preventDefault();
-    const payload = { action: "site_settings_save", whatsapp_number: form.whatsapp_number, tnd_per_usdt: form.tnd_per_usdt };
-    methods.forEach(({ id }) => { payload[`payment_${id}`] = form.methods.has(id) ? "1" : "0"; });
+    const payload = { action: "site_settings_save", tnd_per_usdt: form.tnd_per_usdt };
+    methods.forEach(({ id }) => {
+      payload[`payment_${id}`] = form.methods.has(id) ? "1" : "0";
+      payload[`details_${id}`] = form.details[id] || "";
+    });
     await onAction(payload);
   };
   return <div className="operations-page site-page">
@@ -325,29 +459,29 @@ function SiteSettingsPage({ onAction }) {
     <section className="site-panel">
       {loading && !form ? <div className="operation-loading"><RefreshCw className="spin" />Chargement…</div> : form && <form className="operation-form" onSubmit={submit}>
         <div className="form-grid">
-          <Field label="Numéro WhatsApp de vérification">
-            <input value={form.whatsapp_number} onChange={(event) => setForm({ ...form, whatsapp_number: event.target.value })} inputMode="tel" placeholder="216 21 994 132" required />
-            <small className="site-field-help">Les clients y envoient leur reçu D17 ou Flouci.</small>
-          </Field>
           <Field label="Taux TND pour 1 USDT">
             <input value={form.tnd_per_usdt} onChange={(event) => setForm({ ...form, tnd_per_usdt: event.target.value })} inputMode="decimal" required />
             <small className="site-field-help">Sert uniquement à suggérer un prix en dinars dans le catalogue.</small>
           </Field>
-          <Field label="Moyens de paiement acceptés" wide>
-            <div className="site-methods">{methods.map(({ id, label }) => <label key={id} className="switch"><input type="checkbox" checked={form.methods.has(id)} onChange={() => toggleMethod(id)} /><span />{label}</label>)}</div>
-          </Field>
         </div>
+        <h3 className="site-section-title">Moyens de paiement</h3>
+        <p className="site-field-help">Les coordonnées sont affichées au client au moment de payer une commande ou de recharger son portefeuille. Il joint ensuite la référence et la capture du reçu.</p>
+        <div className="site-method-grid">{methods.map(({ id, label }) => <div key={id} className={`site-method-card${form.methods.has(id) ? " active" : ""}`}>
+          <label className="switch"><input type="checkbox" checked={form.methods.has(id)} onChange={() => toggleMethod(id)} /><span />{label}</label>
+          <textarea value={form.details[id] || ""} onChange={(event) => setDetails(id, event.target.value)} maxLength={300} rows={3} required={form.methods.has(id)} placeholder={`Où envoyer l’argent par ${label} (numéro, nom du bénéficiaire…)`} aria-label={`Coordonnées ${label}`} />
+        </div>)}</div>
         <div className="dialog-actions"><ActionButton type="submit" icon={Save}>Enregistrer</ActionButton></div>
       </form>}
     </section>
   </div>;
 }
 
-export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-catalog", "site-customers", "site-settings"]);
+export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings"]);
 
 export default function SitePage({ page, ...props }) {
   if (page === "site-overview") return <SiteOverviewPage {...props} />;
   if (page === "site-orders") return <SiteOrdersPage {...props} />;
+  if (page === "site-deposits") return <SiteDepositsPage {...props} />;
   if (page === "site-catalog") return <SiteCatalogPage {...props} />;
   if (page === "site-customers") return <SiteCustomersPage {...props} />;
   if (page === "site-settings") return <SiteSettingsPage {...props} />;

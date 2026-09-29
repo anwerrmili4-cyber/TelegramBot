@@ -9,10 +9,13 @@ import {
 } from "react";
 import {
   ApiError,
+  changePassword as apiChangePassword,
   fetchMe,
+  googleLogin as apiGoogleLogin,
   login as apiLogin,
   logout as apiLogout,
   register as apiRegister,
+  updateProfile as apiUpdateProfile,
   verifyEmail as apiVerifyEmail,
 } from "@/lib/api";
 import type { AuthSession, Customer } from "@/types";
@@ -21,12 +24,20 @@ const STORAGE_KEY = "blackmarket-tn-session";
 
 type Auth = {
   customer: Customer | null;
+  /** Session token for the account endpoints; empty when signed out. */
+  token: string;
   /** True until a stored session has been checked against the server. */
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /** Signs in, or creates the account, from a Google ID token. */
+  loginWithGoogle: (credential: string) => Promise<void>;
   /** Creates the account and emails a code; no session is opened yet. */
   register: (name: string, email: string, password: string) => Promise<void>;
   verifyEmail: (email: string, code: string) => Promise<void>;
+  updateProfile: (name: string, phone: string) => Promise<void>;
+  changePassword: (current: string, next: string) => Promise<void>;
+  /** Sign out locally when an account call reports the session is gone. */
+  handleError: (reason: unknown) => void;
   logout: () => Promise<void>;
 };
 
@@ -87,6 +98,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [openSession],
   );
 
+  const loginWithGoogle = useCallback(
+    async (credential: string) => openSession(await apiGoogleLogin(credential)),
+    [openSession],
+  );
+
   const register = useCallback(async (name: string, email: string, password: string) => {
     await apiRegister({ name, email, password });
   }, []);
@@ -104,9 +120,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (current) await apiLogout(current).catch(() => undefined);
   }, [token]);
 
+  const handleError = useCallback((reason: unknown) => {
+    if (reason instanceof ApiError && reason.status === 401) {
+      writeToken("");
+      setToken("");
+      setCustomer(null);
+    }
+  }, []);
+
+  const updateProfile = useCallback(
+    async (name: string, phone: string) => {
+      try {
+        setCustomer((await apiUpdateProfile(token, { name, phone })).customer);
+      } catch (reason) {
+        handleError(reason);
+        throw reason;
+      }
+    },
+    [token, handleError],
+  );
+
+  const changePassword = useCallback(
+    async (current: string, next: string) => {
+      try {
+        await apiChangePassword(token, { current_password: current, new_password: next });
+        setCustomer((known) => (known ? { ...known, has_password: true } : known));
+      } catch (reason) {
+        handleError(reason);
+        throw reason;
+      }
+    },
+    [token, handleError],
+  );
+
   const value = useMemo(
-    () => ({ customer, loading, login, register, verifyEmail, logout }),
-    [customer, loading, login, register, verifyEmail, logout],
+    () => ({
+      customer,
+      token,
+      loading,
+      login,
+      loginWithGoogle,
+      register,
+      verifyEmail,
+      updateProfile,
+      changePassword,
+      handleError,
+      logout,
+    }),
+    [customer, token, loading, login, loginWithGoogle, register, verifyEmail, updateProfile, changePassword, handleError, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -52,7 +52,9 @@ from app.domain import (
     site_orders_service,
     site_settings_service,
     storefront_auth_service,
+    storefront_receipt_service,
     storefront_service,
+    storefront_wallet_service,
     support_service,
     wallet_service,
     warranty_service,
@@ -250,15 +252,26 @@ def clear_login_failures(ip: str) -> None:
         _login_failures.pop(f"ip:{ip}", None)
 
 
-STOREFRONT_AUTH_GET_PATHS = frozenset({"/api/storefront/auth/me"})
+STOREFRONT_AUTH_GET_PATHS = frozenset({
+    "/api/storefront/auth/config",
+    "/api/storefront/auth/me",
+    "/api/storefront/auth/orders",
+    "/api/storefront/auth/wallet",
+})
+# Paths whose body carries a receipt screenshot.
+STOREFRONT_UPLOAD_PATHS = frozenset({"/api/storefront/orders", "/api/storefront/auth/deposits"})
 STOREFRONT_AUTH_POST_PATHS = frozenset({
+    *STOREFRONT_UPLOAD_PATHS,
     "/api/storefront/auth/register",
     "/api/storefront/auth/login",
+    "/api/storefront/auth/google",
     "/api/storefront/auth/logout",
     "/api/storefront/auth/forgot-password",
     "/api/storefront/auth/reset-password",
     "/api/storefront/auth/verify-email",
     "/api/storefront/auth/resend-code",
+    "/api/storefront/auth/profile",
+    "/api/storefront/auth/password",
 })
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
 
@@ -1203,6 +1216,31 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, site_orders_service.list_carts(parse_qs(url.query)))
             return
 
+        elif path == "/admin/api/site-deposits":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, storefront_wallet_service.list_deposits(parse_qs(url.query)))
+            return
+
+        elif path == "/admin/api/site-receipt":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            receipt = storefront_receipt_service.load(parse_qs(url.query).get("id", [""])[0])
+            if not receipt:
+                self._reply(404, {"ok": False, "error": "Reçu introuvable."})
+                return
+            data, content_type = receipt
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "private, max-age=3600")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         elif path in {"/admin/api/site-overview", "/admin/api/site-catalog", "/admin/api/site-customers", "/admin/api/site-settings"}:
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1370,22 +1408,41 @@ class handler(BaseHTTPRequestHandler):
     def _handle_storefront_auth(self, path: str) -> None:
         cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
         try:
-            if path == "/api/storefront/auth/me":
+            if path == "/api/storefront/auth/config":
+                result = storefront_auth_service.auth_config()
+            elif path == "/api/storefront/auth/me":
                 result = storefront_auth_service.me(self._bearer_token())
+            elif path == "/api/storefront/auth/orders":
+                result = storefront_auth_service.customer_orders(self._bearer_token())
+            elif path == "/api/storefront/auth/wallet":
+                result = storefront_auth_service.wallet(self._bearer_token())
             elif path == "/api/storefront/auth/logout":
                 result = storefront_auth_service.logout(self._bearer_token())
             else:
-                payload = self._read_json_body(max_bytes=8_000)
-                if path == "/api/storefront/auth/register":
+                limit = (
+                    storefront_receipt_service.MAX_UPLOAD_BODY_BYTES if path in STOREFRONT_UPLOAD_PATHS else 8_000
+                )
+                payload = self._read_json_body(max_bytes=limit)
+                if path == "/api/storefront/orders":
+                    result = storefront_auth_service.create_order(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/deposits":
+                    result = storefront_auth_service.create_deposit(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/register":
                     result = storefront_auth_service.register(payload, self._client_ip())
                 elif path == "/api/storefront/auth/login":
                     result = storefront_auth_service.login(payload, self._client_ip())
+                elif path == "/api/storefront/auth/google":
+                    result = storefront_auth_service.google_login(payload, self._client_ip())
                 elif path == "/api/storefront/auth/verify-email":
                     result = storefront_auth_service.verify_email(payload, self._client_ip())
                 elif path == "/api/storefront/auth/resend-code":
                     result = storefront_auth_service.resend_verification(payload, self._client_ip())
                 elif path == "/api/storefront/auth/forgot-password":
                     result = storefront_auth_service.forgot_password(payload, self._client_ip())
+                elif path == "/api/storefront/auth/profile":
+                    result = storefront_auth_service.update_profile(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/password":
+                    result = storefront_auth_service.change_password(self._bearer_token(), payload)
                 else:
                     result = storefront_auth_service.reset_password(payload)
             self._reply(200, result, headers=cors)
@@ -1397,8 +1454,11 @@ class handler(BaseHTTPRequestHandler):
             if exc.code:
                 body["code"] = exc.code
             self._reply(exc.status, body, headers=headers)
-        except buyer_api_service.BuyerApiError:
-            self._reply(400, {"ok": False, "error": "Requête invalide."}, headers=cors)
+        except buyer_api_service.BuyerApiError as exc:
+            if exc.status == 413:
+                self._reply(413, {"ok": False, "error": "La capture du reçu est trop lourde (2,5 Mo maximum)."}, headers=cors)
+            else:
+                self._reply(400, {"ok": False, "error": "Requête invalide."}, headers=cors)
         except Exception:
             log.exception("Storefront auth request failed: %s", path)
             self._reply(503, {"ok": False, "error": "Service momentanément indisponible."}, headers=cors)
@@ -1410,14 +1470,6 @@ class handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-            self.send_header("Access-Control-Max-Age", "86400")
-            self.end_headers()
-            return
-        if path == "/api/storefront/orders":
-            self.send_response(204)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
             self.send_header("Access-Control-Max-Age", "86400")
             self.end_headers()
             return
@@ -1435,28 +1487,6 @@ class handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path.rstrip("/")
         if path in STOREFRONT_AUTH_POST_PATHS:
             self._handle_storefront_auth(path)
-            return
-        if path == "/api/storefront/orders":
-            try:
-                payload = self._read_json_body(max_bytes=16_000)
-                result = storefront_service.create_order(payload)
-                self._reply(201, result, headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Cache-Control": "no-store",
-                })
-            except storefront_service.StorefrontError as exc:
-                self._reply(400, {"ok": False, "error": str(exc)}, headers={
-                    "Access-Control-Allow-Origin": "*",
-                })
-            except ValueError as exc:
-                self._reply(400, {"ok": False, "error": str(exc)}, headers={
-                    "Access-Control-Allow-Origin": "*",
-                })
-            except Exception:
-                log.exception("Storefront order creation failed")
-                self._reply(503, {"ok": False, "error": "Commande temporairement indisponible."}, headers={
-                    "Access-Control-Allow-Origin": "*",
-                })
             return
         if path == "/admin/api/login":
             client_ip = self._client_ip()
@@ -2401,17 +2431,46 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "site_cart_confirm":
                 result = site_orders_service.confirm_cart(form.get("reference", ""))
-                self._reply(200, {"ok": True, "message": f"Paiement du panier {result['reference']} confirmé."})
+                message = f"Paiement du panier {result['reference']} confirmé."
+                if result["delivered"]:
+                    message += f" {result['delivered']} article(s) livré(s) automatiquement depuis le stock."
+                if result["waiting"]:
+                    message += f" {result['waiting']} article(s) à livrer manuellement."
+                self._reply(200, {"ok": True, "message": message})
                 return
 
             elif action == "site_cart_deliver":
                 result = site_orders_service.deliver_cart(form.get("reference", ""), form.get("note", ""))
-                self._reply(200, {"ok": True, "message": f"Panier {result['reference']} marqué comme livré."})
+                self._reply(200, {"ok": True, "message": f"Panier {result['reference']} livré : le client a reçu ses accès par email."})
                 return
 
             elif action == "site_cart_cancel":
                 result = site_orders_service.cancel_cart(form.get("reference", ""), form.get("reason", ""))
-                self._reply(200, {"ok": True, "message": f"Panier {result['reference']} annulé."})
+                message = f"Panier {result['reference']} annulé."
+                if result["refunded_millimes"]:
+                    message += f" {result['refunded_millimes'] / 1000:.3f} DT remboursés sur le portefeuille du client."
+                self._reply(200, {"ok": True, "message": message})
+                return
+
+            elif action == "site_deposit_approve":
+                result = storefront_wallet_service.approve_deposit(form.get("deposit_id"), form.get("amount", ""))
+                self._reply(200, {
+                    "ok": True,
+                    "message": f"Recharge #{result['id']} validée : {result['credited_millimes'] / 1000:.3f} DT crédités.",
+                })
+                return
+
+            elif action == "site_deposit_reject":
+                result = storefront_wallet_service.reject_deposit(form.get("deposit_id"), form.get("reason", ""))
+                self._reply(200, {"ok": True, "message": f"Recharge #{result['id']} refusée."})
+                return
+
+            elif action == "site_wallet_adjust":
+                result = storefront_wallet_service.adjust(form.get("customer_id"), form.get("amount"), form.get("note"))
+                self._reply(200, {
+                    "ok": True,
+                    "message": f"Solde mis à jour : {result['balance_millimes'] / 1000:.3f} DT.",
+                })
                 return
 
             elif action == "site_offer_update":

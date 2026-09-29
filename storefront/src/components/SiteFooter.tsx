@@ -1,12 +1,8 @@
-import { MessageCircle } from "lucide-react";
+import { UserRound } from "lucide-react";
+import { Link } from "@/lib/router";
+import { accountPath } from "@/pages/AccountPage";
 
-/** `21621994132` renders as `+216 21 994 132`. */
-function prettyNumber(digits: string): string {
-  const local = digits.replace(/^216/, "");
-  return `+216 ${local.replace(/(\d{2})(\d{3})(\d{3})/, "$1 $2 $3")}`;
-}
-
-export function SiteFooter({ whatsappNumber }: { whatsappNumber: string }) {
+export function SiteFooter() {
   return (
     <footer className="site-footer">
       <div className="brand">
@@ -17,12 +13,12 @@ export function SiteFooter({ whatsappNumber }: { whatsappNumber: string }) {
         </div>
       </div>
       <p>
-        Paiements D17 et Flouci vérifiés manuellement. Aucun paiement n'est confirmé
-        automatiquement.
+        Paiements D17, Flouci, IZI et Wafa Cash vérifiés par un administrateur. Tes accès sont livrés par
+        email et restent disponibles dans ton espace.
       </p>
-      <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noreferrer">
-        <MessageCircle size={16} aria-hidden="true" /> {prettyNumber(whatsappNumber)}
-      </a>
+      <Link to={accountPath("commandes")}>
+        <UserRound size={16} aria-hidden="true" /> Mon espace client
+      </Link>
     </footer>
   );
 }

@@ -1,9 +1,20 @@
 """Admin space for the Tunisian storefront: overview, catalog, customers, settings."""
 
+import itertools
+
 import pytest
 
 import database as db
-from app.domain import site_admin_service, site_orders_service, site_settings_service, storefront_service
+from app.domain import (
+    site_admin_service,
+    site_orders_service,
+    site_settings_service,
+    storefront_service,
+    storefront_wallet_service,
+)
+from tests.conftest import RECEIPT
+
+_references = itertools.count(1)
 
 
 def _offer(name="Netflix 1 mois", millimes=15000, service="Netflix", stock=10):
@@ -12,11 +23,13 @@ def _offer(name="Netflix 1 mois", millimes=15000, service="Netflix", stock=10):
     return service_id, offer_id
 
 
-def _cart(offer_id, phone="22 333 444", name="Sana", quantity=1, method="d17"):
+def _cart(customer, offer_id, quantity=1):
     return storefront_service.create_order({
-        "name": name, "email": "sana@example.com", "phone": phone, "payment_method": method,
+        "payment_method": "d17",
+        "transaction_reference": f"D17-{next(_references):05d}",
+        "receipt": RECEIPT,
         "items": [{"offer_id": offer_id, "quantity": quantity}],
-    })
+    }, customer)
 
 
 def test_catalog_groups_offers_by_site_status(mock_mongodb):
@@ -65,10 +78,11 @@ def test_update_offer_rejects_invalid_input(mock_mongodb, form, message):
         site_admin_service.update_offer({"offer_id": str(offer_id), **form})
 
 
-def test_overview_counts_revenue_only_for_confirmed_carts(mock_mongodb):
+def test_overview_counts_revenue_only_for_confirmed_carts(mock_mongodb, site_customer):
+    sana, karim = site_customer(name="Sana", email="sana@example.com"), site_customer(name="Karim", email="karim@example.com")
     _, offer_id = _offer(millimes=15000)
-    confirmed = _cart(offer_id, quantity=2)
-    _cart(offer_id, phone="55 111 222", name="Karim")
+    confirmed = _cart(sana, offer_id, quantity=2)
+    _cart(karim, offer_id)
     site_orders_service.confirm_cart(confirmed["reference"])
 
     result = site_admin_service.overview()
@@ -77,39 +91,55 @@ def test_overview_counts_revenue_only_for_confirmed_carts(mock_mongodb):
     assert result["carts"]["to_verify"] == 1
     assert result["carts"]["confirmed"] == 1
     assert result["customers"] == 2
+    assert result["deposits_pending"] == 0
     assert result["top_products"][0] == {
         "offer_name": "Netflix 1 mois", "service_name": "Netflix", "quantity": 2, "revenue_millimes": 30000,
     }
     assert len(result["recent_carts"]) == 2
 
 
-def test_customers_are_grouped_by_phone_with_history(mock_mongodb):
+def test_customers_are_accounts_with_wallet_and_history(mock_mongodb, site_customer):
+    sana = site_customer(name="Sana", email="sana@example.com", phone="+21622333444")
+    karim = site_customer(name="Karim", email="karim@example.com", phone="+21655111222")
     _, offer_id = _offer(millimes=10000)
-    first = _cart(offer_id)
-    _cart(offer_id, quantity=3)
-    _cart(offer_id, phone="55 111 222", name="Karim")
+    first = _cart(sana, offer_id)
+    _cart(sana, offer_id, quantity=3)
+    _cart(karim, offer_id)
     site_orders_service.confirm_cart(first["reference"])
+    storefront_wallet_service.credit(sana["id"], 7000, kind="deposit")
 
     result = site_admin_service.customers({})
     assert result["total"] == 2
-    sana = result["items"][0]
-    assert sana["phone"] == "+21622333444"
-    assert sana["carts_count"] == 2
-    assert sana["pending_count"] == 1
-    assert sana["total_spent_millimes"] == 10000
-    assert sana["whatsapp_url"] == "https://wa.me/21622333444"
+    row = next(item for item in result["items"] if item["id"] == sana["id"])
+    assert row["email"] == "sana@example.com"
+    assert row["balance_millimes"] == 7000
+    assert row["carts_count"] == 2
+    assert row["pending_count"] == 1
+    assert row["total_spent_millimes"] == 10000
+    assert [cart["payment_label"] for cart in row["carts"]] == ["D17", "D17"]
 
-    assert [row["name"] for row in site_admin_service.customers({"search": ["55111"]})["items"]] == ["Karim"]
+    assert [row["name"] for row in site_admin_service.customers({"search": ["karim@"]})["items"]] == ["Karim"]
 
 
 def test_settings_validation(mock_mongodb):
-    assert site_settings_service.get()["payment_methods"] == ["d17", "flouci"]
-    with pytest.raises(site_settings_service.SiteSettingsError, match="WhatsApp"):
-        site_settings_service.save({"whatsapp_number": "123", "tnd_per_usdt": "3", "payment_d17": "1"})
+    settings = site_settings_service.get()
+    assert settings["payment_methods"] == ["d17", "flouci"]
+    assert "whatsapp_number" not in settings
+    assert [item["id"] for item in settings["available_payment_methods"]] == ["d17", "flouci", "izi", "wafacash"]
     with pytest.raises(site_settings_service.SiteSettingsError, match="taux"):
-        site_settings_service.save({"whatsapp_number": "21621994132", "tnd_per_usdt": "0", "payment_d17": "1"})
+        site_settings_service.save({"tnd_per_usdt": "0", "payment_d17": "1", "details_d17": "21 000 000"})
+    with pytest.raises(site_settings_service.SiteSettingsError, match="au moins un"):
+        site_settings_service.save({"tnd_per_usdt": "3"})
+    with pytest.raises(site_settings_service.SiteSettingsError, match="IZI"):
+        site_settings_service.save({"tnd_per_usdt": "3", "payment_izi": "1", "details_izi": " "})
 
-    saved = site_settings_service.save({"whatsapp_number": "21994132", "tnd_per_usdt": "3,25", "payment_d17": "1"})
-    assert saved["whatsapp_number"] == "21621994132"
+    saved = site_settings_service.save({
+        "tnd_per_usdt": "3,25",
+        "payment_d17": "1",
+        "details_d17": "D17 : 21 000 000",
+        "payment_izi": "1",
+        "details_izi": "IZI : 55 000 000",
+    })
     assert saved["tnd_per_usdt"] == 3.25
-    assert saved["payment_methods"] == ["d17"]
+    assert saved["payment_methods"] == ["d17", "izi"]
+    assert saved["payment_details"]["izi"] == "IZI : 55 000 000"

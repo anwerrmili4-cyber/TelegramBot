@@ -8,6 +8,19 @@ export function money(millimes: number): string {
   return `${dinars.format((Number(millimes) || 0) / 1000)} DT`;
 }
 
+const dateTimes = new Intl.DateTimeFormat("fr-FR", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** API timestamps are Unix seconds. */
+export function dateTime(seconds: number | null | undefined): string {
+  return seconds ? dateTimes.format(new Date(seconds * 1000)) : "—";
+}
+
 export function plural(count: number, one: string, many: string): string {
   return count > 1 ? many : one;
 }

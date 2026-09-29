@@ -122,10 +122,14 @@ class StorefrontHandler(webhook.handler):
         self.send_header(
             "Content-Security-Policy",
             # Catalog artwork may be any https URL; fonts come from Google and
-            # inline styles carry the per-card animation offsets.
+            # inline styles carry the per-card animation offsets. The
+            # accounts.google.com/gsi sources serve the "Sign in with Google" button.
             "default-src 'self'; img-src 'self' data: https:; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; connect-src 'self'; "
+            "script-src 'self' https://accounts.google.com/gsi/client; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "connect-src 'self' https://accounts.google.com/gsi/; "
+            "frame-src https://accounts.google.com/gsi/; "
             "base-uri 'none'; object-src 'none'; frame-ancestors 'none'",
         )
         self.send_header(

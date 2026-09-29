@@ -52,6 +52,19 @@ a.sidebar-footer { color:inherit; text-decoration:none; }
 .site-field-help { color:var(--muted); font-size:11px; }
 .site-methods { display:flex; gap:22px; flex-wrap:wrap; }
 .site-methods .switch { color:var(--text); font-size:13px; }
+.site-section-title { margin:18px 0 4px; font-size:14px; }
+.site-method-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px; margin-top:10px; }
+.site-method-card { display:grid; gap:9px; padding:12px; border:1px solid var(--line); border-radius:12px; opacity:.72; }
+.site-method-card.active { opacity:1; border-color:var(--accent, var(--line)); }
+.site-method-card .switch { color:var(--text); font-size:13px; font-weight:600; }
+.site-method-card textarea { width:100%; resize:vertical; }
+
+.site-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.site-delivery { white-space:pre-wrap; word-break:break-word; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; font-size:12px; }
+.site-receipt { display:inline-grid; gap:4px; color:inherit; text-decoration:none; }
+.site-receipt img { width:132px; max-height:170px; object-fit:cover; object-position:top; border:1px solid var(--line); border-radius:9px; background:var(--panel-soft); }
+.site-receipt span { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); }
+.site-receipt:hover img { border-color:var(--text); }
 
 @media (max-width: 900px) {
   .site-overview-grid { grid-template-columns:1fr; }

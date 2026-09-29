@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarClock, Check, ShieldCheck, ShoppingBag, Truck } from "lucide-react";
+import { CalendarClock, Check, ChevronRight, ShieldCheck, ShoppingBag, Truck } from "lucide-react";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
@@ -12,9 +12,10 @@ type OfferCardProps = {
   inCart: number;
   cartIsFull: boolean;
   onAdd: (offer: Offer, quantity: number) => void;
+  onOpen: (offer: Offer) => void;
 };
 
-export function OfferCard({ offer, index, inCart, cartIsFull, onAdd }: OfferCardProps) {
+export function OfferCard({ offer, index, inCart, cartIsFull, onAdd, onOpen }: OfferCardProps) {
   const [quantity, setQuantity] = useState(offer.min_quantity);
   const ceiling = maxOrderable(offer);
   const period = periodLabel(offer.period_days);
@@ -39,16 +40,21 @@ export function OfferCard({ offer, index, inCart, cartIsFull, onAdd }: OfferCard
         {offer.badge ? <em className="offer-badge">{offer.badge}</em> : null}
       </header>
 
-      {offer.image_url ? (
-        <div className="offer-media">
-          <img src={assetUrl(offer.image_url)} alt="" loading="lazy" decoding="async" />
-        </div>
-      ) : null}
+      <button type="button" className="offer-open" onClick={() => onOpen(offer)} aria-label={`Voir le détail de ${offer.name}`}>
+        {offer.image_url ? (
+          <span className="offer-media">
+            <img src={assetUrl(offer.image_url)} alt="" loading="lazy" decoding="async" />
+          </span>
+        ) : null}
 
-      <h3>{offer.name}</h3>
-      <p className="offer-description">
-        {offer.description || "Service digital disponible directement depuis notre catalogue."}
-      </p>
+        <h3>{offer.name}</h3>
+        <span className="offer-description">
+          {offer.description || "Service digital disponible directement depuis notre catalogue."}
+        </span>
+        <span className="offer-more">
+          Voir le détail <ChevronRight size={14} aria-hidden="true" />
+        </span>
+      </button>
 
       <ul className="offer-facts">
         {period ? (

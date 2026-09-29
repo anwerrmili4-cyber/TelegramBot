@@ -13,6 +13,7 @@ type CatalogSectionProps = {
   error: string;
   cart: Cart;
   onReload: () => void;
+  onOpenOffer: (offer: Offer) => void;
 };
 
 export function CatalogSection({
@@ -22,6 +23,7 @@ export function CatalogSection({
   error,
   cart,
   onReload,
+  onOpenOffer,
 }: CatalogSectionProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
@@ -45,8 +47,8 @@ export function CatalogSection({
           <h2 id="catalog-title">Compose ton panier</h2>
         </div>
         <p>
-          Prix, stock et disponibilités viennent du même catalogue en direct que notre bot
-          Telegram.
+          Prix et stock en direct. Clique sur un produit pour voir tous ses détails avant
+          d'acheter.
         </p>
       </div>
 
@@ -112,6 +114,7 @@ export function CatalogSection({
               inCart={cart.quantityOf(offer.id)}
               cartIsFull={cart.isFull}
               onAdd={cart.add}
+              onOpen={onOpenOffer}
             />
           ))}
         </div>

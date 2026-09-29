@@ -1,24 +1,19 @@
 import { useEffect, useState } from "react";
-import { LogOut, MessageCircle, Menu, ShoppingCart, UserRound, X } from "lucide-react";
+import { Menu, ShoppingCart, UserRound, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
 import { Link, ROUTES } from "@/lib/router";
+import { accountPath } from "@/pages/AccountPage";
 
 type SiteHeaderProps = {
   cartCount: number;
   cartTotalMillimes: number;
-  whatsappNumber: string;
   onOpenCart: () => void;
 };
 
-export function SiteHeader({
-  cartCount,
-  cartTotalMillimes,
-  whatsappNumber,
-  onOpenCart,
-}: SiteHeaderProps) {
+export function SiteHeader({ cartCount, cartTotalMillimes, onOpenCart }: SiteHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const { customer, loading, logout } = useAuth();
+  const { customer, loading } = useAuth();
   const firstName = customer?.name.split(" ")[0] ?? "";
 
   useEffect(() => {
@@ -45,30 +40,24 @@ export function SiteHeader({
         <Link to="/#fonctionnement" onClick={() => setMenuOpen(false)}>
           Comment ça marche
         </Link>
-        <a href={`https://wa.me/${whatsappNumber}`} target="_blank" rel="noreferrer">
-          Assistance
-        </a>
+        {customer ? (
+          <>
+            <Link to={accountPath("commandes")} onClick={() => setMenuOpen(false)}>
+              Mes achats
+            </Link>
+            <Link to={accountPath("portefeuille")} onClick={() => setMenuOpen(false)}>
+              Portefeuille
+            </Link>
+          </>
+        ) : null}
       </nav>
 
       <div className="header-actions">
-        <a
-          className="support-link"
-          href={`https://wa.me/${whatsappNumber}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <MessageCircle size={16} aria-hidden="true" />
-          <span>Aide</span>
-        </a>
-
         {customer ? (
-          <div className="account-chip">
+          <Link className="account-link" to={accountPath("commandes")} title={customer.email}>
             <UserRound size={16} aria-hidden="true" />
-            <span title={customer.email}>{firstName}</span>
-            <button type="button" onClick={() => void logout()} aria-label="Se déconnecter">
-              <LogOut size={15} aria-hidden="true" />
-            </button>
-          </div>
+            <span>{firstName}</span>
+          </Link>
         ) : loading ? null : (
           <Link className="account-link" to={ROUTES.login} aria-label="Connexion">
             <UserRound size={16} aria-hidden="true" />

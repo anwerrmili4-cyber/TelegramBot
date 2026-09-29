@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
+import { GoogleButton } from "@/components/GoogleButton";
 import { useAuth } from "@/hooks/useAuth";
 import { errorMessage } from "@/lib/api";
-import { Link, navigate, ROUTES } from "@/lib/router";
+import { Link, navigate, nextPath, ROUTES, withNext } from "@/lib/router";
 import { AuthLayout, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 
@@ -37,7 +38,7 @@ export function RegisterPage() {
     setError("");
     try {
       await register(name.trim(), email.trim(), password);
-      navigate(verifyEmailPath(email.trim().toLowerCase()), { replace: true });
+      navigate(verifyEmailPath(email.trim().toLowerCase(), nextPath()), { replace: true });
     } catch (reason) {
       setError(errorMessage(reason, "Impossible de créer le compte."));
       setSubmitting(false);
@@ -48,13 +49,14 @@ export function RegisterPage() {
     <AuthLayout
       kicker="Inscription"
       title="Créer un compte"
-      intro="Quelques secondes suffisent. Le paiement reste vérifié sur WhatsApp."
+      intro="Quelques secondes suffisent. Ton compte te donne un portefeuille et l'historique de tes achats."
       footer={
         <>
-          Déjà inscrit ? <Link to={ROUTES.login}>Se connecter</Link>
+          Déjà inscrit ? <Link to={withNext(ROUTES.login, nextPath())}>Se connecter</Link>
         </>
       }
     >
+      <GoogleButton context="signup" />
       <form className="auth-form" onSubmit={onSubmit} noValidate>
         <label>
           Nom complet

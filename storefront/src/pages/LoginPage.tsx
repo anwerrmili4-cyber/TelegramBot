@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
+import { GoogleButton } from "@/components/GoogleButton";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiError, errorMessage } from "@/lib/api";
-import { Link, navigate, ROUTES } from "@/lib/router";
+import { Link, navigate, nextPath, ROUTES, withNext } from "@/lib/router";
 import { AuthLayout, EMAIL_PATTERN, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 
@@ -28,10 +29,10 @@ export function LoginPage() {
     setError("");
     try {
       await login(email.trim(), password);
-      navigate(ROUTES.home, { replace: true });
+      navigate(nextPath(), { replace: true });
     } catch (reason) {
       if (reason instanceof ApiError && reason.code === "email_unverified") {
-        navigate(verifyEmailPath(email.trim().toLowerCase()));
+        navigate(verifyEmailPath(email.trim().toLowerCase(), nextPath()));
         return;
       }
       setError(errorMessage(reason, "Connexion impossible."));
@@ -43,13 +44,14 @@ export function LoginPage() {
     <AuthLayout
       kicker="Mon compte"
       title="Connexion"
-      intro="Retrouve tes commandes et commande plus vite."
+      intro="Retrouve tes commandes, tes accès et ton portefeuille."
       footer={
         <>
-          Pas encore de compte ? <Link to={ROUTES.register}>Créer un compte</Link>
+          Pas encore de compte ? <Link to={withNext(ROUTES.register, nextPath())}>Créer un compte</Link>
         </>
       }
     >
+      <GoogleButton />
       <form className="auth-form" onSubmit={onSubmit} noValidate>
         <label>
           Adresse email

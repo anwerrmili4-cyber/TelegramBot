@@ -699,17 +699,18 @@ def test_login_throttle_expires_and_is_per_ip():
     assert webhook_module.login_retry_after("1.1.1.1", now=later) == 0
 
 
-def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, mock_mongodb):
+def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, mock_mongodb, site_customer):
     from app.domain import storefront_service
+    from tests.conftest import RECEIPT
 
     monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "site-test")
     token = webhook_module.dashboard_write_token()
     sid = database_module.add_service("Netflix", "🎬", sales_channels=["bot", "tn_site"])
     oid = database_module.add_offer(sid, "Netflix 1 mois", 6.0, 3, sales_channels=["bot", "tn_site"], tn_price_millimes=15000)
     cart = storefront_service.create_order({
-        "name": "Sana", "email": "sana@example.com", "phone": "22 333 444", "payment_method": "d17",
+        "payment_method": "d17", "transaction_reference": "D17-123456", "receipt": RECEIPT,
         "items": [{"offer_id": oid, "quantity": 1}],
-    })
+    }, site_customer(name="Sana", email="sana@example.com"))
     reference = cart["reference"]
 
     with running_server() as base_url:
@@ -721,12 +722,24 @@ def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, moc
         with urlopen(request, timeout=5) as response:
             listed = json.load(response)
         assert [item["reference"] for item in listed["items"]] == [reference]
+        receipt_id = listed["items"][0]["receipt_id"]
+
+        with pytest.raises(HTTPError) as hidden:
+            urlopen(f"{base_url}/admin/api/site-receipt?id={receipt_id}", timeout=5)
+        assert hidden.value.code == 401
+        receipt = Request(f"{base_url}/admin/api/site-receipt?id={receipt_id}", headers={"Authorization": _basic_auth("site-test")})
+        with urlopen(receipt, timeout=5) as response:
+            assert response.headers["Content-Type"] == "image/png"
+            assert response.read().startswith(b"\x89PNG")
 
         with urlopen(f"{base_url}/admin/site-orders", timeout=5) as response:
             assert '<div id="root">' in response.read().decode()
 
         confirmed = _catalog_action(base_url, token, {"action": "site_cart_confirm", "reference": reference})
-        assert confirmed == {"ok": True, "message": f"Paiement du panier {reference} confirmé."}
+        assert confirmed == {"ok": True, "message": f"Paiement du panier {reference} confirmé. 1 article(s) à livrer manuellement."}
+        with pytest.raises(HTTPError) as empty:
+            _catalog_action(base_url, token, {"action": "site_cart_deliver", "reference": reference, "note": ""})
+        assert "Saisis les accès" in json.load(empty.value)["error"]
         delivered = _catalog_action(base_url, token, {"action": "site_cart_deliver", "reference": reference, "note": "Envoyé"})
         assert delivered["ok"] is True
 
@@ -737,6 +750,59 @@ def test_site_orders_admin_lists_and_processes_storefront_carts(monkeypatch, moc
 
     assert database_module.get_offer(oid)["stock"] == 2
     assert {row["status"] for row in mock_mongodb.orders.find({"cart_reference": reference})} == {"delivered"}
+
+
+def test_storefront_wallet_deposit_then_wallet_checkout_end_to_end(monkeypatch, mock_mongodb, site_customer):
+    from app.domain import inventory_service, storefront_auth_service
+    from tests.conftest import RECEIPT
+
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "site-test")
+    admin_token = webhook_module.dashboard_write_token()
+    sid = database_module.add_service("Netflix", "🎬", sales_channels=["bot", "tn_site"])
+    oid = database_module.add_offer(sid, "Netflix 1 mois", 6.0, 0, sales_channels=["bot", "tn_site"], tn_price_millimes=15000)
+    inventory_service.add_items(oid, ["netflix@mail.tn:secret"])
+    customer = site_customer(name="Sana", email="sana@example.com")
+    session = storefront_auth_service._open_session(customer)["token"]
+
+    def storefront(base_url, path, payload=None, token=session):
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        data = json.dumps(payload).encode() if payload is not None else None
+        request = Request(f"{base_url}{path}", data=data, method="POST" if data else "GET", headers=headers)
+        with urlopen(request, timeout=5) as response:
+            return json.load(response)
+
+    with running_server() as base_url:
+        order = {"payment_method": "wallet", "items": [{"offer_id": oid, "quantity": 1}]}
+        with pytest.raises(HTTPError) as anonymous:
+            storefront(base_url, "/api/storefront/orders", order, token=None)
+        assert anonymous.value.code == 401
+        with pytest.raises(HTTPError) as short:
+            storefront(base_url, "/api/storefront/orders", order)
+        assert "Solde insuffisant" in json.load(short.value)["error"]
+
+        deposit = storefront(base_url, "/api/storefront/auth/deposits", {
+            "method": "d17", "amount": "20", "transaction_reference": "D17-990011", "receipt": RECEIPT,
+        })["deposit"]
+        assert deposit["status"] == "pending"
+
+        approved = _catalog_action(base_url, admin_token, {"action": "site_deposit_approve", "deposit_id": str(deposit["id"]), "amount": ""})
+        assert approved["message"] == f"Recharge #{deposit['id']} validée : 20.000 DT crédités."
+        assert storefront(base_url, "/api/storefront/auth/wallet")["balance_millimes"] == 20000
+
+        paid = storefront(base_url, "/api/storefront/orders", order)
+        assert paid["status"] == "delivered"
+        assert paid["balance_millimes"] == 5000
+
+        (history,) = storefront(base_url, "/api/storefront/auth/orders")["orders"]
+        assert history["reference"] == paid["reference"]
+        assert history["items"][0]["delivery"] == "netflix@mail.tn:secret"
+
+        adjusted = _catalog_action(base_url, admin_token, {
+            "action": "site_wallet_adjust", "customer_id": str(customer["id"]), "amount": "-5", "note": "Correction",
+        })
+        assert adjusted["message"] == "Solde mis à jour : 0.000 DT."
 
 
 def test_site_admin_space_edits_catalog_and_settings(monkeypatch, mock_mongodb):
@@ -769,15 +835,16 @@ def test_site_admin_space_edits_catalog_and_settings(monkeypatch, mock_mongodb):
         assert get(base_url, "/admin/api/site-catalog?status=on_sale")["items"][0]["tn_price_millimes"] == 12500
 
         saved = _catalog_action(base_url, token, {
-            "action": "site_settings_save", "whatsapp_number": "21 994 132", "tnd_per_usdt": "3,4", "payment_flouci": "1",
+            "action": "site_settings_save", "tnd_per_usdt": "3,4",
+            "payment_flouci": "1", "details_flouci": "Flouci : 55 000 000",
         })
         assert saved["ok"] is True
         settings = get(base_url, "/admin/api/site-settings")
-        assert settings["whatsapp_number"] == "21621994132"
         assert settings["payment_methods"] == ["flouci"]
+        assert settings["payment_details"]["flouci"] == "Flouci : 55 000 000"
 
         with pytest.raises(HTTPError) as rejected:
-            _catalog_action(base_url, token, {"action": "site_settings_save", "whatsapp_number": "21621994132", "tnd_per_usdt": "3"})
+            _catalog_action(base_url, token, {"action": "site_settings_save", "tnd_per_usdt": "3"})
         assert rejected.value.code == 400
         assert "moyen de paiement" in json.load(rejected.value)["error"]
 

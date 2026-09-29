@@ -1,4 +1,13 @@
-import type { AuthSession, Catalog, CheckoutResult, Customer, VerificationRequired } from "@/types";
+import type {
+  AccountOrders,
+  AuthSession,
+  Catalog,
+  CheckoutResult,
+  Customer,
+  Deposit,
+  VerificationRequired,
+  Wallet,
+} from "@/types";
 
 const configured = (import.meta.env.VITE_STOREFRONT_API_URL ?? "").trim().replace(/\/+$/, "");
 
@@ -9,8 +18,6 @@ const configured = (import.meta.env.VITE_STOREFRONT_API_URL ?? "").trim().replac
  * app somewhere other than the Python server.
  */
 export const API_BASE = configured;
-
-export const WHATSAPP_FALLBACK = "21621994132";
 
 /** Resolve a catalog image, which the API may return as a relative path. */
 export function assetUrl(url: string): string {
@@ -86,6 +93,14 @@ export function login(payload: { email: string; password: string }) {
   return postJson<AuthSession>("/api/storefront/auth/login", payload);
 }
 
+export function googleLogin(credential: string) {
+  return postJson<AuthSession>("/api/storefront/auth/google", { credential });
+}
+
+export function fetchAuthConfig() {
+  return request<{ ok: boolean; google_client_id: string }>("/api/storefront/auth/config");
+}
+
 export function logout(token: string) {
   return postJson<{ ok: boolean }>("/api/storefront/auth/logout", {}, token);
 }
@@ -110,20 +125,44 @@ export function fetchCatalog(signal?: AbortSignal): Promise<Catalog> {
 }
 
 export type CheckoutPayload = {
-  name: string;
-  email: string;
-  phone: string;
+  /** `wallet`, or a transfer method id such as `d17`. */
   payment_method: string;
+  transaction_reference?: string;
+  /** Receipt screenshot as a `data:image/...` URL, for transfers only. */
+  receipt?: string;
   note?: string;
   items: { offer_id: number; quantity: number }[];
 };
 
-export function submitCheckout(payload: CheckoutPayload): Promise<CheckoutResult> {
-  return request<CheckoutResult>("/api/storefront/orders", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+export function submitCheckout(token: string, payload: CheckoutPayload): Promise<CheckoutResult> {
+  return postJson<CheckoutResult>("/api/storefront/orders", payload, token);
+}
+
+function getAuthed<T>(path: string, token: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { signal, headers: { Authorization: `Bearer ${token}` } });
+}
+
+export function fetchOrders(token: string, signal?: AbortSignal) {
+  return getAuthed<AccountOrders>("/api/storefront/auth/orders", token, signal);
+}
+
+export function fetchWallet(token: string, signal?: AbortSignal) {
+  return getAuthed<Wallet>("/api/storefront/auth/wallet", token, signal);
+}
+
+export function createDeposit(
+  token: string,
+  payload: { method: string; amount: string; transaction_reference: string; receipt: string },
+) {
+  return postJson<{ ok: boolean; deposit: Deposit }>("/api/storefront/auth/deposits", payload, token);
+}
+
+export function updateProfile(token: string, payload: { name: string; phone: string }) {
+  return postJson<{ ok: boolean; customer: Customer }>("/api/storefront/auth/profile", payload, token);
+}
+
+export function changePassword(token: string, payload: { current_password: string; new_password: string }) {
+  return postJson<{ ok: boolean }>("/api/storefront/auth/password", payload, token);
 }
 
 export function errorMessage(reason: unknown, fallback: string): string {

@@ -16,20 +16,23 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
 import secrets
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from pymongo.errors import DuplicateKeyError
 
 import database as db
-from app.domain import email_service
+from app.domain import email_service, storefront_service, storefront_wallet_service
 
 log = logging.getLogger(__name__)
 
@@ -166,11 +169,27 @@ def _expiry_date(timestamp: int) -> datetime:
     return datetime.fromtimestamp(timestamp, tz=UTC)
 
 
+def _phone(value: Any) -> str:
+    """A local 8-digit Tunisian number, or an empty string to clear it."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if digits.startswith("00216"):
+        digits = digits[5:]
+    elif digits.startswith("216") and len(digits) == 11:
+        digits = digits[3:]
+    if digits and not re.fullmatch(r"[2459]\d{7}", digits):
+        raise AuthError("Saisis un numéro tunisien valide à 8 chiffres.")
+    return digits
+
+
 def _public_customer(customer: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(customer["id"]),
         "name": customer.get("name", ""),
         "email": customer.get("email", ""),
+        "phone": customer.get("phone", ""),
+        "email_confirmed": customer.get("email_verified") is True,
+        "has_password": bool(customer.get("password_hash")),
+        "google": bool(customer.get("google_sub")),
         "created_at": customer.get("created_at"),
     }
 
@@ -190,7 +209,13 @@ def _open_session(customer: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_verified(customer: dict[str, Any]) -> bool:
+    """May log in: confirmed, or created before confirmation existed."""
     return customer.get("email_verified") is not False
+
+
+def _email_confirmed(customer: dict[str, Any]) -> bool:
+    """Has actually typed an emailed code or opened a reset link."""
+    return customer.get("email_verified") is True
 
 
 def _code_hash(customer_id: int, code: str) -> str:
@@ -284,7 +309,7 @@ def verify_email(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]
 
     conn = db.get_conn()
     customer = conn.storefront_customers.find_one({"email": email})
-    if customer and _is_verified(customer):
+    if customer and _email_confirmed(customer):
         raise AuthError("Cette adresse est déjà confirmée. Connecte-toi.", status=409)
     pending = conn.storefront_email_codes.find_one({"customer_id": int(customer["id"])}) if customer else None
     if (
@@ -306,14 +331,15 @@ def verify_email(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]
         {"id": customer["id"]}, {"$set": {"email_verified": True, "email_verified_at": now, "updated_at": now}}
     )
     db.audit_event("storefront.customer_email_verified", details={"customer_id": customer["id"]})
-    email_service.send_welcome(email, customer.get("name", ""), _site_url())
+    if customer.get("email_verified") is False:
+        email_service.send_welcome(email, customer.get("name", ""), _site_url())
     return _open_session(customer)
 
 
 def resend_verification(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]:
     email = _email(payload.get("email"))
     customer = db.get_conn().storefront_customers.find_one({"email": email})
-    if customer and not _is_verified(customer):
+    if customer and not _email_confirmed(customer):
         _send_code_limited(customer, client_ip)
     return {"ok": True}
 
@@ -342,6 +368,108 @@ def login(payload: dict[str, Any], client_ip: str) -> dict[str, Any]:
     return _open_session(customer)
 
 
+_GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+_GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
+
+
+def google_client_id() -> str:
+    return os.getenv("GOOGLE_CLIENT_ID", "").strip()
+
+
+def auth_config() -> dict[str, Any]:
+    return {"ok": True, "google_client_id": google_client_id()}
+
+
+def _google_identity(credential: str) -> dict[str, Any]:
+    """Check a Google Identity Services ID token with Google and return its claims."""
+    request = urllib.request.Request(
+        f"{_GOOGLE_TOKENINFO_URL}?{urlencode({'id_token': credential})}",
+        headers={"User-Agent": "BlackMarket-Storefront/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            claims = json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise AuthError("Connexion Google refusée. Réessaie.", status=401) from exc
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log.warning("Google token check failed: %s", exc)
+        raise AuthError("Google ne répond pas. Réessaie dans un instant.", status=503) from exc
+
+    if (
+        claims.get("aud") != google_client_id()
+        or claims.get("iss") not in _GOOGLE_ISSUERS
+        or int(claims.get("exp") or 0) < time.time()
+        or not claims.get("sub")
+    ):
+        raise AuthError("Connexion Google refusée. Réessaie.", status=401)
+    if str(claims.get("email_verified")).lower() != "true":
+        raise AuthError("Ton adresse Gmail n'est pas vérifiée par Google.", status=403)
+    return claims
+
+
+def google_login(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]:
+    """Sign in or sign up with Google; Google has already proven the address."""
+    if not google_client_id():
+        raise AuthError("La connexion Google n'est pas encore disponible.", status=503)
+    credential = str(payload.get("credential") or "").strip()
+    if not credential or len(credential) > 4096:
+        raise AuthError("Connexion Google refusée. Réessaie.", status=401)
+    keys = [f"google-ip:{client_ip}"]
+    _check_limit(keys, _LOGIN_FAILURES_PER_KEY)
+    try:
+        claims = _google_identity(credential)
+    except AuthError as exc:
+        if exc.status == 401:
+            _record(keys)
+        raise
+    subject = str(claims["sub"])
+    email = _email(claims.get("email"))
+    try:
+        name = _name(claims.get("name") or email.split("@", 1)[0])
+    except AuthError:
+        name = "Client"
+
+    conn = db.get_conn()
+    now = int(time.time())
+    customer = conn.storefront_customers.find_one({"google_sub": subject}) or conn.storefront_customers.find_one(
+        {"email": email}
+    )
+    if customer:
+        changes: dict[str, Any] = {"google_sub": subject, "updated_at": now}
+        welcome = customer.get("email_verified") is False
+        if not _email_confirmed(customer):
+            changes.update(email_verified=True, email_verified_at=now)
+        if welcome:
+            # Whoever started this pending sign-up never proved the address, so
+            # the password they chose must not keep working.
+            changes["password_hash"] = ""
+            conn.storefront_email_codes.delete_many({"customer_id": int(customer["id"])})
+        conn.storefront_customers.update_one({"id": customer["id"]}, {"$set": changes})
+        customer = {**customer, **changes}
+        if welcome:
+            email_service.send_welcome(customer["email"], customer.get("name", ""), _site_url())
+    else:
+        customer = {
+            "id": db._next_id("storefront_customers"),
+            "name": name,
+            "email": email,
+            "password_hash": "",
+            "google_sub": subject,
+            "email_verified": True,
+            "email_verified_at": now,
+            "created_at": now,
+            "updated_at": now,
+        }
+        try:
+            conn.storefront_customers.insert_one(customer)
+        except DuplicateKeyError as exc:
+            raise AuthError("Un compte existe déjà avec cette adresse email. Réessaie.", status=409) from exc
+        db.audit_event("storefront.customer_registered", details={"customer_id": customer["id"], "via": "google"})
+        email_service.send_welcome(email, name, _site_url())
+    _clear(keys)
+    return _open_session(customer)
+
+
 def customer_for_token(token: Any) -> dict[str, Any]:
     if not token:
         raise AuthError("Connecte-toi pour continuer.", status=401)
@@ -357,6 +485,79 @@ def customer_for_token(token: Any) -> dict[str, Any]:
 
 def me(token: Any) -> dict[str, Any]:
     return {"ok": True, "customer": _public_customer(customer_for_token(token))}
+
+
+def update_profile(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    changes = {"name": _name(payload.get("name")), "phone": _phone(payload.get("phone"))}
+    db.get_conn().storefront_customers.update_one(
+        {"id": customer["id"]}, {"$set": {**changes, "updated_at": int(time.time())}}
+    )
+    return {"ok": True, "customer": _public_customer({**customer, **changes})}
+
+
+def change_password(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Replace the password and sign out every other device."""
+    customer = customer_for_token(token)
+    keys = [f"password-change:{customer['id']}"]
+    _check_limit(keys, _LOGIN_FAILURES_PER_KEY)
+    current = str(payload.get("current_password") or "")[:MAX_PASSWORD_LENGTH]
+    # Google-only accounts have no password yet and may set a first one.
+    if customer.get("password_hash") and not verify_password(current, customer["password_hash"]):
+        _record(keys)
+        raise AuthError("Ton mot de passe actuel est incorrect.", status=403)
+    password = _password(payload.get("new_password"))
+    if password == current:
+        raise AuthError("Choisis un mot de passe différent de l'actuel.")
+    _clear(keys)
+
+    conn = db.get_conn()
+    conn.storefront_customers.update_one(
+        {"id": customer["id"]},
+        {"$set": {"password_hash": hash_password(password), "updated_at": int(time.time())}},
+    )
+    conn.storefront_sessions.delete_many(
+        {"customer_id": int(customer["id"]), "token_hash": {"$ne": _token_hash(token)}}
+    )
+    conn.storefront_password_resets.delete_many({"customer_id": int(customer["id"])})
+    db.audit_event("storefront.customer_password_changed", details={"customer_id": customer["id"]})
+    return {"ok": True}
+
+
+def customer_orders(token: Any) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    # Guest carts are matched by address, and delivered ones carry access
+    # details, so they only join an account that has proven it owns the email.
+    confirmed = _email_confirmed(customer)
+    return {
+        "ok": True,
+        "email_confirmed": confirmed,
+        "orders": storefront_service.customer_carts(
+            int(customer["id"]), customer["email"] if confirmed else ""
+        ),
+    }
+
+
+def wallet(token: Any) -> dict[str, Any]:
+    return storefront_wallet_service.summary(customer_for_token(token))
+
+
+def create_deposit(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    try:
+        return storefront_wallet_service.create_deposit(customer, payload)
+    except storefront_wallet_service.WalletError as exc:
+        raise AuthError(str(exc)) from exc
+
+
+def create_order(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    if not _is_verified(customer):
+        raise AuthError("Confirme d'abord ton adresse email.", status=403, code=EMAIL_UNVERIFIED)
+    try:
+        return storefront_service.create_order(payload, customer)
+    except (storefront_service.StorefrontError, ValueError) as exc:
+        raise AuthError(str(exc)) from exc
 
 
 def logout(token: Any) -> dict[str, Any]:

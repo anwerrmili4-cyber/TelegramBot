@@ -5,10 +5,11 @@ customer cart is stored as one order document per line rather than a single
 document holding an item array: that is what lets the admin dashboard, the
 delivery pipeline, inventory and warranty treat a site sale exactly like a bot
 sale. A shared ``cart_reference`` is the only thing grouping the lines back
-together for the customer and for the WhatsApp receipt hand-off.
+together in the customer's account and the admin panel.
 
-No payment is ever confirmed here. Lines are created in ``MANUAL_REVIEW`` and an
-administrator remains the only way to mark them paid.
+Buying needs an account. A cart paid from the wallet is debited at once and
+delivered from inventory straight away; a cart paid by transfer is created in
+``MANUAL_REVIEW`` with its receipt, and only an administrator can confirm it.
 """
 
 from __future__ import annotations
@@ -26,7 +27,13 @@ from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import email_service, manual_payment_service, site_settings_service
+from app.domain import (
+    email_service,
+    site_orders_service,
+    site_settings_service,
+    storefront_receipt_service,
+    storefront_wallet_service,
+)
 
 CATEGORY_LABELS = {
     "ai": "Intelligence artificielle",
@@ -46,7 +53,6 @@ MAX_CART_LINES = 12
 # Ambiguous glyphs are excluded so a customer can read the reference out loud.
 _REFERENCE_ALPHABET = "ACDEFGHJKLMNPQRSTUVWXYZ2345679"
 _REFERENCE_PATTERN = re.compile(r"^TN-[A-Z0-9]{6}$")
-_EMAIL_PATTERN = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 
 
 class StorefrontError(ValueError):
@@ -138,7 +144,8 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "package_number": str(offer.get("package_number") or offer["id"]),
         "name": str(offer.get("name") or "Offre")[:160],
         "description": _plain_text(
-            offer.get("site_description_fr") or offer.get("description") or offer.get("note")
+            offer.get("site_description_fr") or offer.get("description") or offer.get("note"),
+            limit=3000,
         ),
         "price_millimes": price_millimes,
         "currency": "TND",
@@ -186,7 +193,6 @@ def catalog() -> dict[str, Any]:
     return {
         "ok": True,
         "currency": "TND",
-        "whatsapp": site_settings_service.whatsapp_number(),
         "max_cart_lines": MAX_CART_LINES,
         "services": services,
         "categories": [
@@ -194,36 +200,8 @@ def catalog() -> dict[str, Any]:
             for key, label in CATEGORY_LABELS.items()
             if key in used_categories
         ],
-        "payment_methods": [
-            {"id": method, "label": site_settings_service.PAYMENT_METHOD_LABELS[method]}
-            for method in site_settings_service.payment_methods()
-        ],
+        "payment_methods": site_settings_service.public_payment_methods(),
     }
-
-
-def _tunisian_phone(value: Any) -> str:
-    digits = re.sub(r"\D", "", str(value or ""))
-    if digits.startswith("00216"):
-        digits = digits[5:]
-    elif digits.startswith("216"):
-        digits = digits[3:]
-    if not re.fullmatch(r"[2459]\d{7}", digits):
-        raise StorefrontError("Saisis un numéro tunisien valide à 8 chiffres.")
-    return f"+216{digits}"
-
-
-def _customer_name(value: Any) -> str:
-    name = re.sub(r"\s+", " ", str(value or "").strip())[:100]
-    if len(name) < 2:
-        raise StorefrontError("Saisis ton nom complet.")
-    return name
-
-
-def _customer_email(value: Any) -> str:
-    email = str(value or "").strip().lower()
-    if len(email) > 254 or not _EMAIL_PATTERN.fullmatch(email):
-        raise StorefrontError("Saisis une adresse email valide pour recevoir ta commande.")
-    return email
 
 
 def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int]]:
@@ -323,17 +301,63 @@ def _insert_cart(documents: list[dict[str, Any]]) -> str:
     raise StorefrontError("Impossible de générer une référence. Réessaie dans un instant.")
 
 
-def create_order(payload: dict[str, Any]) -> dict[str, Any]:
-    """Store a cart as MongoDB orders awaiting receipt verification on WhatsApp."""
-    name = _customer_name(payload.get("name"))
-    email = _customer_email(payload.get("email"))
-    phone = _tunisian_phone(payload.get("phone"))
-    method = manual_payment_service.normalize_method(str(payload.get("payment_method") or ""))
+def _payment_method(value: Any) -> str:
+    method = str(value or "").strip().lower()
+    if method == site_orders_service.WALLET_METHOD:
+        return method
+    try:
+        return site_settings_service.normalize_method(method)
+    except ValueError as exc:
+        raise StorefrontError(str(exc)) from exc
+
+
+def _transfer_reference(method: str, value: Any) -> str:
+    reference = re.sub(r"\s+", " ", str(value or "").strip())[:64]
+    if len(reference) < 3:
+        raise StorefrontError("Saisis la référence de la transaction indiquée sur ton reçu.")
+    key = reference.lower()
+    conn = db.get_conn()
+    reused = conn.orders.find_one({
+        "sales_channel": "tn_site",
+        "payment_method": method,
+        "payment_reference_key": key,
+        "status": {"$ne": OrderStatus.CANCELLED},
+    }) or conn.storefront_deposits.find_one({
+        "method": method,
+        "transaction_reference_key": key,
+        "status": {"$ne": storefront_wallet_service.DEPOSIT_REJECTED},
+    })
+    if reused:
+        raise StorefrontError("Cette référence de transaction a déjà été utilisée.")
+    return reference
+
+
+def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str, Any]:
+    """Store a signed-in customer's cart and pay it from the wallet or by transfer."""
+    customer_id = int(customer["id"])
+    name = str(customer.get("name") or "")
+    email = str(customer.get("email") or "")
+    method = _payment_method(payload.get("payment_method"))
     note = _plain_text(payload.get("note"), limit=400)
     lines = [_resolved_line(offer_id, quantity) for offer_id, quantity in _requested_lines(payload)]
+    cart_total = sum(line["total_millimes"] for line in lines)
+    by_wallet = method == site_orders_service.WALLET_METHOD
+
+    payment_reference = ""
+    receipt_id = None
+    if by_wallet:
+        if storefront_wallet_service.balance(customer_id) < cart_total:
+            raise StorefrontError("Solde insuffisant. Recharge ton portefeuille ou paie par virement.")
+    else:
+        payment_reference = _transfer_reference(method, payload.get("transaction_reference"))
+        try:
+            receipt_id = storefront_receipt_service.store(
+                payload.get("receipt"), customer_id=customer_id, purpose="order"
+            )
+        except storefront_receipt_service.ReceiptError as exc:
+            raise StorefrontError(str(exc)) from exc
 
     tracking_token = secrets.token_urlsafe(24)
-    cart_total = sum(line["total_millimes"] for line in lines)
     now = int(time.time())
 
     documents = []
@@ -343,10 +367,14 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
             "sales_channel": "tn_site",
             "source": "customer_site",
             "user_id": None,
+            "customer_id": customer_id,
             "customer_name": name,
             "customer_email": email,
-            "customer_phone": phone,
+            "customer_phone": str(customer.get("phone") or ""),
             "customer_note": note,
+            "payment_reference": payment_reference,
+            "payment_reference_key": payment_reference.lower(),
+            "receipt_id": receipt_id,
             "cart_position": position,
             "cart_size": len(lines),
             "cart_total_millimes": cart_total,
@@ -362,8 +390,7 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
             "currency": "TND",
             "payment_method": method,
             "status": OrderStatus.MANUAL_REVIEW,
-            "verification_channel": "whatsapp",
-            "verification_recipient": site_settings_service.whatsapp_number(),
+            "verification_channel": "wallet" if by_wallet else "receipt",
             "cart_token_hash": _token_hash(tracking_token),
             "txid": "",
             "verify_method": "",
@@ -375,15 +402,6 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
 
     reference = _insert_cart(documents)
     order_ids = [document["id"] for document in documents]
-    db.audit_event(
-        "storefront.cart_created",
-        details={
-            "cart_reference": reference,
-            "order_ids": order_ids,
-            "payment_method": method,
-            "total_millimes": cart_total,
-        },
-    )
     items = [
         {
             "offer_id": line["offer_id"],
@@ -395,33 +413,65 @@ def create_order(payload: dict[str, Any]) -> dict[str, Any]:
         }
         for line in lines
     ]
-    whatsapp_url = manual_payment_service.whatsapp_cart_url(
-        reference, method, cart_total, [(line["offer_name"], line["quantity"]) for line in lines]
-    )
-    email_service.send_order_received(
-        email,
-        name,
-        reference,
-        items,
-        cart_total,
-        site_settings_service.PAYMENT_METHOD_LABELS.get(method, method),
-        whatsapp_url,
+
+    if by_wallet:
+        status = _pay_from_wallet(customer_id, reference, documents, cart_total)
+    else:
+        status = "to_verify"
+        email_service.send_order_received(
+            email, name, reference, items, cart_total, site_orders_service.method_label(method)
+        )
+    db.audit_event(
+        "storefront.cart_created",
+        details={
+            "cart_reference": reference,
+            "order_ids": order_ids,
+            "payment_method": method,
+            "total_millimes": cart_total,
+            "status": status,
+        },
     )
     return {
         "ok": True,
         "reference": reference,
         "order_ids": order_ids,
-        # A single-line cart keeps returning order_id so the WhatsApp receipt
-        # and any bookmarked confirmation still resolve to one order.
-        "order_id": order_ids[0],
         "tracking_token": tracking_token,
-        "status": OrderStatus.MANUAL_REVIEW,
+        "status": status,
+        "payment_method": method,
         "total_millimes": cart_total,
         "currency": "TND",
-        "automatic_confirmation": False,
         "items": items,
-        "whatsapp_url": whatsapp_url,
+        "balance_millimes": storefront_wallet_service.balance(customer_id),
     }
+
+
+def _pay_from_wallet(customer_id: int, reference: str, documents: list[dict[str, Any]], total: int) -> str:
+    """Debit the wallet for a freshly stored cart, then deliver what is in stock."""
+    conn = db.get_conn()
+    if storefront_wallet_service.debit(customer_id, total, kind="purchase", reference=reference) is None:
+        conn.orders.delete_many({"cart_reference": reference, "status": OrderStatus.MANUAL_REVIEW})
+        raise StorefrontError("Solde insuffisant. Recharge ton portefeuille ou paie par virement.")
+
+    # Stock was checked when pricing the cart; a line sold out in the meantime
+    # is cancelled and refunded rather than failing the whole purchase.
+    for line in site_orders_service.mark_cart_paid(documents, "wallet"):
+        now = int(time.time())
+        conn.orders.update_one(
+            {"id": line["id"]},
+            {"$set": {
+                "status": OrderStatus.CANCELLED,
+                "admin_note": "Rupture de stock pendant le paiement",
+                "refunded_millimes": line["total_millimes"],
+                "cancelled_at": now,
+                "updated_at": now,
+            }},
+        )
+        storefront_wallet_service.credit(
+            customer_id, line["total_millimes"], kind="refund", reference=reference, note=line["offer_name"]
+        )
+    site_orders_service.fulfill_cart(reference)
+    lines = list(conn.orders.find({"cart_reference": reference}))
+    return site_orders_service.cart_status(lines)
 
 
 def _public_line(order: dict[str, Any]) -> dict[str, Any]:
@@ -459,6 +509,73 @@ def cart_status(reference: Any, tracking_token: Any) -> dict[str, Any]:
         "created_at": orders[0].get("created_at"),
         "items": lines,
     }
+
+
+MAX_ACCOUNT_CARTS = 50
+
+_LINE_STATUSES = {
+    str(OrderStatus.MANUAL_REVIEW): "to_verify",
+    str(OrderStatus.PAYMENT_CONFIRMED): "confirmed",
+    str(OrderStatus.PAID): "confirmed",
+    str(OrderStatus.PREPARING_DELIVERY): "confirmed",
+    str(OrderStatus.DELIVERED): "delivered",
+    str(OrderStatus.CANCELLED): "cancelled",
+}
+
+
+def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
+    """The customer's site carts, newest first, with what was delivered.
+
+    Pass ``email`` only once the customer has proven they own it: it also
+    brings back carts placed as a guest with that address.
+    """
+    owner: dict[str, Any] = {"customer_id": int(customer_id)}
+    if email:
+        owner = {"$or": [owner, {"customer_email": email}]}
+    rows = db.get_conn().orders.find(
+        {"sales_channel": "tn_site", "cart_reference": {"$exists": True}, **owner}
+    ).sort("created_at", -1).limit(MAX_ACCOUNT_CARTS * MAX_CART_LINES)
+    carts: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        carts.setdefault(row["cart_reference"], []).append(row)
+
+    result = []
+    for reference, lines in list(carts.items())[:MAX_ACCOUNT_CARTS]:
+        lines.sort(key=lambda line: int(line.get("cart_position") or 0))
+        first = lines[0]
+        method = str(first.get("payment_method") or "")
+        result.append({
+            "reference": reference,
+            "status": site_orders_service.cart_status(lines),
+            "payment_method": method,
+            "payment_label": site_orders_service.method_label(method),
+            "transaction_reference": first.get("payment_reference", ""),
+            "total_millimes": int(first.get("cart_total_millimes") or 0)
+            or sum(int(line.get("total_millimes") or 0) for line in lines),
+            "refunded_millimes": sum(int(line.get("refunded_millimes") or 0) for line in lines),
+            "created_at": min(int(line.get("created_at") or 0) for line in lines),
+            "paid_at": first.get("paid_at"),
+            "cancel_reason": next((str(line.get("admin_note") or "") for line in lines if line.get("admin_note")), ""),
+            "items": [
+                {
+                    "id": int(line["id"]),
+                    "offer_id": line.get("offer_id"),
+                    "offer_name": line.get("offer_name", ""),
+                    "service_name": line.get("service_name", ""),
+                    "quantity": int(line.get("qty") or 1),
+                    "unit_millimes": int(line.get("unit_price_millimes") or 0),
+                    "total_millimes": int(line.get("total_millimes") or 0),
+                    "period_days": int(line.get("period_days") or 0),
+                    "status": _LINE_STATUSES.get(str(line.get("status") or ""), "to_verify"),
+                    "delivered_at": line.get("delivered_at"),
+                    "delivery": site_orders_service.line_delivery(line)
+                    if line.get("status") == OrderStatus.DELIVERED
+                    else "",
+                }
+                for line in lines
+            ],
+        })
+    return result
 
 
 def order_status(order_id: int, tracking_token: str) -> dict[str, Any]:

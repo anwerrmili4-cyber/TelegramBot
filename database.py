@@ -265,6 +265,18 @@ def init_db():
         partialFilterExpression={"cart_reference": {"$exists": True}},
     )
     db.orders.create_index([("sales_channel", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)])
+    db.orders.create_index(
+        [("customer_email", ASCENDING), ("created_at", DESCENDING)],
+        partialFilterExpression={"customer_email": {"$exists": True}},
+    )
+    db.orders.create_index(
+        [("customer_id", ASCENDING), ("created_at", DESCENDING)],
+        partialFilterExpression={"customer_id": {"$exists": True}},
+    )
+    db.orders.create_index(
+        [("payment_method", ASCENDING), ("payment_reference_key", ASCENDING)],
+        partialFilterExpression={"payment_reference_key": {"$exists": True}},
+    )
     db.settings.create_index("key", unique=True)
     db.text_overrides.create_index([("key", ASCENDING), ("lang", ASCENDING)], unique=True)
     db.lovable_licenses.create_index("id", unique=True)
@@ -342,6 +354,9 @@ def init_db():
     db.support_tickets.create_index("channel_message_ids")
     db.storefront_customers.create_index("id", unique=True)
     db.storefront_customers.create_index("email", unique=True)
+    db.storefront_customers.create_index(
+        "google_sub", unique=True, partialFilterExpression={"google_sub": {"$type": "string"}}
+    )
     db.storefront_sessions.create_index("token_hash", unique=True)
     db.storefront_sessions.create_index("customer_id")
     db.storefront_sessions.create_index("expires_at_date", expireAfterSeconds=0)
@@ -349,6 +364,14 @@ def init_db():
     db.storefront_password_resets.create_index("expires_at_date", expireAfterSeconds=0)
     db.storefront_email_codes.create_index("customer_id", unique=True)
     db.storefront_email_codes.create_index("expires_at_date", expireAfterSeconds=0)
+    db.storefront_wallets.create_index("customer_id", unique=True)
+    db.storefront_wallet_ledger.create_index("id", unique=True)
+    db.storefront_wallet_ledger.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])
+    db.storefront_deposits.create_index("id", unique=True)
+    db.storefront_deposits.create_index([("status", ASCENDING), ("id", DESCENDING)])
+    db.storefront_deposits.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])
+    db.storefront_deposits.create_index([("method", ASCENDING), ("transaction_reference_key", ASCENDING)])
+    db.storefront_receipts.create_index("id", unique=True)
     if not schema or int(schema.get("version") or 0) < 15:
         _remove_legacy_announcement_overrides(db)
     if not schema or int(schema.get("version") or 0) < 17:
@@ -2435,6 +2458,7 @@ def dashboard_data():
     orders_yesterday = db.orders.count_documents(customer_order_query({"created_at": {"$gte": yesterday_start, "$lt": today_start}}))
     pending_orders = db.orders.count_documents(customer_order_query({"status": {"$in": ["pending_payment", "awaiting_verification", "manual_review"]}}))
     site_carts_to_verify = len(db.orders.distinct("cart_reference", {"sales_channel": "tn_site", "status": "manual_review"}))
+    site_deposits_pending = db.storefront_deposits.count_documents({"status": "pending"})
 
     paid_statuses = ["paid", "payment_confirmed", "delivered"]
     paid_orders = db.orders.count_documents(customer_order_query({"status": {"$in": paid_statuses}}))
@@ -2592,6 +2616,7 @@ def dashboard_data():
         "orders_day_delta": orders_today - orders_yesterday,
         "pending_orders": pending_orders,
         "site_carts_to_verify": site_carts_to_verify,
+        "site_deposits_pending": site_deposits_pending,
         "paid_orders": paid_orders,
         "delivered_orders": delivered_orders,
         "revenue_today": revenue_today,

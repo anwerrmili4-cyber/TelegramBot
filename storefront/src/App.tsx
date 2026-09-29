@@ -5,42 +5,41 @@ import { CatalogSection } from "@/components/CatalogSection";
 import { CheckoutDialog } from "@/components/CheckoutDialog";
 import { Hero } from "@/components/Hero";
 import { HowItWorks } from "@/components/HowItWorks";
+import { ProductDialog } from "@/components/ProductDialog";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
-import { WHATSAPP_FALLBACK } from "@/lib/api";
 import { money, plural } from "@/lib/format";
 import { ROUTES, usePathname } from "@/lib/router";
+import { AccountPage } from "@/pages/AccountPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
+import type { Offer } from "@/types";
 
-const AUTH_PAGES: Record<string, ComponentType | undefined> = {
+const PAGES: Record<string, ComponentType | undefined> = {
   [ROUTES.login]: LoginPage,
   [ROUTES.register]: RegisterPage,
   [ROUTES.verifyEmail]: VerifyEmailPage,
   [ROUTES.forgotPassword]: ForgotPasswordPage,
   [ROUTES.resetPassword]: ResetPasswordPage,
+  [ROUTES.account]: AccountPage,
 };
 
 const DEFAULT_MAX_LINES = 12;
-const DEFAULT_METHODS = [
-  { id: "d17", label: "D17" },
-  { id: "flouci", label: "Flouci" },
-];
 
 export default function App() {
   const { catalog, offers, loading, error, reload } = useCatalog();
   const maxLines = catalog?.max_cart_lines ?? DEFAULT_MAX_LINES;
   const cart = useCart(offers, maxLines);
-  const whatsappNumber = catalog?.whatsapp || WHATSAPP_FALLBACK;
 
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const AuthPage = AUTH_PAGES[usePathname()];
+  const [openOffer, setOpenOffer] = useState<Offer | null>(null);
+  const Page = PAGES[usePathname()];
 
   // Closing the last line should not leave an empty drawer or dialog on screen.
   useEffect(() => {
@@ -51,19 +50,14 @@ export default function App() {
 
   return (
     <div className="page" id="top">
-      <SiteHeader
-        cartCount={cart.count}
-        cartTotalMillimes={cart.totalMillimes}
-        whatsappNumber={whatsappNumber}
-        onOpenCart={() => setCartOpen(true)}
-      />
+      <SiteHeader cartCount={cart.count} cartTotalMillimes={cart.totalMillimes} onOpenCart={() => setCartOpen(true)} />
 
       <main>
-        {AuthPage ? (
-          <AuthPage />
+        {Page ? (
+          <Page />
         ) : (
           <>
-            <Hero whatsappNumber={whatsappNumber} />
+            <Hero />
             <CatalogSection
               offers={offers}
               categories={catalog?.categories ?? []}
@@ -71,15 +65,16 @@ export default function App() {
               error={error}
               cart={cart}
               onReload={reload}
+              onOpenOffer={setOpenOffer}
             />
             <HowItWorks />
           </>
         )}
       </main>
 
-      <SiteFooter whatsappNumber={whatsappNumber} />
+      <SiteFooter />
 
-      {cart.count && !cartOpen && !checkoutOpen && !AuthPage ? (
+      {cart.count && !cartOpen && !checkoutOpen && !openOffer && !Page ? (
         <button type="button" className="cart-bar" onClick={() => setCartOpen(true)}>
           <ShoppingCart size={18} aria-hidden="true" />
           <span>
@@ -88,6 +83,19 @@ export default function App() {
           <ArrowRight size={18} aria-hidden="true" />
         </button>
       ) : null}
+
+      <ProductDialog
+        offer={openOffer}
+        inCart={openOffer ? cart.quantityOf(openOffer.id) : 0}
+        cartIsFull={cart.isFull}
+        onClose={() => setOpenOffer(null)}
+        onAdd={(offer, quantity) => cart.add(offer, quantity)}
+        onBuyNow={(offer, quantity) => {
+          if (!cart.quantityOf(offer.id)) cart.add(offer, quantity);
+          setOpenOffer(null);
+          setCheckoutOpen(true);
+        }}
+      />
 
       <CartDrawer
         open={cartOpen}
@@ -103,7 +111,7 @@ export default function App() {
       <CheckoutDialog
         open={checkoutOpen}
         cart={cart}
-        paymentMethods={catalog?.payment_methods ?? DEFAULT_METHODS}
+        paymentMethods={catalog?.payment_methods ?? []}
         onClose={() => setCheckoutOpen(false)}
         onConfirmed={cart.clear}
       />

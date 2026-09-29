@@ -1,6 +1,10 @@
-import { ArrowRight, BadgeCheck, Coins, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, Coins, Sparkles, Wallet, Zap } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { Link, ROUTES } from "@/lib/router";
+import { accountPath } from "@/pages/AccountPage";
 
-export function Hero({ whatsappNumber }: { whatsappNumber: string }) {
+export function Hero() {
+  const { customer } = useAuth();
   return (
     <section className="hero" aria-labelledby="hero-title">
       <span className="hero-eyebrow">
@@ -11,22 +15,20 @@ export function Hero({ whatsappNumber }: { whatsappNumber: string }) {
         <em>payés en dinar.</em>
       </h1>
       <p className="hero-lead">
-        Remplis ton panier, règle le total avec D17 ou Flouci, puis envoie ton reçu sur WhatsApp.
-        Un humain vérifie, puis on livre.
+        Recharge ton portefeuille par D17, Flouci, IZI ou Wafa Cash, puis achète en un clic. Tes accès
+        arrivent par email et restent dans ton espace client.
       </p>
 
       <div className="hero-actions">
         <a className="button button-primary button-lg" href="#catalogue">
           Voir le catalogue <ArrowRight size={18} aria-hidden="true" />
         </a>
-        <a
+        <Link
           className="button button-ghost button-lg"
-          href={`https://wa.me/${whatsappNumber}`}
-          target="_blank"
-          rel="noreferrer"
+          to={customer ? accountPath("portefeuille") : ROUTES.register}
         >
-          Parler au support
-        </a>
+          {customer ? "Recharger mon portefeuille" : "Créer un compte"}
+        </Link>
       </div>
 
       <ul className="hero-trust">
@@ -34,10 +36,10 @@ export function Hero({ whatsappNumber }: { whatsappNumber: string }) {
           <Coins size={16} aria-hidden="true" /> Prix affichés en DT
         </li>
         <li>
-          <Zap size={16} aria-hidden="true" /> Stock mis à jour en direct
+          <Zap size={16} aria-hidden="true" /> Livraison immédiate si en stock
         </li>
         <li>
-          <BadgeCheck size={16} aria-hidden="true" /> Vérification humaine
+          <Wallet size={16} aria-hidden="true" /> Portefeuille et historique
         </li>
       </ul>
     </section>

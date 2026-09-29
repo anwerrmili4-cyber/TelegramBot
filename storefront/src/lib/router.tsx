@@ -7,7 +7,19 @@ export const ROUTES = {
   verifyEmail: "/verifier-email",
   forgotPassword: "/mot-de-passe-oublie",
   resetPassword: "/reinitialiser-mot-de-passe",
+  account: "/mon-compte",
 } as const;
+
+/** `path` with a `next` parameter to come back to after signing in. */
+export function withNext(path: string, next: string): string {
+  return `${path}?${new URLSearchParams({ next })}`;
+}
+
+/** The `next` parameter, only when it is a path on this site. */
+export function nextPath(fallback: string = ROUTES.home): string {
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  return next.startsWith("/") && !next.startsWith("//") ? next : fallback;
+}
 
 const NAVIGATE_EVENT = "storefront:navigate";
 

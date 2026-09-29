@@ -1,10 +1,13 @@
 """Admin handling of Tunisian storefront carts.
 
 A storefront cart is stored as one order document per line, all sharing a
-``cart_reference``. The admin always acts on the whole cart: the customer paid
-one D17/Flouci total for it, so its lines are confirmed, delivered or cancelled
-together, and the customer gets one email per step. Carts created before
-checkout asked for an email simply get no email.
+``cart_reference``. A cart is paid in one go, either from the customer's wallet
+or by a D17/Flouci/IZI/Wafa Cash transfer whose receipt the admin verifies.
+
+Once paid, each line is delivered from the bot's encrypted inventory when it
+has stock, exactly like a bot sale. Lines without inventory wait for the admin
+to type the access details, which are emailed to the customer and shown in
+their account. Cancelling a paid line refunds it to the customer's wallet.
 """
 
 from __future__ import annotations
@@ -15,9 +18,11 @@ from typing import Any
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import email_service
+from app.domain import email_service, inventory_service, site_settings_service, storefront_wallet_service
 
 SALES_CHANNEL = "tn_site"
+AUTOMATIC_DELIVERY = "[encrypted automatic delivery]"
+WALLET_METHOD = "wallet"
 
 _TO_VERIFY = str(OrderStatus.MANUAL_REVIEW)
 _CONFIRMED = {str(OrderStatus.PAYMENT_CONFIRMED), str(OrderStatus.PAID)}
@@ -38,7 +43,13 @@ class SiteOrderError(ValueError):
     """Raised with a French message the admin UI shows as-is."""
 
 
-def _cart_status(lines: list[dict[str, Any]]) -> str:
+def method_label(method: str) -> str:
+    if method == WALLET_METHOD:
+        return "Portefeuille"
+    return site_settings_service.PAYMENT_METHOD_LABELS.get(method, method.upper())
+
+
+def cart_status(lines: list[dict[str, Any]]) -> str:
     statuses = {str(line.get("status") or "") for line in lines}
     if statuses <= _CONFIRMED:
         return "confirmed"
@@ -48,12 +59,24 @@ def _cart_status(lines: list[dict[str, Any]]) -> str:
         return "delivered"
     if statuses == {_CANCELLED}:
         return "cancelled"
+    # Paid carts where only some lines came out of inventory still need the admin.
+    if statuses & _CONFIRMED and not statuses & {_TO_VERIFY}:
+        return "partial"
     return "mixed"
+
+
+def line_delivery(line: dict[str, Any], *, audit: bool = False) -> str:
+    """The access details of a delivered line, decrypting inventory when needed."""
+    text = str(line.get("delivery_text") or "")
+    if text != AUTOMATIC_DELIVERY:
+        return text
+    return "\n".join(inventory_service.delivered_content(int(line["id"]), audit=audit))
 
 
 def _cart_summary(reference: str, lines: list[dict[str, Any]]) -> dict[str, Any]:
     lines = sorted(lines, key=lambda line: int(line.get("cart_position") or 0))
     first = lines[0]
+    method = str(first.get("payment_method") or "")
     items = [
         {
             "order_id": int(line["id"]),
@@ -63,28 +86,34 @@ def _cart_summary(reference: str, lines: list[dict[str, Any]]) -> dict[str, Any]
             "unit_millimes": int(line.get("unit_price_millimes") or 0),
             "total_millimes": int(line.get("total_millimes") or 0),
             "status": str(line.get("status") or ""),
+            "automatic": line.get("delivery_text") == AUTOMATIC_DELIVERY,
+            "delivery_note": ""
+            if line.get("delivery_text") == AUTOMATIC_DELIVERY
+            else str(line.get("delivery_text") or ""),
         }
         for line in lines
     ]
-    phone = str(first.get("customer_phone") or "")
-    phone_digits = re.sub(r"\D", "", phone)
     return {
         "reference": reference,
-        "status": _cart_status(lines),
+        "status": cart_status(lines),
+        "customer_id": first.get("customer_id"),
         "customer_name": first.get("customer_name", ""),
         "customer_email": first.get("customer_email", ""),
-        "customer_phone": phone,
+        "customer_phone": str(first.get("customer_phone") or ""),
         "customer_note": first.get("customer_note", ""),
-        "whatsapp_url": f"https://wa.me/{phone_digits}" if phone_digits else "",
-        "payment_method": first.get("payment_method", ""),
+        "payment_method": method,
+        "payment_label": method_label(method),
+        "transaction_reference": first.get("payment_reference", ""),
+        "receipt_id": first.get("receipt_id"),
         "total_millimes": int(first.get("cart_total_millimes") or 0)
         or sum(item["total_millimes"] for item in items),
+        "refunded_millimes": sum(int(line.get("refunded_millimes") or 0) for line in lines),
         "items": items,
         "created_at": min(int(line.get("created_at") or 0) for line in lines),
         "paid_at": first.get("paid_at"),
-        "delivered_at": first.get("delivered_at"),
+        "delivered_at": max((int(line.get("delivered_at") or 0) for line in lines), default=0) or None,
         "cancelled_at": first.get("cancelled_at"),
-        "delivery_note": first.get("delivery_text", ""),
+        "delivery_note": next((item["delivery_note"] for item in items if item["delivery_note"]), ""),
         "admin_note": first.get("admin_note", ""),
     }
 
@@ -130,22 +159,28 @@ def list_carts(params: dict[str, list[str]]) -> dict[str, Any]:
             {"cart_reference": pattern},
             {"customer_name": pattern},
             {"customer_email": pattern},
+            {"payment_reference": pattern},
         ]
         if digits and not re.search(r"[^\d\s+().-]", search):
             clauses.append({"customer_phone": {"$regex": re.escape(digits)}})
         query["$or"] = clauses
 
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for line in orders.find(query, {"_id": 0}).sort("created_at", -1).limit(_MAX_SCANNED_LINES):
-        grouped.setdefault(line["cart_reference"], []).append(line)
-
-    carts = [_cart_summary(reference, lines) for reference, lines in grouped.items()]
-    carts.sort(key=lambda cart: cart["created_at"], reverse=True)
-    total = len(carts)
+    references: list[str] = []
+    for line in orders.find(query, {"cart_reference": 1, "_id": 0}).sort("created_at", -1).limit(_MAX_SCANNED_LINES):
+        if line["cart_reference"] not in references:
+            references.append(line["cart_reference"])
+    total = len(references)
     start = (page - 1) * per_page
+    shown = references[start : start + per_page]
+
+    # Every line of a shown cart, so a partly delivered cart displays whole.
+    grouped: dict[str, list[dict[str, Any]]] = {reference: [] for reference in shown}
+    for line in orders.find({**base, "cart_reference": {"$in": shown}}, {"_id": 0}):
+        grouped[line["cart_reference"]].append(line)
+    carts = [_cart_summary(reference, grouped[reference]) for reference in shown if grouped[reference]]
     return {
         "ok": True,
-        "items": carts[start : start + per_page],
+        "items": carts,
         "page": page,
         "per_page": per_page,
         "total": total,
@@ -188,8 +223,57 @@ def _restock(conn: Any, line: dict[str, Any]) -> None:
         conn.offers.update_one({"id": line["offer_id"]}, {"$inc": {"stock": int(line.get("qty") or 1)}})
 
 
+def _delivery_block(line: dict[str, Any], content: str) -> str:
+    return f"{int(line.get('qty') or 1)} × {line.get('offer_name', '')}\n{content}".strip()
+
+
+def mark_cart_paid(lines: list[dict[str, Any]], verify_method: str) -> list[dict[str, Any]]:
+    """Mark every line paid and reserve stock; return the lines that could not be."""
+    failed = []
+    for line in lines:
+        if not db.mark_order_paid(int(line["id"]), verify_method):
+            failed.append(line)
+    return failed
+
+
+def fulfill_cart(reference: str) -> dict[str, Any]:
+    """Deliver every paid line that has inventory, then email the customer.
+
+    A line without inventory (manual stock, or none left) stays confirmed for
+    the admin to deliver by hand.
+    """
+    lines = _cart_lines(reference)
+    reference = lines[0]["cart_reference"]
+    delivered: list[tuple[dict[str, Any], str]] = []
+    for line in lines:
+        if str(line.get("status")) not in _CONFIRMED:
+            continue
+        values = inventory_service.deliver_for_order(int(line["id"]))
+        if values:
+            delivered.append((line, "\n".join(values)))
+
+    first = lines[0]
+    email, name = first.get("customer_email", ""), first.get("customer_name", "")
+    waiting = [
+        line for line in lines
+        if str(line.get("status")) in _CONFIRMED and all(line is not done for done, _ in delivered)
+    ]
+    if delivered:
+        email_service.send_order_delivered(
+            email,
+            name,
+            reference,
+            _email_items([line for line, _ in delivered]),
+            "\n\n".join(_delivery_block(line, content) for line, content in delivered),
+            remaining=len(waiting),
+        )
+    if waiting:
+        email_service.send_payment_confirmed(email, name, reference, _email_items(waiting), _cart_total(lines))
+    return {"reference": reference, "delivered": len(delivered), "waiting": len(waiting)}
+
+
 def confirm_cart(reference: str) -> dict[str, Any]:
-    """Confirm the D17/Flouci payment of a cart and reserve its stock."""
+    """Confirm a transfer-paid cart after checking its receipt, then deliver what is in stock."""
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
     if any(line.get("status") != _TO_VERIFY for line in lines):
@@ -211,65 +295,89 @@ def confirm_cart(reference: str) -> dict[str, Any]:
         raise SiteOrderError(f"Stock insuffisant pour « {name} ». Le panier {reference} n'a pas été confirmé.")
 
     db.audit_event("site_cart.confirmed", details={"cart_reference": reference, "order_ids": [line["id"] for line in lines]})
-    first = lines[0]
-    email_service.send_payment_confirmed(
-        first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(lines), _cart_total(lines)
-    )
-    return {"reference": reference, "lines": len(lines)}
+    result = fulfill_cart(reference)
+    return {"reference": reference, "lines": len(lines), **result}
 
 
 def deliver_cart(reference: str, note: str = "") -> dict[str, Any]:
-    """Deliver a confirmed cart, emailing the admin's note (the access details) to the customer."""
+    """Deliver the paid lines still waiting, sending the admin's access details to the customer."""
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
-    if any(str(line.get("status")) not in _CONFIRMED for line in lines):
+    if any(str(line.get("status")) == _TO_VERIFY for line in lines):
         raise SiteOrderError(f"Confirme d'abord le paiement du panier {reference}.")
+    waiting = [line for line in lines if str(line.get("status")) in _CONFIRMED]
+    if not waiting:
+        raise SiteOrderError(f"Le panier {reference} n'a plus rien à livrer.")
+    content = str(note or "").strip()[:4000]
+    if not content:
+        raise SiteOrderError("Saisis les accès à livrer : le client les reçoit par email et dans son espace.")
 
     now = int(time.time())
-    content = str(note or "").strip()[:2000]
-    result = db.get_conn().orders.update_many(
-        {"sales_channel": SALES_CHANNEL, "cart_reference": reference, "status": {"$in": sorted(_CONFIRMED)}},
-        {"$set": {
-            "status": _DELIVERED,
-            "delivery_text": content or "Livré sur WhatsApp",
-            "delivered_at": now,
-            "updated_at": now,
-        }},
-    )
-    db.audit_event("site_cart.delivered", details={"cart_reference": reference, "lines": result.modified_count})
-    if result.modified_count:
+    conn = db.get_conn()
+    done = []
+    for line in waiting:
+        result = conn.orders.update_one(
+            {"id": line["id"], "status": {"$in": sorted(_CONFIRMED)}},
+            {"$set": {"status": _DELIVERED, "delivery_text": content, "delivered_at": now, "updated_at": now}},
+        )
+        if result.modified_count:
+            done.append(line)
+    db.audit_event("site_cart.delivered", details={"cart_reference": reference, "lines": len(done)})
+    if done:
         first = lines[0]
         email_service.send_order_delivered(
-            first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(lines), content
+            first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(done), content
         )
-    return {"reference": reference, "lines": result.modified_count}
+    return {"reference": reference, "lines": len(done)}
 
 
 def cancel_cart(reference: str, reason: str = "") -> dict[str, Any]:
-    """Cancel a cart that is not delivered yet, returning any reserved stock."""
+    """Cancel every line not delivered yet; paid lines are refunded to the wallet."""
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
     cancellable = {_TO_VERIFY, *_CONFIRMED}
-    if any(str(line.get("status")) not in cancellable for line in lines):
+    targets = [line for line in lines if str(line.get("status")) in cancellable]
+    if not targets:
         raise SiteOrderError(f"Le panier {reference} ne peut plus être annulé.")
 
     conn = db.get_conn()
     now = int(time.time())
     reason = str(reason or "").strip()[:2000]
+    customer_id = lines[0].get("customer_id")
     cancelled = 0
-    for line in lines:
+    refunded = 0
+    for line in targets:
+        paid = str(line["status"]) in _CONFIRMED
+        refund = int(line.get("total_millimes") or 0) if paid and customer_id else 0
         result = conn.orders.update_one(
             {"id": line["id"], "status": line["status"]},
-            {"$set": {"status": _CANCELLED, "cancelled_at": now, "updated_at": now, "admin_note": reason}},
+            {"$set": {
+                "status": _CANCELLED,
+                "cancelled_at": now,
+                "updated_at": now,
+                "admin_note": reason,
+                "refunded_millimes": refund,
+            }},
         )
         if result.modified_count != 1:
             continue
         cancelled += 1
-        if str(line["status"]) in _CONFIRMED:
+        if paid:
+            inventory_service.release_for_order(int(line["id"]))
             _restock(conn, line)
+        if refund:
+            storefront_wallet_service.credit(
+                int(customer_id), refund, kind="refund", reference=reference, note=str(line.get("offer_name") or "")
+            )
+            refunded += refund
 
-    db.audit_event("site_cart.cancelled", details={"cart_reference": reference, "lines": cancelled, "reason": reason})
+    db.audit_event(
+        "site_cart.cancelled",
+        details={"cart_reference": reference, "lines": cancelled, "reason": reason, "refunded_millimes": refunded},
+    )
     if cancelled:
         first = lines[0]
-        email_service.send_order_cancelled(first.get("customer_email", ""), first.get("customer_name", ""), reference, reason)
-    return {"reference": reference, "lines": cancelled}
+        email_service.send_order_cancelled(
+            first.get("customer_email", ""), first.get("customer_name", ""), reference, reason, refunded
+        )
+    return {"reference": reference, "lines": cancelled, "refunded_millimes": refunded}

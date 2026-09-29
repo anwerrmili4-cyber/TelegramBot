@@ -7,13 +7,12 @@ never changes what the Telegram bot sells.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import database as db
-from app.domain import site_orders_service, storefront_service
+from app.domain import site_orders_service, storefront_service, storefront_wallet_service
 from app.domain.site_orders_service import SALES_CHANNEL, STATUS_FILTERS
 
 # Tunisia stays on UTC+1 all year.
@@ -94,12 +93,16 @@ def overview() -> dict[str, Any]:
     counts = site_orders_service.list_carts({"status": ["to_verify"], "per_page": ["1"]})["counts"]
     recent = site_orders_service.list_carts({"status": ["all"], "per_page": ["6"]})["items"]
     catalog_counts = catalog({"per_page": ["1"]})["counts"]
+    conn = db.get_conn()
     return {
         "ok": True,
         "carts": counts,
+        "deposits_pending": conn.storefront_deposits.count_documents(
+            {"status": storefront_wallet_service.DEPOSIT_PENDING}
+        ),
         "revenue_today_millimes": revenue_today,
         "revenue_month_millimes": revenue_month,
-        "customers": len({line.get("customer_phone") for line in lines if line.get("customer_phone")}),
+        "customers": conn.storefront_customers.count_documents({"email_verified": {"$ne": False}}),
         "top_products": top_products,
         "recent_carts": recent,
         "catalog": catalog_counts,
@@ -247,40 +250,54 @@ def set_service_visibility(form: dict[str, Any]) -> dict[str, Any]:
     return {"service_id": service_id, "name": service.get("name", ""), "site_enabled": enabled}
 
 
+_SPENT_STATUSES = {"confirmed", "delivered", "partial"}
+
+
 def customers(params: dict[str, list[str]]) -> dict[str, Any]:
-    """Storefront customers grouped by phone number, biggest spenders first."""
+    """Storefront accounts with their wallet, orders and spending, newest activity first."""
     search = _first(params, "search").lower()[:80]
-    carts_by_phone: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for line in _site_lines({"cart_reference": {"$exists": True}}):
-        phone = str(line.get("customer_phone") or "")
-        if phone:
-            carts_by_phone.setdefault(phone, {}).setdefault(line["cart_reference"], []).append(line)
+    conn = db.get_conn()
+    carts_by_customer: dict[int, dict[str, list[dict[str, Any]]]] = {}
+    for line in _site_lines({"cart_reference": {"$exists": True}, "customer_id": {"$ne": None}}):
+        carts_by_customer.setdefault(int(line["customer_id"]), {}).setdefault(line["cart_reference"], []).append(line)
+    balances = {
+        int(row["customer_id"]): int(row.get("balance_millimes") or 0)
+        for row in conn.storefront_wallets.find({}, {"customer_id": 1, "balance_millimes": 1})
+    }
 
     rows = []
-    for phone, carts in carts_by_phone.items():
+    for account in conn.storefront_customers.find({"email_verified": {"$ne": False}}, {"password_hash": 0}):
+        customer_id = int(account["id"])
         summaries = sorted(
-            (site_orders_service._cart_summary(reference, lines) for reference, lines in carts.items()),
+            (
+                site_orders_service._cart_summary(reference, lines)
+                for reference, lines in carts_by_customer.get(customer_id, {}).items()
+            ),
             key=lambda cart: cart["created_at"],
             reverse=True,
         )
-        spent = sum(cart["total_millimes"] for cart in summaries if cart["status"] in {"confirmed", "delivered"})
         rows.append({
-            "phone": phone,
-            "name": summaries[0]["customer_name"],
-            "whatsapp_url": summaries[0]["whatsapp_url"],
+            "id": customer_id,
+            "name": account.get("name", ""),
+            "email": account.get("email", ""),
+            "phone": account.get("phone", ""),
+            "balance_millimes": balances.get(customer_id, 0),
             "carts_count": len(summaries),
             "pending_count": sum(1 for cart in summaries if cart["status"] == "to_verify"),
-            "total_spent_millimes": spent,
-            "first_order_at": summaries[-1]["created_at"],
-            "last_order_at": summaries[0]["created_at"],
+            "total_spent_millimes": sum(
+                cart["total_millimes"] - cart["refunded_millimes"]
+                for cart in summaries
+                if cart["status"] in _SPENT_STATUSES
+            ),
+            "created_at": account.get("created_at"),
+            "last_order_at": summaries[0]["created_at"] if summaries else None,
             "carts": summaries[:20],
         })
 
     if search:
-        digits = "" if re.search(r"[^\d\s+().-]", search) else re.sub(r"\D", "", search)
         rows = [
             row for row in rows
-            if search in row["name"].lower() or (digits and digits in re.sub(r"\D", "", row["phone"]))
+            if search in f"{row['name']} {row['email']} {row['phone']}".lower()
         ]
-    rows.sort(key=lambda row: (row["total_spent_millimes"], row["last_order_at"]), reverse=True)
+    rows.sort(key=lambda row: (row["last_order_at"] or 0, row["created_at"] or 0), reverse=True)
     return {"ok": True, **_paginate(rows, params)}

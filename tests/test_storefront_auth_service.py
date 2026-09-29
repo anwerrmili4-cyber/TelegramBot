@@ -211,3 +211,117 @@ def test_expired_reset_link_is_rejected(mock_mongodb, sent_emails):
     mock_mongodb.storefront_password_resets.update_many({}, {"$set": {"expires_at": 0}})
     with pytest.raises(auth.AuthError, match="invalide ou a expiré"):
         auth.reset_password({"token": reset_token, "password": "nouveau-mdp"})
+
+
+# ---------------------------------------------------------------------------
+# Google sign-in
+# ---------------------------------------------------------------------------
+
+GOOGLE_CLIENT = "123-abc.apps.googleusercontent.com"
+
+
+def _claims(**overrides):
+    import time
+
+    return {
+        "aud": GOOGLE_CLIENT,
+        "iss": "https://accounts.google.com",
+        "exp": str(int(time.time()) + 600),
+        "sub": "google-sub-1",
+        "email": "Sana@Gmail.com",
+        "email_verified": "true",
+        "name": "Sana Trabelsi",
+        **overrides,
+    }
+
+
+@pytest.fixture
+def google(monkeypatch):
+    """Answer Google's tokeninfo endpoint with the claims the test sets."""
+    import io
+    import json
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", GOOGLE_CLIENT)
+    state = {"claims": _claims(), "requests": []}
+
+    def fake_urlopen(request, timeout=0):
+        state["requests"].append(request.full_url)
+        return io.BytesIO(json.dumps(state["claims"]).encode())
+
+    monkeypatch.setattr(auth.urllib.request, "urlopen", fake_urlopen)
+    return state
+
+
+def test_google_config_exposes_only_the_client_id(google):
+    assert auth.auth_config() == {"ok": True, "google_client_id": GOOGLE_CLIENT}
+
+
+def test_google_sign_up_creates_a_confirmed_account_without_password(mock_mongodb, google, sent_emails):
+    session = auth.google_login({"credential": "id-token"}, "1.1.1.1")
+
+    assert "id_token=id-token" in google["requests"][0]
+    customer = session["customer"]
+    assert customer["email"] == "sana@gmail.com"
+    assert customer["name"] == "Sana Trabelsi"
+    assert customer["email_confirmed"] is True
+    assert customer["has_password"] is False
+    assert customer["google"] is True
+    assert auth.me(session["token"])["customer"]["id"] == customer["id"]
+    assert sent_emails[-1]["to"] == ["sana@gmail.com"]
+
+    again = auth.google_login({"credential": "id-token"}, "1.1.1.1")
+    assert again["customer"]["id"] == customer["id"]
+    assert mock_mongodb.storefront_customers.count_documents({}) == 1
+
+
+def test_google_links_an_existing_password_account(mock_mongodb, google, sent_emails):
+    existing = _register_verified(sent_emails, {**CUSTOMER, "email": "sana@gmail.com"})
+    sent_emails.clear()
+
+    session = auth.google_login({"credential": "id-token"}, "1.1.1.1")
+
+    assert session["customer"]["id"] == existing["customer"]["id"]
+    assert session["customer"]["has_password"] is True
+    assert sent_emails == []
+    assert auth.login({"email": "sana@gmail.com", "password": CUSTOMER["password"]}, "1.1.1.1")["token"]
+
+
+def test_google_takes_over_an_unconfirmed_sign_up_and_voids_its_password(mock_mongodb, google, sent_emails):
+    auth.register({**CUSTOMER, "email": "sana@gmail.com"})
+
+    session = auth.google_login({"credential": "id-token"}, "1.1.1.1")
+
+    assert session["customer"]["email_confirmed"] is True
+    assert session["customer"]["has_password"] is False
+    with pytest.raises(auth.AuthError, match="incorrect"):
+        auth.login({"email": "sana@gmail.com", "password": CUSTOMER["password"]}, "1.1.1.1")
+
+
+def test_google_only_account_can_set_a_first_password(mock_mongodb, google):
+    token = auth.google_login({"credential": "id-token"}, "1.1.1.1")["token"]
+    auth.change_password(token, {"current_password": "", "new_password": "nouveau-mdp-1"})
+
+    assert auth.login({"email": "sana@gmail.com", "password": "nouveau-mdp-1"}, "1.1.1.1")["token"]
+    with pytest.raises(auth.AuthError, match="actuel"):
+        auth.change_password(token, {"current_password": "", "new_password": "autre-mdp-22"})
+
+
+@pytest.mark.parametrize("overrides, status", [
+    ({"aud": "someone-else.apps.googleusercontent.com"}, 401),
+    ({"iss": "evil.example.com"}, 401),
+    ({"exp": "1"}, 401),
+    ({"email_verified": "false"}, 403),
+])
+def test_google_tokens_for_another_app_or_unverified_emails_are_refused(mock_mongodb, google, overrides, status):
+    google["claims"] = _claims(**overrides)
+    with pytest.raises(auth.AuthError) as refused:
+        auth.google_login({"credential": "id-token"}, "1.1.1.1")
+    assert refused.value.status == status
+    assert mock_mongodb.storefront_customers.count_documents({}) == 0
+
+
+def test_google_sign_in_is_off_without_a_client_id(mock_mongodb, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    with pytest.raises(auth.AuthError) as off:
+        auth.google_login({"credential": "id-token"}, "1.1.1.1")
+    assert off.value.status == 503

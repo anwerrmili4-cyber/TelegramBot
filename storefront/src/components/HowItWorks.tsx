@@ -1,15 +1,15 @@
 const STEPS = [
   {
-    title: "Remplis ton panier",
-    body: "Choisis autant de services que tu veux. Le prix, le stock et la durée affichés sont ceux du moment.",
+    title: "Recharge ton portefeuille",
+    body: "Envoie le montant de ton choix par D17, Flouci, IZI ou Wafa Cash, puis joins la référence et une capture du reçu.",
   },
   {
-    title: "Paie le total en dinar",
-    body: "Un seul règlement D17 ou Flouci pour l'ensemble du panier, au montant exact indiqué.",
+    title: "Achète en un clic",
+    body: "Dès que la recharge est validée, paie ton panier avec ton solde. Tu peux aussi payer une commande directement par virement.",
   },
   {
-    title: "Envoie ton reçu",
-    body: "WhatsApp s'ouvre avec ta référence. Joins le justificatif : on vérifie puis on livre.",
+    title: "Reçois tes accès",
+    body: "Livraison immédiate quand le produit est en stock, par email et dans ton espace client, avec tout ton historique.",
   },
 ];
 
@@ -22,8 +22,8 @@ export function HowItWorks() {
           <h2 id="steps-title">Trois étapes, aucune surprise.</h2>
         </div>
         <p>
-          Aucun paiement n'est validé automatiquement : c'est un contrôle humain qui déclenche la
-          livraison.
+          Chaque recharge et chaque reçu est contrôlé par un administrateur avant d'être crédité ou
+          livré.
         </p>
       </div>
       <ol className="steps-grid">

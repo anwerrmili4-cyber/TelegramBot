@@ -2,13 +2,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { errorMessage, resendVerificationCode } from "@/lib/api";
-import { Link, navigate, ROUTES } from "@/lib/router";
+import { Link, navigate, nextPath, ROUTES } from "@/lib/router";
 import { AuthLayout } from "@/pages/AuthLayout";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-export function verifyEmailPath(email: string): string {
-  return `${ROUTES.verifyEmail}?email=${encodeURIComponent(email)}`;
+export function verifyEmailPath(email: string, next?: string): string {
+  const query = new URLSearchParams({ email });
+  if (next) query.set("next", next);
+  return `${ROUTES.verifyEmail}?${query}`;
 }
 
 export function VerifyEmailPage() {
@@ -38,7 +40,7 @@ export function VerifyEmailPage() {
     setNotice("");
     try {
       await verifyEmail(email, code);
-      navigate(ROUTES.home, { replace: true });
+      navigate(nextPath(), { replace: true });
     } catch (reason) {
       setError(errorMessage(reason, "Impossible de vérifier le code."));
       setSubmitting(false);

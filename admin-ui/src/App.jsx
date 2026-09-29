@@ -77,6 +77,7 @@ const SITE_NAV_GROUPS = [
   { label: "Site Tunisie", items: [
     { id: "site-overview", label: "Tableau de bord", icon: LayoutDashboard },
     { id: "site-orders", label: "Commandes", icon: ClipboardList },
+    { id: "site-deposits", label: "Recharges", icon: WalletCards },
     { id: "site-catalog", label: "Catalogue du site", icon: ShoppingBag },
     { id: "site-customers", label: "Clients", icon: Users },
     { id: "site-settings", label: "Paramètres", icon: Settings },
@@ -148,6 +149,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const openTickets = data?.summary?.open_tickets || 0;
   const productRequests = data?.summary?.product_requests || 0;
   const siteCarts = data?.summary?.site_carts_to_verify || 0;
+  const siteDeposits = data?.summary?.site_deposits_pending || 0;
   const [collapsedGroups, setCollapsedGroups] = useState(readCollapsedGroups);
   const updateCollapsed = (update) => setCollapsedGroups((current) => {
     const next = new Set(current);
@@ -179,12 +181,12 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
 
         <div className="workspace-switch" role="tablist" aria-label="Espace d’administration">
           <button type="button" role="tab" aria-selected={!siteMode} onClick={() => siteMode && onNavigate("overview")}><Bot size={15} />Bot Telegram</button>
-          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts > 0 && <small>{siteCarts}</small>}</button>
+          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts + siteDeposits > 0 && <small>{siteCarts + siteDeposits}</small>}</button>
         </div>
 
         <nav className="nav-list" aria-label="Navigation principale">
           {groups.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
-            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
+            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "site-deposits" ? siteDeposits : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
         </nav>
@@ -368,7 +370,7 @@ function ErrorState({ message, onRetry }) {
   return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le tableau de bord</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
 }
 
-const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|site_(cart_deliver|cart_cancel|offer_update|service_visibility|settings_save)$)/;
+const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|site_(cart_deliver|cart_cancel|offer_update|service_visibility|settings_save|deposit_approve|deposit_reject|wallet_adjust)$)/;
 const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog"]);
 
 function describeAdminChange(params = {}) {
@@ -385,7 +387,7 @@ function describeAdminChange(params = {}) {
     save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
     save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],
     save_settings: ["Enregistrer les paramètres", "Les nouveaux réglages seront appliqués au fonctionnement du bot."],
-    site_cart_confirm: ["Confirmer le paiement du panier", "Vérifiez que le reçu D17 ou Flouci reçu sur WhatsApp correspond au total. Le stock de chaque article sera réservé."],
+    site_cart_confirm: ["Confirmer le paiement du panier", "Vérifiez que le reçu joint correspond au total et à la référence. Les articles en stock seront livrés automatiquement au client, les autres passeront « à livrer »."],
     close_all_tickets: ["Fermer tous les tickets", "Toutes les conversations encore ouvertes seront fermées en une seule opération."],
     close_ticket: ["Fermer ce ticket", "La conversation sera fermée et pourra ensuite être archivée."],
     ticket_archive: ["Archiver ce ticket", "Le ticket disparaîtra de la boîte active, mais son historique restera disponible dans les archives."],
@@ -875,7 +877,7 @@ export default function App() {
       {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
       {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{(isSitePage(activePage)
-          ? [["site-overview", "Tableau", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-catalog", "Catalogue", ShoppingBag], ["site-customers", "Clients", Users]]
+          ? [["site-overview", "Tableau", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-deposits", "Recharges", WalletCards], ["site-customers", "Clients", Users]]
           : [["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]]).map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>

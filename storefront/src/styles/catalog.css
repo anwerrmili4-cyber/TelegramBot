@@ -172,7 +172,40 @@
   text-transform: uppercase;
 }
 
+.offer-open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.offer-open:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+  border-radius: var(--radius);
+}
+
+.offer-open:hover h3 {
+  color: #ff9a94;
+}
+
+.offer-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 10px;
+  color: var(--brand-hot);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .offer-media {
+  display: block;
   height: 128px;
   margin-top: 15px;
   overflow: hidden;
@@ -194,6 +227,7 @@
 .offer h3 {
   margin-top: 18px;
   font-size: 18px;
+  transition: color 0.16s var(--ease);
 }
 
 .offer-description {

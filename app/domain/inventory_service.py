@@ -337,8 +337,12 @@ def reveal_item(item_id: int) -> str | None:
     return value
 
 
-def delivered_content(order_id: int) -> list[str]:
-    """Return content already assigned to an order for an explicit admin resend."""
+def delivered_content(order_id: int, *, audit: bool = True) -> list[str]:
+    """Return content already assigned to an order.
+
+    ``audit=False`` is for the buyer reading their own delivery back, which is
+    not an admin access worth recording each time.
+    """
     conn = db.get_conn()
     items = list(conn.inventory.find({
         "delivered_order_id": order_id,
@@ -350,7 +354,8 @@ def delivered_content(order_id: int) -> list[str]:
     values: list[str] = []
     for item in items:
         values.append(clean_delivery_value(cipher.decrypt(item["payload"].encode()).decode()))
-    db.audit_event("order.delivery_accessed", details={"order_id": order_id, "items_count": len(values)})
+    if audit:
+        db.audit_event("order.delivery_accessed", details={"order_id": order_id, "items_count": len(values)})
     return values
 
 
