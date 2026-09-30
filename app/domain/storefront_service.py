@@ -450,6 +450,11 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
 
 def _pay_from_wallet(customer_id: int, reference: str, documents: list[dict[str, Any]], total: int) -> str:
     """Debit the wallet for a freshly stored cart, then deliver what is in stock."""
+    with db.coalesce_admin_notifications():
+        return _pay_from_wallet_now(customer_id, reference, documents, total)
+
+
+def _pay_from_wallet_now(customer_id: int, reference: str, documents: list[dict[str, Any]], total: int) -> str:
     conn = db.get_conn()
     if storefront_wallet_service.debit(customer_id, total, kind="purchase", reference=reference) is None:
         conn.orders.delete_many({"cart_reference": reference, "status": OrderStatus.MANUAL_REVIEW})
@@ -543,7 +548,15 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
         carts.setdefault(row["cart_reference"], []).append(row)
 
     result = []
-    for reference, lines in list(carts.items())[:MAX_ACCOUNT_CARTS]:
+    shown = list(carts.items())[:MAX_ACCOUNT_CARTS]
+    delivered_lines = [
+        line
+        for _, lines in shown
+        for line in lines
+        if line.get("status") == OrderStatus.DELIVERED
+    ]
+    delivery_by_id = site_orders_service.deliveries_for(delivered_lines)
+    for reference, lines in shown:
         lines.sort(key=lambda line: int(line.get("cart_position") or 0))
         first = lines[0]
         method = str(first.get("payment_method") or "")
@@ -571,7 +584,7 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
                     "period_days": int(line.get("period_days") or 0),
                     "status": _LINE_STATUSES.get(str(line.get("status") or ""), "to_verify"),
                     "delivered_at": line.get("delivered_at"),
-                    "delivery": site_orders_service.line_delivery(line)
+                    "delivery": delivery_by_id.get(int(line["id"]), "")
                     if line.get("status") == OrderStatus.DELIVERED
                     else "",
                 }

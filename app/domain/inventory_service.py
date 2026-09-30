@@ -126,35 +126,86 @@ def add_items(offer_id: int, items: list[str]) -> int:
 def reserve_for_order(offer_id: int, order_id: int, qty: int = 1) -> list[dict] | None:
     """Réserve atomiquement `qty` éléments d'inventaire pour une commande.
 
-    Utilise `findOneAndUpdate` pour chaque élément, garantissant l'atomicité.
-    Si le stock est insuffisant, annule toutes les réservations partielles.
+    Une quantité de 1 passe par `findOneAndUpdate`. Une quantité plus grande
+    est réclamée en une seule mise à jour, puis retentée si une vente
+    concurrente a pris une partie des lignes. Un stock insuffisant annule
+    toute réservation partielle.
 
     Returns:
         Liste des éléments réservés, ou None si le stock est insuffisant.
     """
     conn = db.get_conn()
-    reserved = []
-
-    for _ in range(qty):
+    qty = int(qty)
+    if qty < 1:
+        return None
+    now = int(time.time())
+    claim = {
+        "$set": {
+            "status": InventoryStatus.RESERVED,
+            "reserved_order_id": order_id,
+            "reserved_at": now,
+        }
+    }
+    if qty == 1:
         item = conn.inventory.find_one_and_update(
             {"offer_id": offer_id, "status": InventoryStatus.AVAILABLE},
-            {
-                "$set": {
-                    "status": InventoryStatus.RESERVED,
-                    "reserved_order_id": order_id,
-                    "reserved_at": int(time.time()),
-                }
-            },
+            claim,
             sort=[("id", 1)],
             return_document=ReturnDocument.AFTER,
         )
         if not item:
-            # Stock insuffisant — libérer les réservations partielles
+            log.warning("Stock insuffisant pour offre %d, commande #%d", offer_id, order_id)
+            return None
+        log.info("1 élément réservé pour commande #%d", order_id)
+        return [item]
+
+    reserved: list[dict] = []
+    for _attempt in range(4):
+        needed = qty - len(reserved)
+        candidates = list(
+            conn.inventory.find(
+                {"offer_id": offer_id, "status": InventoryStatus.AVAILABLE},
+            ).sort("id", 1).limit(needed)
+        )
+        if len(candidates) < needed:
             release_for_order(order_id)
             log.warning("Stock insuffisant pour offre %d, commande #%d", offer_id, order_id)
             return None
-        reserved.append(item)
+        ids = [item["_id"] for item in candidates]
+        conn.inventory.update_many(
+            {"_id": {"$in": ids}, "status": InventoryStatus.AVAILABLE},
+            claim,
+        )
+        reserved.extend(conn.inventory.find(
+            {
+                "_id": {"$in": ids},
+                "status": InventoryStatus.RESERVED,
+                "reserved_order_id": order_id,
+            },
+        ).sort("id", 1))
+        if len(reserved) >= qty:
+            break
+    else:
+        release_for_order(order_id)
+        log.warning("Stock insuffisant pour offre %d, commande #%d", offer_id, order_id)
+        return None
 
+    reserved.sort(key=lambda item: int(item.get("id") or 0))
+    if len(reserved) > qty:
+        extra_ids = [item["_id"] for item in reserved[qty:]]
+        conn.inventory.update_many(
+            {
+                "_id": {"$in": extra_ids},
+                "status": InventoryStatus.RESERVED,
+                "reserved_order_id": order_id,
+            },
+            {"$set": {
+                "status": InventoryStatus.AVAILABLE,
+                "reserved_order_id": None,
+                "reserved_at": None,
+            }},
+        )
+        reserved = reserved[:qty]
     log.info("%d éléments réservés pour commande #%d", len(reserved), order_id)
     return reserved
 
@@ -221,7 +272,6 @@ def deliver_for_order(order_id: int) -> list[str] | None:
         log.warning("Commande #%d déjà prise en charge pour livraison", order_id)
         return None
     order = claimed
-    db._capture_admin_notifications()
 
     # Récupérer les éléments réservés
     reserved_items = list(conn.inventory.find(
@@ -337,26 +387,51 @@ def reveal_item(item_id: int) -> str | None:
     return value
 
 
+def delivered_contents(order_ids: list[int], *, audit: bool = False) -> dict[int, list[str]]:
+    """Decrypt every account already delivered to the given orders, in one read."""
+    ids = []
+    seen: set[int] = set()
+    for order_id in order_ids:
+        try:
+            parsed = int(order_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed not in seen:
+            seen.add(parsed)
+            ids.append(parsed)
+    if not ids:
+        return {}
+    grouped: dict[int, list[str]] = {order_id: [] for order_id in ids}
+    items = db.get_conn().inventory.find({
+        "delivered_order_id": {"$in": ids},
+        "status": InventoryStatus.DELIVERED,
+    }).sort("id", 1)
+    cipher = db._fernet()
+    for item in items:
+        order_id = int(item.get("delivered_order_id") or 0)
+        payload = item.get("payload")
+        if not payload or order_id not in grouped:
+            continue
+        grouped[order_id].append(
+            clean_delivery_value(cipher.decrypt(payload.encode()).decode())
+        )
+    if audit:
+        for order_id, values in grouped.items():
+            if values:
+                db.audit_event(
+                    "order.delivery_accessed",
+                    details={"order_id": order_id, "items_count": len(values)},
+                )
+    return grouped
+
+
 def delivered_content(order_id: int, *, audit: bool = True) -> list[str]:
     """Return content already assigned to an order.
 
     ``audit=False`` is for the buyer reading their own delivery back, which is
     not an admin access worth recording each time.
     """
-    conn = db.get_conn()
-    items = list(conn.inventory.find({
-        "delivered_order_id": order_id,
-        "status": InventoryStatus.DELIVERED,
-    }))
-    if not items:
-        return []
-    cipher = db._fernet()
-    values: list[str] = []
-    for item in items:
-        values.append(clean_delivery_value(cipher.decrypt(item["payload"].encode()).decode()))
-    if audit:
-        db.audit_event("order.delivery_accessed", details={"order_id": order_id, "items_count": len(values)})
-    return values
+    return delivered_contents([int(order_id)], audit=audit).get(int(order_id), [])
 
 
 # ---------------------------------------------------------------------------

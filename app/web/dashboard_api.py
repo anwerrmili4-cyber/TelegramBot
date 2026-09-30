@@ -797,21 +797,37 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
     notifications: list[dict[str, Any]] = []
     user_cache: dict[int, str] = {}
 
+    def remember(rows: list[dict[str, Any]], key: str = "user_id") -> None:
+        missing: list[int] = []
+        for row in rows:
+            try:
+                parsed = int(row.get(key))
+            except (TypeError, ValueError):
+                continue
+            if parsed not in user_cache:
+                missing.append(parsed)
+        if not missing:
+            return
+        for user in conn.users.find(
+            {"telegram_id": {"$in": missing}},
+            {"telegram_id": 1, "username": 1, "first_name": 1, "full_name": 1},
+        ):
+            parsed = int(user["telegram_id"])
+            user_cache[parsed] = (
+                f"@{user['username']}" if user.get("username")
+                else str(user.get("full_name") or user.get("first_name") or f"Client {parsed}")
+            )
+        for parsed in missing:
+            user_cache.setdefault(parsed, f"Client {parsed}")
+
     def customer_name(user_id: Any) -> str:
         try:
             parsed = int(user_id)
         except (TypeError, ValueError):
             return "Client inconnu"
         if parsed not in user_cache:
-            user = conn.users.find_one(
-                {"telegram_id": parsed},
-                {"username": 1, "first_name": 1, "full_name": 1},
-            ) or {}
-            user_cache[parsed] = (
-                f"@{user['username']}" if user.get("username")
-                else str(user.get("full_name") or user.get("first_name") or f"Client {parsed}")
-            )
-        return user_cache[parsed]
+            remember([{"user_id": parsed}])
+        return user_cache.get(parsed, f"Client {parsed}")
 
     def add(
         notification_id: str,
@@ -840,7 +856,15 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
         "manual_review", "verification_failed", "paid", "payment_confirmed",
         "preparing_delivery", "stock_issue",
     ]
-    for order in conn.orders.find(db.customer_order_query({"status": {"$in": order_statuses}})).sort("created_at", DESCENDING).limit(0 if complete else 40):
+    order_fields = {
+        "id": 1, "status": 1, "user_id": 1, "offer_name": 1, "service_name": 1,
+        "paid_at": 1, "created_at": 1, "updated_at": 1, "total_price": 1, "wallet_amount": 1,
+    }
+    pending_orders = list(conn.orders.find(
+        db.customer_order_query({"status": {"$in": order_statuses}}), order_fields,
+    ).sort("created_at", DESCENDING).limit(0 if complete else 40))
+    remember(pending_orders)
+    for order in pending_orders:
         status = str(order.get("status") or "")
         order_id = order.get("id")
         age = max(0, now - int(_event_timestamp(order.get("paid_at") or order.get("created_at"))))
@@ -858,10 +882,12 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             created_at=order.get("updated_at") or order.get("paid_at") or order.get("created_at"),
         )
 
-    for order in conn.orders.find(db.customer_order_query({
+    delivered_orders = list(conn.orders.find(db.customer_order_query({
         "status": "delivered",
         "created_at": {"$gte": now - 86400},
-    })).sort("created_at", DESCENDING).limit(0 if complete else 12):
+    }), order_fields).sort("created_at", DESCENDING).limit(0 if complete else 12))
+    remember(delivered_orders)
+    for order in delivered_orders:
         order_id = order.get("id")
         add(
             f"order:{order_id}:delivered",
@@ -870,7 +896,11 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             page="orders", entity_id=order_id, created_at=order.get("created_at"), actionable=False,
         )
 
-    for topup in conn.wallet_topups.find({"status": "manual_review"}).sort("created_at", DESCENDING).limit(0 if complete else 30):
+    review_topups = list(conn.wallet_topups.find(
+        {"status": "manual_review"},
+    ).sort("created_at", DESCENDING).limit(0 if complete else 30))
+    remember(review_topups)
+    for topup in review_topups:
         topup_id = topup.get("id")
         amount = float(topup.get("amount_cents") or 0) / 100
         add(
@@ -880,10 +910,12 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             page="deposits", entity_id=topup_id, created_at=topup.get("created_at"),
         )
 
-    for topup in conn.wallet_topups.find({
+    confirmed_topups = list(conn.wallet_topups.find({
         "$or": [{"status": "confirmed"}, {"status": {"$exists": False}}],
         "created_at": {"$gte": now - 86400},
-    }).sort("created_at", DESCENDING).limit(0 if complete else 12):
+    }).sort("created_at", DESCENDING).limit(0 if complete else 12))
+    remember(confirmed_topups)
+    for topup in confirmed_topups:
         topup_id = topup.get("id") or topup.get("txid")
         amount = float(topup.get("amount_cents") or 0) / 100
         add(
@@ -893,7 +925,11 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             page="deposits", entity_id=topup.get("id"), created_at=topup.get("created_at"), actionable=False,
         )
 
-    for ticket in conn.support_tickets.find({"status": {"$in": ["open", "waiting_admin"]}}).sort("updated_at", DESCENDING).limit(0 if complete else 30):
+    open_tickets = list(conn.support_tickets.find(
+        {"status": {"$in": ["open", "waiting_admin"]}},
+    ).sort("updated_at", DESCENDING).limit(0 if complete else 30))
+    remember(open_tickets)
+    for ticket in open_tickets:
         ticket_id = ticket.get("id")
         ticket_date = ticket.get("updated_at") or ticket.get("created_at")
         is_product_request = ticket.get("category") == "catalog_request"
@@ -907,7 +943,11 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             created_at=ticket_date,
         )
 
-    for withdrawal in conn.withdrawals.find({"status": "pending"}).sort("created_at", DESCENDING).limit(0 if complete else 30):
+    pending_withdrawals = list(conn.withdrawals.find(
+        {"status": "pending"},
+    ).sort("created_at", DESCENDING).limit(0 if complete else 30))
+    remember(pending_withdrawals)
+    for withdrawal in pending_withdrawals:
         withdrawal_id = withdrawal.get("id")
         amount = float(withdrawal.get("amount_cents") or 0) / 100
         add(
@@ -918,7 +958,11 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
         )
 
     pending_warranty_statuses = ["pending_admin_check", "pending", "waiting_admin"]
-    for warranty in conn.warranty_requests.find({"status": {"$in": pending_warranty_statuses}}).sort("updated_at", DESCENDING).limit(0 if complete else 30):
+    pending_warranties = list(conn.warranty_requests.find(
+        {"status": {"$in": pending_warranty_statuses}},
+    ).sort("updated_at", DESCENDING).limit(0 if complete else 30))
+    remember(pending_warranties)
+    for warranty in pending_warranties:
         warranty_id = warranty.get("id")
         add(
             f"warranty:{warranty_id}:{warranty.get('status')}",

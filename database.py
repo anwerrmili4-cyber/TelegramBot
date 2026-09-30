@@ -4,6 +4,7 @@ import base64
 import hashlib
 import os
 import re
+import threading
 import time
 import unicodedata
 from datetime import UTC, datetime, timedelta
@@ -18,7 +19,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -216,6 +217,19 @@ def _next_id(sequence):
     return row["value"]
 
 
+def _next_ids(sequence, count):
+    """Reserve a contiguous id range in one counter update."""
+    count = int(count)
+    if count < 1:
+        return []
+    row = get_conn().counters.find_one_and_update(
+        {"_id": sequence}, {"$inc": {"value": count}}, upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    end = int(row["value"])
+    return list(range(end - count + 1, end + 1))
+
+
 def init_db():
     global _schema_initialized
     if _schema_initialized:
@@ -248,6 +262,7 @@ def init_db():
     db.broadcast_messages.create_index([("job_id", ASCENDING), ("deleted", ASCENDING)])
     db.orders.create_index("id", unique=True)
     db.orders.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
+    db.orders.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
     db.orders.create_index("status")
     db.orders.create_index([("created_at", DESCENDING)])
     db.orders.create_index([("status", ASCENDING), ("created_at", DESCENDING)])
@@ -323,6 +338,7 @@ def init_db():
     db.loyalty.create_index("user_id", unique=True)
     db.pending_states.create_index("user_id", unique=True)
     db.inventory.create_index([("offer_id", ASCENDING), ("status", ASCENDING)])
+    db.inventory.create_index([("offer_id", ASCENDING), ("status", ASCENDING), ("id", ASCENDING)])
     db.inventory.create_index(
         [
             ("source_provider", ASCENDING),
@@ -2197,7 +2213,12 @@ def release_update(update_id):
     get_conn().processed_updates.delete_one({"_id": update_id})
 
 
+_fernet_cached = None
+
+
 def _fernet():
+    """Return the inventory cipher, reusing it for the active key."""
+    global _fernet_cached
     key = INVENTORY_KEY
     if not key:
         secret = (
@@ -2209,7 +2230,9 @@ def _fernet():
         if not secret:
             raise RuntimeError("HP_INVENTORY_KEY or another deployment secret is required for automatic inventory")
         key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest()).decode()
-    return Fernet(key.encode())
+    if _fernet_cached is None or _fernet_cached[0] != key:
+        _fernet_cached = (key, Fernet(key.encode()))
+    return _fernet_cached[1]
 
 
 def add_inventory_items(offer_id, items):
@@ -2267,11 +2290,33 @@ def audit_event(action, actor_id=None, details=None):
     return event_id
 
 
+_notification_batch = threading.local()
+
+
 def _capture_admin_notifications():
+    """Snapshot admin alerts unless this thread is already batching them."""
+    if getattr(_notification_batch, "depth", 0):
+        return
+    _capture_admin_notifications_now()
+
+
+def _capture_admin_notifications_now():
     from app.web.notification_service import _auth_version, capture_feed
-    if not get_conn().admin_push_devices.count_documents({"auth_version": _auth_version()}):
+    if get_conn().admin_push_devices.find_one({"auth_version": _auth_version()}, {"_id": 1}) is None:
         return
     capture_feed()
+
+
+@contextlib.contextmanager
+def coalesce_admin_notifications():
+    """Take one alert snapshot at the end of a delivery instead of after every write."""
+    _notification_batch.depth = getattr(_notification_batch, "depth", 0) + 1
+    try:
+        yield
+    finally:
+        _notification_batch.depth -= 1
+        if _notification_batch.depth == 0:
+            _capture_admin_notifications_now()
 
 
 def log_interaction(

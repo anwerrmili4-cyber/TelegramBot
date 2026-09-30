@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from pymongo import UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 import database as db
@@ -1942,16 +1943,17 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
         upsert=True,
     )
 
-    for index, encrypted in enumerate(encrypted_items):
-        conn.inventory.update_one(
-            {
-                "source_provider": provider,
-                "source_external_order_id": external_order_id,
-                "source_item_index": index,
-            },
-            {
-                "$setOnInsert": {
-                    "id": db._next_id("inventory"),
+    if encrypted_items:
+        item_ids = db._next_ids("inventory", len(encrypted_items))
+        conn.inventory.bulk_write([
+            UpdateOne(
+                {
+                    "source_provider": provider,
+                    "source_external_order_id": external_order_id,
+                    "source_item_index": index,
+                },
+                {"$setOnInsert": {
+                    "id": item_id,
                     "offer_id": offer["id"],
                     "payload": encrypted,
                     "masked_preview": "Produit API livré",
@@ -1959,10 +1961,11 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                     "delivered_order_id": int(order_id),
                     "delivered_at": now,
                     "created_at": now,
-                }
-            },
-            upsert=True,
-        )
+                }},
+                upsert=True,
+            )
+            for index, (encrypted, item_id) in enumerate(zip(encrypted_items, item_ids))
+        ], ordered=False)
     conn.orders.update_one(
         {"id": int(order_id), "status": {"$in": ["paid", "payment_confirmed"]}},
         {

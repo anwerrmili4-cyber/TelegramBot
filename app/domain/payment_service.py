@@ -71,6 +71,11 @@ def check_txid_uniqueness(txid: str, order_id: int) -> None:
 
 
 def _finalize_confirmed_payment(order_id: int, user_id: int, txid: str, method: str) -> dict[str, Any]:
+    with db.coalesce_admin_notifications():
+        return _finalize_confirmed_payment_now(order_id, user_id, txid, method)
+
+
+def _finalize_confirmed_payment_now(order_id: int, user_id: int, txid: str, method: str) -> dict[str, Any]:
     result: dict[str, Any] = {
         "status": "failed",
         "order": db.get_order(order_id),

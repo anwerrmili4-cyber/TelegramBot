@@ -4853,53 +4853,48 @@ async def send_method_media(bot, customer_id, media):
             await bot.send_document(customer_id, document=file_id, caption=caption)
 
 
+async def _notify_referrer(context, affiliate):
+    if not affiliate:
+        return
+    referrer_id = affiliate["referrer_id"]
+    ref_lang = lang_of(referrer_id)
+    if affiliate["rewarded"]:
+        await context.bot.send_message(
+            referrer_id,
+            premium_customer_text(
+                ref_lang,
+                "affiliate_rewarded",
+                count=affiliate["daily_count"],
+                reward=f"{affiliate['reward_amount']:.2f}",
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    await context.bot.send_message(
+        referrer_id,
+        premium_customer_text(
+            ref_lang,
+            "affiliate_payment_progress",
+            count=affiliate["valid_referrals"],
+            target=affiliate_service.REFERRAL_TARGET,
+        ),
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def send_payment_result(message, context, lang, order_id, result, uid):
     if result["status"] in ("delivered", "confirmed", "confirmed_no_delivery"):
-        affiliate = result.get("affiliate")
-        if affiliate:
-            referrer_id = affiliate["referrer_id"]
-            ref_lang = lang_of(referrer_id)
-            if affiliate["rewarded"]:
-                await context.bot.send_message(
-                    referrer_id,
-                    premium_customer_text(
-                        ref_lang,
-                        "affiliate_rewarded",
-                        count=affiliate["daily_count"],
-                        reward=f"{affiliate['reward_amount']:.2f}",
-                    ),
-                    parse_mode=ParseMode.HTML,
-                )
-            else:
-                await context.bot.send_message(
-                    referrer_id,
-                    premium_customer_text(
-                        ref_lang,
-                        "affiliate_payment_progress",
-                        count=affiliate["valid_referrals"],
-                        target=affiliate_service.REFERRAL_TARGET,
-                    ),
-                    parse_mode=ParseMode.HTML,
-                )
-        loyalty = result.get("loyalty")
-        if loyalty and loyalty.get("activated"):
-            await message.reply_text(
-                premium_customer_text(
-                    lang,
-                    "loyalty_activated",
-                    level=loyalty["level"].title(),
-                    discount=loyalty["discount_percent"],
-                ),
-                parse_mode=ParseMode.HTML,
-            )
-        paid_order = db.get_order(order_id)
-        if is_otp_order(paid_order) and await begin_otp_order_questions(
+        paid_order = result.get("order") or db.get_order(order_id)
+        # Hand the buyer the product before referral or loyalty messages.
+        otp_started = bool(paid_order) and is_otp_order(paid_order) and await begin_otp_order_questions(
             message, context, lang, order_id, uid,
-        ):
-            return
-        if result["delivered_content"]:
-            paid_order = db.get_order(order_id)
-            offer = db.get_offer(paid_order.get("offer_id")) if paid_order else None
+        )
+        if not otp_started and result["delivered_content"]:
+            offer = (
+                db.get_offer(paid_order.get("offer_id"))
+                if paid_order and result["delivered_content"] == ["__method_media__"]
+                else None
+            )
             if offer and result["delivered_content"] == ["__method_media__"]:
                 await message.reply_text(
                     f"✅ <b>Payment confirmed</b>\n\nYour method <b>{html.escape(str(paid_order.get('offer_name') or ''))}</b> is ready. The content is attached below.",
@@ -4916,7 +4911,7 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
                     parse_mode=ParseMode.HTML,
                     reply_markup=kb.post_delivery_keyboard(lang, order_id),
                 )
-        else:
+        elif not otp_started:
             if str(result.get("error_code") or "").startswith("supplier_"):
                 waiting_message = await message.reply_text(
                     manual_delivery_waiting_text(lang, order_id),
@@ -4937,6 +4932,21 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
                     parse_mode=ParseMode.HTML,
                     reply_markup=kb.post_delivery_keyboard(lang, order_id),
                 )
+        with contextlib.suppress(Exception):
+            await _notify_referrer(context, result.get("affiliate"))
+        loyalty = result.get("loyalty")
+        if loyalty and loyalty.get("activated"):
+            await message.reply_text(
+                premium_customer_text(
+                    lang,
+                    "loyalty_activated",
+                    level=loyalty["level"].title(),
+                    discount=loyalty["discount_percent"],
+                ),
+                parse_mode=ParseMode.HTML,
+            )
+        if otp_started:
+            return
         with contextlib.suppress(Exception):
             if result["status"] == "confirmed_no_delivery":
                 # Manual fulfillment is safe for native/manual products and

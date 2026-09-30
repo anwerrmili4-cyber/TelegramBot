@@ -67,10 +67,27 @@ def cart_status(lines: list[dict[str, Any]]) -> str:
 
 def line_delivery(line: dict[str, Any], *, audit: bool = False) -> str:
     """The access details of a delivered line, decrypting inventory when needed."""
-    text = str(line.get("delivery_text") or "")
-    if text != AUTOMATIC_DELIVERY:
-        return text
-    return "\n".join(inventory_service.delivered_content(int(line["id"]), audit=audit))
+    return deliveries_for([line], audit=audit).get(int(line["id"]), "")
+
+
+def deliveries_for(lines: list[dict[str, Any]], *, audit: bool = False) -> dict[int, str]:
+    """Resolve delivery text for many lines with one inventory read."""
+    result: dict[int, str] = {}
+    automatic: list[int] = []
+    for line in lines:
+        if str(line.get("status") or "") != _DELIVERED:
+            continue
+        order_id = int(line["id"])
+        text = str(line.get("delivery_text") or "")
+        if text == AUTOMATIC_DELIVERY:
+            automatic.append(order_id)
+        else:
+            result[order_id] = text
+    if automatic:
+        grouped = inventory_service.delivered_contents(automatic, audit=audit)
+        for order_id in automatic:
+            result[order_id] = "\n".join(grouped.get(order_id, []))
+    return result
 
 
 def _cart_summary(reference: str, lines: list[dict[str, Any]]) -> dict[str, Any]:
@@ -274,6 +291,11 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
 
 def confirm_cart(reference: str) -> dict[str, Any]:
     """Confirm a transfer-paid cart after checking its receipt, then deliver what is in stock."""
+    with db.coalesce_admin_notifications():
+        return _confirm_cart(reference)
+
+
+def _confirm_cart(reference: str) -> dict[str, Any]:
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
     if any(line.get("status") != _TO_VERIFY for line in lines):

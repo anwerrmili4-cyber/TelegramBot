@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from pymongo import ReturnDocument
+from pymongo.errors import BulkWriteError
 from requests import Session
 from requests.exceptions import RequestException
 
@@ -282,10 +283,65 @@ def enqueue_alert(item):
 
 
 def capture_feed(complete=True):
-    """Reconcile long-lived alerts and snapshot alerts at audited write points."""
+    """Reconcile long-lived alerts and snapshot alerts at audited write points.
+
+    Alerts already stored are skipped in one read. Only the new ones are
+    inserted, so a delivery does not rewrite the whole notification history.
+    """
     from app.web.dashboard_api import list_admin_notifications
-    for item in list_admin_notifications(200, complete)["items"]:
-        enqueue_alert(item)
+    items = list_admin_notifications(200, complete)["items"]
+    if not items:
+        return
+    conn = db.get_conn()
+    identifiers = [str(item["id"]) for item in items]
+    existing = {
+        row["_id"]
+        for row in conn.admin_notification_outbox.find(
+            {"_id": {"$in": identifiers}}, {"_id": 1},
+        )
+    }
+    fresh = [item for item in items if str(item["id"]) not in existing]
+    if not fresh:
+        return
+    started = time.time_ns()
+    created_at = datetime.now(UTC)
+    try:
+        conn.admin_notification_outbox.insert_many([
+            {
+                "_id": str(item["id"]),
+                "item": dict(item),
+                "created_at": created_at,
+                "enqueued_ns": started + index,
+            }
+            for index, item in enumerate(fresh)
+        ], ordered=False)
+    except BulkWriteError:
+        # A concurrent capture stored some of these alerts first.
+        pass
+    devices = list(conn.admin_push_devices.find({"auth_version": _auth_version()}))
+    if not devices:
+        return
+    now = int(time.time())
+    receipts = []
+    for item in fresh:
+        identifier = str(item["id"])
+        for device in devices:
+            preferences = device.get("preferences") or {}
+            muted = (
+                preferences.get("paused_until", 0) > now
+                or item["category"] not in preferences.get("categories", CATEGORIES)
+                or preferences.get("urgent_only") and item["severity"] != "error"
+            )
+            if muted:
+                receipts.append({
+                    "_id": f'{device["_id"]}:{identifier}',
+                    "created_at": created_at,
+                })
+    if receipts:
+        try:
+            conn.admin_push_receipts.insert_many(receipts, ordered=False)
+        except BulkWriteError:
+            pass
 
 
 def deliver_pending():

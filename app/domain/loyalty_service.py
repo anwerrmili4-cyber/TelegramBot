@@ -17,10 +17,13 @@ LEVEL_DURATION_SECONDS = 3 * 24 * 60 * 60
 
 
 def total_spend(user_id: int) -> float:
-    rows = db.get_conn().orders.find({
-        "user_id": user_id,
-        "status": {"$in": [str(status) for status in PAID_STATUSES]},
-    })
+    rows = db.get_conn().orders.find(
+        {
+            "user_id": int(user_id),
+            "status": {"$in": [str(status) for status in PAID_STATUSES]},
+        },
+        {"gross_total": 1, "total_price": 1, "_id": 0},
+    )
     return round(sum(float(row.get("gross_total", row.get("total_price", 0))) for row in rows), 2)
 
 
