@@ -53,6 +53,7 @@ from app.domain import (
     site_orders_service,
     site_settings_service,
     storefront_auth_service,
+    storefront_invoice_service,
     storefront_receipt_service,
     storefront_service,
     storefront_wallet_service,
@@ -255,8 +256,12 @@ def clear_login_failures(ip: str) -> None:
 
 STOREFRONT_AUTH_GET_PATHS = frozenset({
     "/api/storefront/auth/config",
+    "/api/storefront/auth/invoice",
     "/api/storefront/auth/me",
     "/api/storefront/auth/orders",
+    "/api/storefront/auth/tickets",
+    "/api/storefront/auth/product-requests",
+    "/api/storefront/auth/warranties",
     "/api/storefront/auth/wallet",
 })
 # Paths whose body carries a receipt screenshot.
@@ -273,8 +278,21 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/resend-code",
     "/api/storefront/auth/profile",
     "/api/storefront/auth/password",
+    "/api/storefront/auth/tickets",
+    "/api/storefront/auth/product-requests",
+    "/api/storefront/auth/warranties",
 })
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
+
+
+def _record_is_site(record: dict | None) -> bool:
+    return str((record or {}).get("channel") or "") == "tn_site"
+
+
+def _assert_workspace(record: dict | None, form: dict, label: str) -> None:
+    """Refuse an admin action aimed at the other channel's record."""
+    if _record_is_site(record) != (form.get("channel") == "tn_site"):
+        raise ValueError(f"Ce {label} appartient à l'autre espace.")
 
 
 def reseller_dashboard_summary() -> dict:
@@ -872,7 +890,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-catalog", "site-customers", "site-settings", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1245,6 +1263,17 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, storefront_wallet_service.list_deposits(parse_qs(url.query)))
             return
 
+        elif path == "/admin/api/site-invoice":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            invoice = storefront_invoice_service.find(parse_qs(url.query).get("ref", [""])[0])
+            if not invoice:
+                self._reply(404, {"ok": False, "error": "Facture introuvable."})
+                return
+            self._send_pdf(invoice["number"], storefront_invoice_service.render_pdf(invoice), {"Cache-Control": "no-store"})
+            return
+
         elif path == "/admin/api/site-receipt":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1427,15 +1456,37 @@ class handler(BaseHTTPRequestHandler):
         scheme, _, token = self.headers.get("Authorization", "").partition(" ")
         return token.strip() if scheme.lower() == "bearer" else ""
 
+    def _send_pdf(self, number: str, pdf: bytes, headers: dict[str, str] | None = None) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Disposition", f'attachment; filename="{number}.pdf"')
+        self.send_header("Content-Length", str(len(pdf)))
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
+        self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
+        self.end_headers()
+        self.wfile.write(pdf)
+
     def _handle_storefront_auth(self, path: str) -> None:
         cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
         try:
+            if path == "/api/storefront/auth/invoice":
+                reference = parse_qs(urlsplit(self.path).query).get("ref", [""])[0]
+                number, pdf = storefront_auth_service.invoice_pdf(self._bearer_token(), reference)
+                self._send_pdf(number, pdf, cors)
+                return
             if path == "/api/storefront/auth/config":
                 result = storefront_auth_service.auth_config()
             elif path == "/api/storefront/auth/me":
                 result = storefront_auth_service.me(self._bearer_token())
             elif path == "/api/storefront/auth/orders":
                 result = storefront_auth_service.customer_orders(self._bearer_token())
+            elif path == "/api/storefront/auth/tickets" and self.command == "GET":
+                result = storefront_auth_service.customer_tickets(self._bearer_token())
+            elif path == "/api/storefront/auth/product-requests" and self.command == "GET":
+                result = storefront_auth_service.customer_tickets(self._bearer_token(), category="catalog_request")
+            elif path == "/api/storefront/auth/warranties" and self.command == "GET":
+                result = storefront_auth_service.customer_warranties(self._bearer_token())
             elif path == "/api/storefront/auth/wallet":
                 result = storefront_auth_service.wallet(self._bearer_token())
             elif path == "/api/storefront/auth/logout":
@@ -1465,6 +1516,14 @@ class handler(BaseHTTPRequestHandler):
                     result = storefront_auth_service.update_profile(self._bearer_token(), payload)
                 elif path == "/api/storefront/auth/password":
                     result = storefront_auth_service.change_password(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/tickets":
+                    result = storefront_auth_service.open_ticket(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/product-requests":
+                    result = storefront_auth_service.open_ticket(
+                        self._bearer_token(), {**payload, "category": "catalog_request"},
+                    )
+                elif path == "/api/storefront/auth/warranties":
+                    result = storefront_auth_service.open_warranty(self._bearer_token(), payload)
                 else:
                     result = storefront_auth_service.reset_password(payload)
             self._reply(200, result, headers=cors)
@@ -1832,6 +1891,7 @@ class handler(BaseHTTPRequestHandler):
                     suffix_emoji=form.get("suffix_emoji", "").strip()[:12],
                     sales_channels=["bot"],
                     name_ar=form.get("name_ar", "").strip(),
+                    site_enabled=False,
                 )
                 db.audit_event("service.created", details={"service_id": sid, "name": name})
                 self._reply(200, {"ok": True, "service_id": sid, "message": f"Catégorie « {name} » créée."})
@@ -1840,14 +1900,12 @@ class handler(BaseHTTPRequestHandler):
             elif action == "update_service":
                 sid = int(form["service_id"])
                 name = form["name"].strip()[:80]
-                emoji = form.get("emoji", "")[:12]
                 db.update_service(
                     sid,
                     name=name,
-                    emoji=emoji,
-                    suffix_emoji=form.get("suffix_emoji", "").strip()[:12],
-                    sales_channels=["bot"],
-                    name_ar=form.get("name_ar", "").strip(),
+                    emoji=form.get("emoji", "").strip()[:12] or None,
+                    suffix_emoji=form.get("suffix_emoji", "").strip()[:12] or None,
+                    name_ar=form.get("name_ar", "").strip() or None,
                 )
                 db.audit_event("service.updated", details={"service_id": sid, "name": name})
 
@@ -1881,7 +1939,7 @@ class handler(BaseHTTPRequestHandler):
                     if default_service:
                         sid = int(default_service["id"])
                     else:
-                        sid = db.add_service("Catalogue", "🛒")
+                        sid = db.add_service("Catalogue", "🛒", site_enabled=False)
                         db.audit_event("service.created", details={"service_id": sid, "name": "Catalogue"})
                 name = form["name"].strip()[:120]
                 price = float(form["price"])
@@ -1895,7 +1953,7 @@ class handler(BaseHTTPRequestHandler):
                     if default_service:
                         sid = int(default_service["id"])
                     else:
-                        sid = db.add_service("Catalogue", "🛒")
+                        sid = db.add_service("Catalogue", "🛒", site_enabled=False)
                         db.audit_event("service.created", details={"service_id": sid, "name": "Catalogue"})
                 name = form["name"].strip()[:120]
                 price = float(form["price"])
@@ -1933,6 +1991,7 @@ class handler(BaseHTTPRequestHandler):
                     delivery_delay=delivery_delay,
                     custom_emoji_id=emoji_val,
                     sales_channels=["bot"],
+                    site_enabled=False,
                     name_ar=form.get("name_ar", "").strip(),
                     description_ar=form.get("description_ar", "").strip(),
                     period_days=period_days,
@@ -1990,8 +2049,7 @@ class handler(BaseHTTPRequestHandler):
                     auto_delivery=form.get("auto_delivery", "") == "on",
                     low_stock_threshold=max(0, int(form.get("low_stock_threshold", 5))),
                     delivery_delay=form.get("delivery_delay", "").strip()[:120],
-                    custom_emoji_id=emoji_val,
-                    sales_channels=["bot"],
+                    custom_emoji_id=emoji_val or None,
                     name_ar=form.get("name_ar", "").strip(),
                     description_ar=form.get("description_ar", "").strip(),
                     period_days=period_days,
@@ -2258,6 +2316,10 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "close_ticket":
                 tid = int(form["ticket_id"])
+                ticket = support_service.get_ticket(tid)
+                if not ticket:
+                    raise ValueError("Ce ticket est déjà fermé ou introuvable.")
+                _assert_workspace(ticket, form, "ticket")
                 if not support_service.close_ticket(tid):
                     raise ValueError("Ce ticket est déjà fermé ou introuvable.")
 
@@ -2272,6 +2334,7 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "ticket_archive":
                 tid = int(form["ticket_id"])
+                _assert_workspace(support_service.get_ticket(tid), form, "ticket")
                 if not support_service.archive_ticket(tid):
                     raise ValueError("Fermez ce ticket avant de l’archiver.")
                 self._reply(200, {"ok": True, "message": f"Ticket #{tid} archivé."})
@@ -2288,6 +2351,7 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "ticket_unarchive":
                 tid = int(form["ticket_id"])
+                _assert_workspace(support_service.get_ticket(tid), form, "ticket")
                 if not support_service.unarchive_ticket(tid):
                     raise ValueError("Ce ticket n’est pas archivé ou n’existe plus.")
                 self._reply(200, {"ok": True, "message": f"Ticket #{tid} restauré."})
@@ -2296,11 +2360,13 @@ class handler(BaseHTTPRequestHandler):
             elif action == "reply_ticket":
                 tid = int(form["ticket_id"])
                 message = form.get("message", "").strip()
+                ticket = support_service.get_ticket(tid)
+                if not ticket:
+                    raise ValueError("Ticket introuvable.")
+                _assert_workspace(ticket, form, "ticket")
                 if message:
                     message_record = support_service.add_message(tid, 0, message, sender_type="admin")
-                    # Notifier le client sur Telegram
-                    ticket = support_service.get_ticket(tid)
-                    if ticket:
+                    if not _record_is_site(ticket):
                         _deliver_ticket_reply(int(ticket["user_id"]), tid, message)
                     self._reply(200, {"ok": True, "message_record": message_record})
                     return
@@ -2352,6 +2418,8 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "warranty_accept":
                 request_id = int(form["warranty_id"])
+                pending = db.get_conn().warranty_requests.find_one({"id": request_id})
+                _assert_workspace(pending, form, "dossier de garantie")
                 request = db.accept_warranty_request(request_id)
                 if not request:
                     raise ValueError("Cette garantie a déjà été traitée ou n’existe plus.")
@@ -2363,37 +2431,45 @@ class handler(BaseHTTPRequestHandler):
                 reason = form.get("admin_note", "").strip()[:1000]
                 if not reason:
                     raise ValueError("Indiquez la raison du refus.")
+                pending = db.get_conn().warranty_requests.find_one({"id": request_id})
+                _assert_workspace(pending, form, "dossier de garantie")
                 request = db.refuse_warranty_request(request_id, reason)
                 if not request:
                     raise ValueError("Cette garantie a déjà été traitée ou n’existe plus.")
-                notification_sent = True
-                try:
-                    _run_async(_application().bot.send_message(
-                        request["user_id"],
-                        f"❌ <b>Demande de garantie refusée</b>\n\nDemande <b>#{request_id}</b>\nRaison : {html.escape(reason)}",
-                        parse_mode=ParseMode.HTML,
-                    ))
-                except Exception:
-                    notification_sent = False
+                notification_sent = False
+                if not _record_is_site(request):
+                    notification_sent = True
+                    try:
+                        _run_async(_application().bot.send_message(
+                            request["user_id"],
+                            f"❌ <b>Demande de garantie refusée</b>\n\nDemande <b>#{request_id}</b>\nRaison : {html.escape(reason)}",
+                            parse_mode=ParseMode.HTML,
+                        ))
+                    except Exception:
+                        notification_sent = False
                 self._reply(200, {"ok": True, "notification_sent": notification_sent,
                                   "message": f"Garantie #{request_id} refusée."})
                 return
 
             elif action == "warranty_refund":
                 request_id = int(form["warranty_id"])
+                pending = db.get_conn().warranty_requests.find_one({"id": request_id})
+                _assert_workspace(pending, form, "dossier de garantie")
                 request = db.resolve_warranty_request(request_id, "refund", form.get("admin_note", ""))
                 if not request:
                     raise ValueError("Cette garantie n’est plus en attente d’une résolution.")
-                refund = float(request.get("refund_amount") or 0)
-                notification_sent = True
-                try:
-                    _run_async(_application().bot.send_message(
-                        request["user_id"],
-                        f"💰 <b>Remboursement de garantie approuvé</b>\n\n<b>{refund:.2f} {CURRENCY}</b> a été ajouté à votre portefeuille pour la demande <b>#{request_id}</b>.",
-                        parse_mode=ParseMode.HTML,
-                    ))
-                except Exception:
-                    notification_sent = False
+                notification_sent = False
+                if not _record_is_site(request):
+                    refund = float(request.get("refund_amount") or 0)
+                    notification_sent = True
+                    try:
+                        _run_async(_application().bot.send_message(
+                            request["user_id"],
+                            f"💰 <b>Remboursement de garantie approuvé</b>\n\n<b>{refund:.2f} {CURRENCY}</b> a été ajouté à votre portefeuille pour la demande <b>#{request_id}</b>.",
+                            parse_mode=ParseMode.HTML,
+                        ))
+                    except Exception:
+                        notification_sent = False
                 self._reply(200, {"ok": True, "notification_sent": notification_sent,
                                   "message": f"Garantie #{request_id} remboursée."})
                 return
@@ -2403,6 +2479,8 @@ class handler(BaseHTTPRequestHandler):
                 replacement = form.get("replacement", "").strip()[:3600]
                 if not replacement:
                     raise ValueError("Saisissez le contenu de remplacement.")
+                pending = db.get_conn().warranty_requests.find_one({"id": request_id})
+                _assert_workspace(pending, form, "dossier de garantie")
                 request = db.resolve_warranty_request(request_id, "replacement")
                 if not request:
                     request = db.get_conn().warranty_requests.find_one({
@@ -2410,12 +2488,18 @@ class handler(BaseHTTPRequestHandler):
                     })
                 if not request:
                     raise ValueError("Cette garantie n’attend plus de remplacement.")
-                _run_async(_application().bot.send_message(
-                    request["user_id"],
-                    "🔁 Votre remplacement sous garantie est prêt\n\n"
-                    f"Commande : #{int(request['order_id'])}\n"
-                    f"Garantie : #{request_id}\n\n{replacement}",
-                ))
+                if _record_is_site(request):
+                    db.get_conn().warranty_requests.update_one(
+                        {"id": request_id},
+                        {"$set": {"replacement_text": replacement}},
+                    )
+                else:
+                    _run_async(_application().bot.send_message(
+                        request["user_id"],
+                        "🔁 Votre remplacement sous garantie est prêt\n\n"
+                        f"Commande : #{int(request['order_id'])}\n"
+                        f"Garantie : #{request_id}\n\n{replacement}",
+                    ))
                 if not db.complete_warranty_replacement(request_id):
                     raise ValueError("Le remplacement a été envoyé mais son statut n’a pas pu être finalisé.")
                 self._reply(200, {"ok": True, "message": f"Remplacement de garantie #{request_id} envoyé."})
@@ -2498,6 +2582,12 @@ class handler(BaseHTTPRequestHandler):
             elif action == "site_offer_update":
                 result = site_admin_service.update_offer(form)
                 self._reply(200, {"ok": True, "message": f"Offre « {result['name']} » mise à jour sur le site."})
+                return
+
+            elif action == "site_offer_visibility":
+                result = site_admin_service.set_offer_visibility(form)
+                state = "affichée" if result["site_enabled"] else "masquée"
+                self._reply(200, {"ok": True, "message": f"Offre « {result['name']} » {state} sur le site."})
                 return
 
             elif action == "site_service_visibility":

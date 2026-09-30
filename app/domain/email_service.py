@@ -4,14 +4,19 @@ Every message is posted from a daemon thread: a slow or failing Resend call
 must never delay or break the checkout, sign-up or admin action behind it.
 Without ``RESEND_API_KEY`` the message is only logged, so a local run keeps
 working and a verification code can still be read from the console.
+
+The HTML uses nested tables and inline styles only, which is what Gmail,
+Outlook and Apple Mail all render the same way.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
@@ -22,7 +27,25 @@ log = logging.getLogger(__name__)
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_SENDER = "BLACKMARKET <noreply@ourblackmarket.com>"
+DEFAULT_SITE_URL = "https://www.ourblackmarket.com"
 BRAND = "BLACKMARKET Tunisie"
+
+_BG = "#0b0b0d"
+_CARD = "#131316"
+_LINE = "#25252b"
+_TEXT = "#f4f4f5"
+_SOFT = "#c4c4cc"
+_MUTED = "#8b8b95"
+_BRAND = "#e03a30"
+_FONT = "'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
+_MONO = "Menlo,Consolas,'Courier New',monospace"
+
+_TONES = {
+    "brand": ("#ff6b61", "rgba(224,58,48,.14)"),
+    "success": ("#4ade80", "rgba(34,197,94,.14)"),
+    "pending": ("#fbbf24", "rgba(245,158,11,.14)"),
+    "danger": ("#f87171", "rgba(239,68,68,.14)"),
+}
 
 
 def _api_key() -> str:
@@ -52,7 +75,7 @@ def _post(message: dict[str, Any]) -> None:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=15) as response:
             response.read()
     except urllib.error.HTTPError as exc:
         log.error("Resend rejected an email (%s): %s", exc.code, exc.read()[:500])
@@ -64,32 +87,94 @@ def _dispatch(message: dict[str, Any]) -> None:
     threading.Thread(target=_post, args=(message,), daemon=True).start()
 
 
-def send(to: str, subject: str, html: str, text: str) -> None:
+def send(
+    to: str,
+    subject: str,
+    html: str,
+    text: str,
+    attachments: Sequence[tuple[str, bytes]] = (),
+) -> None:
     if not to:
         return
-    _dispatch({"to": [to], "subject": subject, "html": html, "text": text})
+    message: dict[str, Any] = {"to": [to], "subject": subject, "html": html, "text": text}
+    if attachments:
+        message["attachments"] = [
+            {"filename": filename, "content": base64.b64encode(content).decode()}
+            for filename, content in attachments
+        ]
+    _dispatch(message)
 
 
 def _money(millimes: int) -> str:
     return f"{int(millimes) / 1000:.3f}".replace(".", ",") + " DT"
 
 
-def _layout(title: str, body: str) -> str:
+def site_url() -> str:
+    return os.environ.get("STOREFRONT_PUBLIC_URL", "").strip().rstrip("/") or DEFAULT_SITE_URL
+
+
+# ---------------------------------------------------------------------------
+# Building blocks
+# ---------------------------------------------------------------------------
+
+
+def _layout(title: str, body: str, *, badge: str = "", tone: str = "brand", preheader: str = "") -> str:
+    site = site_url()
+    color, wash = _TONES.get(tone, _TONES["brand"])
+    badge_html = (
+        f'<span style="display:inline-block;padding:5px 12px;border-radius:999px;background:{wash};'
+        f'color:{color};font-size:12px;font-weight:700;letter-spacing:.04em">{escape(badge)}</span>'
+        if badge
+        else ""
+    )
+    hidden = (
+        f'<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:{_BG}">'
+        f"{escape(preheader)}{'&nbsp;&zwnj;' * 40}</div>"
+        if preheader
+        else ""
+    )
+    year = time.strftime("%Y")
     return (
         '<!doctype html><html lang="fr"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#0b0b0c;padding:24px 12px;'
-        'font-family:Helvetica,Arial,sans-serif;color:#e8e8ea">'
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center">'
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
-        'style="max-width:520px;background:#141416;border:1px solid #26262a;border-radius:14px">'
-        '<tr><td style="padding:22px 28px;border-bottom:1px solid #26262a;font-weight:700;'
-        f'letter-spacing:.14em;font-size:13px;color:#ffffff">{BRAND.upper()}</td></tr>'
-        f'<tr><td style="padding:28px">'
-        f'<h1 style="margin:0 0 16px;font-size:21px;color:#ffffff">{escape(title)}</h1>'
-        f'<div style="font-size:15px;line-height:1.6;color:#c9c9cf">{body}</div>'
-        "</td></tr>"
-        '<tr><td style="padding:18px 28px;border-top:1px solid #26262a;font-size:12px;color:#7c7c85">'
-        f"Cet email a été envoyé automatiquement par {BRAND}. Merci de ne pas y répondre."
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="color-scheme" content="dark light"><meta name="supported-color-schemes" content="dark light">'
+        f"<title>{escape(title)}</title></head>"
+        f'<body style="margin:0;padding:0;background:{_BG};font-family:{_FONT};color:{_TEXT}">'
+        f"{hidden}"
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="{_BG}" style="background:{_BG}">'
+        '<tr><td align="center" style="padding:32px 12px 40px">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px">'
+        # Brand header
+        '<tr><td style="padding:0 6px 20px">'
+        '<table role="presentation" cellspacing="0" cellpadding="0"><tr>'
+        f'<td style="vertical-align:middle"><a href="{escape(site)}" style="text-decoration:none">'
+        f'<img src="{escape(site)}/logo.png" width="52" height="52" alt="BLACKMARKET" '
+        'style="display:block;border:0;outline:none;width:52px;height:52px"></a></td>'
+        '<td style="vertical-align:middle;padding-left:12px">'
+        f'<div style="font-size:16px;font-weight:800;letter-spacing:.14em;color:{_TEXT}">BLACKMARKET</div>'
+        f'<div style="font-size:11px;font-weight:600;letter-spacing:.34em;color:{_BRAND}">TUNISIE</div>'
+        "</td></tr></table></td></tr>"
+        # Card
+        f'<tr><td bgcolor="{_CARD}" style="background:{_CARD};border:1px solid {_LINE};border-radius:20px;overflow:hidden">'
+        f'<div style="height:4px;line-height:4px;font-size:0;background:{_BRAND};'
+        f'background-image:linear-gradient(90deg,{_BRAND},#ff7a59)">&nbsp;</div>'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>'
+        '<td style="padding:30px 30px 12px">'
+        f"{badge_html}"
+        f'<h1 style="margin:{14 if badge else 0}px 0 18px;font-size:25px;line-height:1.25;font-weight:800;color:{_TEXT}">'
+        f"{escape(title)}</h1>"
+        f'<div style="font-size:15px;line-height:1.65;color:{_SOFT}">{body}</div>'
+        "</td></tr></table></td></tr>"
+        # Footer
+        f'<tr><td align="center" style="padding:24px 16px 0;font-size:12px;line-height:1.7;color:{_MUTED}">'
+        f'<a href="{escape(site)}" style="color:{_SOFT};text-decoration:none;font-weight:600">Boutique</a>'
+        f'<span style="color:{_LINE}">&nbsp;&nbsp;•&nbsp;&nbsp;</span>'
+        f'<a href="{escape(site)}{ACCOUNT_PATH}" style="color:{_SOFT};text-decoration:none;font-weight:600">Mon compte</a>'
+        f'<span style="color:{_LINE}">&nbsp;&nbsp;•&nbsp;&nbsp;</span>'
+        f'<a href="{escape(site)}{ACCOUNT_PATH}?onglet=portefeuille" style="color:{_SOFT};text-decoration:none;font-weight:600">'
+        "Portefeuille</a>"
+        f'<div style="margin-top:12px">© {year} {BRAND} · ourblackmarket.com</div>'
+        "<div>Email envoyé automatiquement, merci de ne pas y répondre.</div>"
         "</td></tr></table></td></tr></table></body></html>"
     )
 
@@ -98,33 +183,72 @@ def _paragraph(text: str) -> str:
     return f'<p style="margin:0 0 14px">{text}</p>'
 
 
+def _strong(text: str) -> str:
+    return f'<strong style="color:{_TEXT}">{text}</strong>'
+
+
 def _button(label: str, url: str) -> str:
     return (
-        f'<p style="margin:22px 0"><a href="{escape(url)}" style="display:inline-block;background:#ffffff;'
-        'color:#0b0b0c;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px">'
-        f"{escape(label)}</a></p>"
+        '<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0 18px"><tr>'
+        f'<td bgcolor="{_BRAND}" style="border-radius:12px;background:{_BRAND}">'
+        f'<a href="{escape(url)}" style="display:inline-block;padding:14px 26px;font-size:15px;font-weight:700;'
+        f'color:#ffffff;text-decoration:none;border-radius:12px">{escape(label)}&nbsp;&nbsp;→</a>'
+        "</td></tr></table>"
     )
 
 
-def _items_table(items: Sequence[dict[str, Any]], total_millimes: int) -> str:
+def _panel(inner: str, *, margin: str = "6px 0 20px") -> str:
+    return (
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:{margin}">'
+        f'<tr><td style="background:{_BG};border:1px solid {_LINE};border-radius:14px;padding:6px 18px">'
+        f"{inner}</td></tr></table>"
+    )
+
+
+def _details(rows: Sequence[tuple[str, str]]) -> str:
+    """Label / value lines in a panel; values are HTML."""
+    lines = "".join(
+        '<tr>'
+        f'<td style="padding:10px 0;{"border-top:1px solid " + _LINE + ";" if index else ""}font-size:13px;color:{_MUTED}">'
+        f"{escape(label)}</td>"
+        f'<td align="right" style="padding:10px 0;{"border-top:1px solid " + _LINE + ";" if index else ""}'
+        f'font-size:14px;font-weight:600;color:{_TEXT}">{value}</td></tr>'
+        for index, (label, value) in enumerate(rows)
+    )
+    return _panel(f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{lines}</table>')
+
+
+def _items_table(items: Sequence[dict[str, Any]], total_millimes: int, *, total_label: str = "Total") -> str:
     rows = "".join(
-        '<tr><td style="padding:8px 0;border-bottom:1px solid #26262a">'
-        f'{int(item["quantity"])} × {escape(str(item["offer_name"]))}</td>'
-        '<td align="right" style="padding:8px 0;border-bottom:1px solid #26262a;white-space:nowrap">'
-        f'{_money(item["total_millimes"])}</td></tr>'
+        "<tr>"
+        f'<td style="padding:13px 0;border-bottom:1px solid {_LINE}">'
+        f'<div style="font-size:14px;font-weight:600;color:{_TEXT}">{escape(str(item["offer_name"]))}</div>'
+        f'<div style="font-size:12px;color:{_MUTED}">Quantité : {int(item["quantity"])}</div></td>'
+        f'<td align="right" style="padding:13px 0;border-bottom:1px solid {_LINE};white-space:nowrap;'
+        f'font-size:14px;color:{_TEXT}">{_money(item["total_millimes"])}</td></tr>'
         for item in items
     )
-    return (
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
-        f'style="margin:6px 0 18px;font-size:14px;color:#e8e8ea">{rows}'
-        '<tr><td style="padding:10px 0;font-weight:700">Total</td>'
-        f'<td align="right" style="padding:10px 0;font-weight:700">{_money(total_millimes)}</td></tr></table>'
+    return _panel(
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">'
+        f"{rows}"
+        f'<tr><td style="padding:14px 0 10px;font-size:14px;font-weight:700;color:{_TEXT}">{escape(total_label)}</td>'
+        f'<td align="right" style="padding:14px 0 10px;font-size:18px;font-weight:800;color:#ff6b61;white-space:nowrap">'
+        f"{_money(total_millimes)}</td></tr></table>"
     )
 
 
 def _items_text(items: Sequence[dict[str, Any]], total_millimes: int) -> str:
     lines = [f'- {int(item["quantity"])} x {item["offer_name"]} : {_money(item["total_millimes"])}' for item in items]
     return "\n".join([*lines, f"Total : {_money(total_millimes)}"])
+
+
+def _note(text: str, tone: str = "brand") -> str:
+    color, wash = _TONES.get(tone, _TONES["brand"])
+    return (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:4px 0 16px"><tr>'
+        f'<td style="background:{wash};border-left:3px solid {color};border-radius:10px;padding:12px 16px;'
+        f'font-size:14px;line-height:1.55;color:{_TEXT}">{text}</td></tr></table>'
+    )
 
 
 def _greeting(name: str) -> str:
@@ -149,13 +273,22 @@ def _account_button(label: str, section: str = "") -> tuple[str, str]:
     return _button(label, url), f"\n\n{label} : {url}"
 
 
+# ---------------------------------------------------------------------------
+# Account
+# ---------------------------------------------------------------------------
+
+
 def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph("Voici ton code pour confirmer ton adresse email :")
-        + '<p style="margin:18px 0;font-size:32px;font-weight:700;letter-spacing:.32em;color:#ffffff">'
-        f"{escape(code)}</p>"
-        + _paragraph(f"Il expire dans {minutes} minutes. Ne le partage avec personne.")
+        + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:8px 0 22px"><tr>'
+        f'<td align="center" style="background:{_BG};border:1px dashed #3a3a42;border-radius:16px;padding:22px 10px">'
+        f'<div style="font-family:{_MONO};font-size:36px;font-weight:800;letter-spacing:.38em;color:{_TEXT};'
+        f'padding-left:.38em">{escape(code)}</div>'
+        f'<div style="margin-top:8px;font-size:12px;color:{_MUTED}">Valable {minutes} minutes</div>'
+        "</td></tr></table>"
+        + _note("Ne partage jamais ce code, même avec quelqu'un qui dit faire partie de notre équipe.", "pending")
         + _paragraph("Si tu n'as pas créé de compte, ignore simplement cet email.")
     )
     text = (
@@ -163,17 +296,31 @@ def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
         f"Il expire dans {minutes} minutes. Ne le partage avec personne.\n"
         "Si tu n'as pas créé de compte, ignore simplement cet email."
     )
-    send(to, f"{code} est ton code de vérification", _layout("Confirme ton adresse email", body), text)
+    send(
+        to,
+        f"{code} est ton code de vérification",
+        _layout("Confirme ton adresse email", body, badge="Vérification", preheader=f"Ton code : {code}"),
+        text,
+    )
 
 
 def send_welcome(to: str, name: str, site_url: str) -> None:
+    steps = "".join(
+        '<tr>'
+        f'<td style="padding:10px 12px 10px 0;vertical-align:top;width:30px">'
+        f'<div style="width:28px;height:28px;line-height:28px;border-radius:999px;background:rgba(224,58,48,.16);'
+        f'color:#ff6b61;font-size:13px;font-weight:800;text-align:center">{number}</div></td>'
+        f'<td style="padding:10px 0;font-size:14px;color:{_SOFT}">{_strong(title)}<br>{text}</td></tr>'
+        for number, title, text in (
+            (1, "Recharge ton portefeuille", "Par D17, Flouci, IZI ou Wafa Cash, avec la capture de ton reçu."),
+            (2, "Achète en un clic", "Paie tes commandes directement avec ton solde."),
+            (3, "Reçois tes accès", "Par email et dans ton espace client, disponibles à tout moment."),
+        )
+    )
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ton compte {BRAND} est prêt.")
-        + _paragraph(
-            "Recharge ton portefeuille par D17, Flouci, IZI ou Wafa Cash, puis achète en un clic : "
-            "tes accès arrivent par email et restent disponibles dans ton espace client."
-        )
+        + _paragraph(f"Ton compte {BRAND} est prêt. Voici comment ça marche :")
+        + _panel(f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{steps}</table>')
         + (_button("Découvrir le catalogue", site_url) if site_url else "")
     )
     text = (
@@ -182,7 +329,12 @@ def send_welcome(to: str, name: str, site_url: str) -> None:
         "tes accès arrivent par email et restent disponibles dans ton espace client."
         + (f"\n\n{site_url}" if site_url else "")
     )
-    send(to, f"Bienvenue sur {BRAND}", _layout("Bienvenue !", body), text)
+    send(
+        to,
+        f"Bienvenue sur {BRAND}",
+        _layout("Bienvenue !", body, badge="Compte créé", tone="success", preheader="Ton compte est prêt."),
+        text,
+    )
 
 
 def send_password_reset(to: str, name: str, link: str) -> None:
@@ -190,14 +342,24 @@ def send_password_reset(to: str, name: str, link: str) -> None:
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Tu as demandé à réinitialiser le mot de passe de ton compte {BRAND}.")
         + _button("Choisir un nouveau mot de passe", link)
-        + _paragraph("Ce lien expire dans une heure. Si tu n'es pas à l'origine de cette demande, ignore cet email.")
+        + _note("Ce lien expire dans une heure. Si tu n'es pas à l'origine de cette demande, ignore cet email.", "pending")
     )
     text = (
         f"{_greeting(name)}\n\nTu as demandé à réinitialiser le mot de passe de ton compte {BRAND}.\n"
         f"Choisis un nouveau mot de passe ici : {link}\n\n"
         "Ce lien expire dans une heure. Si tu n'es pas à l'origine de cette demande, ignore cet email."
     )
-    send(to, "Réinitialise ton mot de passe", _layout("Réinitialise ton mot de passe", body), text)
+    send(
+        to,
+        "Réinitialise ton mot de passe",
+        _layout("Réinitialise ton mot de passe", body, badge="Sécurité", preheader="Lien valable une heure."),
+        text,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Orders
+# ---------------------------------------------------------------------------
 
 
 def send_order_received(
@@ -212,11 +374,13 @@ def send_order_received(
     button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Nous avons bien reçu ta commande <strong>{escape(reference)}</strong>.")
+        + _paragraph(f"Nous avons bien reçu ta commande {_strong(escape(reference))}.")
         + _items_table(items, total_millimes)
-        + _paragraph(
+        + _details([("Paiement", escape(method_label)), ("Statut", "Reçu en vérification")])
+        + _note(
             f"Ton reçu {escape(method_label)} est en cours de vérification par un administrateur. "
-            "Dès qu'il est validé, tes accès arrivent par email et dans ton espace client."
+            "Dès qu'il est validé, tes accès arrivent par email et dans ton espace client.",
+            "pending",
         )
         + button
     )
@@ -227,26 +391,40 @@ def send_order_received(
         "Dès qu'il est validé, tes accès arrivent par email et dans ton espace client."
         + link
     )
-    send(to, f"Commande {reference} reçue", _layout("Commande reçue", body), text)
+    send(
+        to,
+        f"Commande {reference} reçue",
+        _layout("Commande reçue", body, badge=reference, tone="pending", preheader=f"Total {_money(total_millimes)}"),
+        text,
+    )
 
 
 def send_payment_confirmed(
     to: str, name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
 ) -> None:
+    button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ton paiement pour la commande <strong>{escape(reference)}</strong> est confirmé.")
+        + _paragraph(f"Ton paiement pour la commande {_strong(escape(reference))} est confirmé.")
         + _items_table(items, total_millimes)
-        + _paragraph(
-            "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
+        + _note(
+            "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts.",
+            "success",
         )
+        + button
     )
     text = (
         f"{_greeting(name)}\n\nTon paiement pour la commande {reference} est confirmé.\n\n"
         f"{_items_text(items, total_millimes)}\n\n"
         "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
+        + link
     )
-    send(to, f"Paiement confirmé — {reference}", _layout("Paiement confirmé", body), text)
+    send(
+        to,
+        f"Paiement confirmé — {reference}",
+        _layout("Paiement confirmé", body, badge=reference, tone="success", preheader="Ta livraison est en préparation."),
+        text,
+    )
 
 
 def send_order_delivered(
@@ -259,7 +437,12 @@ def send_order_delivered(
     remaining: int = 0,
 ) -> None:
     """Email the access details; ``remaining`` counts lines still being prepared."""
-    lines = "".join(f"<li>{int(item['quantity'])} × {escape(str(item['offer_name']))}</li>" for item in items)
+    lines = "".join(
+        f'<tr><td style="padding:8px 0;font-size:14px;color:{_TEXT}">'
+        f'<span style="color:#4ade80">✓</span>&nbsp;&nbsp;{int(item["quantity"])} × {escape(str(item["offer_name"]))}'
+        "</td></tr>"
+        for item in items
+    )
     button, link = _account_button("Voir dans mon espace", "commandes")
     later = (
         f"{remaining} autre{'s' if remaining > 1 else ''} article{'s' if remaining > 1 else ''} de cette commande "
@@ -269,14 +452,14 @@ def send_order_delivered(
     )
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ta commande <strong>{escape(reference)}</strong> est livrée :")
-        + f'<ul style="margin:0 0 16px;padding-left:20px">{lines}</ul>'
-        + _paragraph("<strong>Tes accès</strong>")
-        + '<pre style="margin:0 0 18px;padding:14px;background:#0b0b0c;border:1px solid #26262a;'
-        "border-radius:10px;white-space:pre-wrap;word-break:break-word;font-size:14px;color:#ffffff;"
-        f'font-family:Menlo,Consolas,monospace">{escape(content)}</pre>'
-        + _paragraph("Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client.")
-        + (_paragraph(escape(later)) if later else "")
+        + _paragraph(f"Ta commande {_strong(escape(reference))} est livrée :")
+        + f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 14px">{lines}</table>'
+        + f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TES ACCÈS</div>'
+        + f'<pre style="margin:0 0 18px;padding:16px 18px;background:{_BG};border:1px solid {_LINE};'
+        "border-radius:14px;white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.6;"
+        f'color:{_TEXT};font-family:{_MONO}">{escape(content)}</pre>'
+        + _note("Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client.")
+        + (_note(escape(later), "pending") if later else "")
         + button
     )
     items_text = "\n".join(f"- {int(item['quantity'])} x {item['offer_name']}" for item in items)
@@ -287,7 +470,12 @@ def send_order_delivered(
         + (f"\n\n{later}" if later else "")
         + link
     )
-    send(to, f"Ta commande {reference} est livrée", _layout("Commande livrée", body), text)
+    send(
+        to,
+        f"Ta commande {reference} est livrée",
+        _layout("Commande livrée", body, badge="Livrée", tone="success", preheader="Tes accès sont arrivés."),
+        text,
+    )
 
 
 def send_order_cancelled(to: str, name: str, reference: str, reason: str, refunded_millimes: int = 0) -> None:
@@ -298,41 +486,114 @@ def send_order_cancelled(to: str, name: str, reference: str, reason: str, refund
     )
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ta commande <strong>{escape(reference)}</strong> a été annulée.")
-        + (_paragraph(f"Motif : {escape(reason)}") if reason else "")
-        + (_paragraph(f"<strong>{escape(refund)}</strong>") if refund else "")
+        + _paragraph(f"Ta commande {_strong(escape(reference))} a été annulée.")
+        + (_details([("Motif", escape(reason))]) if reason else "")
+        + (_note(_strong(escape(refund)), "success") if refund else "")
+        + _paragraph("Une question ? Réponds depuis ton espace client ou passe une nouvelle commande sur la boutique.")
     )
     text = (
         f"{_greeting(name)}\n\nTa commande {reference} a été annulée."
         + (f"\nMotif : {reason}" if reason else "")
         + (f"\n\n{refund}" if refund else "")
     )
-    send(to, f"Commande {reference} annulée", _layout("Commande annulée", body), text)
+    send(
+        to,
+        f"Commande {reference} annulée",
+        _layout("Commande annulée", body, badge=reference, tone="danger", preheader=reason or "Commande annulée"),
+        text,
+    )
+
+
+def send_invoice(
+    to: str,
+    name: str,
+    invoice_number: str,
+    reference: str,
+    items: Sequence[dict[str, Any]],
+    total_millimes: int,
+    method_label: str,
+    pdf: bytes,
+) -> None:
+    """The paid invoice, as a summary in the body and a PDF attachment."""
+    button, link = _account_button("Mes commandes et factures", "commandes")
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"Merci pour ton achat ! Voici la facture de ta commande {_strong(escape(reference))}.")
+        + _details([
+            ("Facture", escape(invoice_number)),
+            ("Commande", escape(reference)),
+            ("Date", time.strftime("%d/%m/%Y")),
+            ("Paiement", escape(method_label)),
+        ])
+        + _items_table(items, total_millimes, total_label="Total payé")
+        + _note(f"La facture PDF <strong>{escape(invoice_number)}.pdf</strong> est jointe à cet email.")
+        + button
+    )
+    text = (
+        f"{_greeting(name)}\n\nMerci pour ton achat ! Voici la facture {invoice_number} "
+        f"de ta commande {reference} (payée par {method_label}).\n\n"
+        f"{_items_text(items, total_millimes)}\n\n"
+        f"La facture PDF {invoice_number}.pdf est jointe à cet email."
+        + link
+    )
+    send(
+        to,
+        f"Ta facture {invoice_number} — {reference}",
+        _layout(
+            f"Facture {invoice_number}",
+            body,
+            badge="Payée",
+            tone="success",
+            preheader=f"Total payé {_money(total_millimes)}",
+        ),
+        text,
+        attachments=[(f"{invoice_number}.pdf", pdf)],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wallet
+# ---------------------------------------------------------------------------
 
 
 def send_deposit_received(to: str, name: str, amount_millimes: int, method_label: str, reference: str) -> None:
+    button, link = _account_button("Voir mon portefeuille", "portefeuille")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(
-            f"Nous avons bien reçu ta demande de recharge de <strong>{_money(amount_millimes)}</strong> "
-            f"par {escape(method_label)} (référence {escape(reference)})."
-        )
-        + _paragraph("Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation.")
+        + _paragraph("Nous avons bien reçu ta demande de recharge.")
+        + _details([
+            ("Montant", _money(amount_millimes)),
+            ("Moyen", escape(method_label)),
+            ("Référence", escape(reference)),
+        ])
+        + _note("Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation.", "pending")
+        + button
     )
     text = (
         f"{_greeting(name)}\n\nNous avons bien reçu ta demande de recharge de {_money(amount_millimes)} "
         f"par {method_label} (référence {reference}).\n"
         "Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation."
+        + link
     )
-    send(to, "Recharge en cours de vérification", _layout("Recharge reçue", body), text)
+    send(
+        to,
+        "Recharge en cours de vérification",
+        _layout("Recharge reçue", body, badge="En vérification", tone="pending", preheader=_money(amount_millimes)),
+        text,
+    )
 
 
 def send_deposit_approved(to: str, name: str, credited_millimes: int, balance_millimes: int) -> None:
     button, link = _account_button("Voir mon portefeuille", "portefeuille")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ta recharge est validée : <strong>{_money(credited_millimes)}</strong> ont été crédités.")
-        + _paragraph(f"Nouveau solde : <strong>{_money(balance_millimes)}</strong>.")
+        + _paragraph("Ta recharge est validée, ton portefeuille est crédité.")
+        + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:6px 0 20px"><tr>'
+        f'<td align="center" style="background:{_BG};border:1px solid {_LINE};border-radius:16px;padding:22px 10px">'
+        f'<div style="font-size:30px;font-weight:800;color:#4ade80">+ {_money(credited_millimes)}</div>'
+        f'<div style="margin-top:6px;font-size:13px;color:{_MUTED}">Nouveau solde : '
+        f'<strong style="color:{_TEXT}">{_money(balance_millimes)}</strong></div>'
+        "</td></tr></table>"
         + button
     )
     text = (
@@ -340,19 +601,32 @@ def send_deposit_approved(to: str, name: str, credited_millimes: int, balance_mi
         f"Nouveau solde : {_money(balance_millimes)}."
         + link
     )
-    send(to, f"Portefeuille crédité de {_money(credited_millimes)}", _layout("Recharge validée", body), text)
+    send(
+        to,
+        f"Portefeuille crédité de {_money(credited_millimes)}",
+        _layout("Recharge validée", body, badge="Créditée", tone="success", preheader=f"Nouveau solde {_money(balance_millimes)}"),
+        text,
+    )
 
 
 def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str) -> None:
+    button, link = _account_button("Refaire une demande", "portefeuille")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ta demande de recharge de <strong>{_money(amount_millimes)}</strong> n'a pas pu être validée.")
-        + _paragraph(f"Motif : {escape(reason)}")
+        + _paragraph(f"Ta demande de recharge de {_strong(_money(amount_millimes))} n'a pas pu être validée.")
+        + _details([("Motif", escape(reason))])
         + _paragraph("Tu peux envoyer une nouvelle demande depuis ton espace client avec un reçu lisible.")
+        + button
     )
     text = (
         f"{_greeting(name)}\n\nTa demande de recharge de {_money(amount_millimes)} n'a pas pu être validée.\n"
         f"Motif : {reason}\n\n"
         "Tu peux envoyer une nouvelle demande depuis ton espace client avec un reçu lisible."
+        + link
     )
-    send(to, "Recharge refusée", _layout("Recharge refusée", body), text)
+    send(
+        to,
+        "Recharge refusée",
+        _layout("Recharge refusée", body, badge="Refusée", tone="danger", preheader=reason),
+        text,
+    )

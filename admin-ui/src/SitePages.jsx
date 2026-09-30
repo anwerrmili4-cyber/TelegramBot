@@ -28,7 +28,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { ActionButton, Empty, Field, FilterBar, Modal, OperationsSummary, PageHeader, Pagination, date, useRemoteList } from "./AdminPages";
+import { ActionButton, Empty, Field, FilterBar, InventoryPage, Modal, OperationsSummary, PageHeader, Pagination, ProductRequestsPage, SupportPage, WarrantiesPage, date, useRemoteList } from "./AdminPages";
 
 const SITE_URL = "https://www.ourblackmarket.com";
 
@@ -82,9 +82,9 @@ function dinarInput(millimes) {
 }
 
 function catalogStatus(row) {
-  if (!row.active || !row.service_active) return "disabled";
+  if (!row.site_enabled) return "disabled";
+  if (!row.service_visible) return "hidden";
   if (row.on_sale) return "on_sale";
-  if (!row.site_enabled || !row.service_visible) return "hidden";
   return "no_price";
 }
 
@@ -281,7 +281,6 @@ function productForm(row, defaultServiceId) {
     service_id: String(row?.service_id || defaultServiceId || ""),
     name: row?.name || "",
     tn_price: dinarInput(row?.tn_price_millimes),
-    price: row ? decimalInput(row.bot_price_usdt) : "",
     site_category: row?.site_category || "",
     site_badge: row?.site_badge || "",
     site_enabled: row ? row.site_enabled : true,
@@ -294,7 +293,6 @@ function productForm(row, defaultServiceId) {
     warranty_value: String(row?.warranty_value ?? 0),
     warranty_unit: row?.warranty_unit || "days",
     stock_mode: row?.unlimited_stock ? "unlimited" : "inventory",
-    auto_delivery: row ? row.auto_delivery : true,
     initial_inventory: "",
   };
 }
@@ -312,8 +310,7 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
   const creating = !row;
   const externallyStocked = Boolean(row?.supplier_provider || row?.manual_stock);
   const autoLabel = row ? categories.find((item) => item.id === row.effective_category)?.label || "Autres services" : "selon le nom";
-  const suggestedMillimes = Math.round((parseDecimal(form.price) * rate * 10)) * 100;
-  const derivedUsdt = !form.price && form.tn_price && rate ? (parseDecimal(form.tn_price) / rate).toFixed(2) : "";
+  const suggestedMillimes = Math.round((parseDecimal(row?.bot_price_usdt) * rate * 10)) * 100;
   const [image, setImage] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
   const [imageError, setImageError] = useState("");
@@ -343,12 +340,11 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
       remove_image: removeImage ? "1" : "0",
       site_enabled: form.site_enabled ? "1" : "0",
       site_featured: form.site_featured ? "1" : "0",
-      auto_delivery: form.auto_delivery ? "1" : "0",
     });
   };
   return <Modal title={creating ? "Nouveau produit" : `${row.service_name} — ${row.name}`} onClose={onClose} wide>
     <form className="operation-form" onSubmit={submit}>
-      <p>Le site et le bot Telegram partagent le même catalogue : {creating ? "ce produit sera aussi proposé dans le bot" : "les modifications s’appliquent aussi au bot"}. Le prix en dinars et les réglages d’affichage ne concernent que le site.</p>
+      <p>Le produit est le même que dans le bot, avec le même stock et le même fournisseur. Le nom, la description, la garantie, la durée et l’état enregistrés ici restent sur le site.</p>
       <h3 className="site-section-title">Produit</h3>
       <div className="form-grid">
         <Field label="Service">
@@ -360,7 +356,7 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
           <input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={120} required autoFocus={creating} placeholder="Ex. Netflix Premium 1 mois" />
         </Field>
         <Field label="Description en français" wide>
-          <textarea value={form.site_description_fr} onChange={(event) => set("site_description_fr", event.target.value)} maxLength={700} rows={4} placeholder={creating ? "Ce que reçoit le client, conditions d’utilisation…" : "Laissez vide pour reprendre la description du bot."} />
+          <textarea value={form.site_description_fr} onChange={(event) => set("site_description_fr", event.target.value)} maxLength={700} rows={4} placeholder="Ce que reçoit le client sur le site, conditions d’utilisation…" />
         </Field>
         <Field label="Image du produit (site, optionnel)" wide>
           <div className="site-logo-picker">
@@ -377,12 +373,9 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
       <div className="form-grid">
         <Field label="Prix sur le site (DT)">
           <input value={form.tn_price} onChange={(event) => set("tn_price", event.target.value)} inputMode="decimal" placeholder="Ex. 25,500" autoFocus={!creating} />
-          {suggestedMillimes > 0 && <button type="button" className="site-link" onClick={() => set("tn_price", dinarInput(suggestedMillimes))}>Utiliser la conversion du prix bot : {dinars(suggestedMillimes)}</button>}
+          {suggestedMillimes > 0 && <button type="button" className="site-link" onClick={() => set("tn_price", dinarInput(suggestedMillimes))}>Suggéré d’après le prix bot : {dinars(suggestedMillimes)}. Cela ne change pas le prix USDT.</button>}
         </Field>
-        <Field label="Prix dans le bot (USDT)">
-          <input value={form.price} onChange={(event) => set("price", event.target.value)} inputMode="decimal" placeholder={creating ? "Calculé depuis le prix DT si vide" : ""} required={!creating} />
-          {derivedUsdt && <small className="site-field-help">Sera fixé à {derivedUsdt.replace(".", ",")} USDT (taux {decimalInput(rate)} DT).</small>}
-        </Field>
+        {!creating && <Field label="Prix bot (USDT, lecture seule)"><input value={decimalInput(row.bot_price_usdt)} disabled /></Field>}
       </div>
       <h3 className="site-section-title">Affichage sur le site</h3>
       <div className="form-grid">
@@ -404,11 +397,8 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
       </div>
       <h3 className="site-section-title">Livraison, durée et garantie</h3>
       <div className="form-grid">
-        <Field label="Délai de livraison affiché">
+        <Field label="Délai de livraison affiché sur le site">
           <input value={form.delivery_delay} onChange={(event) => set("delivery_delay", event.target.value)} maxLength={120} />
-        </Field>
-        <Field label="Livraison">
-          <label className="switch"><input type="checkbox" checked={form.auto_delivery} onChange={(event) => set("auto_delivery", event.target.checked)} /><span />Livraison automatique depuis le stock</label>
         </Field>
         <Field label="Durée de l’abonnement">
           <DurationInput value={form.period_value} unit={form.period_unit} min={1} onValue={(value) => set("period_value", value)} onUnit={(value) => set("period_unit", value)} />
@@ -433,7 +423,7 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
           <small className="site-field-help">Commencez chaque compte par une ligne ###. Vous pourrez en ajouter plus tard avec le bouton Stock.</small>
         </Field>}
       </div>
-      {!form.tn_price && <p className="site-hint"><AlertTriangle size={14} />Sans prix en dinars, le produit reste masqué du site (il reste vendu dans le bot).</p>}
+      {!form.tn_price && <p className="site-hint"><AlertTriangle size={14} />Sans prix en dinars, le produit reste masqué du site. Le bot garde son propre prix et son propre état.</p>}
       <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={creating ? Plus : Save}>{creating ? "Créer le produit" : "Enregistrer"}</ActionButton></div>
     </form>
   </Modal>;
@@ -447,8 +437,6 @@ const OFFER_IMAGE_PATH = "/api/storefront/offer-image";
 function ServiceEditor({ service, onClose, onSave }) {
   const [form, setForm] = useState({
     name: service?.name || "",
-    emoji: service?.emoji || "",
-    name_ar: service?.name_ar || "",
     site_enabled: service ? service.site_enabled : true,
     logo: "",
     remove_logo: false,
@@ -481,14 +469,12 @@ function ServiceEditor({ service, onClose, onSave }) {
   };
   return <Modal title={service ? `Modifier le service · ${service.name}` : "Nouveau service"} onClose={onClose}>
     <form className="operation-form" onSubmit={submit}>
-      <p>Un service regroupe plusieurs produits (ex. Netflix, ChatGPT, Canva). Il apparaît aussi dans le bot Telegram.</p>
+      <p>Le nom enregistré ici est celui du site. Le nom et l’emoji du bot ne changent pas.</p>
       <div className="form-grid">
-        <Field label="Nom"><input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={80} required autoFocus placeholder="Ex. Netflix" /></Field>
-        <Field label="Emoji"><input value={form.emoji} onChange={(event) => set("emoji", event.target.value)} maxLength={12} placeholder="📦" /></Field>
-        <Field label="Nom arabe (bot, optionnel)" wide><input dir="rtl" value={form.name_ar} onChange={(event) => set("name_ar", event.target.value)} maxLength={120} /></Field>
+        <Field label="Nom sur le site"><input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={80} required autoFocus placeholder="Ex. Netflix" /></Field>
         <Field label="Logo du service (site, optionnel)" wide>
           <div className="site-logo-picker">
-            <span className="site-logo-preview">{logoPreview ? <img src={logoPreview} alt="Logo du service" /> : form.emoji || <ImageIcon size={18} />}</span>
+            <span className="site-logo-preview">{logoPreview ? <img src={logoPreview} alt="Logo du service" /> : service?.emoji || <ImageIcon size={18} />}</span>
             <label className="action-button secondary site-logo-upload"><Upload size={15} />{logoPreview ? "Remplacer" : "Importer un logo"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickLogo} /></label>
             {logoPreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearLogo}>Retirer</ActionButton>}
           </div>
@@ -600,7 +586,7 @@ function SiteCatalogPage({ onAction }) {
                     <thead><tr><th>Produit</th><th>Prix bot</th><th>Prix site</th><th>Stock</th><th>Statut</th><th>Actif</th><th className="catalog-col-actions" aria-label="Actions" /></tr></thead>
                     <tbody>{group.items.map((row) => {
                       const [label, className] = CATALOG_STATUS[catalogStatus(row)];
-                      const enabled = row.active && row.service_active;
+                      const enabled = row.site_enabled && row.service_visible;
                       const canStock = !row.unlimited_stock && !row.supplier_provider && !row.manual_stock;
                       return <tr key={row.id} className={`offer-row ${enabled ? "" : "inactive"}`}>
                         <td className="catalog-col-name"><div className="site-offer-cell">
@@ -610,13 +596,13 @@ function SiteCatalogPage({ onAction }) {
                         <td>{row.bot_price_usdt} USDT</td>
                         <td className="catalog-col-price">{row.tn_price_millimes ? <strong>{dinars(row.tn_price_millimes)}</strong> : <small>Suggestion {dinars(row.suggested_price_millimes)}</small>}</td>
                         <td>{row.stock < 0 ? "∞" : row.stock}</td>
-                        <td><span className={`status ${className}`}>{label}</span>{!row.service_active ? <small>Service désactivé</small> : !row.service_visible && <small>Service masqué</small>}</td>
-                        <td><span className={`status ${enabled ? "delivered" : "cancelled"}`}>{enabled ? "Actif" : "Désactivé"}</span></td>
+                        <td><span className={`status ${className}`}>{label}</span>{!row.service_visible && <small>Service masqué</small>}</td>
+                        <td><span className={`status ${enabled ? "delivered" : "cancelled"}`}>{enabled ? "Sur le site" : "Masqué"}</span></td>
                         <td className="catalog-col-actions"><div className="site-row-actions">
                           <ActionButton secondary icon={Edit3} onClick={() => setEditor({ type: "product", row })}>{row.tn_price_millimes ? "Modifier" : "Fixer le prix"}</ActionButton>
                           {canStock && <button type="button" title="Ajouter du stock" aria-label={`Ajouter du stock à ${row.name}`} onClick={() => setEditor({ type: "stock", row })}><Boxes size={15} /></button>}
                           <button type="button" title="Dupliquer" aria-label={`Dupliquer ${row.name}`} onClick={() => run({ action: "duplicate_offer", offer_id: row.id })}><Copy size={15} /></button>
-                          <button type="button" title={row.active ? "Désactiver (site et bot)" : "Réactiver"} aria-label={`${row.active ? "Désactiver" : "Réactiver"} ${row.name}`} onClick={() => run({ action: "toggle_offer", offer_id: row.id })}>{row.active ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
+                          <button type="button" title={row.site_enabled ? "Masquer sur le site" : "Afficher sur le site"} aria-label={`${row.site_enabled ? "Masquer" : "Afficher"} ${row.name} sur le site`} onClick={() => run({ action: "site_offer_visibility", offer_id: row.id, site_enabled: row.site_enabled ? "0" : "1" })}>{row.site_enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
                           <button type="button" className="danger" title="Supprimer" aria-label={`Supprimer ${row.name}`} onClick={() => setEditor({ type: "delete", target: { type: "offer", item: row } })}><Trash2 size={15} /></button>
                         </div></td>
                       </tr>;
@@ -629,15 +615,14 @@ function SiteCatalogPage({ onAction }) {
         })}
       </div>}
     <section className="site-panel">
-      <header><h3><Globe2 size={17} />Services</h3><small>Masquer un service retire ses offres du site sans toucher au bot. Le désactiver le retire des deux.</small></header>
+      <header><h3><Globe2 size={17} />Services</h3><small>L’interrupteur masque le service sur le site. L’état du bot ne change pas.</small></header>
       {!services.length ? <Empty icon={Globe2} title="Aucun service" text="Créez un premier service pour y ranger vos produits." />
-        : <div className="site-service-grid">{services.map((service) => <div key={service.id} className={`site-service${service.active ? "" : " site-row-disabled"}`}>
+        : <div className="site-service-grid">{services.map((service) => <div key={service.id} className={`site-service${service.site_enabled ? "" : " site-row-disabled"}`}>
           {service.logo_url ? <img className="site-thumb" src={service.logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{service.emoji || <Globe2 size={15} />}</span>}
-          <span><strong>{service.name}</strong><small>{service.active ? `${service.on_sale}/${service.offers} offre(s) en vente` : "Désactivé (site et bot)"}</small></span>
+          <span><strong>{service.name}</strong><small>{service.site_enabled ? `${service.on_sale}/${service.offers} offre(s) en vente` : "Masqué sur le site"}</small></span>
           <span className="site-row-actions">
             <button type="button" title="Ajouter un produit" aria-label={`Ajouter un produit à ${service.name}`} onClick={() => setEditor({ type: "product", serviceId: service.id })}><Plus size={15} /></button>
             <button type="button" title="Modifier" aria-label={`Modifier ${service.name}`} onClick={() => setEditor({ type: "service", service })}><Edit3 size={15} /></button>
-            <button type="button" title={service.active ? "Désactiver (site et bot)" : "Réactiver"} aria-label={`${service.active ? "Désactiver" : "Réactiver"} ${service.name}`} onClick={() => run({ action: "toggle_service", service_id: service.id })}>{service.active ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
             <button type="button" className="danger" title="Supprimer" aria-label={`Supprimer ${service.name}`} onClick={() => setEditor({ type: "delete", target: { type: "service", item: service } })}><Trash2 size={15} /></button>
             <label className="switch" title="Afficher sur le site"><input type="checkbox" checked={service.site_enabled} onChange={() => toggleService(service)} aria-label={`Afficher ${service.name} sur le site`} /><span /></label>
           </span>
@@ -758,14 +743,18 @@ function SiteSettingsPage({ onAction }) {
   </div>;
 }
 
-export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings"]);
+export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-inventory", "site-customers", "site-support", "site-product-requests", "site-warranties", "site-settings"]);
 
 export default function SitePage({ page, ...props }) {
   if (page === "site-overview") return <SiteOverviewPage {...props} />;
   if (page === "site-orders") return <SiteOrdersPage {...props} />;
   if (page === "site-deposits") return <SiteDepositsPage {...props} />;
   if (page === "site-catalog") return <SiteCatalogPage {...props} />;
+  if (page === "site-inventory") return <InventoryPage {...props} shared />;
   if (page === "site-customers") return <SiteCustomersPage {...props} />;
+  if (page === "site-support") return <SupportPage {...props} channel="tn_site" />;
+  if (page === "site-product-requests") return <ProductRequestsPage {...props} channel="tn_site" />;
+  if (page === "site-warranties") return <WarrantiesPage {...props} channel="tn_site" />;
   if (page === "site-settings") return <SiteSettingsPage {...props} />;
   return null;
 }

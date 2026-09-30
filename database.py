@@ -388,6 +388,9 @@ def init_db():
     db.storefront_deposits.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])
     db.storefront_deposits.create_index([("method", ASCENDING), ("transaction_reference_key", ASCENDING)])
     db.storefront_receipts.create_index("id", unique=True)
+    db.storefront_invoices.create_index("id", unique=True)
+    db.storefront_invoices.create_index("cart_reference", unique=True)
+    db.storefront_invoices.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])
     if not schema or int(schema.get("version") or 0) < 15:
         _remove_legacy_announcement_overrides(db)
     if not schema or int(schema.get("version") or 0) < 17:
@@ -759,11 +762,17 @@ def reject_withdrawal(withdrawal_id, admin_note=""):
     return _public(row)
 
 
-def create_warranty_request(user_id, order_id, days_used, refund_amount, reason=""):
+def create_warranty_request(
+    user_id, order_id, days_used, refund_amount, reason="",
+    *, channel="bot", customer_id=None, refund_millimes=0,
+):
     row = {
-        "id": _next_id("warranty_requests"), "user_id": int(user_id), "order_id": int(order_id),
+        "id": _next_id("warranty_requests"), "user_id": int(user_id or 0), "order_id": int(order_id),
         "days_used": int(days_used), "refund_amount": round(float(refund_amount), 2),
+        "refund_millimes": int(refund_millimes or 0),
         "reason": str(reason or "").strip(),
+        "channel": "tn_site" if channel == "tn_site" else "bot",
+        "customer_id": int(customer_id) if customer_id is not None else None,
         "status": "pending_admin_check", "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC),
     }
     get_conn().warranty_requests.insert_one(row)
@@ -787,19 +796,22 @@ def list_warranty_requests(*, page=0, page_size=10):
     page = max(0, int(page))
     page_size = max(1, min(50, int(page_size)))
     cursor = (
-        get_conn().warranty_requests.find({})
+        get_conn().warranty_requests.find({"channel": {"$ne": "tn_site"}})
         .sort([("updated_at", DESCENDING), ("created_at", DESCENDING), ("id", DESCENDING)])
         .skip(page * page_size)
         .limit(page_size)
     )
-    return [_public(row) for row in cursor], get_conn().warranty_requests.count_documents({})
+    return [_public(row) for row in cursor], get_conn().warranty_requests.count_documents({"channel": {"$ne": "tn_site"}})
 
 
 def list_confirmed_orders(*, page=0, page_size=10):
     """Return every successfully confirmed order, including delivered orders."""
     page = max(0, int(page))
     page_size = max(1, min(50, int(page_size)))
-    query = {"status": {"$in": ["paid", "payment_confirmed", "delivered"]}}
+    query = {
+        "status": {"$in": ["paid", "payment_confirmed", "delivered"]},
+        "sales_channel": {"$ne": "tn_site"},
+    }
     cursor = (
         get_conn().orders.find(query)
         .sort([("paid_at", DESCENDING), ("updated_at", DESCENDING), ("id", DESCENDING)])
@@ -824,6 +836,7 @@ def list_pending_api_deliveries(*, page=0, page_size=10):
     # plus completed supplier records whose local order was not marked delivered.
     paid_orders = list(conn.orders.find({
         "status": {"$in": ["paid", "payment_confirmed", "preparing_delivery"]},
+        "sales_channel": {"$ne": "tn_site"},
     }))
     for order in paid_orders:
         order_id = int(order["id"])
@@ -913,11 +926,21 @@ def resolve_warranty_request(request_id, resolution, admin_note=""):
         return_document=ReturnDocument.AFTER,
     )
     if row and resolution == "refund":
-        conn.wallets.update_one(
-            {"user_id": int(request["user_id"])},
-            {"$inc": {"balance_cents": int(round(float(request.get("refund_amount") or 0) * 100))}},
-            upsert=True,
-        )
+        if row.get("channel") == "tn_site":
+            millimes = int(row.get("refund_millimes") or 0)
+            if millimes > 0 and row.get("customer_id"):
+                from app.domain import storefront_wallet_service
+                storefront_wallet_service.credit(
+                    int(row["customer_id"]), millimes,
+                    kind="refund", reference=f"warranty-{int(request_id)}",
+                    note="Remboursement de garantie",
+                )
+        else:
+            conn.wallets.update_one(
+                {"user_id": int(request["user_id"])},
+                {"$inc": {"balance_cents": int(round(float(request.get("refund_amount") or 0) * 100))}},
+                upsert=True,
+            )
     return _public(row) if row else None
 
 
@@ -1221,6 +1244,16 @@ def update_offer(
     period_unit=None,
     warranty_value=None,
     warranty_unit=None,
+    site_name=None,
+    site_note=None,
+    site_delivery_delay=None,
+    site_enabled=None,
+    site_period_days=None,
+    site_period_value=None,
+    site_period_unit=None,
+    site_warranty_days=None,
+    site_warranty_value=None,
+    site_warranty_unit=None,
 ):
     existing = get_conn().offers.find_one({"id": offer_id}, {"service_id": 1}) or {}
     if service_id is not None and int(service_id) != int(existing.get("service_id") or 0):
@@ -1277,6 +1310,16 @@ def update_offer(
             "period_unit": warranty_service.normalize_duration_unit(period_unit) if period_unit is not None else None,
             "warranty_value": int(warranty_value) if warranty_value is not None else None,
             "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit) if warranty_unit is not None else None,
+            "site_name": site_name,
+            "site_note": site_note,
+            "site_delivery_delay": site_delivery_delay,
+            "site_enabled": site_enabled,
+            "site_period_days": int(site_period_days) if site_period_days is not None else None,
+            "site_period_value": int(site_period_value) if site_period_value is not None else None,
+            "site_period_unit": warranty_service.normalize_duration_unit(site_period_unit) if site_period_unit is not None else None,
+            "site_warranty_days": int(site_warranty_days) if site_warranty_days is not None else None,
+            "site_warranty_value": int(site_warranty_value) if site_warranty_value is not None else None,
+            "site_warranty_unit": warranty_service.normalize_duration_unit(site_warranty_unit) if site_warranty_unit is not None else None,
         }.items()
         if value is not None
     }
@@ -1309,7 +1352,7 @@ def move_offer(offer_id, service_id):
     }
 
 
-def add_service(name, emoji="", custom_emoji_id="", sales_channels=None, name_ar="", suffix_emoji=""):
+def add_service(name, emoji="", custom_emoji_id="", sales_channels=None, name_ar="", suffix_emoji="", site_enabled=None):
     db = get_conn()
     last = db.services.find_one(sort=[("sort_order", DESCENDING)])
     sid = _next_id("services")
@@ -1324,6 +1367,7 @@ def add_service(name, emoji="", custom_emoji_id="", sales_channels=None, name_ar
         "active": 1,
         "sales_channels": list(sales_channels or ["bot"]),
         "name_ar": str(name_ar or "")[:120],
+        **({"site_enabled": bool(site_enabled)} if site_enabled is not None else {}),
     })
     if special_service:
         _ensure_otp_service_offer(db, sid)
@@ -1542,6 +1586,16 @@ def add_offer(
     warranty_value=None,
     warranty_unit="days",
     active=True,
+    site_enabled=None,
+    site_name="",
+    site_note="",
+    site_delivery_delay="",
+    site_period_days=None,
+    site_period_value=None,
+    site_period_unit=None,
+    site_warranty_days=None,
+    site_warranty_value=None,
+    site_warranty_unit=None,
 ):
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
@@ -1595,6 +1649,28 @@ def add_offer(
             round(float(bulk_unit_price), 2)
             if bulk_unit_price is not None and str(bulk_unit_price).strip() != ""
             else None
+        ),
+        **({"site_enabled": bool(site_enabled)} if site_enabled is not None else {}),
+        **({"site_name": str(site_name)[:160]} if site_name else {}),
+        **({"site_note": str(site_note)[:250]} if site_note else {}),
+        **({"site_delivery_delay": str(site_delivery_delay)[:120]} if site_delivery_delay else {}),
+        **(
+            {
+                "site_period_days": int(site_period_days),
+                "site_period_value": int(site_period_value if site_period_value is not None else site_period_days),
+                "site_period_unit": warranty_service.normalize_duration_unit(site_period_unit or "days"),
+            }
+            if site_period_days is not None
+            else {}
+        ),
+        **(
+            {
+                "site_warranty_days": int(site_warranty_days or 0),
+                "site_warranty_value": int(site_warranty_value if site_warranty_value is not None else (site_warranty_days or 0)),
+                "site_warranty_unit": warranty_service.normalize_duration_unit(site_warranty_unit or "days"),
+            }
+            if site_warranty_days is not None or site_warranty_value is not None
+            else {}
         ),
         **special_values,
     })
@@ -2468,10 +2544,15 @@ def dashboard_summary():
 
 
 def customer_order_query(query=None):
-    """Limit a statistics query to real customers, excluding the administrator."""
+    """Limit a statistics query to real bot customers.
+
+    Site carts live in the same collection but belong to the Tunisia workspace,
+    so bot totals never count ``sales_channel: tn_site``.
+    """
     from config import ADMIN_ID
 
     result = dict(query or {})
+    result.setdefault("sales_channel", {"$ne": "tn_site"})
     if not ADMIN_ID:
         return result
     customer_only = {"user_id": {"$ne": int(ADMIN_ID)}}
@@ -2527,13 +2608,31 @@ def dashboard_data():
     conversion_rate = round((paid_orders / total_orders * 100) if total_orders else 0, 1)
 
     # --- Tickets ---
+    bot_channel = {"channel": {"$ne": "tn_site"}}
+    open_ticket_status = {"status": {"$nin": ["closed", "resolved"]}}
     open_tickets = db.support_tickets.count_documents({
         "category": {"$ne": "catalog_request"},
-        "status": {"$nin": ["closed", "resolved"]},
+        **open_ticket_status,
+        **bot_channel,
     })
     product_requests = db.support_tickets.count_documents({
         "category": "catalog_request",
-        "status": {"$nin": ["closed", "resolved"]},
+        **open_ticket_status,
+        **bot_channel,
+    })
+    site_open_tickets = db.support_tickets.count_documents({
+        "channel": "tn_site",
+        "category": {"$ne": "catalog_request"},
+        **open_ticket_status,
+    })
+    site_product_requests = db.support_tickets.count_documents({
+        "channel": "tn_site",
+        "category": "catalog_request",
+        **open_ticket_status,
+    })
+    site_warranties = db.warranty_requests.count_documents({
+        "channel": "tn_site",
+        "status": {"$in": ["pending_admin_check", "accepted", "replacement_pending"]},
     })
 
     # --- Inventory & stock ---
@@ -2568,12 +2667,14 @@ def dashboard_data():
     unanswered_tickets = db.support_tickets.count_documents({
         "category": {"$ne": "catalog_request"},
         "status": "waiting_admin",
+        "channel": {"$ne": "tn_site"},
     })
     if unanswered_tickets:
         alerts.append({"type": "unanswered_tickets", "message": f"{unanswered_tickets} ticket(s) sans réponse", "severity": "warning"})
     unanswered_product_requests = db.support_tickets.count_documents({
         "category": "catalog_request",
         "status": "waiting_admin",
+        "channel": {"$ne": "tn_site"},
     })
     if unanswered_product_requests:
         alerts.append({
@@ -2682,6 +2783,9 @@ def dashboard_data():
         "conversion_rate": conversion_rate,
         "open_tickets": open_tickets,
         "product_requests": product_requests,
+        "site_open_tickets": site_open_tickets,
+        "site_product_requests": site_product_requests,
+        "site_warranties": site_warranties,
         "low_stock_offers": len(low_stock_offers),
         "available_inventory": available_inventory,
         "failed_payments": failed_payments,
@@ -2710,7 +2814,10 @@ def create_ticket(user_id, message):
 
 
 def list_tickets(status="open", limit=50):
-    return [_public(x) for x in get_conn().support_tickets.find({"status": status}).sort("created_at", DESCENDING).limit(limit)]
+    return [_public(x) for x in get_conn().support_tickets.find({
+        "status": status,
+        "channel": {"$ne": "tn_site"},
+    }).sort("created_at", DESCENDING).limit(limit)]
 
 
 def get_ticket(ticket_id):

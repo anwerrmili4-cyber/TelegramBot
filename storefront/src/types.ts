@@ -105,7 +105,47 @@ export type AccountOrderItem = {
   delivered_at: number | null;
   /** Access details, only once the line is delivered. */
   delivery: string;
+  warranty_days?: number;
+  warranty_open?: boolean;
+  warranty_status?: string;
+  warranty_id?: number | null;
+  replacement?: string;
 };
+
+export type AccountMessage = {
+  id: number;
+  sender: "client" | "admin";
+  content: string;
+  created_at: string | number | null;
+};
+
+export type AccountTicket = {
+  id: number;
+  category: string;
+  status: string;
+  order_id: number | null;
+  created_at: string | number | null;
+  updated_at: string | number | null;
+  messages: AccountMessage[];
+};
+
+export type AccountTickets = { ok: boolean; tickets: AccountTicket[] };
+
+export type AccountWarranty = {
+  id: number;
+  order_id: number;
+  offer_name: string;
+  status: string;
+  reason: string;
+  admin_note: string;
+  refund_millimes: number;
+  replacement: string;
+  days_used: number;
+  created_at: string | number | null;
+  updated_at: string | number | null;
+};
+
+export type AccountWarranties = { ok: boolean; warranties: AccountWarranty[] };
 
 export type AccountOrder = {
   reference: string;
@@ -118,6 +158,8 @@ export type AccountOrder = {
   created_at: number;
   paid_at: number | null;
   cancel_reason: string;
+  /** Set once the order is paid and its invoice issued. */
+  invoice_number?: string;
   items: AccountOrderItem[];
 };
 

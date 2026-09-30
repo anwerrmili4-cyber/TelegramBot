@@ -1,12 +1,19 @@
 """Admin handling of Tunisian storefront carts."""
 
+import base64
 import itertools
 
 import pytest
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import inventory_service, site_orders_service, storefront_service, storefront_wallet_service
+from app.domain import (
+    inventory_service,
+    site_orders_service,
+    storefront_invoice_service,
+    storefront_service,
+    storefront_wallet_service,
+)
 from tests.conftest import RECEIPT
 
 _references = itertools.count(1)
@@ -37,6 +44,28 @@ def _statuses(reference):
 
 def _stock(offer_id):
     return db.get_offer(offer_id)["stock"]
+
+
+def test_supplier_line_uses_the_shared_reseller_api(mock_mongodb, customer, monkeypatch):
+    offer_id = _offer("API")
+    db.get_conn().offers.update_one(
+        {"id": offer_id},
+        {"$set": {"supplier_provider": "vex", "supplier_product_id": "external-1"}},
+    )
+    calls = []
+
+    def fake_purchase(order_id):
+        calls.append(order_id)
+        return ["login:secret"]
+
+    monkeypatch.setattr(site_orders_service.reseller_service, "fulfill_paid_order", fake_purchase)
+    cart = _cart(customer, (offer_id, 1))
+    before = _stock(offer_id)
+    site_orders_service.confirm_cart(cart["reference"])
+    assert calls
+    assert _stock(offer_id) == before - 1
+    delivered = db.get_conn().orders.find_one({"id": calls[0]})
+    assert delivered["sales_channel"] == "tn_site"
 
 
 def test_list_groups_lines_into_one_cart_with_payment_details(mock_mongodb, customer):
@@ -104,9 +133,10 @@ def test_confirm_delivers_inventory_lines_automatically(mock_mongodb, customer, 
     listed = site_orders_service.list_carts({"status": ["all"]})["items"][0]
     assert listed["status"] == "partial"
     assert [item["automatic"] for item in listed["items"]] == [True, False]
-    delivered, waiting = sent_emails
+    delivered, waiting, invoice = sent_emails
     assert "netflix@mail.tn:secret" in delivered["text"]
     assert waiting["subject"] == f"Paiement confirmé — {cart['reference']}"
+    assert invoice["subject"].startswith("Ta facture FAC-")
 
     site_orders_service.deliver_cart(cart["reference"], "spotify@mail.tn:autre")
     assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
@@ -182,8 +212,8 @@ def test_each_admin_step_emails_the_customer(mock_mongodb, customer, sent_emails
     site_orders_service.confirm_cart(reference)
     site_orders_service.deliver_cart(reference, "Email : compte@netflix.tn\nMot de passe : <secret>")
 
-    confirmed, delivered = sent_emails
-    assert confirmed["to"] == delivered["to"] == ["amine@example.com"]
+    confirmed, invoice, delivered = sent_emails
+    assert confirmed["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
     assert confirmed["subject"] == f"Paiement confirmé — {reference}"
     assert "Total : 30,000 DT" in confirmed["text"]
     assert delivered["subject"] == f"Ta commande {reference} est livrée"
@@ -206,6 +236,47 @@ def test_carts_without_an_email_are_processed_silently(mock_mongodb, customer, s
 
     assert sent_emails == []
     assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
+
+
+def test_payment_issues_one_invoice_with_its_pdf_attached(mock_mongodb, customer, sent_emails):
+    netflix, spotify = _offer("Netflix", millimes=15000), _offer("Spotify", millimes=5000)
+    reference = _cart(customer, (netflix, 2), (spotify, 1))["reference"]
+    sent_emails.clear()
+
+    site_orders_service.confirm_cart(reference)
+    site_orders_service.deliver_cart(reference, "Accès")
+    storefront_invoice_service.issue(reference)
+
+    invoices = list(mock_mongodb.storefront_invoices.find({"cart_reference": reference}))
+    assert len(invoices) == 1
+    invoice = invoices[0]
+    assert invoice["number"].startswith("FAC-") and invoice["total_millimes"] == 35000
+    assert [(item["offer_name"], item["quantity"]) for item in invoice["items"]] == [("Netflix", 2), ("Spotify", 1)]
+
+    (mail,) = [message for message in sent_emails if message["subject"].startswith("Ta facture")]
+    (attachment,) = mail["attachments"]
+    assert attachment["filename"] == f"{invoice['number']}.pdf"
+    assert base64.b64decode(attachment["content"]).startswith(b"%PDF")
+    assert storefront_invoice_service.render_pdf(invoice).startswith(b"%PDF")
+
+    listed = site_orders_service.list_carts({"status": ["all"]})["items"][0]
+    assert listed["invoice_number"] == invoice["number"]
+    (history,) = storefront_service.customer_carts(customer["id"])
+    assert history["invoice_number"] == invoice["number"]
+
+
+def test_unpaid_cart_has_no_invoice_and_refunds_are_recorded(mock_mongodb, customer):
+    offer = _offer("Adobe", millimes=10000)
+    pending, paid = _cart(customer, (offer, 1)), _cart(customer, (offer, 2))
+    site_orders_service.cancel_cart(pending["reference"], "Reçu illisible")
+    assert storefront_invoice_service.find(pending["reference"]) is None
+
+    site_orders_service.confirm_cart(paid["reference"])
+    site_orders_service.cancel_cart(paid["reference"], "Client injoignable")
+
+    invoice = storefront_invoice_service.find(paid["reference"])
+    assert invoice["refunded_millimes"] == 20000
+    assert storefront_invoice_service.render_pdf(invoice).startswith(b"%PDF")
 
 
 def test_unknown_reference_is_reported(mock_mongodb):

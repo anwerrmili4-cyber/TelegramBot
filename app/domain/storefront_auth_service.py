@@ -32,7 +32,13 @@ from urllib.parse import quote, urlencode
 from pymongo.errors import DuplicateKeyError
 
 import database as db
-from app.domain import email_service, storefront_service, storefront_wallet_service
+from app.domain import (
+    email_service,
+    site_requests_service,
+    storefront_invoice_service,
+    storefront_service,
+    storefront_wallet_service,
+)
 
 log = logging.getLogger(__name__)
 
@@ -538,6 +544,19 @@ def customer_orders(token: Any) -> dict[str, Any]:
     }
 
 
+def invoice_pdf(token: Any, reference: Any) -> tuple[str, bytes]:
+    """The customer's own invoice as ``(number, pdf)``."""
+    customer = customer_for_token(token)
+    invoice = storefront_invoice_service.find(str(reference or ""))
+    owns = invoice and (
+        invoice.get("customer_id") == customer["id"]
+        or (_email_confirmed(customer) and invoice.get("customer_email") == customer["email"])
+    )
+    if not owns:
+        raise AuthError("Facture introuvable.", status=404)
+    return invoice["number"], storefront_invoice_service.render_pdf(invoice)
+
+
 def wallet(token: Any) -> dict[str, Any]:
     return storefront_wallet_service.summary(customer_for_token(token))
 
@@ -557,6 +576,36 @@ def create_order(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         return storefront_service.create_order(payload, customer)
     except (storefront_service.StorefrontError, ValueError) as exc:
+        raise AuthError(str(exc)) from exc
+
+
+def customer_tickets(token: Any, category: str | None = None) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    return site_requests_service.list_tickets(int(customer["id"]), category=category)
+
+
+def open_ticket(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    if not _is_verified(customer):
+        raise AuthError("Confirme d'abord ton adresse email.", status=403, code=EMAIL_UNVERIFIED)
+    try:
+        return site_requests_service.create_ticket(customer, payload)
+    except site_requests_service.SiteRequestError as exc:
+        raise AuthError(str(exc)) from exc
+
+
+def customer_warranties(token: Any) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    return site_requests_service.list_warranties(int(customer["id"]))
+
+
+def open_warranty(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    if not _is_verified(customer):
+        raise AuthError("Confirme d'abord ton adresse email.", status=403, code=EMAIL_UNVERIFIED)
+    try:
+        return site_requests_service.create_warranty(customer, payload)
+    except site_requests_service.SiteRequestError as exc:
         raise AuthError(str(exc)) from exc
 
 

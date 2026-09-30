@@ -25,6 +25,9 @@ def create_ticket(
     order_id: int | None = None,
     priority: str = TicketPriority.NORMAL,
     media: dict | None = None,
+    *,
+    channel: str = "bot",
+    customer_id: int | None = None,
 ) -> dict:
     """Crée un ticket support avec un premier message.
 
@@ -42,6 +45,8 @@ def create_ticket(
         "category": category,
         "priority": priority,
         "status": TicketStatus.WAITING_ADMIN,
+        "channel": "tn_site" if channel == "tn_site" else "bot",
+        "customer_id": int(customer_id) if customer_id is not None else None,
         "created_at": now,
         "updated_at": now,
         "closed_at": None,
@@ -178,7 +183,7 @@ def list_tickets(
     limit: int = 50,
 ) -> list[dict]:
     """Liste les tickets avec filtres optionnels."""
-    query: dict = {}
+    query: dict = {"channel": {"$ne": "tn_site"}}
     if status:
         query["status"] = status
     if user_id:
@@ -219,6 +224,7 @@ def close_all_tickets() -> int:
         {
             "status": {"$nin": [TicketStatus.CLOSED, TicketStatus.RESOLVED]},
             "archived_at": {"$exists": False},
+            "channel": {"$ne": "tn_site"},
         },
         {"$set": {"status": TicketStatus.CLOSED, "closed_at": now, "updated_at": now}},
     )
@@ -245,12 +251,13 @@ def archive_ticket(ticket_id: int) -> bool:
 
 
 def archive_closed_tickets() -> int:
-    """Archive all closed or resolved tickets that are still in the inbox."""
+    """Archive closed bot tickets that are still in the inbox."""
     now = datetime.now(UTC)
     result = db.get_conn().support_tickets.update_many(
         {
             "status": {"$in": [TicketStatus.CLOSED, TicketStatus.RESOLVED]},
             "archived_at": {"$exists": False},
+            "channel": {"$ne": "tn_site"},
         },
         {"$set": {"archived_at": now, "updated_at": now}},
     )

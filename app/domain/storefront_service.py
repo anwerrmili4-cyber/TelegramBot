@@ -31,9 +31,12 @@ from app.domain import (
     email_service,
     site_logo_service,
     site_orders_service,
+    site_requests_service,
     site_settings_service,
+    storefront_invoice_service,
     storefront_receipt_service,
     storefront_wallet_service,
+    warranty_service,
 )
 
 CATEGORY_LABELS = {
@@ -60,10 +63,20 @@ class StorefrontError(ValueError):
     """Validation error safe to return from the public storefront API."""
 
 
+def site_enabled(row: dict[str, Any]) -> bool:
+    """Whether this record is switched on for the storefront.
+
+    An explicit ``site_enabled`` flag wins, so the bot's ``active`` state stays
+    independent. Older rows without the flag follow the bot flag they used
+    before the two channels were split.
+    """
+    if "site_enabled" in row:
+        return row.get("site_enabled") is not False
+    return bool(row.get("active", 1))
+
+
 def _site_visible(row: dict[str, Any]) -> bool:
-    # The storefront and Telegram bot intentionally share the complete active
-    # catalog. A record is hidden only by an explicit site opt-out or archive.
-    return row.get("site_enabled") is not False and row.get("archived") != 1
+    return site_enabled(row) and row.get("archived") != 1
 
 
 def _price_millimes(offer: dict[str, Any]) -> int:
@@ -134,36 +147,71 @@ def _category(service: dict[str, Any], offer: dict[str, Any]) -> str:
     return next((key for key, terms in rules if any(term in name for term in terms)), "other")
 
 
+def _display_name(row: dict[str, Any], fallback: str) -> str:
+    site_name = str(row.get("site_name") or "").strip()
+    if site_name:
+        return site_name[:160]
+    if "site_name" in row:
+        return str(row.get("name") or fallback)[:160]
+    return str(row.get("name") or fallback)[:160]
+
+
+def _site_period_days(offer: dict[str, Any]) -> int:
+    if "site_period_days" in offer or "site_period_value" in offer:
+        return max(0, int(offer.get("site_period_days") or 0))
+    return max(0, int(offer.get("period_days") or 0))
+
+
+def _site_warranty_days(offer: dict[str, Any]) -> int:
+    if "site_warranty_days" in offer or "site_warranty_value" in offer:
+        return max(0, int(offer.get("site_warranty_days") or 0))
+    return 0
+
+
+def _site_warranty_label(offer: dict[str, Any]) -> str:
+    if "site_note" in offer and str(offer.get("site_note") or "").strip():
+        return _plain_text(offer.get("site_note"), limit=160)
+    days = _site_warranty_days(offer)
+    if days <= 0 and ("site_warranty_days" in offer or "site_note" in offer):
+        return "NW"
+    if days > 0:
+        return warranty_service.format_duration(
+            offer.get("site_warranty_value") or days,
+            offer.get("site_warranty_unit") or "days",
+            "fr",
+        )
+    return ""
+
+
 def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:
     category = _category(service, offer)
     price_millimes = _price_millimes(offer)
     unlimited = bool(offer.get("unlimited_stock"))
     stock = max(0, int(offer.get("stock") or 0))
     minimum = max(1, int(offer.get("min_quantity") or 1))
+    delay = offer.get("site_delivery_delay") if "site_delivery_delay" in offer else ""
     return {
         "id": int(offer["id"]),
         "package_number": str(offer.get("package_number") or offer["id"]),
-        "name": str(offer.get("name") or "Offre")[:160],
-        "description": _plain_text(
-            offer.get("site_description_fr") or offer.get("description") or offer.get("note"),
-            limit=3000,
-        ),
+        "name": _display_name(offer, "Offre"),
+        "description": _plain_text(offer.get("site_description_fr"), limit=3000),
         "price_millimes": price_millimes,
         "currency": "TND",
         "available": unlimited or stock > 0,
         "stock": -1 if unlimited else stock,
         "min_quantity": minimum,
         "max_quantity": max(minimum, int(offer.get("max_quantity") or 10)),
-        "delivery_delay": _plain_text(offer.get("delivery_delay"), limit=120),
-        "period_days": int(offer.get("period_days") or 0),
-        "warranty": _plain_text(offer.get("note"), limit=160),
+        "delivery_delay": _plain_text(delay, limit=120),
+        "period_days": _site_period_days(offer),
+        "warranty": _site_warranty_label(offer),
+        "warranty_days": _site_warranty_days(offer),
         "featured": bool(offer.get("site_featured")),
         "badge": str(offer.get("site_badge") or "").strip()[:48],
         "image_url": _safe_image_url(offer.get("site_image_url")),
         "category": category,
         "category_label": CATEGORY_LABELS[category],
         "service_id": int(service["id"]),
-        "service_name": str(service.get("name") or "Service")[:120],
+        "service_name": _display_name(service, "Service")[:120],
         "service_emoji": str(service.get("emoji") or "✦")[:8],
         "service_logo_url": site_logo_service.logo_url(service),
     }
@@ -173,13 +221,14 @@ def catalog() -> dict[str, Any]:
     """Project the bot's live MongoDB catalog into a customer-safe response."""
     services: list[dict[str, Any]] = []
     used_categories: set[str] = set()
-    for service in db.list_services(active_only=True):
+    for service in db.list_services(active_only=False):
         if not _site_visible(service):
             continue
         offers = []
         # list_offers already resolves expired sales and the OTP price rules.
         # Re-reading each offer adds two database round trips per product.
-        for offer in db.list_offers(int(service["id"]), active_only=True):
+        # Bot ``active`` is ignored: the site sells whatever it has switched on.
+        for offer in db.list_offers(int(service["id"]), active_only=False):
             if not _offer_on_sale(offer):
                 continue
             public = _public_offer(service, offer)
@@ -188,7 +237,7 @@ def catalog() -> dict[str, Any]:
         if offers:
             services.append({
                 "id": int(service["id"]),
-                "name": str(service.get("name") or "Service")[:120],
+                "name": _display_name(service, "Service")[:120],
                 "emoji": str(service.get("emoji") or "✦")[:8],
                 "logo_url": site_logo_service.logo_url(service),
                 "offers": offers,
@@ -240,12 +289,12 @@ def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
     """Validate one cart line against the live catalog and price it in TND."""
     offer = db.get_offer(offer_id)
     service = db.get_service(int(offer.get("service_id"))) if offer else None
-    if not offer or not service or not offer.get("active", 1):
+    if not offer or not service or offer.get("archived") == 1:
         raise StorefrontError("Cette offre n'est plus disponible.")
     if not _offer_on_sale(offer) or not _site_visible(service):
         raise StorefrontError("Cette offre n'est pas disponible sur le site tunisien.")
 
-    name = str(offer.get("name") or "")[:200]
+    name = _display_name(offer, "Offre")[:200]
     minimum = max(1, int(offer.get("min_quantity") or 1))
     maximum = max(minimum, int(offer.get("max_quantity") or 10))
     if quantity < minimum or quantity > maximum:
@@ -257,11 +306,13 @@ def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
     return {
         "offer_id": int(offer["id"]),
         "offer_name": name,
-        "service_name": str(service.get("name") or "")[:120],
+        "service_name": _display_name(service, "Service")[:120],
         "quantity": quantity,
         "unit_millimes": unit_millimes,
         "total_millimes": unit_millimes * quantity,
-        "period_days": int(offer.get("period_days") or 0),
+        "period_days": _site_period_days(offer),
+        "warranty_days": _site_warranty_days(offer),
+        "warranty": _site_warranty_label(offer),
     }
 
 
@@ -385,6 +436,8 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
             "offer_name": line["offer_name"],
             "service_name": line["service_name"],
             "period_days": line["period_days"],
+            "warranty_days": line["warranty_days"],
+            "warranty": line["warranty"],
             "qty": line["quantity"],
             "quantity": line["quantity"],
             "unit_price_millimes": line["unit_millimes"],
@@ -549,6 +602,7 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
 
     result = []
     shown = list(carts.items())[:MAX_ACCOUNT_CARTS]
+    invoices = storefront_invoice_service.numbers_for([reference for reference, _ in shown])
     delivered_lines = [
         line
         for _, lines in shown
@@ -556,6 +610,7 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
         if line.get("status") == OrderStatus.DELIVERED
     ]
     delivery_by_id = site_orders_service.deliveries_for(delivered_lines)
+    warranty_by_id = site_requests_service.warranty_flags([line for _, lines in shown for line in lines])
     for reference, lines in shown:
         lines.sort(key=lambda line: int(line.get("cart_position") or 0))
         first = lines[0]
@@ -572,6 +627,7 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
             "created_at": min(int(line.get("created_at") or 0) for line in lines),
             "paid_at": first.get("paid_at"),
             "cancel_reason": next((str(line.get("admin_note") or "") for line in lines if line.get("admin_note")), ""),
+            "invoice_number": invoices.get(reference, ""),
             "items": [
                 {
                     "id": int(line["id"]),
@@ -587,6 +643,13 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
                     "delivery": delivery_by_id.get(int(line["id"]), "")
                     if line.get("status") == OrderStatus.DELIVERED
                     else "",
+                    "warranty_days": int(line.get("warranty_days") or 0),
+                    **warranty_by_id.get(int(line["id"]), {
+                        "warranty_open": False,
+                        "warranty_status": "",
+                        "warranty_id": None,
+                        "replacement": "",
+                    }),
                 }
                 for line in lines
             ],

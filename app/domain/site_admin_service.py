@@ -124,11 +124,15 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
     category = storefront_service._category(service, offer)
     active = bool(offer.get("active", 1))
     service_active = bool(service.get("active", 1))
-    period_days = int(offer.get("period_days") or 0)
-    warranty_days = int(offer.get("warranty_days") or 0)
+    site_period_days = offer.get("site_period_days")
+    period_days = int(site_period_days if site_period_days is not None else 0)
+    site_warranty_days = offer.get("site_warranty_days")
+    warranty_days = int(site_warranty_days if site_warranty_days is not None else 0)
+    site_name = str(offer.get("site_name") or "").strip()
     return {
         "id": int(offer["id"]),
-        "name": str(offer.get("name") or "Offre"),
+        "name": site_name or str(offer.get("name") or "Offre"),
+        "bot_name": str(offer.get("name") or ""),
         "service_id": int(service["id"]),
         "service_name": str(service.get("name") or "Service"),
         "service_emoji": str(service.get("emoji") or ""),
@@ -142,14 +146,18 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "manual_stock": bool(offer.get("manual_stock")),
         "supplier_provider": str(offer.get("supplier_provider") or ""),
         "auto_delivery": offer.get("auto_delivery") is not False,
-        "delivery_delay": str(offer.get("delivery_delay") or ""),
-        "period_value": int(offer.get("period_value") or period_days or 0),
-        "period_unit": warranty_service.normalize_duration_unit(offer.get("period_unit") if offer.get("period_value") else "days"),
-        "warranty_value": int(offer.get("warranty_value") or warranty_days or 0),
-        "warranty_unit": warranty_service.normalize_duration_unit(offer.get("warranty_unit") if offer.get("warranty_value") else "days"),
+        "delivery_delay": str(offer.get("site_delivery_delay") or ""),
+        "period_value": int(offer.get("site_period_value") or period_days or 30),
+        "period_unit": warranty_service.normalize_duration_unit(
+            offer.get("site_period_unit") if offer.get("site_period_value") is not None else "days"
+        ),
+        "warranty_value": int(offer.get("site_warranty_value") or warranty_days or 0),
+        "warranty_unit": warranty_service.normalize_duration_unit(
+            offer.get("site_warranty_unit") if offer.get("site_warranty_value") is not None else "days"
+        ),
         "tn_price_millimes": price or None,
         "suggested_price_millimes": storefront_service.suggested_price_millimes(offer),
-        "site_enabled": offer.get("site_enabled") is not False,
+        "site_enabled": storefront_service.site_enabled(offer),
         "site_featured": bool(offer.get("site_featured")),
         "site_badge": str(offer.get("site_badge") or ""),
         "site_category": configured_category if configured_category in storefront_service.CATEGORY_LABELS else "",
@@ -159,9 +167,7 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "site_image_url": str(offer.get("site_image_url") or ""),
         "description": str(offer.get("description") or ""),
         "on_sale": (
-            active
-            and service_active
-            and storefront_service._site_visible(service)
+            storefront_service._site_visible(service)
             and storefront_service._offer_on_sale(offer)
         ),
     }
@@ -188,12 +194,12 @@ def _catalog_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _catalog_status(row: dict[str, Any]) -> str:
-    if not row["active"] or not row["service_active"]:
+    if not row["site_enabled"]:
         return "disabled"
+    if not row["service_visible"]:
+        return "hidden"
     if row["on_sale"]:
         return "on_sale"
-    if not row["site_enabled"] or not row["service_visible"]:
-        return "hidden"
     return "no_price"
 
 
@@ -219,12 +225,13 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
         ]
         services.append({
             "id": int(service["id"]),
-            "name": str(service.get("name") or "Service"),
+            "name": str(service.get("site_name") or service.get("name") or "Service"),
+            "bot_name": str(service.get("name") or ""),
             "name_ar": str(service.get("name_ar") or ""),
             "emoji": str(service.get("emoji") or ""),
             "logo_url": site_logo_service.logo_url(service),
             "active": bool(service.get("active", 1)),
-            "site_enabled": storefront_service._site_visible(service),
+            "site_enabled": storefront_service.site_enabled(service),
             "offers": len(offers),
             "on_sale": sum(1 for row in offers if row["on_sale"]),
         })
@@ -326,14 +333,30 @@ def _optional_id(value: Any, label: str) -> int | None:
         raise SiteAdminError(f"{label} invalide.") from exc
 
 
+def set_offer_visibility(form: dict[str, Any]) -> dict[str, Any]:
+    try:
+        offer_id = int(form.get("offer_id"))
+    except (TypeError, ValueError) as exc:
+        raise SiteAdminError("Offre invalide.") from exc
+    enabled = _truthy(form.get("site_enabled"))
+    result = db.get_conn().offers.update_one({"id": offer_id}, {"$set": {"site_enabled": enabled}})
+    if not result.matched_count:
+        raise SiteAdminError("Offre introuvable.")
+    offer = db.get_offer(offer_id) or {}
+    db.audit_event("site_catalog.offer_visibility", details={"offer_id": offer_id, "site_enabled": enabled})
+    return {"offer_id": offer_id, "name": offer.get("site_name") or offer.get("name", ""), "site_enabled": enabled}
+
+
 def save_service(form: dict[str, Any]) -> dict[str, Any]:
-    """Create a service, or rename one when ``service_id`` is given."""
+    """Create a service, or change its storefront name and visibility.
+
+    The bot keeps its own name, emoji and active flag. A service created here
+    starts hidden on the bot (``active`` 0) until the bot workspace enables it.
+    """
     service_id = _optional_id(form.get("service_id"), "Service")
     name = str(form.get("name") or "").strip()[:80]
     if not name:
         raise SiteAdminError("Le nom du service est obligatoire.")
-    emoji = str(form.get("emoji") or "").strip()[:12] or "📦"
-    name_ar = str(form.get("name_ar") or "").strip()[:120]
     site_enabled = _truthy(form.get("site_enabled", "1"))
     logo = None
     if str(form.get("logo") or "").strip():
@@ -343,14 +366,20 @@ def save_service(form: dict[str, Any]) -> dict[str, Any]:
             raise SiteAdminError(str(exc)) from exc
 
     if service_id is None:
-        service_id = db.add_service(name, emoji, sales_channels=["bot"], name_ar=name_ar)
+        service_id = db.add_service(name, "📦", sales_channels=["bot"], site_enabled=site_enabled)
+        db.get_conn().services.update_one(
+            {"id": service_id},
+            {"$set": {"site_name": name, "active": 0}},
+        )
         created = True
     else:
         if not db.get_service(service_id):
             raise SiteAdminError("Service introuvable.")
-        db.update_service(service_id, name=name, emoji=emoji, name_ar=name_ar)
+        db.get_conn().services.update_one(
+            {"id": service_id},
+            {"$set": {"site_name": name, "site_enabled": site_enabled}},
+        )
         created = False
-    db.get_conn().services.update_one({"id": service_id}, {"$set": {"site_enabled": site_enabled}})
     logo_change = None
     if logo:
         site_logo_service.save(service_id, *logo)
@@ -363,24 +392,6 @@ def save_service(form: dict[str, Any]) -> dict[str, Any]:
         details={"service_id": service_id, "name": name, "site_enabled": site_enabled, "logo": logo_change},
     )
     return {"service_id": service_id, "name": name, "created": created}
-
-
-def _usdt_price(value: Any) -> float | None:
-    text = str(value or "").strip().replace(" ", "").replace(",", ".")
-    if not text:
-        return None
-    try:
-        amount = Decimal(text)
-    except InvalidOperation as exc:
-        raise SiteAdminError("Le prix du bot doit être un nombre, par exemple 4,50.") from exc
-    if amount < 0 or amount > 100_000:
-        raise SiteAdminError("Le prix du bot doit être compris entre 0 et 100 000 USDT.")
-    return float(round(amount, 2))
-
-
-def _usdt_from_millimes(millimes: int) -> float:
-    rate = Decimal(str(site_settings_service.tnd_per_usdt() or 1))
-    return float(round(Decimal(millimes) / 1000 / rate, 2))
 
 
 def _duration(form: dict[str, Any], prefix: str, default: int, *, allow_zero: bool, label: str) -> tuple[int, str, int]:
@@ -403,11 +414,11 @@ def _image_url(value: Any) -> str:
 
 
 def save_offer(form: dict[str, Any]) -> dict[str, Any]:
-    """Create or fully edit an offer from the site space.
+    """Create or edit the storefront side of a shared offer.
 
-    The storefront sells the bot's own catalog, so a product created here is a
-    regular bot offer. Without an explicit bot price it is derived from the
-    dinar price at the configured rate.
+    Name, description, warranty, period and visibility written here stay on
+    ``site_*`` fields. The bot's description, price, note and ``active`` flag
+    are left untouched. Stock mode is shared. A new product starts off on the bot.
     """
     offer_id = _optional_id(form.get("offer_id"), "Offre")
     previous = db.get_offer(offer_id) if offer_id is not None else None
@@ -429,15 +440,6 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         raise SiteAdminError("Catégorie inconnue.")
 
     tn_price = _dinar_millimes(form.get("tn_price"))
-    bot_price = _usdt_price(form.get("price"))
-    if bot_price is None:
-        if previous:
-            bot_price = float(previous.get("price") or 0)
-        elif tn_price:
-            bot_price = _usdt_from_millimes(tn_price)
-        else:
-            raise SiteAdminError("Indiquez au moins un prix en dinars ou un prix bot en USDT.")
-
     period_value, period_unit, period_days = _duration(form, "period", 30, allow_zero=False, label="Durée")
     warranty_value, warranty_unit, warranty_days = _duration(form, "warranty", 0, allow_zero=True, label="Garantie")
     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
@@ -450,18 +452,15 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         except site_logo_service.LogoError as exc:
             raise SiteAdminError(str(exc)) from exc
     fields: dict[str, Any] = {
-        "name": name,
-        "price": bot_price,
-        "note": note,
-        "delivery_delay": str(form.get("delivery_delay") or "").strip()[:120] or "Instantané après confirmation",
-        "auto_delivery": _truthy(form.get("auto_delivery", "1")),
-        "unlimited_stock": unlimited,
-        "period_days": period_days,
-        "period_value": period_value,
-        "period_unit": period_unit,
-        "warranty_days": warranty_days,
-        "warranty_value": warranty_value,
-        "warranty_unit": warranty_unit,
+        "site_name": name,
+        "site_note": note,
+        "site_delivery_delay": str(form.get("delivery_delay") or "").strip()[:120] or "Instantané après confirmation",
+        "site_period_days": period_days,
+        "site_period_value": period_value,
+        "site_period_unit": period_unit,
+        "site_warranty_days": warranty_days,
+        "site_warranty_value": warranty_value,
+        "site_warranty_unit": warranty_unit,
         "site_enabled": _truthy(form.get("site_enabled", "1")),
         "site_featured": _truthy(form.get("site_featured")),
         "site_badge": str(form.get("site_badge") or "").strip()[:48],
@@ -477,28 +476,30 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         offer_id = db.add_offer(
             service_id,
             name,
-            bot_price,
             0,
-            note,
-            description=description,
-            auto_delivery=fields["auto_delivery"],
-            delivery_delay=fields["delivery_delay"],
+            0,
+            "",
+            description="",
+            active=False,
             unlimited_stock=unlimited,
             sales_channels=["bot"],
             tn_price_millimes=tn_price,
+            site_enabled=fields["site_enabled"],
+            site_name=name,
+            site_note=note,
+            site_delivery_delay=fields["site_delivery_delay"],
             site_description_fr=description,
             site_image_url=fields["site_image_url"],
             site_category=category,
             site_badge=fields["site_badge"],
             site_featured=fields["site_featured"],
-            period_days=period_days,
-            warranty_days=warranty_days,
-            period_value=period_value,
-            period_unit=period_unit,
-            warranty_value=warranty_value,
-            warranty_unit=warranty_unit,
+            site_period_days=period_days,
+            site_period_value=period_value,
+            site_period_unit=period_unit,
+            site_warranty_days=warranty_days,
+            site_warranty_value=warranty_value,
+            site_warranty_unit=warranty_unit,
         )
-        conn.offers.update_one({"id": offer_id}, {"$set": {"site_enabled": fields["site_enabled"]}})
         if items:
             inventory_service.add_items(offer_id, items)
         created = True
@@ -508,10 +509,9 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
                 db.move_offer(offer_id, service_id)
             except ValueError as exc:
                 raise SiteAdminError(str(exc)) from exc
-        # Supplier and manual offers manage their own stock figure.
         externally_stocked = bool(previous.get("supplier_provider") or previous.get("manual_stock"))
-        if externally_stocked:
-            fields.pop("unlimited_stock")
+        if not externally_stocked:
+            fields["unlimited_stock"] = unlimited
         update: dict[str, Any] = {"$set": fields}
         if tn_price is None:
             update["$unset"] = {"tn_price_millimes": ""}

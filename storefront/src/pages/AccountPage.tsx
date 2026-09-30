@@ -4,25 +4,31 @@ import {
   BadgeCheck,
   ChevronDown,
   Copy,
+  FileDown,
+  Headphones,
   KeyRound,
   LogOut,
   Package,
+  PackageSearch,
   RotateCcw,
+  ShieldCheck,
   UserRound,
   Wallet as WalletIcon,
 } from "lucide-react";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { createDeposit, errorMessage, fetchOrders, fetchWallet, resendVerificationCode } from "@/lib/api";
+import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, openProductRequest, openTicket, openWarranty, fetchWallet, resendVerificationCode } from "@/lib/api";
 import { dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
-import type { AccountOrder, AccountOrders, CartStatus, Deposit, Wallet } from "@/types";
+import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, CartStatus, Deposit, Wallet } from "@/types";
 
 const TABS = [
   { id: "commandes", label: "Mes achats", icon: Package },
   { id: "portefeuille", label: "Portefeuille", icon: WalletIcon },
+  { id: "support", label: "Support", icon: Headphones },
+  { id: "demande", label: "Demande produit", icon: PackageSearch },
   { id: "profil", label: "Profil & sécurité", icon: UserRound },
 ] as const;
 
@@ -112,7 +118,7 @@ export function AccountPage() {
         ))}
       </div>
 
-      {tab === "commandes" ? <OrdersTab /> : tab === "portefeuille" ? <WalletTab /> : <ProfileTab />}
+      {tab === "commandes" ? <OrdersTab /> : tab === "portefeuille" ? <WalletTab /> : tab === "support" ? <RequestsTab kind="support" /> : tab === "demande" ? <RequestsTab kind="product" /> : <ProfileTab />}
     </section>
   );
 }
@@ -174,7 +180,7 @@ function OrdersTab() {
       {data.orders.length ? (
         <ul className="order-list">
           {data.orders.map((order, index) => (
-            <OrderCard key={order.reference} order={order} defaultOpen={index === 0} />
+            <OrderCard key={order.reference} order={order} defaultOpen={index === 0} onRefresh={() => setAttempt((value) => value + 1)} />
           ))}
         </ul>
       ) : (
@@ -191,7 +197,16 @@ function OrdersTab() {
   );
 }
 
-function OrderCard({ order, defaultOpen }: { order: AccountOrder; defaultOpen: boolean }) {
+const WARRANTY_STATUS: Record<string, string> = {
+  pending_admin_check: "en attente",
+  accepted: "acceptée",
+  replacement_pending: "remplacement en cours",
+  replacement_delivered: "remplacement livré",
+  refunded: "remboursée",
+  refused: "refusée",
+};
+
+function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; defaultOpen: boolean; onRefresh: () => void }) {
   const [open, setOpen] = useState(defaultOpen);
   const [label, tone] = CART_STATUS[order.status] ?? CART_STATUS.mixed;
   const count = order.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -230,6 +245,9 @@ function OrderCard({ order, defaultOpen }: { order: AccountOrder; defaultOpen: b
                     <StatusChip label={itemLabel} tone={itemTone} />
                   </div>
                   {item.delivery ? <DeliveryBox content={item.delivery} deliveredAt={item.delivered_at} /> : null}
+                  {item.replacement ? <DeliveryBox content={item.replacement} deliveredAt={null} heading="Remplacement sous garantie" /> : null}
+                  {item.warranty_open ? <WarrantyButton item={item} onSent={onRefresh} /> : null}
+                  {item.warranty_status ? <small className="account-muted">Garantie : {WARRANTY_STATUS[item.warranty_status] || item.warranty_status}</small> : null}
                 </li>
               );
             })}
@@ -261,18 +279,48 @@ function OrderCard({ order, defaultOpen }: { order: AccountOrder; defaultOpen: b
               </div>
             ) : null}
           </dl>
+          {order.invoice_number ? <InvoiceButton reference={order.reference} number={order.invoice_number} /> : null}
         </div>
       ) : null}
     </li>
   );
 }
 
-function DeliveryBox({ content, deliveredAt }: { content: string; deliveredAt: number | null }) {
+function InvoiceButton({ reference, number }: { reference: string; number: string }) {
+  const { token, handleError } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function download() {
+    setBusy(true);
+    setError("");
+    try {
+      await downloadInvoice(token, reference, number);
+    } catch (reason) {
+      handleError(reason);
+      setError(errorMessage(reason, "Facture indisponible pour le moment."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="order-invoice">
+      <button type="button" className="button button-ghost" onClick={() => void download()} disabled={busy}>
+        <FileDown size={16} aria-hidden="true" />
+        {busy ? "Téléchargement…" : `Télécharger la facture ${number}`}
+      </button>
+      {error ? <small className="form-error">{error}</small> : null}
+    </div>
+  );
+}
+
+function DeliveryBox({ content, deliveredAt, heading }: { content: string; deliveredAt: number | null; heading?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="delivery-box">
       <div className="delivery-head">
-        <span>Tes accès · livrés le {dateTime(deliveredAt)}</span>
+        <span>{heading || `Tes accès · livrés le ${dateTime(deliveredAt)}`}</span>
         <button
           type="button"
           className="icon-button"
@@ -291,6 +339,134 @@ function DeliveryBox({ content, deliveredAt }: { content: string; deliveredAt: n
 }
 
 /* ---------- Wallet ---------- */
+
+function WarrantyButton({ item, onSent }: { item: AccountOrderItem; onSent: () => void }) {
+  const { token, handleError } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await openWarranty(token, { order_id: item.id, reason });
+      setOpen(false);
+      onSent();
+    } catch (reasonError) {
+      handleError(reasonError);
+      setError(errorMessage(reasonError, "La demande n'a pas pu être envoyée."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="button button-ghost" onClick={() => setOpen(true)}>
+        <ShieldCheck size={16} aria-hidden="true" /> Demander la garantie
+      </button>
+    );
+  }
+  return (
+    <form className="account-form" onSubmit={(event) => void submit(event)}>
+      <label>
+        Problème rencontré
+        <textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={8} maxLength={1000} rows={3} required />
+      </label>
+      {error ? <small className="form-error">{error}</small> : null}
+      <div className="account-inline-actions">
+        <button type="button" className="button button-ghost" onClick={() => setOpen(false)}>Annuler</button>
+        <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
+      </div>
+    </form>
+  );
+}
+
+function RequestsTab({ kind }: { kind: "support" | "product" }) {
+  const { token, handleError } = useAuth();
+  const [tickets, setTickets] = useState<AccountTicket[] | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [category, setCategory] = useState("order");
+  const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const product = kind === "product";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = product ? fetchProductRequests(token, controller.signal) : fetchTickets(token, controller.signal);
+    load.then((result) => setTickets(result.tickets)).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      handleError(reason);
+      setError(errorMessage(reason, "Impossible de charger tes demandes."));
+    });
+    return () => controller.abort();
+  }, [token, attempt, product, handleError]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (product) await openProductRequest(token, message);
+      else await openTicket(token, { message, category });
+      setMessage("");
+      setAttempt((value) => value + 1);
+    } catch (reason) {
+      handleError(reason);
+      setError(errorMessage(reason, "La demande n'a pas pu être envoyée."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="account-section">
+      <form className="account-card account-form" onSubmit={(event) => void submit(event)}>
+        <h2>{product ? "Demander un produit" : "Écrire au support"}</h2>
+        <p className="account-muted">{product ? "Dis-nous quel service il te manque. La demande reste sur le site." : "La réponse apparaîtra ici, dans ton compte."}</p>
+        {!product ? (
+          <label>
+            Sujet
+            <select value={category} onChange={(event) => setCategory(event.target.value)}>
+              <option value="order">Commande</option>
+              <option value="payment">Paiement</option>
+              <option value="delivery">Livraison</option>
+              <option value="other">Autre</option>
+            </select>
+          </label>
+        ) : null}
+        <label>
+          Message
+          <textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={8} maxLength={2000} rows={4} required />
+        </label>
+        {error ? <small className="form-error">{error}</small> : null}
+        <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
+      </form>
+      {!tickets ? <p className="account-loading">Chargement…</p> : tickets.length ? (
+        <ul className="order-list">
+          {tickets.map((ticket) => (
+            <li key={ticket.id} className="account-card">
+              <strong>Demande #{ticket.id}</strong>
+              <small className="account-muted">{ticket.status}</small>
+              <ul className="ticket-thread">
+                {ticket.messages.map((entry) => (
+                  <li key={entry.id} className={entry.sender === "admin" ? "from-admin" : ""}>
+                    <small>{entry.sender === "admin" ? "Support" : "Toi"}</small>
+                    <p>{entry.content}</p>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="account-muted">Aucune demande pour le moment.</p>}
+    </div>
+  );
+}
 
 function WalletTab() {
   const { token, handleError } = useAuth();

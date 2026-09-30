@@ -2,6 +2,7 @@
 
 import base64
 import itertools
+import time
 
 import pytest
 
@@ -10,10 +11,13 @@ from app.domain import (
     site_admin_service,
     site_logo_service,
     site_orders_service,
+    site_requests_service,
     site_settings_service,
     storefront_service,
     storefront_wallet_service,
+    support_service,
 )
+from app.web import dashboard_api
 from tests.conftest import RECEIPT
 
 _references = itertools.count(1)
@@ -119,11 +123,14 @@ def test_save_service_creates_and_renames(mock_mongodb):
     service = db.get_service(created["service_id"])
     assert created["created"] is True
     assert service["name"] == "Netflix"
+    assert service["site_name"] == "Netflix"
+    assert service["active"] == 0
     assert service["site_enabled"] is False
 
     site_admin_service.save_service({"service_id": str(created["service_id"]), "name": "Netflix TN", "site_enabled": "1"})
     service = db.get_service(created["service_id"])
-    assert service["name"] == "Netflix TN"
+    assert service["name"] == "Netflix"
+    assert service["site_name"] == "Netflix TN"
     assert service["site_enabled"] is True
 
     with pytest.raises(site_admin_service.SiteAdminError, match="obligatoire"):
@@ -209,11 +216,14 @@ def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
     })
     offer = db.get_offer(result["offer_id"])
     assert result["created"] is True
-    assert offer["price"] == 10.0
+    assert offer["price"] == 0
+    assert offer["active"] == 0
+    assert offer["description"] == ""
+    assert offer["warranty_days"] == 0
+    assert offer["site_period_days"] == 365
+    assert offer["site_warranty_days"] == 90
     assert offer["tn_price_millimes"] == 32000
     assert offer["stock"] == 2
-    assert offer["period_days"] == 365
-    assert offer["warranty_days"] == 90
     assert offer["site_image_url"] == "https://cdn.example.com/canva.png"
 
     public = storefront_service.catalog()["services"][0]["offers"][0]
@@ -223,27 +233,48 @@ def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
     assert public["badge"] == "Nouveau"
 
 
-def test_save_offer_edits_bot_and_site_fields(mock_mongodb):
+def test_save_offer_keeps_bot_copy_and_shares_stock_mode(mock_mongodb):
     service_id, offer_id = _offer()
+    db.update_offer(offer_id, description="Texte bot", note="30 days", active=1)
     other_service = site_admin_service.save_service({"name": "Streaming"})["service_id"]
 
     site_admin_service.save_offer({
         "offer_id": str(offer_id), "service_id": str(other_service), "name": "Netflix 3 mois",
         "price": "12,5", "tn_price": "", "stock_mode": "unlimited", "site_enabled": "1",
+        "site_description_fr": "Texte site", "warranty_value": "7", "warranty_unit": "days",
     })
     offer = db.get_offer(offer_id)
     assert offer["service_id"] == other_service
-    assert offer["name"] == "Netflix 3 mois"
-    assert offer["price"] == 12.5
+    assert offer["name"] == "Netflix 1 mois"
+    assert offer["description"] == "Texte bot"
+    assert offer["note"] == "30 days"
+    assert offer["price"] == 5.0
+    assert offer["active"] == 1
+    assert offer["warranty_days"] == 0
+    assert offer["site_name"] == "Netflix 3 mois"
+    assert offer["site_description_fr"] == "Texte site"
+    assert offer["site_warranty_days"] == 7
     assert offer["unlimited_stock"] is True
+    assert offer["site_enabled"] is True
     assert "tn_price_millimes" not in mock_mongodb.offers.find_one({"id": offer_id})
     assert service_id != other_service
+
+    db.update_offer(offer_id, description="Nouveau texte bot", note="NW", price=8.0, warranty_days=14, active=0)
+    offer = db.get_offer(offer_id)
+    assert offer["description"] == "Nouveau texte bot"
+    assert offer["price"] == 8.0
+    assert offer["active"] == 0
+    assert offer["warranty_days"] == 14
+    assert offer["site_description_fr"] == "Texte site"
+    assert offer["site_name"] == "Netflix 3 mois"
+    assert offer["site_enabled"] is True
+    assert offer["site_warranty_days"] == 7
+    assert "tn_price_millimes" not in mock_mongodb.offers.find_one({"id": offer_id})
 
 
 @pytest.mark.parametrize("form, message", [
     ({"name": "X"}, "service"),
     ({"service_id": "SERVICE", "name": ""}, "obligatoire"),
-    ({"service_id": "SERVICE", "name": "X"}, "au moins un prix"),
     ({"service_id": "SERVICE", "name": "X", "tn_price": "5", "site_image_url": "http://x"}, "https"),
 ])
 def test_save_offer_rejects_invalid_input(mock_mongodb, form, message):
@@ -318,3 +349,39 @@ def test_settings_validation(mock_mongodb):
     assert saved["tnd_per_usdt"] == 3.25
     assert saved["payment_methods"] == ["d17", "izi"]
     assert saved["payment_details"]["izi"] == "IZI : 55 000 000"
+
+
+def test_site_requests_stay_out_of_the_bot_workspace(mock_mongodb, site_customer):
+    customer = site_customer()
+    _, offer_id = _offer(millimes=10000)
+    cart = _cart(customer, offer_id)
+    line_id = cart["order_ids"][0]
+    now = int(time.time())
+    db.get_conn().orders.update_one(
+        {"id": line_id},
+        {"$set": {"status": "delivered", "delivered_at": now, "warranty_days": 30, "total_millimes": 10000}},
+    )
+    support_service.create_ticket(42, "Bot ticket", category="other")
+    site_requests_service.create_ticket(customer, {"message": "Mon compte site ne marche pas", "category": "order"})
+    site_requests_service.create_ticket(customer, {"message": "Ajoutez Canva annuel svp", "category": "catalog_request"})
+    claim = site_requests_service.create_warranty(customer, {"order_id": line_id, "reason": "Le compte ne se connecte pas"})
+
+    bot_tickets = dashboard_api.list_tickets({})
+    assert [item["id"] for item in bot_tickets["items"]] != []
+    assert all(item.get("channel") != "tn_site" for item in bot_tickets["items"])
+    site_tickets = dashboard_api.list_tickets({"channel": ["tn_site"], "exclude_category": ["catalog_request"]})
+    assert [item["category"] for item in site_tickets["items"]] == ["order"]
+    site_requests = dashboard_api.list_tickets({"channel": ["tn_site"], "category": ["catalog_request"]})
+    assert len(site_requests["items"]) == 1
+
+    bot_orders = dashboard_api.list_orders({})
+    assert line_id not in {item["id"] for item in bot_orders["items"]}
+
+    request_id = claim["warranty"]["id"]
+    db.accept_warranty_request(request_id)
+    resolved = db.resolve_warranty_request(request_id, "refund")
+    assert resolved["status"] == "refunded"
+    assert storefront_wallet_service.balance(customer["id"]) == claim["warranty"]["refund_millimes"]
+    assert db.get_conn().wallets.count_documents({}) == 0
+    assert dashboard_api.list_warranties({})["total"] == 0
+    assert dashboard_api.list_warranties({"channel": ["tn_site"]})["total"] == 1

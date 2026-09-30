@@ -424,9 +424,14 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
     page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
     per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
     query: dict[str, Any] = {}
+    channel = (_first(params, "channel") or "").strip()
+    query["channel"] = "tn_site" if channel == "tn_site" else {"$ne": "tn_site"}
     category = (_first(params, "category") or "").strip()[:64]
+    exclude_category = (_first(params, "exclude_category") or "").strip()[:64]
     if category:
         query["category"] = category
+    elif exclude_category:
+        query["category"] = {"$ne": exclude_category}
     user_id = _first(params, "user_id")
     if user_id and user_id.isdigit():
         query["user_id"] = int(user_id)
@@ -468,16 +473,31 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
             {"telegram_id": 1, "username": 1, "first_name": 1, "last_name": 1, "full_name": 1},
         )
     } if user_ids else {}
+    customer_ids = {int(row["customer_id"]) for row in rows if row.get("customer_id") is not None}
+    customers = {
+        int(customer["id"]): customer
+        for customer in conn.storefront_customers.find(
+            {"id": {"$in": list(customer_ids)}},
+            {"id": 1, "name": 1, "email": 1},
+        )
+    } if customer_ids else {}
     items = []
     for row in rows:
         item = db._public(row)
-        user = users.get(int(item.get("user_id") or 0), {})
-        first_name = str(user.get("first_name") or "").strip()
-        last_name = str(user.get("last_name") or "").strip()
-        item["first_name"] = first_name
-        item["last_name"] = last_name
-        item["full_name"] = str(user.get("full_name") or " ".join(filter(None, (first_name, last_name)))).strip()
-        item["username"] = str(user.get("username") or "").strip()
+        if item.get("channel") == "tn_site":
+            customer = customers.get(int(item.get("customer_id") or 0), {})
+            item["full_name"] = str(customer.get("name") or "").strip()
+            item["username"] = str(customer.get("email") or "").strip()
+            item["first_name"] = item["full_name"]
+            item["last_name"] = ""
+        else:
+            user = users.get(int(item.get("user_id") or 0), {})
+            first_name = str(user.get("first_name") or "").strip()
+            last_name = str(user.get("last_name") or "").strip()
+            item["first_name"] = first_name
+            item["last_name"] = last_name
+            item["full_name"] = str(user.get("full_name") or " ".join(filter(None, (first_name, last_name)))).strip()
+            item["username"] = str(user.get("username") or "").strip()
         items.append(item)
     return {
         "items": items,
@@ -926,7 +946,7 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
         )
 
     open_tickets = list(conn.support_tickets.find(
-        {"status": {"$in": ["open", "waiting_admin"]}},
+        {"status": {"$in": ["open", "waiting_admin"]}, "channel": {"$ne": "tn_site"}},
     ).sort("updated_at", DESCENDING).limit(0 if complete else 30))
     remember(open_tickets)
     for ticket in open_tickets:
@@ -940,6 +960,32 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             title="Nouveau produit demandé" if is_product_request else "Réponse client attendue",
             message=f"Ticket #{ticket_id} · {customer_name(ticket.get('user_id'))} · {ticket.get('subject') or ticket.get('category') or ticket.get('message') or 'Nouvelle demande'}",
             page="product-requests" if is_product_request else "support", entity_id=ticket_id,
+            created_at=ticket_date,
+        )
+
+    site_tickets = list(conn.support_tickets.find(
+        {"status": {"$in": ["open", "waiting_admin"]}, "channel": "tn_site"},
+    ).sort("updated_at", DESCENDING).limit(0 if complete else 30))
+    remember(site_tickets)
+    site_names = {
+        int(row["id"]): row.get("name") or row.get("email") or "Client site"
+        for row in conn.storefront_customers.find(
+            {"id": {"$in": [int(ticket["customer_id"]) for ticket in site_tickets if ticket.get("customer_id") is not None]}},
+            {"id": 1, "name": 1, "email": 1},
+        )
+    } if site_tickets else {}
+    for ticket in site_tickets:
+        ticket_id = ticket.get("id")
+        ticket_date = ticket.get("updated_at") or ticket.get("created_at")
+        is_product_request = ticket.get("category") == "catalog_request"
+        add(
+            f"site-ticket:{ticket_id}:{ticket.get('status')}:{int(_event_timestamp(ticket_date))}",
+            category="product_request" if is_product_request else "support",
+            severity="warning",
+            title="Demande produit du site" if is_product_request else "Support du site",
+            message=f"Ticket #{ticket_id} · {site_names.get(int(ticket.get('customer_id') or 0), 'Client site')}",
+            page="site-product-requests" if is_product_request else "site-support",
+            entity_id=ticket_id,
             created_at=ticket_date,
         )
 
@@ -959,7 +1005,7 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
 
     pending_warranty_statuses = ["pending_admin_check", "pending", "waiting_admin"]
     pending_warranties = list(conn.warranty_requests.find(
-        {"status": {"$in": pending_warranty_statuses}},
+        {"status": {"$in": pending_warranty_statuses}, "channel": {"$ne": "tn_site"}},
     ).sort("updated_at", DESCENDING).limit(0 if complete else 30))
     remember(pending_warranties)
     for warranty in pending_warranties:
@@ -969,6 +1015,20 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             category="warranty", severity="warning", title="Garantie à contrôler",
             message=f"Demande #{warranty_id} · commande #{warranty.get('order_id')} · {customer_name(warranty.get('user_id'))}",
             page="warranties", entity_id=warranty_id,
+            created_at=warranty.get("updated_at") or warranty.get("created_at"),
+        )
+
+    site_warranties = list(conn.warranty_requests.find(
+        {"status": {"$in": pending_warranty_statuses}, "channel": "tn_site"},
+    ).sort("updated_at", DESCENDING).limit(0 if complete else 30))
+    remember(site_warranties)
+    for warranty in site_warranties:
+        warranty_id = warranty.get("id")
+        add(
+            f"site-warranty:{warranty_id}:{warranty.get('status')}",
+            category="warranty", severity="warning", title="Garantie du site",
+            message=f"Demande #{warranty_id} · commande #{warranty.get('order_id')}",
+            page="site-warranties", entity_id=warranty_id,
             created_at=warranty.get("updated_at") or warranty.get("created_at"),
         )
 
@@ -1066,7 +1126,8 @@ def list_warranties(params: dict[str, list[str]]) -> dict[str, Any]:
     """Return warranty cases with their customer and order context."""
     page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
     per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
-    query: dict[str, Any] = {}
+    channel = (_first(params, "channel") or "").strip()
+    query: dict[str, Any] = {"channel": "tn_site" if channel == "tn_site" else {"$ne": "tn_site"}}
     status = _first(params, "status")
     if status and status != "all":
         query["status"] = status
@@ -1083,20 +1144,27 @@ def list_warranties(params: dict[str, list[str]]) -> dict[str, Any]:
     items = []
     for row in rows:
         item = db._public(row)
-        user = conn.users.find_one({"telegram_id": int(item["user_id"])}) or {}
+        if item.get("channel") == "tn_site":
+            customer = conn.storefront_customers.find_one({"id": int(item.get("customer_id") or 0)}) or {}
+            item["username"] = customer.get("email") or ""
+            item["full_name"] = customer.get("name") or ""
+            item["refund_amount"] = int(item.get("refund_millimes") or 0) / 1000
+        else:
+            user = conn.users.find_one({"telegram_id": int(item.get("user_id") or 0)}) or {}
+            item["username"] = user.get("username") or ""
+            item["full_name"] = user.get("full_name") or user.get("first_name") or ""
         order = conn.orders.find_one({"id": int(item.get("order_id") or 0)}) or {}
-        item["username"] = user.get("username") or ""
-        item["full_name"] = user.get("full_name") or user.get("first_name") or ""
         item["product"] = order.get("offer_name") or order.get("service_name") or "Produit"
         item["order_status"] = order.get("status") or ""
         item["warranty"] = order.get("warranty") or order.get("warranty_days") or "NW"
         items.append(item)
     actionable = ["pending_admin_check", "accepted", "replacement_pending"]
+    scope = {"channel": query["channel"]}
     summary = {
-        "actionable": conn.warranty_requests.count_documents({"status": {"$in": actionable}}),
-        "pending": conn.warranty_requests.count_documents({"status": "pending_admin_check"}),
-        "accepted": conn.warranty_requests.count_documents({"status": "accepted"}),
-        "completed": conn.warranty_requests.count_documents({"status": {"$in": ["refunded", "replacement_delivered"]}}),
+        "actionable": conn.warranty_requests.count_documents({**scope, "status": {"$in": actionable}}),
+        "pending": conn.warranty_requests.count_documents({**scope, "status": "pending_admin_check"}),
+        "accepted": conn.warranty_requests.count_documents({**scope, "status": "accepted"}),
+        "completed": conn.warranty_requests.count_documents({**scope, "status": {"$in": ["refunded", "replacement_delivered"]}}),
     }
     return {"items": items, "page": page, "per_page": per_page, "total": total,
             "pages": max(1, (total + per_page - 1) // per_page), "summary": summary}

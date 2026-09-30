@@ -162,8 +162,9 @@ def test_wallet_payment_is_debited_and_delivered_from_inventory(mock_mongodb, cu
 
     assert result["status"] == "delivered"
     assert result["balance_millimes"] == 10000
-    (message,) = sent_emails
+    message, invoice = sent_emails
     assert message["subject"] == f"Ta commande {result['reference']} est livrée"
+    assert invoice["subject"].endswith(result["reference"]) and invoice["attachments"]
     assert "user1@mail.tn:pass1" in message["text"]
     (cart,) = storefront_service.customer_carts(customer["id"])
     assert cart["status"] == "delivered"
@@ -180,7 +181,9 @@ def test_wallet_payment_without_inventory_waits_for_the_admin(mock_mongodb, cust
     assert result["status"] == "confirmed"
     assert result["balance_millimes"] == 0
     assert db.get_order(result["order_ids"][0])["status"] == OrderStatus.PAYMENT_CONFIRMED
-    assert sent_emails[-1]["subject"] == f"Paiement confirmé — {result['reference']}"
+    confirmed, invoice = sent_emails
+    assert confirmed["subject"] == f"Paiement confirmé — {result['reference']}"
+    assert invoice["subject"].startswith("Ta facture FAC-")
 
 
 def test_wallet_payment_with_insufficient_balance_creates_nothing(mock_mongodb, customer):

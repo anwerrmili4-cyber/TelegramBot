@@ -78,8 +78,14 @@ const SITE_NAV_GROUPS = [
     { id: "site-overview", label: "Tableau de bord", icon: LayoutDashboard },
     { id: "site-orders", label: "Commandes", icon: ClipboardList },
     { id: "site-deposits", label: "Recharges", icon: WalletCards },
-    { id: "site-catalog", label: "Catalogue du site", icon: ShoppingBag },
     { id: "site-customers", label: "Clients", icon: Users },
+    { id: "site-support", label: "Support", icon: Headphones },
+    { id: "site-product-requests", label: "Demandes produits", icon: PackageSearch },
+    { id: "site-warranties", label: "Garanties", icon: ShieldCheck },
+  ] },
+  { label: "Catalogue du site", items: [
+    { id: "site-catalog", label: "Catalogue du site", icon: ShoppingBag },
+    { id: "site-inventory", label: "Inventaire partagé", icon: Boxes },
     { id: "site-settings", label: "Paramètres", icon: Settings },
   ] },
 ];
@@ -150,6 +156,9 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const productRequests = data?.summary?.product_requests || 0;
   const siteCarts = data?.summary?.site_carts_to_verify || 0;
   const siteDeposits = data?.summary?.site_deposits_pending || 0;
+  const siteTickets = data?.summary?.site_open_tickets || 0;
+  const siteRequests = data?.summary?.site_product_requests || 0;
+  const siteWarranties = data?.summary?.site_warranties || 0;
   const [collapsedGroups, setCollapsedGroups] = useState(readCollapsedGroups);
   const updateCollapsed = (update) => setCollapsedGroups((current) => {
     const next = new Set(current);
@@ -181,12 +190,12 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
 
         <div className="workspace-switch" role="tablist" aria-label="Espace d’administration">
           <button type="button" role="tab" aria-selected={!siteMode} onClick={() => siteMode && onNavigate("overview")}><Bot size={15} />Bot Telegram</button>
-          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts + siteDeposits > 0 && <small>{siteCarts + siteDeposits}</small>}</button>
+          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties > 0 && <small>{siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties}</small>}</button>
         </div>
 
         <nav className="nav-list" aria-label="Navigation principale">
           {groups.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
-            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "site-deposits" ? siteDeposits : id === "support" ? openTickets : id === "product-requests" ? productRequests : 0;
+            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "site-deposits" ? siteDeposits : id === "support" ? openTickets : id === "product-requests" ? productRequests : id === "site-support" ? siteTickets : id === "site-product-requests" ? siteRequests : id === "site-warranties" ? siteWarranties : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
         </nav>
@@ -698,15 +707,15 @@ export default function App() {
       const target = page === "overview" ? "/admin" : `/admin/${page}`;
       const query = page === "orders" && entityId != null
         ? `?order=${encodeURIComponent(entityId)}`
-        : page === "support" && entityId != null
+        : (page === "support" || page === "site-support") && entityId != null
           ? `?ticket=${encodeURIComponent(entityId)}`
-          : page === "product-requests" && entityId != null
+          : (page === "product-requests" || page === "site-product-requests") && entityId != null
             ? `?request=${encodeURIComponent(entityId)}`
           : page === "customers" && entityId != null
             ? `?user=${encodeURIComponent(entityId)}`
           : page === "withdrawals" && entityId != null
             ? `?withdrawal=${encodeURIComponent(entityId)}`
-            : page === "warranties" && entityId != null
+            : (page === "warranties" || page === "site-warranties") && entityId != null
               ? `?warranty=${encodeURIComponent(entityId)}`
           : "";
       window.history.pushState({}, "", target + query);

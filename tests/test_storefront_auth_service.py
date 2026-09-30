@@ -325,3 +325,22 @@ def test_google_sign_in_is_off_without_a_client_id(mock_mongodb, monkeypatch):
     with pytest.raises(auth.AuthError) as off:
         auth.google_login({"credential": "id-token"}, "1.1.1.1")
     assert off.value.status == 503
+
+
+def test_invoice_download_is_limited_to_its_owner(mock_mongodb, sent_emails):
+    owner = _register_verified(sent_emails)
+    stranger = _register_verified(sent_emails, {**CUSTOMER, "email": "sana@example.com"})
+    mock_mongodb.storefront_invoices.insert_one({
+        "id": 1, "number": "FAC-2026-00001", "cart_reference": "TN-ABC123",
+        "customer_id": owner["customer"]["id"], "customer_name": "Amine", "customer_email": "amine@example.com",
+        "items": [{"offer_name": "Netflix", "quantity": 1, "unit_millimes": 15000, "total_millimes": 15000}],
+        "total_millimes": 15000, "refunded_millimes": 0, "payment_label": "Flouci",
+        "paid_at": 1_790_000_000, "issued_at": 1_790_000_000, "seller": {"name": "BLACKMARKET Tunisie"},
+    })
+
+    number, pdf = auth.invoice_pdf(owner["token"], "tn-abc123")
+    assert number == "FAC-2026-00001" and pdf.startswith(b"%PDF")
+    with pytest.raises(auth.AuthError, match="introuvable"):
+        auth.invoice_pdf(stranger["token"], "TN-ABC123")
+    with pytest.raises(auth.AuthError, match="introuvable"):
+        auth.invoice_pdf(owner["token"], "TN-NOPE00")

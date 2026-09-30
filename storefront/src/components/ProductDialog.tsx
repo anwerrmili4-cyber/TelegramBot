@@ -92,9 +92,12 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                 <small>par unité</small>
               </p>
               {period ? <p className="product-stage-period">{period}</p> : null}
-              <p className="product-description">
-                {shown.description || "Service digital disponible directement depuis notre catalogue."}
-              </p>
+              <section className="product-description-section" aria-label="Description">
+                <h3>Description</h3>
+                <p className="product-description">
+                  {shown.description || "Service digital disponible directement depuis notre catalogue."}
+                </p>
+              </section>
             </div>
             {shown.image_url ? (
               <TiltMedia className="product-media" restX={6} restY={-8}>

@@ -4,8 +4,9 @@ A storefront cart is stored as one order document per line, all sharing a
 ``cart_reference``. A cart is paid in one go, either from the customer's wallet
 or by a D17/Flouci/IZI/Wafa Cash transfer whose receipt the admin verifies.
 
-Once paid, each line is delivered from the bot's encrypted inventory when it
-has stock, exactly like a bot sale. Lines without inventory wait for the admin
+Once paid, each line is delivered from the shared inventory, or purchased from
+the same reseller API the bot uses when the offer is linked to a supplier.
+Lines without stock wait for the admin
 to type the access details, which are emailed to the customer and shown in
 their account. Cancelling a paid line refunds it to the customer's wallet.
 """
@@ -18,7 +19,14 @@ from typing import Any
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import email_service, inventory_service, site_settings_service, storefront_wallet_service
+from app.domain import (
+    email_service,
+    inventory_service,
+    reseller_service,
+    site_settings_service,
+    storefront_invoice_service,
+    storefront_wallet_service,
+)
 
 SALES_CHANNEL = "tn_site"
 AUTOMATIC_DELIVERY = "[encrypted automatic delivery]"
@@ -195,6 +203,9 @@ def list_carts(params: dict[str, list[str]]) -> dict[str, Any]:
     for line in orders.find({**base, "cart_reference": {"$in": shown}}, {"_id": 0}):
         grouped[line["cart_reference"]].append(line)
     carts = [_cart_summary(reference, grouped[reference]) for reference in shown if grouped[reference]]
+    invoices = storefront_invoice_service.numbers_for(shown)
+    for cart in carts:
+        cart["invoice_number"] = invoices.get(cart["reference"], "")
     return {
         "ok": True,
         "items": carts,
@@ -265,7 +276,14 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
     for line in lines:
         if str(line.get("status")) not in _CONFIRMED:
             continue
-        values = inventory_service.deliver_for_order(int(line["id"]))
+        offer = db.get_offer(int(line.get("offer_id") or 0)) or {}
+        if offer.get("supplier_provider"):
+            try:
+                values = reseller_service.fulfill_paid_order(int(line["id"]))
+            except reseller_service.ResellerApiError:
+                values = None
+        else:
+            values = inventory_service.deliver_for_order(int(line["id"]))
         if values:
             delivered.append((line, "\n".join(values)))
 
@@ -286,6 +304,7 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
         )
     if waiting:
         email_service.send_payment_confirmed(email, name, reference, _email_items(waiting), _cart_total(lines))
+    storefront_invoice_service.issue_quietly(reference)
     return {"reference": reference, "delivered": len(delivered), "waiting": len(waiting)}
 
 
@@ -392,6 +411,7 @@ def cancel_cart(reference: str, reason: str = "") -> dict[str, Any]:
                 int(customer_id), refund, kind="refund", reference=reference, note=str(line.get("offer_name") or "")
             )
             refunded += refund
+    storefront_invoice_service.record_refund(reference, refunded)
 
     db.audit_event(
         "site_cart.cancelled",
