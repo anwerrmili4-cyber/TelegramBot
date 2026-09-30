@@ -27,6 +27,10 @@ a.sidebar-footer { color:inherit; text-decoration:none; }
 .site-rank b, .site-recent b { flex:none; font-size:13px; }
 .site-history { margin-top:14px; }
 
+.site-page .site-tabs { margin-bottom: 4px; }
+.site-page .workspace-tabs { margin-top: 14px; }
+.site-catalog-groups { margin-bottom: 22px; }
+.site-catalog-groups .catalog-offer-table td > small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
 .site-tabs { display:flex; gap:6px; flex-wrap:wrap; }
 .site-tabs button { display:flex; align-items:center; gap:7px; min-height:36px; padding:0 14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--muted); font:inherit; font-size:13px; font-weight:600; cursor:pointer; }
 .site-tabs button[aria-selected="true"] { border-color:var(--accent); color:var(--text); box-shadow:inset 0 0 0 1px var(--accent); }

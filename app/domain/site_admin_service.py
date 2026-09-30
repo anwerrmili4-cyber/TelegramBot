@@ -121,6 +121,7 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
     price = storefront_service._price_millimes(offer)
     unlimited = bool(offer.get("unlimited_stock"))
     configured_category = str(offer.get("site_category") or "").strip().lower()
+    category = storefront_service._category(service, offer)
     active = bool(offer.get("active", 1))
     service_active = bool(service.get("active", 1))
     period_days = int(offer.get("period_days") or 0)
@@ -152,7 +153,8 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "site_featured": bool(offer.get("site_featured")),
         "site_badge": str(offer.get("site_badge") or ""),
         "site_category": configured_category if configured_category in storefront_service.CATEGORY_LABELS else "",
-        "effective_category": storefront_service._category(service, offer),
+        "effective_category": category,
+        "category_label": storefront_service.CATEGORY_LABELS[category],
         "site_description_fr": str(offer.get("site_description_fr") or ""),
         "site_image_url": str(offer.get("site_image_url") or ""),
         "description": str(offer.get("description") or ""),
@@ -163,6 +165,26 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
             and storefront_service._offer_on_sale(offer)
         ),
     }
+
+
+def _catalog_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group the filtered catalog by storefront category, skipping empty ones."""
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        buckets.setdefault(row["effective_category"], []).append(row)
+    groups = []
+    for key, label in storefront_service.CATEGORY_LABELS.items():
+        items = buckets.get(key) or []
+        if not items:
+            continue
+        groups.append({
+            "id": key,
+            "label": label,
+            "count": len(items),
+            "on_sale": sum(1 for item in items if item["on_sale"]),
+            "items": items,
+        })
+    return groups
 
 
 def _catalog_status(row: dict[str, Any]) -> str:
@@ -223,6 +245,7 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
     return {
         "ok": True,
         **_paginate(rows, params),
+        "groups": _catalog_groups(rows),
         "counts": counts,
         "status": status,
         "services": services,

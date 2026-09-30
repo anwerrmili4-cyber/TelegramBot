@@ -52,6 +52,28 @@ def test_catalog_groups_offers_by_site_status(mock_mongodb):
     assert [row["id"] for row in only_unpriced["items"]] == [unpriced]
 
 
+def test_catalog_groups_offers_by_storefront_category(mock_mongodb):
+    _, netflix = _offer(name="Netflix 1 mois", service="Netflix")
+    _, other = _offer(name="Boite mystere", millimes=None, service="Divers")
+
+    result = site_admin_service.catalog({})
+    groups = {group["id"]: group for group in result["groups"]}
+    assert [group["id"] for group in result["groups"]] == ["streaming", "other"]
+    assert groups["streaming"]["label"] == "Streaming"
+    assert groups["streaming"]["count"] == 1
+    assert groups["streaming"]["on_sale"] == 1
+    assert [row["id"] for row in groups["streaming"]["items"]] == [netflix]
+    assert groups["streaming"]["items"][0]["category_label"] == "Streaming"
+    assert groups["other"]["label"] == "Autres services"
+    assert [row["id"] for row in groups["other"]["items"]] == [other]
+    assert groups["other"]["on_sale"] == 0
+
+    filtered = site_admin_service.catalog({"status": ["no_price"]})
+    assert [group["id"] for group in filtered["groups"]] == ["other"]
+    assert filtered["groups"][0]["items"][0]["id"] == other
+    assert [row["id"] for row in filtered["items"]] == [other]
+
+
 def test_update_offer_sets_and_clears_the_dinar_price(mock_mongodb):
     _, offer_id = _offer(millimes=None)
     site_admin_service.update_offer({

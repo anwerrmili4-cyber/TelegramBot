@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Boxes,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
   Coins,
   Copy,
@@ -528,12 +529,19 @@ function SiteCatalogPage({ onAction }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [serviceId, setServiceId] = useState("");
-  const [page, setPage] = useState(1);
+  const [category, setCategory] = useState("");
+  const [collapsed, setCollapsed] = useState(() => new Set());
   const [editor, setEditor] = useState(null);
-  const [result, loading] = useRemoteList("/admin/api/site-catalog", { search, status, service_id: serviceId, page, per_page: 30 });
+  const [result, loading] = useRemoteList("/admin/api/site-catalog", { search, status, service_id: serviceId });
   const counts = result.counts || {};
   const services = result.services || [];
   const categories = result.categories || [];
+  const groups = result.groups || [];
+  const visibleGroups = category ? groups.filter((group) => group.id === category) : groups;
+  const visibleCount = visibleGroups.reduce((total, group) => total + group.count, 0);
+  useEffect(() => {
+    if (category && !(result.groups || []).some((group) => group.id === category)) setCategory("");
+  }, [category, result.groups]);
   const close = () => setEditor(null);
   const run = async (payload) => {
     if (await onAction(payload)) { close(); refreshLists(); }
@@ -541,6 +549,11 @@ function SiteCatalogPage({ onAction }) {
   const toggleService = async (service) => {
     if (await onAction({ action: "site_service_visibility", service_id: service.id, site_enabled: service.site_enabled ? "0" : "1" })) refreshLists();
   };
+  const toggleCollapse = (id) => setCollapsed((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const newProduct = () => setEditor(services.length ? { type: "product" } : { type: "service" });
   const tabs = [["all", "Toutes"], ["on_sale", "En vente"], ["no_price", "Sans prix DT"], ["hidden", "Masquées"], ["disabled", "Désactivées"]];
   return <div className="operations-page site-page">
@@ -553,43 +566,68 @@ function SiteCatalogPage({ onAction }) {
       </>}
     />
     <div className="site-tabs" role="tablist" aria-label="Filtrer les offres">
-      {tabs.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={status === value} onClick={() => { setStatus(value); setPage(1); }}>{label}<small>{counts[value] ?? 0}</small></button>)}
+      {tabs.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={status === value} onClick={() => setStatus(value)}>{label}<small>{counts[value] ?? 0}</small></button>)}
     </div>
-    <FilterBar search={search} setSearch={(value) => { setSearch(value); setPage(1); }} placeholder="Rechercher une offre ou un service…" resultCount={result.total}>
-      <select value={serviceId} onChange={(event) => { setServiceId(event.target.value); setPage(1); }} aria-label="Service">
+    <div className="workspace-tabs" role="group" aria-label="Catégories du catalogue">
+      <button type="button" aria-pressed={!category} onClick={() => setCategory("")}>Toutes les catégories</button>
+      {groups.map((group) => <button key={group.id} type="button" aria-pressed={category === group.id} onClick={() => setCategory(group.id)}>{group.label}<small> {group.count}</small></button>)}
+    </div>
+    <FilterBar search={search} setSearch={setSearch} placeholder="Rechercher une offre ou un service…" resultCount={visibleCount}>
+      <select value={serviceId} onChange={(event) => setServiceId(event.target.value)} aria-label="Service">
         <option value="">Tous les services</option>
         {services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
       </select>
     </FilterBar>
-    <section className="data-panel" aria-busy={loading}>
-      {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement du catalogue…</div>
-        : !result.items.length ? <Empty icon={ShoppingBag} title="Aucune offre" text={counts.all ? "Aucune offre ne correspond à ce filtre." : "Créez un service puis ajoutez votre premier produit."} />
-        : <div className="responsive-table"><table className="site-catalog-table">
-          <thead><tr><th>Offre</th><th>Prix bot</th><th>Prix site</th><th>Stock</th><th>Statut</th><th /></tr></thead>
-          <tbody>{result.items.map((row) => {
-            const [label, className] = CATALOG_STATUS[catalogStatus(row)];
-            const canStock = !row.unlimited_stock && !row.supplier_provider && !row.manual_stock;
-            return <tr key={row.id} className={row.active && row.service_active ? "" : "site-row-disabled"}>
-              <td><div className="site-offer-cell">
-                {row.site_image_url || row.service_logo_url ? <img className="site-thumb" src={row.site_image_url || row.service_logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
-                <div><strong>{row.name}</strong><small>{row.service_name}{row.site_featured && <em className="site-chip"><Sparkles size={11} />Vedette</em>}{row.site_badge && <em className="site-chip">{row.site_badge}</em>}</small></div>
-              </div></td>
-              <td>{row.bot_price_usdt} USDT</td>
-              <td>{row.tn_price_millimes ? <strong>{dinars(row.tn_price_millimes)}</strong> : <small>Suggestion {dinars(row.suggested_price_millimes)}</small>}</td>
-              <td>{row.stock < 0 ? "∞" : row.stock}</td>
-              <td><span className={`status ${className}`}>{label}</span>{!row.service_active ? <small>Service désactivé</small> : !row.service_visible && <small>Service masqué</small>}</td>
-              <td><div className="site-row-actions">
-                <ActionButton secondary icon={Edit3} onClick={() => setEditor({ type: "product", row })}>{row.tn_price_millimes ? "Modifier" : "Fixer le prix"}</ActionButton>
-                {canStock && <button type="button" title="Ajouter du stock" aria-label={`Ajouter du stock à ${row.name}`} onClick={() => setEditor({ type: "stock", row })}><Boxes size={15} /></button>}
-                <button type="button" title="Dupliquer" aria-label={`Dupliquer ${row.name}`} onClick={() => run({ action: "duplicate_offer", offer_id: row.id })}><Copy size={15} /></button>
-                <button type="button" title={row.active ? "Désactiver (site et bot)" : "Réactiver"} aria-label={`${row.active ? "Désactiver" : "Réactiver"} ${row.name}`} onClick={() => run({ action: "toggle_offer", offer_id: row.id })}>{row.active ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
-                <button type="button" className="danger" title="Supprimer" aria-label={`Supprimer ${row.name}`} onClick={() => setEditor({ type: "delete", target: { type: "offer", item: row } })}><Trash2 size={15} /></button>
-              </div></td>
-            </tr>;
-          })}</tbody>
-        </table></div>}
-      <Pagination value={result} onChange={setPage} />
-    </section>
+    {loading && !groups.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement du catalogue…</div>
+      : !visibleGroups.length ? <Empty icon={ShoppingBag} title="Aucune offre" text={counts.all ? "Aucune offre ne correspond à ce filtre." : "Créez un service puis ajoutez votre premier produit."} />
+      : <div className="catalog-react-grid catalog-table-template catalog-list-view site-catalog-groups" aria-busy={loading}>
+        {visibleGroups.map((group) => {
+          const folded = collapsed.has(group.id);
+          return <section key={group.id} className={`data-panel catalog-collection ${folded ? "collapsed" : ""}`}>
+            <header className="panel-heading catalog-collection-heading">
+              <div className="catalog-collection-title">
+                <button type="button" className="catalog-collection-toggle" onClick={() => toggleCollapse(group.id)} aria-expanded={!folded} aria-label={`${folded ? "Déplier" : "Replier"} ${group.label}`}><ChevronRight size={16} /></button>
+                <div>
+                  <span className="eyebrow">Catégorie · {group.count} produit(s) · {group.on_sale} en vente</span>
+                  <h2>{group.label}</h2>
+                </div>
+              </div>
+            </header>
+            <div className="catalog-offers">
+              <div className="catalog-offers-content">
+                <div className="responsive-table">
+                  <table className="catalog-offer-table site-catalog-table">
+                    <thead><tr><th>Produit</th><th>Prix bot</th><th>Prix site</th><th>Stock</th><th>Statut</th><th>Actif</th><th className="catalog-col-actions" aria-label="Actions" /></tr></thead>
+                    <tbody>{group.items.map((row) => {
+                      const [label, className] = CATALOG_STATUS[catalogStatus(row)];
+                      const enabled = row.active && row.service_active;
+                      const canStock = !row.unlimited_stock && !row.supplier_provider && !row.manual_stock;
+                      return <tr key={row.id} className={`offer-row ${enabled ? "" : "inactive"}`}>
+                        <td className="catalog-col-name"><div className="site-offer-cell">
+                          {row.site_image_url || row.service_logo_url ? <img className="site-thumb" src={row.site_image_url || row.service_logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
+                          <div><strong>{row.name}</strong><small>{row.service_name}{row.site_featured && <em className="site-chip"><Sparkles size={11} />Vedette</em>}{row.site_badge && <em className="site-chip">{row.site_badge}</em>}</small></div>
+                        </div></td>
+                        <td>{row.bot_price_usdt} USDT</td>
+                        <td className="catalog-col-price">{row.tn_price_millimes ? <strong>{dinars(row.tn_price_millimes)}</strong> : <small>Suggestion {dinars(row.suggested_price_millimes)}</small>}</td>
+                        <td>{row.stock < 0 ? "∞" : row.stock}</td>
+                        <td><span className={`status ${className}`}>{label}</span>{!row.service_active ? <small>Service désactivé</small> : !row.service_visible && <small>Service masqué</small>}</td>
+                        <td><span className={`status ${enabled ? "delivered" : "cancelled"}`}>{enabled ? "Actif" : "Désactivé"}</span></td>
+                        <td className="catalog-col-actions"><div className="site-row-actions">
+                          <ActionButton secondary icon={Edit3} onClick={() => setEditor({ type: "product", row })}>{row.tn_price_millimes ? "Modifier" : "Fixer le prix"}</ActionButton>
+                          {canStock && <button type="button" title="Ajouter du stock" aria-label={`Ajouter du stock à ${row.name}`} onClick={() => setEditor({ type: "stock", row })}><Boxes size={15} /></button>}
+                          <button type="button" title="Dupliquer" aria-label={`Dupliquer ${row.name}`} onClick={() => run({ action: "duplicate_offer", offer_id: row.id })}><Copy size={15} /></button>
+                          <button type="button" title={row.active ? "Désactiver (site et bot)" : "Réactiver"} aria-label={`${row.active ? "Désactiver" : "Réactiver"} ${row.name}`} onClick={() => run({ action: "toggle_offer", offer_id: row.id })}>{row.active ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
+                          <button type="button" className="danger" title="Supprimer" aria-label={`Supprimer ${row.name}`} onClick={() => setEditor({ type: "delete", target: { type: "offer", item: row } })}><Trash2 size={15} /></button>
+                        </div></td>
+                      </tr>;
+                    })}</tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>;
+        })}
+      </div>}
     <section className="site-panel">
       <header><h3><Globe2 size={17} />Services</h3><small>Masquer un service retire ses offres du site sans toucher au bot. Le désactiver le retire des deux.</small></header>
       {!services.length ? <Empty icon={Globe2} title="Aucun service" text="Créez un premier service pour y ranger vos produits." />
