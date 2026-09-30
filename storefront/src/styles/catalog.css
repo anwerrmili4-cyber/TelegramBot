@@ -217,39 +217,26 @@
 }
 
 .offer-media {
-  display: block;
-  height: 128px;
+  display: grid;
+  place-items: center;
+  height: 188px;
   margin-top: 15px;
+  padding: 16px 14px 22px;
   overflow: hidden;
   border-radius: var(--radius);
-  background: var(--ink-600);
+  background: radial-gradient(ellipse at 50% 38%, #ffffff 0%, #e8ebf0 78%);
 }
 
 .offer-media img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transition: transform 0.4s var(--ease);
-}
-
-.offer:hover .offer-media img {
-  transform: scale(1.04);
+  object-fit: contain;
 }
 
 .offer h3 {
   margin-top: 18px;
   font-size: 18px;
   transition: color 0.16s var(--ease);
-}
-
-.offer-description {
-  display: -webkit-box;
-  margin-top: 8px;
-  overflow: hidden;
-  color: var(--text-mute);
-  font-size: 13px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .offer-facts {

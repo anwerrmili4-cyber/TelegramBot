@@ -14,6 +14,7 @@ import {
 import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { ServiceMark } from "@/components/ServiceMark";
+import { TiltMedia } from "@/components/TiltMedia";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import type { Offer } from "@/types";
@@ -80,25 +81,27 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
         </header>
 
         <div className="product-body">
-          {shown.image_url ? (
-            <div className="product-media">
-              <img src={assetUrl(shown.image_url)} alt={shown.name} decoding="async" />
+          <div className={`product-stage${shown.image_url ? "" : " product-stage-plain"}`}>
+            <div className="product-stage-copy">
+              <div className="product-title">
+                <h2 id="product-title">{shown.name}</h2>
+                {shown.badge ? <em className="offer-badge">{shown.badge}</em> : null}
+              </div>
+              <p className="product-price">
+                <strong>{money(shown.price_millimes)}</strong>
+                <small>par unité</small>
+              </p>
+              {period ? <p className="product-stage-period">{period}</p> : null}
+              <p className="product-description">
+                {shown.description || "Service digital disponible directement depuis notre catalogue."}
+              </p>
             </div>
-          ) : null}
-
-          <div className="product-title">
-            <h2 id="product-title">{shown.name}</h2>
-            {shown.badge ? <em className="offer-badge">{shown.badge}</em> : null}
+            {shown.image_url ? (
+              <TiltMedia className="product-media">
+                <img src={assetUrl(shown.image_url)} alt="" decoding="async" />
+              </TiltMedia>
+            ) : null}
           </div>
-
-          <div className="product-price">
-            <strong>{money(shown.price_millimes)}</strong>
-            <small>par unité</small>
-          </div>
-
-          <p className="product-description">
-            {shown.description || "Service digital disponible directement depuis notre catalogue."}
-          </p>
 
           <dl className="product-facts">
             {facts.map(({ icon: Icon, label, value }) => (

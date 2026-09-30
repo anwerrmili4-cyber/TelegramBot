@@ -266,6 +266,40 @@
   animation-delay: calc(140ms + min(var(--index, 0), 8) * 50ms);
 }
 
+/* ---------- Product pictures ---------- */
+
+.tilt-media {
+  perspective: 900px;
+}
+
+.tilt-media img {
+  width: auto;
+  max-width: 82%;
+  height: auto;
+  max-height: 78%;
+  object-fit: contain;
+  transform: rotateX(var(--tilt-x, 14deg)) rotateY(var(--tilt-y, -20deg)) translateZ(28px);
+  transform-style: preserve-3d;
+  filter: drop-shadow(16px 26px 14px rgba(20, 24, 32, 0.32));
+  transition: transform 0.45s var(--ease);
+  animation: tilt-bob 4.8s ease-in-out infinite;
+}
+
+.tilt-media:hover img {
+  transition: transform 0.08s linear;
+  animation: none;
+}
+
+@keyframes tilt-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -7px;
+  }
+}
+
 /* ---------- Opt out ---------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -294,6 +328,13 @@
   }
 
   .cart-bar {
+    transition: none;
+  }
+
+  .tilt-media img {
+    animation: none;
+    transform: none;
+    filter: none;
     transition: none;
   }
 }
