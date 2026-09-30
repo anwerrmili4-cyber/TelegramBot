@@ -290,6 +290,16 @@
   animation: none;
 }
 
+/* The sheet image stays inside its frame so the tilt cannot cover the text. */
+.product-media.tilt-media img {
+  width: auto;
+  max-width: 72%;
+  height: auto;
+  max-height: 128px;
+  transform: rotateX(var(--tilt-x, 6deg)) rotateY(var(--tilt-y, -8deg));
+  filter: drop-shadow(8px 14px 10px rgba(20, 24, 32, 0.18));
+}
+
 @keyframes tilt-bob {
   0%,
   100% {

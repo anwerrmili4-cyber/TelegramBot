@@ -97,7 +97,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
               </p>
             </div>
             {shown.image_url ? (
-              <TiltMedia className="product-media">
+              <TiltMedia className="product-media" restX={6} restY={-8}>
                 <img src={assetUrl(shown.image_url)} alt="" decoding="async" />
               </TiltMedia>
             ) : null}
