@@ -313,12 +313,33 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
   const autoLabel = row ? categories.find((item) => item.id === row.effective_category)?.label || "Autres services" : "selon le nom";
   const suggestedMillimes = Math.round((parseDecimal(form.price) * rate * 10)) * 100;
   const derivedUsdt = !form.price && form.tn_price && rate ? (parseDecimal(form.tn_price) / rate).toFixed(2) : "";
+  const [image, setImage] = useState("");
+  const [removeImage, setRemoveImage] = useState(false);
+  const [imageError, setImageError] = useState("");
+  const uploadedUrl = form.site_image_url.startsWith(OFFER_IMAGE_PATH) ? form.site_image_url : "";
+  const serviceLogo = services.find((service) => String(service.id) === String(form.service_id))?.logo_url || "";
+  const imagePreview = image || form.site_image_url;
+  const pickImage = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!LOGO_TYPES.includes(file.type)) { setImageError("Format accepté : PNG, JPEG ou WebP."); return; }
+    if (file.size > MAX_OFFER_IMAGE_BYTES) { setImageError("L’image doit peser moins de 1 Mo."); return; }
+    setImageError("");
+    const reader = new FileReader();
+    reader.onload = () => { setImage(String(reader.result || "")); setRemoveImage(false); };
+    reader.onerror = () => setImageError("Impossible de lire ce fichier.");
+    reader.readAsDataURL(file);
+  };
+  const clearImage = () => { setImage(""); set("site_image_url", ""); setRemoveImage(true); };
   const submit = (event) => {
     event.preventDefault();
     onSave({
       action: "site_offer_save",
       ...(row ? { offer_id: row.id } : {}),
       ...form,
+      image,
+      remove_image: removeImage ? "1" : "0",
       site_enabled: form.site_enabled ? "1" : "0",
       site_featured: form.site_featured ? "1" : "0",
       auto_delivery: form.auto_delivery ? "1" : "0",
@@ -340,9 +361,15 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
         <Field label="Description en français" wide>
           <textarea value={form.site_description_fr} onChange={(event) => set("site_description_fr", event.target.value)} maxLength={700} rows={4} placeholder={creating ? "Ce que reçoit le client, conditions d’utilisation…" : "Laissez vide pour reprendre la description du bot."} />
         </Field>
-        <Field label="Image (URL https, optionnel)" wide>
-          <input value={form.site_image_url} onChange={(event) => set("site_image_url", event.target.value)} type="url" maxLength={1000} placeholder="https://…/image.png" />
-          {form.site_image_url.startsWith("https://") && <img className="site-image-preview" src={form.site_image_url} alt="Aperçu du produit" />}
+        <Field label="Image du produit (site, optionnel)" wide>
+          <div className="site-logo-picker">
+            <span className="site-logo-preview">{imagePreview || serviceLogo ? <img src={imagePreview || serviceLogo} alt="Image du produit" /> : <ImageIcon size={18} />}</span>
+            <label className="action-button secondary site-logo-upload"><Upload size={15} />{imagePreview ? "Remplacer" : "Importer une image"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickImage} /></label>
+            {imagePreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearImage}>Retirer</ActionButton>}
+          </div>
+          {!image && !uploadedUrl && <input value={form.site_image_url} onChange={(event) => { set("site_image_url", event.target.value); setRemoveImage(false); }} type="url" maxLength={1000} placeholder="…ou collez un lien https://…/image.png" aria-label="Lien de l’image" />}
+          {imageError ? <small className="site-hint"><AlertTriangle size={13} />{imageError}</small>
+            : <small className="site-field-help">PNG, JPEG ou WebP, 1 Mo max. {imagePreview ? "Remplace le logo du service pour ce produit." : serviceLogo ? "Sans image, le logo du service est affiché." : "Sans image, l’emoji du service est affiché."}</small>}
         </Field>
       </div>
       <h3 className="site-section-title">Prix</h3>
@@ -413,6 +440,8 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_BYTES = 500_000;
+const MAX_OFFER_IMAGE_BYTES = 1_000_000;
+const OFFER_IMAGE_PATH = "/api/storefront/offer-image";
 
 function ServiceEditor({ service, onClose, onSave }) {
   const [form, setForm] = useState({

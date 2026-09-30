@@ -616,8 +616,13 @@ class handler(BaseHTTPRequestHandler):
                 })
             return
 
-        if path == site_logo_service.PUBLIC_PATH:
-            logo = site_logo_service.load(parse_qs(url.query).get("id", [""])[0])
+        if path in {site_logo_service.PUBLIC_PATH, site_logo_service.OFFER_IMAGE_PATH}:
+            image_id = parse_qs(url.query).get("id", [""])[0]
+            logo = (
+                site_logo_service.load(image_id)
+                if path == site_logo_service.PUBLIC_PATH
+                else site_logo_service.load_offer_image(image_id)
+            )
             if not logo:
                 self._reply(404, {"ok": False, "error": "Logo introuvable."})
                 return

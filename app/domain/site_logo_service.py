@@ -81,3 +81,64 @@ def load(service_id: Any) -> tuple[bytes, str] | None:
     if not row:
         return None
     return bytes(row["data"]), str(row.get("content_type") or "application/octet-stream")
+
+
+MAX_OFFER_IMAGE_BYTES = 1_000_000
+OFFER_IMAGE_PATH = "/api/storefront/offer-image"
+
+
+def decode_offer_image(data_url: Any) -> tuple[bytes, str]:
+    match = _DATA_URL.fullmatch(str(data_url or "").strip())
+    if not match:
+        raise LogoError("L’image doit être un fichier PNG, JPEG ou WebP.")
+    content_type, encoded = match.groups()
+    try:
+        data = base64.b64decode(encoded, validate=False)
+    except (binascii.Error, ValueError) as exc:
+        raise LogoError("Le fichier de l’image est illisible.") from exc
+    if not data or len(data) > MAX_OFFER_IMAGE_BYTES:
+        raise LogoError("L’image doit peser moins de 1 Mo.")
+    if not _SIGNATURES[content_type](data):
+        raise LogoError("Le fichier de l’image est illisible.")
+    return data, content_type
+
+
+def save_offer_image(offer_id: int, data: bytes, content_type: str) -> str:
+    """Store an uploaded product image and point the offer's site image at it."""
+    version = time.time_ns() // 1_000_000
+    conn = db.get_conn()
+    conn.offer_images.update_one(
+        {"offer_id": int(offer_id)},
+        {"$set": {
+            "offer_id": int(offer_id),
+            "content_type": content_type,
+            "size": len(data),
+            "data": Binary(data),
+            "updated_at": int(time.time()),
+        }},
+        upsert=True,
+    )
+    url = f"{OFFER_IMAGE_PATH}?id={int(offer_id)}&v={version}"
+    conn.offers.update_one({"id": int(offer_id)}, {"$set": {"site_image_url": url}})
+    return url
+
+
+def remove_offer_image(offer_id: int) -> None:
+    conn = db.get_conn()
+    conn.offer_images.delete_one({"offer_id": int(offer_id)})
+    conn.offers.update_one({"id": int(offer_id)}, {"$set": {"site_image_url": ""}})
+
+
+def is_uploaded_offer_image(url: Any) -> bool:
+    return str(url or "").startswith(f"{OFFER_IMAGE_PATH}?")
+
+
+def load_offer_image(offer_id: Any) -> tuple[bytes, str] | None:
+    try:
+        offer_id = int(offer_id)
+    except (TypeError, ValueError):
+        return None
+    row = db.get_conn().offer_images.find_one({"offer_id": offer_id})
+    if not row:
+        return None
+    return bytes(row["data"]), str(row.get("content_type") or "application/octet-stream")

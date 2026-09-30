@@ -144,6 +144,32 @@ def test_save_service_rejects_invalid_logo_without_creating(mock_mongodb, logo, 
     assert site_admin_service.catalog({})["services"] == []
 
 
+def test_save_offer_uploads_and_removes_product_image(mock_mongodb):
+    service_id, offer_id = _offer()
+    base = {"offer_id": str(offer_id), "service_id": str(service_id), "name": "Netflix 1 mois", "tn_price": "15"}
+
+    site_admin_service.save_offer({**base, "image": _data_url(_PNG)})
+    url = db.get_offer(offer_id)["site_image_url"]
+    assert url.startswith(f"/api/storefront/offer-image?id={offer_id}&v=")
+    assert site_logo_service.load_offer_image(offer_id) == (_PNG, "image/png")
+    assert storefront_service.catalog()["services"][0]["offers"][0]["image_url"] == url
+
+    site_admin_service.save_offer({**base, "site_image_url": url})
+    assert site_logo_service.load_offer_image(offer_id) is not None
+
+    site_admin_service.save_offer({**base, "site_image_url": "https://cdn.example.com/netflix.png"})
+    assert site_logo_service.load_offer_image(offer_id) is None
+    assert db.get_offer(offer_id)["site_image_url"] == "https://cdn.example.com/netflix.png"
+
+    site_admin_service.save_offer({**base, "image": _data_url(_PNG)})
+    site_admin_service.save_offer({**base, "site_image_url": "", "remove_image": "1"})
+    assert site_logo_service.load_offer_image(offer_id) is None
+    assert db.get_offer(offer_id)["site_image_url"] == ""
+
+    with pytest.raises(site_admin_service.SiteAdminError, match="1 Mo"):
+        site_admin_service.save_offer({**base, "image": _data_url(_PNG + b"\x00" * site_logo_service.MAX_OFFER_IMAGE_BYTES)})
+
+
 def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
     service_id = site_admin_service.save_service({"name": "Canva"})["service_id"]
     site_settings_service.save({"tnd_per_usdt": "3,2", "payment_d17": "1", "details_d17": "21 000 000"})

@@ -113,6 +113,7 @@ class StorefrontHandler(webhook.handler):
         "/api/storefront/order",
         "/api/storefront/cart",
         "/api/storefront/service-logo",
+        "/api/storefront/offer-image",
         *webhook.STOREFRONT_AUTH_GET_PATHS,
     )
     _ALLOWED_POST = frozenset({"/api/storefront/orders", *webhook.STOREFRONT_AUTH_POST_PATHS})

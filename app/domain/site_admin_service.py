@@ -420,6 +420,12 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
     description = str(form.get("site_description_fr") or "").strip()[:700]
     unlimited = str(form.get("stock_mode") or "inventory") == "unlimited"
+    image = None
+    if str(form.get("image") or "").strip():
+        try:
+            image = site_logo_service.decode_offer_image(form.get("image"))
+        except site_logo_service.LogoError as exc:
+            raise SiteAdminError(str(exc)) from exc
     fields: dict[str, Any] = {
         "name": name,
         "price": bot_price,
@@ -493,9 +499,27 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             inventory_service.sync_offer_stock(offer_id)
         created = False
 
+    image_change = None
+    if image:
+        site_logo_service.save_offer_image(offer_id, *image)
+        image_change = "uploaded"
+    elif previous and site_logo_service.is_uploaded_offer_image(previous.get("site_image_url")) and (
+        _truthy(form.get("remove_image")) or fields["site_image_url"] != previous.get("site_image_url")
+    ):
+        site_logo_service.remove_offer_image(offer_id)
+        if fields["site_image_url"] and not site_logo_service.is_uploaded_offer_image(fields["site_image_url"]):
+            conn.offers.update_one({"id": offer_id}, {"$set": {"site_image_url": fields["site_image_url"]}})
+        image_change = "removed"
+
     db.audit_event(
         "site_catalog.offer_created" if created else "site_catalog.offer_updated",
-        details={"offer_id": offer_id, "service_id": service_id, "name": name, "tn_price_millimes": tn_price},
+        details={
+            "offer_id": offer_id,
+            "service_id": service_id,
+            "name": name,
+            "tn_price_millimes": tn_price,
+            "image": image_change,
+        },
     )
     return {"offer_id": offer_id, "name": name, "created": created, "tn_price_millimes": tn_price}
 
