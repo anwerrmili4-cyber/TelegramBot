@@ -379,7 +379,7 @@ export default function SiteCatalogPage({ onAction }) {
                   <span className="eyebrow">Catégorie · {group.count} produit(s) · {group.on_sale} en vente</span>
                   <h2>{group.label}</h2>
                 </div>
-                <button type="button" className="action-button secondary" onClick={() => renameGroup(group)}>Renommer</button>
+                <button type="button" className="action-button secondary catalog-rename" onClick={() => renameGroup(group)}>Renommer</button>
               </div>
             </header>
             <div className="catalog-offers">
@@ -418,11 +418,11 @@ export default function SiteCatalogPage({ onAction }) {
         })}
       </div>}
     <section className="site-panel">
-      <header><h3><Globe2 size={17} />Services</h3><small>Renommez un service pour changer sa catégorie sur le site. Les flèches changent l’ordre. L’interrupteur masque le service sans toucher au bot.</small></header>
+      <header><h3><Globe2 size={17} />Services</h3><small>Le nom du service est la catégorie du site. Les flèches changent l’ordre.</small></header>
       {!services.length ? <Empty icon={Globe2} title="Aucun service" text="Créez un premier service pour y ranger vos produits." />
         : <div className="site-service-grid">{services.map((service) => <div key={service.id} className={`site-service${service.site_enabled ? "" : " site-row-disabled"}`}>
           {service.logo_url ? <img className="site-thumb" src={service.logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{service.emoji || <Globe2 size={15} />}</span>}
-          <span><strong>{service.name}</strong><small>{service.site_enabled ? `${service.on_sale}/${service.offers} offre(s) en vente` : "Masqué sur le site"}</small></span>
+          <span><strong title={service.name}>{service.name}</strong><small>{service.site_enabled ? `${service.on_sale}/${service.offers} en vente` : "Masqué sur le site"}</small></span>
           <span className="site-row-actions">
             <button type="button" title="Monter" aria-label={`Monter ${service.name}`} disabled={services[0]?.id === service.id} onClick={() => moveService(service, -1)}><ChevronUp size={15} /></button>
             <button type="button" title="Descendre" aria-label={`Descendre ${service.name}`} disabled={services.at(-1)?.id === service.id} onClick={() => moveService(service, 1)}><ChevronDown size={15} /></button>
