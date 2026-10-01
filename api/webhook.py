@@ -2605,6 +2605,11 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200, {"ok": True, "service_id": result["service_id"], "message": f"Service « {result['name']} » {verb}."})
                 return
 
+            elif action == "site_category_rename":
+                result = site_admin_service.rename_product_category(form)
+                self._reply(200, {"ok": True, "message": f"Catégorie renommée en « {result['name']} »."})
+                return
+
             elif action == "site_offer_save":
                 result = site_admin_service.save_offer(form)
                 verb = "créé" if result["created"] else "mis à jour"

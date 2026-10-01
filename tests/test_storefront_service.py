@@ -33,6 +33,36 @@ def _create(customer, **overrides):
     return storefront_service.create_order({**TRANSFER, **overrides}, customer)
 
 
+def test_official_subscriptions_become_product_categories(mock_mongodb):
+    service_id = db.add_service("officiels subscribes", "⭐", sales_channels=["bot", "tn_site"])
+    chatgpt = db.add_offer(
+        service_id, "ChatGPT Plus 1 mois", 6.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=25000,
+    )
+    google = db.add_offer(
+        service_id, "Google AI Pro | 12 months", 18.0, 2,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=60000,
+    )
+    streaming_id = db.add_service("Netflix", "🎬", sales_channels=["bot", "tn_site"])
+    db.add_offer(
+        streaming_id, "Premium", 5.0, 3,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=15000,
+    )
+
+    services = storefront_service.catalog()["services"]
+    names = [service["name"] for service in services]
+
+    assert "officiels subscribes" not in names
+    assert names[:2] == ["ChatGPT Plus", "Google AI Pro"]
+    assert "Netflix" in names
+    chatgpt_service = services[0]
+    assert chatgpt_service["offers"][0]["id"] == chatgpt
+    assert chatgpt_service["offers"][0]["service_name"] == "ChatGPT Plus"
+    assert chatgpt_service["offers"][0]["service_id"] == chatgpt_service["id"]
+    assert services[1]["offers"][0]["id"] == google
+    assert services[1]["offers"][0]["service_name"] == "Google AI Pro"
+
+
 def test_catalog_uses_live_mongo_offers_and_tnd(mock_mongodb):
     _, offer_id = _catalog_offer()
     result = storefront_service.catalog()

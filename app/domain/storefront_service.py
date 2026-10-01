@@ -172,6 +172,26 @@ def _category(service: dict[str, Any], offer: dict[str, Any]) -> str:
     return next((key for key, terms in rules if any(term in name for term in terms)), "other")
 
 
+def _product_category_label(offer: dict[str, Any]) -> str:
+    """Name a catalog category after the product, without its duration.
+
+    An admin-set ``site_category_name`` wins, so the panel can rename the
+    category without renaming the product itself.
+    """
+    custom = str(offer.get("site_category_name") or "").strip()
+    if custom:
+        return custom[:120]
+    raw = _display_name(offer, "Offre")
+    label = re.split(r"\s*[|·]\s*", raw, maxsplit=1)[0].strip()
+    label = re.sub(
+        r"\s+\d+\s*(?:years?|months?|days?|mois|ans?|jours?)\s*$",
+        "",
+        label,
+        flags=re.I,
+    ).strip()
+    return (label or raw)[:120]
+
+
 def _display_name(row: dict[str, Any], fallback: str) -> str:
     site_name = str(row.get("site_name") or "").strip()
     if site_name:
@@ -254,9 +274,13 @@ def catalog() -> dict[str, Any]:
     """Project the bot's live MongoDB catalog into a customer-safe response."""
     services: list[dict[str, Any]] = []
     used_categories: set[str] = set()
+    flat_groups: dict[str, dict[str, Any]] = {}
     for service in db.list_services(active_only=False):
         if not _site_visible(service):
             continue
+        # Official subscriptions is only a bot folder. On the site each product
+        # is its own category, named like the product (ChatGPT, Google AI Pro).
+        flat = db.is_official_subscriptions_service(service)
         offers = []
         # list_offers already resolves expired sales and the OTP price rules.
         # Re-reading each offer adds two database round trips per product.
@@ -266,7 +290,26 @@ def catalog() -> dict[str, Any]:
                 continue
             public = _public_offer(service, offer)
             used_categories.add(public["category"])
-            offers.append(public)
+            if not flat:
+                offers.append(public)
+                continue
+            label = _product_category_label(offer)
+            public["service_name"] = label
+            emoji = str(offer.get("emoji") or public["service_emoji"] or "✦").strip()[:8]
+            public["service_emoji"] = emoji
+            group = flat_groups.get(label.casefold())
+            if group is None:
+                group = {
+                    "id": -int(offer["id"]),
+                    "name": label,
+                    "emoji": emoji,
+                    "logo_url": public["service_logo_url"],
+                    "offers": [],
+                }
+                flat_groups[label.casefold()] = group
+                services.append(group)
+            public["service_id"] = group["id"]
+            group["offers"].append(public)
         if offers:
             services.append({
                 "id": int(service["id"]),

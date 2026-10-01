@@ -57,23 +57,25 @@ def test_catalog_groups_offers_by_site_status(mock_mongodb):
 
 
 def test_catalog_groups_offers_by_storefront_category(mock_mongodb):
-    _, netflix = _offer(name="Netflix 1 mois", service="Netflix")
-    _, other = _offer(name="Boite mystere", millimes=None, service="Divers")
+    netflix_service, netflix = _offer(name="Netflix 1 mois", service="Netflix")
+    divers_service, other = _offer(name="Boite mystere", millimes=None, service="Divers")
 
     result = site_admin_service.catalog({})
     groups = {group["id"]: group for group in result["groups"]}
-    assert [group["id"] for group in result["groups"]] == ["streaming", "other"]
-    assert groups["streaming"]["label"] == "Streaming"
-    assert groups["streaming"]["count"] == 1
-    assert groups["streaming"]["on_sale"] == 1
-    assert [row["id"] for row in groups["streaming"]["items"]] == [netflix]
-    assert groups["streaming"]["items"][0]["category_label"] == "Streaming"
-    assert groups["other"]["label"] == "Autres services"
-    assert [row["id"] for row in groups["other"]["items"]] == [other]
-    assert groups["other"]["on_sale"] == 0
+    assert [group["id"] for group in result["groups"]] == [
+        f"service:{netflix_service}", f"service:{divers_service}",
+    ]
+    assert groups[f"service:{netflix_service}"]["label"] == "Netflix"
+    assert groups[f"service:{netflix_service}"]["kind"] == "service"
+    assert groups[f"service:{netflix_service}"]["count"] == 1
+    assert groups[f"service:{netflix_service}"]["on_sale"] == 1
+    assert [row["id"] for row in groups[f"service:{netflix_service}"]["items"]] == [netflix]
+    assert groups[f"service:{divers_service}"]["label"] == "Divers"
+    assert [row["id"] for row in groups[f"service:{divers_service}"]["items"]] == [other]
+    assert groups[f"service:{divers_service}"]["on_sale"] == 0
 
     filtered = site_admin_service.catalog({"status": ["no_price"]})
-    assert [group["id"] for group in filtered["groups"]] == ["other"]
+    assert [group["id"] for group in filtered["groups"]] == [f"service:{divers_service}"]
     assert filtered["groups"][0]["items"][0]["id"] == other
     assert [row["id"] for row in filtered["items"]] == [other]
 
@@ -116,6 +118,43 @@ def test_catalog_lists_disabled_offers_without_selling_them(mock_mongodb):
     assert row["active"] is False
     assert row["on_sale"] is False
     assert storefront_service.catalog()["services"] == []
+
+
+def test_admin_can_rename_and_move_a_product_category(mock_mongodb):
+    official_id = db.add_service("officiels subscribes", "⭐", sales_channels=["bot", "tn_site"])
+    chatgpt = db.add_offer(
+        official_id, "ChatGPT Plus 1 mois", 6.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=25000,
+    )
+    google = db.add_offer(
+        official_id, "Google AI Pro | 12 months", 18.0, 2,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=60000,
+    )
+
+    before = site_admin_service.catalog({})
+    labels = [group["label"] for group in before["groups"]]
+    assert labels == ["ChatGPT Plus", "Google AI Pro"]
+    assert all(group["kind"] == "product" for group in before["groups"])
+
+    site_admin_service.rename_product_category({
+        "name": "ChatGPT",
+        "offer_ids": str(chatgpt),
+    })
+    renamed = storefront_service.catalog()["services"]
+    assert renamed[0]["name"] == "ChatGPT"
+    assert renamed[0]["offers"][0]["service_name"] == "ChatGPT"
+
+    destination = site_admin_service.save_service({"name": "Google AI", "site_enabled": "1"})
+    site_admin_service.save_offer({
+        "offer_id": str(google),
+        "service_id": str(destination["service_id"]),
+        "name": "Google AI Pro",
+        "tn_price": "60",
+    })
+    moved = {service["name"]: service for service in storefront_service.catalog()["services"]}
+    assert "Google AI Pro" not in moved
+    assert moved["Google AI"]["offers"][0]["id"] == google
+    assert db.get_offer(google)["service_id"] == destination["service_id"]
 
 
 def test_save_service_creates_and_renames(mock_mongodb):

@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Boxes,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Copy,
   Edit3,
   Globe2,
@@ -39,6 +41,7 @@ function productForm(row, defaultServiceId) {
     name: row?.name || "",
     tn_price: dinarInput(row?.tn_price_millimes),
     site_category: row?.site_category || "",
+    site_category_name: row?.site_category_name || "",
     site_badge: row?.site_badge || "",
     site_enabled: row ? row.site_enabled : true,
     site_featured: row?.site_featured || false,
@@ -61,12 +64,12 @@ function DurationInput({ value, unit, min, onValue, onUnit }) {
   </div>;
 }
 
-function ProductEditor({ row, services, categories, rate, defaultServiceId, onClose, onSave }) {
+function ProductEditor({ row, services, rate, defaultServiceId, onClose, onSave }) {
   const [form, setForm] = useState(() => productForm(row, defaultServiceId || services[0]?.id));
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const creating = !row;
   const externallyStocked = Boolean(row?.supplier_provider || row?.manual_stock);
-  const autoLabel = row ? categories.find((item) => item.id === row.effective_category)?.label || "Autres services" : "selon le nom";
+  const selectedService = services.find((service) => String(service.id) === String(form.service_id));
   const suggestedMillimes = Math.round((parseDecimal(row?.bot_price_usdt) * rate * 10)) * 100;
   const [image, setImage] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
@@ -108,7 +111,12 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
           <select value={form.service_id} onChange={(event) => set("service_id", event.target.value)} required>
             {services.map((service) => <option key={service.id} value={service.id}>{service.emoji} {service.name}{service.active ? "" : " (désactivé)"}</option>)}
           </select>
+          <small className="site-field-help">Changer le service déplace le produit dans cette catégorie sur le site.</small>
         </Field>
+        {selectedService?.product_categories && <Field label="Nom de la catégorie">
+          <input value={form.site_category_name} onChange={(event) => set("site_category_name", event.target.value)} maxLength={120} placeholder="Ex. ChatGPT, Google AI Pro" />
+          <small className="site-field-help">Vide = le nom du produit. Ce nom est la catégorie affichée sur le site.</small>
+        </Field>}
         <Field label="Nom du produit">
           <input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={120} required autoFocus={creating} placeholder="Ex. Netflix Premium 1 mois" />
         </Field>
@@ -145,12 +153,6 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
       </div>
       <h3 className="site-section-title">Affichage sur le site</h3>
       <div className="form-grid">
-        <Field label="Catégorie">
-          <select value={form.site_category} onChange={(event) => set("site_category", event.target.value)}>
-            <option value="">Automatique ({autoLabel})</option>
-            {categories.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-        </Field>
         <Field label="Badge (optionnel)">
           <input value={form.site_badge} onChange={(event) => set("site_badge", event.target.value)} maxLength={48} placeholder="Ex. Promo, Nouveau, -20 %" />
         </Field>
@@ -199,6 +201,23 @@ const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_BYTES = 500_000;
 const MAX_OFFER_IMAGE_BYTES = 1_000_000;
 const OFFER_IMAGE_PATH = "/api/storefront/offer-image";
+
+function CategoryRename({ group, onClose, onSave }) {
+  const [name, setName] = useState(group.label || "");
+  const submit = (event) => {
+    event.preventDefault();
+    onSave({ action: "site_category_rename", name, offer_ids: (group.offer_ids || []).join(",") });
+  };
+  return <Modal title={`Renommer « ${group.label} »`} onClose={onClose}>
+    <form className="operation-form" onSubmit={submit}>
+      <Field label="Nom de la catégorie sur le site" wide>
+        <input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required autoFocus placeholder="Ex. ChatGPT, Google AI Pro" />
+      </Field>
+      <p>Ce nom s’affiche à la place du dossier d’origine. Pour déplacer un produit vers un autre service, ouvrez le produit et changez son service.</p>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={Save}>Renommer</ActionButton></div>
+    </form>
+  </Modal>;
+}
 
 function ServiceEditor({ service, onClose, onSave }) {
   const [form, setForm] = useState({
@@ -287,7 +306,6 @@ export default function SiteCatalogPage({ onAction }) {
   const [result, loading] = useRemoteList("/admin/api/site-catalog", { search, status, service_id: serviceId });
   const counts = result.counts || {};
   const services = result.services || [];
-  const categories = result.categories || [];
   const groups = result.groups || [];
   const visibleGroups = category ? groups.filter((group) => group.id === category) : groups;
   const visibleCount = visibleGroups.reduce((total, group) => total + group.count, 0);
@@ -307,6 +325,24 @@ export default function SiteCatalogPage({ onAction }) {
     return next;
   });
   const newProduct = () => setEditor(services.length ? { type: "product" } : { type: "service" });
+  const renameGroup = (group) => {
+    if (group.kind === "service") {
+      const service = services.find((item) => item.id === group.service_id);
+      if (service) setEditor({ type: "service", service });
+      return;
+    }
+    setEditor({ type: "category", group });
+  };
+  const moveService = async (service, direction) => {
+    const ids = services.map((item) => item.id);
+    const index = ids.indexOf(service.id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    const next = [...ids];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    if (await onAction({ action: "reorder_catalog", item_type: "service", ordered_ids: next.join(",") })) refreshLists();
+  };
   const tabs = [["all", "Toutes"], ["on_sale", "En vente"], ["no_price", "Sans prix DT"], ["hidden", "Masquées"], ["disabled", "Désactivées"]];
   return <div className="operations-page site-page">
     <PageHeader
@@ -343,6 +379,7 @@ export default function SiteCatalogPage({ onAction }) {
                   <span className="eyebrow">Catégorie · {group.count} produit(s) · {group.on_sale} en vente</span>
                   <h2>{group.label}</h2>
                 </div>
+                <button type="button" className="action-button secondary" onClick={() => renameGroup(group)}>Renommer</button>
               </div>
             </header>
             <div className="catalog-offers">
@@ -381,12 +418,14 @@ export default function SiteCatalogPage({ onAction }) {
         })}
       </div>}
     <section className="site-panel">
-      <header><h3><Globe2 size={17} />Services</h3><small>L’interrupteur masque le service sur le site. L’état du bot ne change pas.</small></header>
+      <header><h3><Globe2 size={17} />Services</h3><small>Renommez un service pour changer sa catégorie sur le site. Les flèches changent l’ordre. L’interrupteur masque le service sans toucher au bot.</small></header>
       {!services.length ? <Empty icon={Globe2} title="Aucun service" text="Créez un premier service pour y ranger vos produits." />
         : <div className="site-service-grid">{services.map((service) => <div key={service.id} className={`site-service${service.site_enabled ? "" : " site-row-disabled"}`}>
           {service.logo_url ? <img className="site-thumb" src={service.logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{service.emoji || <Globe2 size={15} />}</span>}
           <span><strong>{service.name}</strong><small>{service.site_enabled ? `${service.on_sale}/${service.offers} offre(s) en vente` : "Masqué sur le site"}</small></span>
           <span className="site-row-actions">
+            <button type="button" title="Monter" aria-label={`Monter ${service.name}`} disabled={services[0]?.id === service.id} onClick={() => moveService(service, -1)}><ChevronUp size={15} /></button>
+            <button type="button" title="Descendre" aria-label={`Descendre ${service.name}`} disabled={services.at(-1)?.id === service.id} onClick={() => moveService(service, 1)}><ChevronDown size={15} /></button>
             <button type="button" title="Ajouter un produit" aria-label={`Ajouter un produit à ${service.name}`} onClick={() => setEditor({ type: "product", serviceId: service.id })}><Plus size={15} /></button>
             <button type="button" title="Modifier" aria-label={`Modifier ${service.name}`} onClick={() => setEditor({ type: "service", service })}><Edit3 size={15} /></button>
             <button type="button" className="danger" title="Supprimer" aria-label={`Supprimer ${service.name}`} onClick={() => setEditor({ type: "delete", target: { type: "service", item: service } })}><Trash2 size={15} /></button>
@@ -394,8 +433,9 @@ export default function SiteCatalogPage({ onAction }) {
           </span>
         </div>)}</div>}
     </section>
-    {editor?.type === "product" && <ProductEditor row={editor.row} services={services} categories={categories} rate={Number(result.tnd_per_usdt) || 0} defaultServiceId={editor.serviceId || (serviceId ? Number(serviceId) : null)} onClose={close} onSave={run} />}
+    {editor?.type === "product" && <ProductEditor row={editor.row} services={services} rate={Number(result.tnd_per_usdt) || 0} defaultServiceId={editor.serviceId || (serviceId ? Number(serviceId) : null)} onClose={close} onSave={run} />}
     {editor?.type === "service" && <ServiceEditor service={editor.service} onClose={close} onSave={run} />}
+    {editor?.type === "category" && <CategoryRename group={editor.group} onClose={close} onSave={run} />}
     {editor?.type === "stock" && <StockEditor row={editor.row} onClose={close} onSave={run} />}
     {editor?.type === "delete" && <DeleteConfirm target={editor.target} onClose={close} onConfirm={run} />}
   </div>;

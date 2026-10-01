@@ -168,6 +168,8 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
         "site_featured": bool(offer.get("site_featured")),
         "site_badge": str(offer.get("site_badge") or ""),
         "site_category": configured_category if configured_category in storefront_service.CATEGORY_LABELS else "",
+        "site_category_name": str(offer.get("site_category_name") or ""),
+        "product_categories": db.is_official_subscriptions_service(service),
         "effective_category": category,
         "category_label": storefront_service.CATEGORY_LABELS[category],
         "site_description_fr": str(offer.get("site_description_fr") or ""),
@@ -180,24 +182,51 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
     }
 
 
+def _public_category(row: dict[str, Any]) -> dict[str, Any]:
+    """The category the storefront shows: the service, or the product name."""
+    if row.get("product_categories"):
+        label = str(row.get("site_category_name") or "").strip() or storefront_service._product_category_label(row)
+        return {
+            "id": f"category:{label.casefold()}",
+            "label": label[:120],
+            "kind": "product",
+            "service_id": int(row["service_id"]),
+        }
+    label = str(row.get("service_name") or "Service")[:120]
+    return {
+        "id": f"service:{int(row['service_id'])}",
+        "label": label,
+        "kind": "service",
+        "service_id": int(row["service_id"]),
+    }
+
+
 def _catalog_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Group the filtered catalog by storefront category, skipping empty ones."""
-    buckets: dict[str, list[dict[str, Any]]] = {}
+    """Group the catalog the way the site does: one category per service name.
+
+    Products that still live in the official-subscriptions folder are their own
+    categories, named after the product, until an admin renames or moves them.
+    """
+    groups: dict[str, dict[str, Any]] = {}
+    ordered: list[str] = []
     for row in rows:
-        buckets.setdefault(row["effective_category"], []).append(row)
-    groups = []
-    for key, label in storefront_service.CATEGORY_LABELS.items():
-        items = buckets.get(key) or []
-        if not items:
-            continue
-        groups.append({
-            "id": key,
-            "label": label,
-            "count": len(items),
-            "on_sale": sum(1 for item in items if item["on_sale"]),
-            "items": items,
-        })
-    return groups
+        category = _public_category(row)
+        group = groups.get(category["id"])
+        if group is None:
+            group = {
+                **category,
+                "count": 0,
+                "on_sale": 0,
+                "offer_ids": [],
+                "items": [],
+            }
+            groups[category["id"]] = group
+            ordered.append(category["id"])
+        group["count"] += 1
+        group["on_sale"] += int(bool(row["on_sale"]))
+        group["offer_ids"].append(int(row["id"]))
+        group["items"].append(row)
+    return [groups[key] for key in ordered]
 
 
 def _catalog_status(row: dict[str, Any]) -> str:
@@ -239,6 +268,7 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
             "logo_url": site_logo_service.logo_url(service),
             "active": bool(service.get("active", 1)),
             "site_enabled": storefront_service.site_enabled(service),
+            "product_categories": db.is_official_subscriptions_service(service),
             "offers": len(offers),
             "on_sale": sum(1 for row in offers if row["on_sale"]),
         })
@@ -401,6 +431,38 @@ def save_service(form: dict[str, Any]) -> dict[str, Any]:
     return {"service_id": service_id, "name": name, "created": created}
 
 
+def rename_product_category(form: dict[str, Any]) -> dict[str, Any]:
+    """Rename the site category of products that still share the official folder."""
+    name = str(form.get("name") or "").strip()[:120]
+    if not name:
+        raise SiteAdminError("Le nom de la catégorie est obligatoire.")
+    offer_ids = []
+    for part in str(form.get("offer_ids") or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            offer_ids.append(int(part))
+        except ValueError as exc:
+            raise SiteAdminError("Produit invalide.") from exc
+    if not offer_ids:
+        raise SiteAdminError("Catégorie introuvable.")
+    updated = 0
+    for offer_id in offer_ids:
+        offer = db.get_offer(offer_id)
+        service = db.get_service(int(offer.get("service_id"))) if offer else None
+        if not offer or offer.get("archived") == 1 or not service:
+            continue
+        if not db.is_official_subscriptions_service(service):
+            continue
+        db.get_conn().offers.update_one({"id": offer_id}, {"$set": {"site_category_name": name}})
+        updated += 1
+    if not updated:
+        raise SiteAdminError("Catégorie introuvable.")
+    db.audit_event("site_catalog.category_renamed", details={"name": name, "offer_ids": offer_ids})
+    return {"name": name, "updated": updated}
+
+
 def _duration(form: dict[str, Any], prefix: str, default: int, *, allow_zero: bool, label: str) -> tuple[int, str, int]:
     unit = warranty_service.normalize_duration_unit(form.get(f"{prefix}_unit"))
     raw = str(form.get(f"{prefix}_value") or "").strip()
@@ -475,6 +537,10 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         "site_description_fr": description,
         "site_image_url": _image_url(form.get("site_image_url")),
     }
+    category_name = str(form.get("site_category_name") or "").strip()[:120]
+    unset_category = not (db.is_official_subscriptions_service(service) and category_name)
+    if not unset_category:
+        fields["site_category_name"] = category_name
 
     conn = db.get_conn()
     if previous is None:
@@ -509,6 +575,11 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         )
         if items:
             inventory_service.add_items(offer_id, items)
+        if fields.get("site_category_name"):
+            conn.offers.update_one(
+                {"id": offer_id},
+                {"$set": {"site_category_name": fields["site_category_name"]}},
+            )
         created = True
     else:
         if int(previous.get("service_id") or 0) != service_id:
@@ -520,10 +591,15 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         if not externally_stocked:
             fields["unlimited_stock"] = unlimited
         update: dict[str, Any] = {"$set": fields}
+        unset: dict[str, str] = {}
         if tn_price is None:
-            update["$unset"] = {"tn_price_millimes": ""}
+            unset["tn_price_millimes"] = ""
         else:
             fields["tn_price_millimes"] = tn_price
+        if unset_category:
+            unset["site_category_name"] = ""
+        if unset:
+            update["$unset"] = unset
         conn.offers.update_one({"id": offer_id}, update)
         if not externally_stocked and previous.get("unlimited_stock") and not unlimited:
             inventory_service.sync_offer_stock(offer_id)
