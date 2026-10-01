@@ -4,6 +4,17 @@ import { receiptDataUrl } from "@/lib/image";
 import { money } from "@/lib/format";
 import type { PaymentMethod } from "@/types";
 
+const METHOD_LOGOS: Record<string, string> = {
+  d17: "/payments/d17.png",
+  flouci: "/payments/flouci.png",
+  izi: "/payments/izi.webp",
+  wafacash: "/payments/wafacash.webp",
+};
+
+function methodLogo(id: string) {
+  return METHOD_LOGOS[id.toLowerCase()] ?? "";
+}
+
 type MethodPickerProps = {
   methods: PaymentMethod[];
   value: string;
@@ -15,18 +26,24 @@ export function MethodPicker({ methods, value, onChange, name }: MethodPickerPro
   return (
     <fieldset className="method-choice">
       <legend>Moyen de paiement</legend>
-      {methods.map((option) => (
-        <label key={option.id} className={value === option.id ? "selected" : ""}>
-          <input
-            type="radio"
-            name={name}
-            value={option.id}
-            checked={value === option.id}
-            onChange={() => onChange(option.id)}
-          />
-          {option.label}
-        </label>
-      ))}
+      {methods.map((option) => {
+        const logo = methodLogo(option.id);
+        return (
+          <label key={option.id} className={value === option.id ? "selected" : ""}>
+            {logo ? <img className={`method-logo method-logo-${option.id.toLowerCase()}`} src={logo} alt="" /> : null}
+            <span className="method-line">
+              <input
+                type="radio"
+                name={name}
+                value={option.id}
+                checked={value === option.id}
+                onChange={() => onChange(option.id)}
+              />
+              <span>{option.label}</span>
+            </span>
+          </label>
+        );
+      })}
     </fieldset>
   );
 }
@@ -35,9 +52,11 @@ export function MethodPicker({ methods, value, onChange, name }: MethodPickerPro
 export function PaymentInstructions({ method, amountMillimes }: { method?: PaymentMethod; amountMillimes?: number }) {
   const [copied, setCopied] = useState(false);
   if (!method) return null;
+  const logo = methodLogo(method.id);
   return (
     <div className="payment-instructions">
       <p>
+        {logo ? <img className={`method-logo method-logo-${method.id.toLowerCase()}`} src={logo} alt="" /> : null}
         {amountMillimes ? (
           <>
             Envoie <strong>{money(amountMillimes)}</strong> par {method.label} :
