@@ -37,7 +37,7 @@ def test_railway_docker_image_uses_supported_python_and_non_root_user():
 
 
 def test_admin_catalog_declares_delete_confirmation_state():
-    source = (PROJECT_ROOT / "admin-ui" / "src" / "AdminPages.jsx").read_text(
+    source = (PROJECT_ROOT / "admin-ui" / "src" / "pages" / "CatalogPage.jsx").read_text(
         encoding="utf-8"
     )
 
@@ -45,7 +45,7 @@ def test_admin_catalog_declares_delete_confirmation_state():
 
 
 def test_offer_editor_does_not_reference_removed_image_upload_state():
-    source = (PROJECT_ROOT / "admin-ui" / "src" / "AdminPages.jsx").read_text(
+    source = (PROJECT_ROOT / "admin-ui" / "src" / "pages" / "CatalogPage.jsx").read_text(
         encoding="utf-8"
     )
 
@@ -57,9 +57,10 @@ def test_react_admin_sends_scoped_token_for_write_requests():
     app_source = (PROJECT_ROOT / "admin-ui" / "src" / "App.jsx").read_text(
         encoding="utf-8"
     )
-    pages_source = (
-        PROJECT_ROOT / "admin-ui" / "src" / "AdminPages.jsx"
-    ).read_text(encoding="utf-8")
+    pages_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (PROJECT_ROOT / "admin-ui" / "src" / "pages").glob("*.jsx")
+    )
 
     expected_header = '"X-Dashboard-Write-Token"'
     assert expected_header in app_source
