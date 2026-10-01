@@ -21,6 +21,12 @@
   --gold: #f0b429;
   --mint: #3ddc97;
   --danger: #ff6b6b;
+  --link-bright: #9ec1ff;
+  --success-text: #9ef0c9;
+  --info-text: #93c5fd;
+
+  --glass: rgba(10, 10, 12, 0.86);
+  --header-bg: rgba(12, 12, 14, 0.86);
 
   --radius-sm: 12px;
   --radius: 18px;
@@ -38,6 +44,39 @@
   --font-body: Inter, "Segoe UI", system-ui, sans-serif;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --ink-900: #f3f4f6;
+  --ink-800: #ffffff;
+  --ink-700: #f7f7f8;
+  --ink-600: #ececef;
+  --ink-500: #dcdce2;
+
+  --line: #e4e4e8;
+  --line-soft: #eeeef2;
+
+  --text: #121214;
+  --text-soft: #3f3f46;
+  --text-mute: #6b6b76;
+
+  --brand-hot: #1558d6;
+  --brand-wash: rgba(26, 115, 255, 0.1);
+  --gold: #9a6b00;
+  --mint: #0d8a5b;
+  --danger: #d12626;
+  --link-bright: #1558d6;
+  --success-text: #067a52;
+  --info-text: #1d4ed8;
+
+  --shadow-card: 0 10px 28px rgba(16, 16, 20, 0.06);
+  --shadow-float: 0 16px 40px rgba(16, 16, 20, 0.1);
+  --shadow-brand: 0 10px 24px rgba(26, 115, 255, 0.22);
+
+  --glass: rgba(255, 255, 255, 0.9);
+  --header-bg: rgba(255, 255, 255, 0.92);
 }
 
 @media (max-width: 760px) {

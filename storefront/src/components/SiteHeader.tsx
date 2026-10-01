@@ -1,7 +1,27 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ChevronDown, LifeBuoy, List, LogIn, Megaphone, Menu, MessageCircle, Search, ShoppingCart, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import {
+  ChevronDown,
+  Headset,
+  Home,
+  LayoutGrid,
+  LifeBuoy,
+  List,
+  LogIn,
+  Megaphone,
+  Menu,
+  MessageCircle,
+  Moon,
+  Percent,
+  Search,
+  ShoppingBag,
+  ShoppingCart,
+  Sun,
+  X,
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
+import { toggleTheme, useTheme } from "@/lib/theme";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
 import { accountPath } from "@/pages/AccountPage";
 
@@ -26,12 +46,27 @@ const MORE = [
   { to: ROUTES.messenger, label: "Messagerie", icon: MessageCircle },
 ];
 
+const PHONE_SHOP = [
+  { to: ROUTES.home, label: "Accueil", icon: Home },
+  { to: ROUTES.shop, label: "Boutique", icon: ShoppingBag },
+  { to: ROUTES.categories, label: "Catégories", icon: LayoutGrid },
+  { to: ROUTES.deals, label: "Offres", icon: Percent },
+  { to: ROUTES.prices, label: "Liste des prix", icon: List },
+  { to: ROUTES.news, label: "Annonces", icon: Megaphone },
+];
+
+const PHONE_HELP = [
+  { to: ROUTES.help, label: "Support", icon: Headset },
+  { to: ROUTES.messenger, label: "Messagerie", icon: MessageCircle },
+];
+
 export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCart }: SiteHeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [catsOpen, setCatsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const { customer, loading } = useAuth();
+  const theme = useTheme();
   const path = usePathname();
   const firstName = customer?.name.split(" ")[0] ?? "";
   const moreCurrent = MORE.some((item) => item.to === path) || path === "/aide";
@@ -49,6 +84,20 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
     closeMenus();
     navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
   }
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!menuOpen && !moreOpen && !catsOpen) return;
@@ -84,14 +133,109 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
     };
   }, [moreOpen, catsOpen]);
 
+  const phoneMenu = menuOpen
+    ? createPortal(
+        <div className="phone-menu" onClick={closeMenus}>
+          <div
+            className="phone-menu-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="phone-menu-head">
+              <Link className="phone-menu-brand" to={ROUTES.home} onClick={closeMenus}>
+                <img src="/logo.png" alt="" width="28" height="28" />
+                <strong>BlackMarket</strong>
+              </Link>
+              <button type="button" className="phone-menu-close" onClick={closeMenus} aria-label="Fermer le menu">
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+
+            <form className="phone-menu-search" onSubmit={submitSearch}>
+              <Search size={16} aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Rechercher un produit"
+                aria-label="Rechercher un produit"
+              />
+            </form>
+
+            <div className="phone-menu-scroll">
+              <p>Boutique</p>
+              <nav aria-label="Boutique">
+                {PHONE_SHOP.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      aria-current={path === item.to ? "page" : undefined}
+                      onClick={closeMenus}
+                    >
+                      <Icon size={18} aria-hidden="true" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+              <p>Aide</p>
+              <nav aria-label="Aide">
+                {PHONE_HELP.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      aria-current={path === item.to ? "page" : undefined}
+                      onClick={closeMenus}
+                    >
+                      <Icon size={18} aria-hidden="true" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+                <button type="button" onClick={toggleTheme}>
+                  {theme === "dark" ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
+                  {theme === "dark" ? "Thème clair" : "Thème sombre"}
+                </button>
+              </nav>
+            </div>
+
+            <div className="phone-menu-foot">
+              {customer ? (
+                <Link className="button button-primary" to={accountPath("profil")} onClick={closeMenus}>
+                  Mon compte
+                </Link>
+              ) : (
+                <>
+                  <Link className="button button-ghost" to={ROUTES.login} onClick={closeMenus}>
+                    Connexion
+                  </Link>
+                  <Link className="button button-primary" to={ROUTES.register} onClick={closeMenus}>
+                    Inscription
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )
+    : null;
+
   return (
+    <>
     <header className="site-header">
       <Link className="brand" to={ROUTES.home} onClick={closeMenus}>
         <img src="/logo.png" alt="" width="40" height="40" />
         <strong>BlackMarket</strong>
       </Link>
 
-      <nav className={menuOpen ? "site-nav open" : "site-nav"} aria-label="Navigation principale">
+      <nav className="site-nav" aria-label="Navigation principale">
         {BEFORE.map((item) => (
           <Link
             key={item.to}
@@ -202,6 +346,15 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
           </>
         )}
 
+        <button
+          type="button"
+          className="icon-button theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === "dark" ? "Passer au thème clair" : "Passer au thème sombre"}
+        >
+          {theme === "dark" ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}
+        </button>
+
         <button type="button" className="cart-button" onClick={onOpenCart}>
           <ShoppingCart size={17} aria-hidden="true" />
           <span className="cart-button-copy">{cartCount ? money(cartTotalMillimes) : "Panier"}</span>
@@ -223,5 +376,7 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
         </button>
       </div>
     </header>
+    {phoneMenu}
+    </>
   );
 }

@@ -8,6 +8,7 @@ import { IntroSplash } from "@/components/IntroSplash";
 import { ProductPage } from "@/components/ProductPage";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
+import { MobileTabBar } from "@/components/MobileTabBar";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
@@ -141,6 +142,7 @@ export default function App() {
       </main>
 
       <SiteFooter />
+      <MobileTabBar />
 
       {cart.count && !cartOpen && !checkoutOpen && (path === ROUTES.home || path === ROUTES.shop) ? (
         <button type="button" className="cart-bar" onClick={() => setCartOpen(true)}>

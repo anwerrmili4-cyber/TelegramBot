@@ -402,7 +402,7 @@
   border: 1px solid rgba(61, 220, 151, 0.3);
   border-radius: var(--radius-sm);
   background: rgba(61, 220, 151, 0.08);
-  color: #9ef0c9;
+  color: var(--success-text);
   font-size: 13px;
 }
 
@@ -502,7 +502,7 @@
 }
 
 .account-tabs button.active {
-  color: #9ec1ff;
+  color: var(--link-bright);
 }
 
 .account-panel {
@@ -615,7 +615,7 @@
 
 .status-progress {
   background: rgba(96, 165, 250, 0.14);
-  color: #93c5fd;
+  color: var(--info-text);
 }
 
 .status-done {
@@ -784,7 +784,7 @@
 }
 
 .order-steps .is-current {
-  color: #9ec1ff;
+  color: var(--link-bright);
 }
 
 .order-steps .is-current .step-dot {

@@ -15,7 +15,7 @@
   padding: 9px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: rgba(11, 13, 17, 0.9);
+  background: var(--header-bg);
   backdrop-filter: blur(16px);
 }
 
@@ -80,7 +80,7 @@
 .filters button.active {
   border-color: rgba(var(--brand-rgb), 0.42);
   background: var(--brand-wash);
-  color: #9ec1ff;
+  color: var(--link-bright);
 }
 
 /* ---------- Offer grid ---------- */
@@ -203,7 +203,7 @@
 }
 
 .offer-open:hover h3 {
-  color: #9ec1ff;
+  color: var(--link-bright);
 }
 
 .offer-more {

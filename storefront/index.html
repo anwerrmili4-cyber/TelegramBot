@@ -66,6 +66,10 @@
         margin: 0;
         background: #050506;
       }
+      html[data-theme="light"],
+      html[data-theme="light"] body {
+        background: #f3f4f6;
+      }
       .seo-fallback {
         position: absolute;
         width: 1px;
@@ -75,6 +79,15 @@
         white-space: nowrap;
       }
     </style>
+    <script>
+      try {
+        var theme = localStorage.getItem("bm-theme");
+        if (theme !== "light" && theme !== "dark") theme = "dark";
+        document.documentElement.dataset.theme = theme;
+        var themeMeta = document.querySelector('meta[name="theme-color"]');
+        if (themeMeta) themeMeta.content = theme === "light" ? "#f3f4f6" : "#050506";
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
