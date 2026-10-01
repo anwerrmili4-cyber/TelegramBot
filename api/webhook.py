@@ -279,6 +279,7 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/profile",
     "/api/storefront/auth/password",
     "/api/storefront/auth/tickets",
+    "/api/storefront/auth/ticket-messages",
     "/api/storefront/auth/product-requests",
     "/api/storefront/auth/warranties",
 })
@@ -1518,6 +1519,8 @@ class handler(BaseHTTPRequestHandler):
                     result = storefront_auth_service.change_password(self._bearer_token(), payload)
                 elif path == "/api/storefront/auth/tickets":
                     result = storefront_auth_service.open_ticket(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/ticket-messages":
+                    result = storefront_auth_service.reply_ticket(self._bearer_token(), payload)
                 elif path == "/api/storefront/auth/product-requests":
                     result = storefront_auth_service.open_ticket(
                         self._bearer_token(), {**payload, "category": "catalog_request"},

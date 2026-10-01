@@ -649,6 +649,7 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
                         "warranty_status": "",
                         "warranty_id": None,
                         "replacement": "",
+                        "warranty_note": "",
                     }),
                 }
                 for line in lines

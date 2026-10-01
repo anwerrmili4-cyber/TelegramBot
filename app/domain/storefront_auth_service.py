@@ -594,6 +594,16 @@ def open_ticket(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
         raise AuthError(str(exc)) from exc
 
 
+def reply_ticket(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    customer = customer_for_token(token)
+    if not _is_verified(customer):
+        raise AuthError("Confirme d'abord ton adresse email.", status=403, code=EMAIL_UNVERIFIED)
+    try:
+        return site_requests_service.reply_ticket(customer, payload.get("ticket_id"), payload.get("message"))
+    except site_requests_service.SiteRequestError as exc:
+        raise AuthError(str(exc), status=exc.status) from exc
+
+
 def customer_warranties(token: Any) -> dict[str, Any]:
     customer = customer_for_token(token)
     return site_requests_service.list_warranties(int(customer["id"]))

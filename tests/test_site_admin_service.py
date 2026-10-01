@@ -385,3 +385,71 @@ def test_site_requests_stay_out_of_the_bot_workspace(mock_mongodb, site_customer
     assert db.get_conn().wallets.count_documents({}) == 0
     assert dashboard_api.list_warranties({})["total"] == 0
     assert dashboard_api.list_warranties({"channel": ["tn_site"]})["total"] == 1
+
+
+def _delivered_line(customer, name="Netflix 1 mois", service="Netflix"):
+    _, offer_id = _offer(name=name, service=service)
+    cart = _cart(customer, offer_id)
+    line_id = cart["order_ids"][0]
+    db.get_conn().orders.update_one(
+        {"id": line_id},
+        {"$set": {"status": "delivered", "delivered_at": int(time.time()), "warranty_days": 30, "total_millimes": 10000}},
+    )
+    return line_id
+
+
+def test_customer_reply_stays_on_their_open_thread(mock_mongodb, site_customer):
+    owner = site_customer()
+    other = site_customer(name="Sara Trabelsi", email="sara@example.com", phone="+21622222333")
+    opened = site_requests_service.create_ticket(owner, {"message": "Mon compte site ne marche pas", "category": "order"})
+    ticket_id = opened["ticket"]["id"]
+
+    replied = site_requests_service.reply_ticket(owner, ticket_id, "Toujours bloqué après redémarrage")
+    assert replied["ticket"]["status"] == "waiting_admin"
+    assert replied["ticket"]["messages"][-1]["sender"] == "client"
+    assert replied["ticket"]["messages"][-1]["content"] == "Toujours bloqué après redémarrage"
+
+    with pytest.raises(site_requests_service.SiteRequestError, match="introuvable") as missing:
+        site_requests_service.reply_ticket(other, ticket_id, "Je ne suis pas le client")
+    assert missing.value.status == 404
+
+    support_service.close_ticket(ticket_id)
+    with pytest.raises(site_requests_service.SiteRequestError, match="fermée"):
+        site_requests_service.reply_ticket(owner, ticket_id, "Une dernière question")
+
+    resolved = site_requests_service.create_ticket(owner, {"message": "Le paiement est passé deux fois", "category": "payment"})
+    db.get_conn().support_tickets.update_one({"id": resolved["ticket"]["id"]}, {"$set": {"status": "resolved"}})
+    with pytest.raises(site_requests_service.SiteRequestError, match="fermée"):
+        site_requests_service.reply_ticket(owner, resolved["ticket"]["id"], "C'est revenu")
+
+
+def test_warranty_history_keeps_the_refusal_and_the_replacement(mock_mongodb, site_customer):
+    customer = site_customer()
+    refused_order = _delivered_line(customer)
+    replaced_order = _delivered_line(customer, name="Spotify 1 mois", service="Spotify")
+    refused = site_requests_service.create_warranty(customer, {"order_id": refused_order, "reason": "Le compte ne se connecte pas"})
+    replaced = site_requests_service.create_warranty(customer, {"order_id": replaced_order, "reason": "Le mot de passe a changé"})
+
+    refused_id = refused["warranty"]["id"]
+    assert db.refuse_warranty_request(refused_id, "Hors délai d'usage")
+
+    replaced_id = replaced["warranty"]["id"]
+    assert db.accept_warranty_request(replaced_id)
+    assert db.resolve_warranty_request(replaced_id, "replacement")
+    db.get_conn().warranty_requests.update_one(
+        {"id": replaced_id},
+        {"$set": {"replacement_text": "login: new@mail.test"}},
+    )
+    assert db.complete_warranty_replacement(replaced_id)
+
+    listed = {item["id"]: item for item in site_requests_service.list_warranties(customer["id"])["warranties"]}
+    assert listed[refused_id]["status"] == "refused"
+    assert listed[refused_id]["admin_note"] == "Hors délai d'usage"
+    assert listed[replaced_id]["status"] == "replacement_delivered"
+    assert listed[replaced_id]["replacement"] == "login: new@mail.test"
+
+    flags = site_requests_service.warranty_flags([{"id": refused_order}, {"id": replaced_order}])
+    assert flags[refused_order]["warranty_note"] == "Hors délai d'usage"
+    assert flags[refused_order]["warranty_status"] == "refused"
+    assert flags[replaced_order]["replacement"] == "login: new@mail.test"
+    assert flags[replaced_order]["warranty_note"] == ""

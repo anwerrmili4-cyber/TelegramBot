@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 import database as db
-from app.constants import OrderStatus, TicketCategory
+from app.constants import OrderStatus, TicketCategory, TicketStatus
 from app.domain import support_service
 
 SITE_CHANNEL = "tn_site"
@@ -26,6 +26,10 @@ _SUPPORT_CATEGORIES = {
 
 class SiteRequestError(ValueError):
     """French message safe to show to the customer or the admin UI."""
+
+    def __init__(self, message: str, *, status: int = 400):
+        super().__init__(message)
+        self.status = status
 
 
 def _customer_lines(customer_id: int) -> list[dict[str, Any]]:
@@ -70,6 +74,29 @@ def create_ticket(customer: dict[str, Any], payload: dict[str, Any]) -> dict[str
         customer_id=int(customer["id"]),
     )
     return {"ok": True, "ticket": _public_ticket(ticket)}
+
+
+def reply_ticket(customer: dict[str, Any], ticket_id: Any, message: str) -> dict[str, Any]:
+    """Append a customer follow-up. Closed threads stay closed, and nothing is sent on Telegram."""
+    text = str(message or "").strip()
+    if not text or len(text) > 2000:
+        raise SiteRequestError("Écris un message (2 000 caractères maximum).")
+    try:
+        tid = int(ticket_id)
+    except (TypeError, ValueError) as exc:
+        raise SiteRequestError("Demande introuvable.", status=404) from exc
+    ticket = db.get_conn().support_tickets.find_one({
+        "id": tid,
+        "channel": SITE_CHANNEL,
+        "customer_id": int(customer["id"]),
+    })
+    if not ticket:
+        raise SiteRequestError("Demande introuvable.", status=404)
+    if str(ticket.get("status") or "") in {TicketStatus.CLOSED, TicketStatus.RESOLVED}:
+        raise SiteRequestError("Cette conversation est fermée.")
+    support_service.add_message(tid, 0, text, sender_type="client")
+    updated = db.get_conn().support_tickets.find_one({"id": tid}) or ticket
+    return {"ok": True, "ticket": _public_ticket(db._public(updated))}
 
 
 def list_tickets(customer_id: int, *, category: str | None = None) -> dict[str, Any]:
@@ -200,6 +227,7 @@ def warranty_flags(lines: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
                 "warranty_status": request.get("status") or "",
                 "warranty_id": int(request["id"]),
                 "replacement": request.get("replacement_text") or "",
+                "warranty_note": request.get("admin_note") or "",
             }
         else:
             flags[order_id] = {
@@ -207,5 +235,6 @@ def warranty_flags(lines: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
                 "warranty_status": "",
                 "warranty_id": None,
                 "replacement": "",
+                "warranty_note": "",
             }
     return flags
