@@ -431,6 +431,63 @@ def save_service(form: dict[str, Any]) -> dict[str, Any]:
     return {"service_id": service_id, "name": name, "created": created}
 
 
+def move_site_offer(form: dict[str, Any]) -> dict[str, Any]:
+    """Move one product into another service, which becomes its site category."""
+    try:
+        offer_id = int(form.get("offer_id"))
+        service_id = int(form.get("service_id"))
+    except (TypeError, ValueError) as exc:
+        raise SiteAdminError("Produit ou service invalide.") from exc
+    offer = db.get_offer(offer_id)
+    service = db.get_service(service_id)
+    if not offer or offer.get("archived") == 1:
+        raise SiteAdminError("Produit introuvable.")
+    if not service or service.get("archived") == 1:
+        raise SiteAdminError("Service introuvable.")
+    name = str(offer.get("site_name") or offer.get("name") or "Produit")
+    if int(offer.get("service_id") or 0) == service_id:
+        return {"offer_id": offer_id, "name": name, "service_name": str(service.get("site_name") or service.get("name") or "")}
+    try:
+        db.move_offer(offer_id, service_id)
+    except ValueError as exc:
+        raise SiteAdminError(str(exc)) from exc
+    # The destination service name is the category. A leftover product-category
+    # label would keep the offer in the folder it just left.
+    db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {"site_category_name": ""}})
+    service_name = str(service.get("site_name") or service.get("name") or "Service")
+    db.audit_event("site_catalog.offer_moved", details={"offer_id": offer_id, "service_id": service_id})
+    return {"offer_id": offer_id, "name": name, "service_name": service_name}
+
+
+def move_catalog_offer(form: dict[str, Any]) -> dict[str, Any]:
+    """Move one product into another service, which becomes its site category."""
+    try:
+        offer_id = int(form.get("offer_id"))
+        service_id = int(form.get("service_id"))
+    except (TypeError, ValueError) as exc:
+        raise SiteAdminError("Produit ou service invalide.") from exc
+    offer = db.get_offer(offer_id)
+    service = db.get_service(service_id)
+    if not offer or offer.get("archived") == 1:
+        raise SiteAdminError("Offre introuvable.")
+    if not service or service.get("archived") == 1:
+        raise SiteAdminError("Service introuvable.")
+    if int(offer.get("service_id") or 0) == service_id:
+        raise SiteAdminError("Ce produit est déjà dans ce service.")
+    try:
+        db.move_offer(offer_id, service_id)
+    except ValueError as exc:
+        raise SiteAdminError(str(exc)) from exc
+    if not db.is_official_subscriptions_service(service):
+        db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {"site_category_name": ""}})
+    name = str(offer.get("site_name") or offer.get("name") or "Produit")
+    service_name = str(service.get("site_name") or service.get("name") or "Service")
+    db.audit_event("site_catalog.offer_moved", details={
+        "offer_id": offer_id, "service_id": service_id, "name": name,
+    })
+    return {"offer_id": offer_id, "name": name, "service_name": service_name}
+
+
 def rename_product_category(form: dict[str, Any]) -> dict[str, Any]:
     """Rename the site category of products that still share the official folder."""
     name = str(form.get("name") or "").strip()[:120]

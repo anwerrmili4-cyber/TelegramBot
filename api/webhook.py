@@ -2610,6 +2610,16 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200, {"ok": True, "message": f"Catégorie renommée en « {result['name']} »."})
                 return
 
+            elif action == "site_offer_move":
+                result = site_admin_service.move_site_offer(form)
+                self._reply(200, {"ok": True, "message": f"« {result['name']} » déplacé vers {result['service_name']}."})
+                return
+
+            elif action == "site_offer_move":
+                result = site_admin_service.move_catalog_offer(form)
+                self._reply(200, {"ok": True, "message": f"« {result['name']} » déplacé vers {result['service_name']}."})
+                return
+
             elif action == "site_offer_save":
                 result = site_admin_service.save_offer(form)
                 verb = "créé" if result["created"] else "mis à jour"

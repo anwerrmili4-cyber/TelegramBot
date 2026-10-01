@@ -120,6 +120,25 @@ def test_catalog_lists_disabled_offers_without_selling_them(mock_mongodb):
     assert storefront_service.catalog()["services"] == []
 
 
+def test_move_button_sends_an_offer_to_another_service(mock_mongodb):
+    source_id, offer_id = _offer(name="ChatGPT Plus 1 mois", service="ChatGPT")
+    destination_id = db.add_service("Google AI Pro", "✦", sales_channels=["bot"])
+
+    result = site_admin_service.move_catalog_offer({
+        "offer_id": str(offer_id),
+        "service_id": str(destination_id),
+    })
+
+    assert result["service_name"] == "Google AI Pro"
+    assert db.get_offer(offer_id)["service_id"] == destination_id
+    assert db.get_offer(offer_id)["service_id"] != source_id
+    with pytest.raises(site_admin_service.SiteAdminError, match="déjà"):
+        site_admin_service.move_catalog_offer({
+            "offer_id": str(offer_id),
+            "service_id": str(destination_id),
+        })
+
+
 def test_admin_can_rename_and_move_a_product_category(mock_mongodb):
     official_id = db.add_service("officiels subscribes", "⭐", sales_channels=["bot", "tn_site"])
     chatgpt = db.add_offer(

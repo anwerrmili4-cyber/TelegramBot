@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRightLeft,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -201,6 +202,27 @@ const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_BYTES = 500_000;
 const MAX_OFFER_IMAGE_BYTES = 1_000_000;
 const OFFER_IMAGE_PATH = "/api/storefront/offer-image";
+
+function MoveOffer({ row, services, onClose, onSave }) {
+  const [serviceId, setServiceId] = useState(String(row.service_id || ""));
+  const same = String(serviceId) === String(row.service_id);
+  const submit = (event) => {
+    event.preventDefault();
+    if (same) return;
+    onSave({ action: "site_offer_move", offer_id: row.id, service_id: serviceId });
+  };
+  return <Modal title={`Déplacer « ${row.name} »`} onClose={onClose}>
+    <form className="operation-form" onSubmit={submit}>
+      <Field label="Service de destination" wide>
+        <select value={serviceId} onChange={(event) => setServiceId(event.target.value)} required>
+          {services.map((service) => <option key={service.id} value={service.id}>{service.emoji} {service.name}</option>)}
+        </select>
+        <small className="site-field-help">Le produit prend la catégorie de ce service sur le site et dans le bot.</small>
+      </Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={ArrowRightLeft} disabled={same}>Déplacer</ActionButton></div>
+    </form>
+  </Modal>;
+}
 
 function CategoryRename({ group, onClose, onSave }) {
   const [name, setName] = useState(group.label || "");
@@ -403,6 +425,7 @@ export default function SiteCatalogPage({ onAction }) {
                         <td><span className={`status ${enabled ? "delivered" : "cancelled"}`}>{enabled ? "Sur le site" : "Masqué"}</span></td>
                         <td className="catalog-col-actions"><div className="site-row-actions">
                           <ActionButton secondary icon={Edit3} onClick={() => setEditor({ type: "product", row })}>{row.tn_price_millimes ? "Modifier" : "Fixer le prix"}</ActionButton>
+                          <button type="button" title="Déplacer" aria-label={`Déplacer ${row.name}`} onClick={() => setEditor({ type: "move", row })}><ArrowRightLeft size={15} /></button>
                           {canStock && <button type="button" title="Ajouter du stock" aria-label={`Ajouter du stock à ${row.name}`} onClick={() => setEditor({ type: "stock", row })}><Boxes size={15} /></button>}
                           <button type="button" title="Dupliquer" aria-label={`Dupliquer ${row.name}`} onClick={() => run({ action: "duplicate_offer", offer_id: row.id })}><Copy size={15} /></button>
                           <button type="button" title={row.site_enabled ? "Masquer sur le site" : "Afficher sur le site"} aria-label={`${row.site_enabled ? "Masquer" : "Afficher"} ${row.name} sur le site`} onClick={() => run({ action: "site_offer_visibility", offer_id: row.id, site_enabled: row.site_enabled ? "0" : "1" })}>{row.site_enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}</button>
@@ -436,6 +459,7 @@ export default function SiteCatalogPage({ onAction }) {
     {editor?.type === "product" && <ProductEditor row={editor.row} services={services} rate={Number(result.tnd_per_usdt) || 0} defaultServiceId={editor.serviceId || (serviceId ? Number(serviceId) : null)} onClose={close} onSave={run} />}
     {editor?.type === "service" && <ServiceEditor service={editor.service} onClose={close} onSave={run} />}
     {editor?.type === "category" && <CategoryRename group={editor.group} onClose={close} onSave={run} />}
+    {editor?.type === "move" && <MoveOffer row={editor.row} services={services} onClose={close} onSave={run} />}
     {editor?.type === "stock" && <StockEditor row={editor.row} onClose={close} onSave={run} />}
     {editor?.type === "delete" && <DeleteConfirm target={editor.target} onClose={close} onConfirm={run} />}
   </div>;
