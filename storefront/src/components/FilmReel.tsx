@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type AnimationEvent, type CSSProperties, type PointerEvent } from "react";
-import { ArrowRight, ChevronLeft, ChevronRight, Layers } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Layers, ShieldCheck, ShieldOff } from "lucide-react";
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
 import { warrantyView } from "@/lib/warranty";
@@ -198,14 +198,19 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                   </span>
                 </div>
                 <div className={offer.image_url ? "poster-art" : "poster-art brandpic"}>
-                  {picture ? (
-                    <img src={assetUrl(picture)} alt="" decoding="async" width={400} height={400} />
-                  ) : (
-                    <span className="poster-emoji" aria-hidden="true">
-                      {offer.service_emoji}
+                  <div className="poster-shot">
+                    {picture ? (
+                      <img src={assetUrl(picture)} alt="" decoding="async" width={400} height={400} />
+                    ) : (
+                      <span className="poster-emoji" aria-hidden="true">
+                        {offer.service_emoji}
+                      </span>
+                    )}
+                    <span className={warranty.covered ? "poster-warranty is-covered" : "poster-warranty is-open"}>
+                      {warranty.covered ? <ShieldCheck size={18} aria-hidden="true" /> : <ShieldOff size={18} aria-hidden="true" />}
+                      {warranty.label}
                     </span>
-                  )}
-                  <span className={warranty.covered ? "warranty-badge is-covered" : "warranty-badge is-open"}>{warranty.label}</span>
+                  </div>
                 </div>
               </Link>
             );
