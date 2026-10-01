@@ -27,6 +27,10 @@ export type Offer = {
   service_emoji: string;
   /** Empty when the service has no uploaded logo. */
   service_logo_url: string;
+  /** `0` when buying more does not lower the unit price. */
+  bulk_quantity?: number;
+  /** Dinar unit price once `bulk_quantity` is reached. `0` when there is no deal. */
+  bulk_unit_millimes?: number;
 };
 
 export type Category = { id: string; label: string };

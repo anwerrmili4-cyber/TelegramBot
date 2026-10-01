@@ -91,6 +91,27 @@ def _price_millimes(offer: dict[str, Any]) -> int:
         return 0
 
 
+def _bulk_deal(offer: dict[str, Any]) -> tuple[int, int]:
+    """Project a real USDT bulk discount onto the dinar price.
+
+    The site never invents a dinar amount from the bot price. It only keeps the
+    discount ratio when buying the bulk quantity is actually cheaper.
+    """
+    regular_tn = _price_millimes(offer)
+    try:
+        quantity = int(offer.get("bulk_quantity") or 0)
+        regular_usdt = Decimal(str(offer.get("price") or 0))
+        bulk_usdt = Decimal(str(offer.get("bulk_unit_price")))
+    except (InvalidOperation, TypeError, ValueError):
+        return 0, 0
+    if quantity < 2 or regular_tn <= 0 or regular_usdt <= 0 or not (0 <= bulk_usdt < regular_usdt):
+        return 0, 0
+    bulk_tn = int((Decimal(regular_tn) * bulk_usdt / regular_usdt).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    if bulk_tn <= 0 or bulk_tn >= regular_tn:
+        return 0, 0
+    return quantity, bulk_tn
+
+
 def suggested_price_millimes(offer: dict[str, Any]) -> int:
     """Convert the bot's USDT price at the configured rate, rounded to 100 millimes."""
     try:
@@ -199,6 +220,7 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
     stock = max(0, int(offer.get("stock") or 0))
     minimum = max(1, int(offer.get("min_quantity") or 1))
     delay = offer.get("site_delivery_delay") if "site_delivery_delay" in offer else ""
+    bulk_quantity, bulk_unit_millimes = _bulk_deal(offer)
     return {
         "id": int(offer["id"]),
         "package_number": str(offer.get("package_number") or offer["id"]),
@@ -223,6 +245,8 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "service_name": _display_name(service, "Service")[:120],
         "service_emoji": str(service.get("emoji") or "✦")[:8],
         "service_logo_url": site_logo_service.logo_url(service),
+        "bulk_quantity": bulk_quantity,
+        "bulk_unit_millimes": bulk_unit_millimes,
     }
 
 

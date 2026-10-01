@@ -46,6 +46,22 @@ def test_catalog_uses_live_mongo_offers_and_tnd(mock_mongodb):
     assert "whatsapp" not in result
 
 
+def test_catalog_projects_a_real_bulk_discount_onto_the_dinar_price(mock_mongodb):
+    _, offer_id = _catalog_offer(millimes=8000)
+    db.update_offer(offer_id, bulk_quantity=5, bulk_unit_price=3.72)
+    offer = storefront_service.catalog()["services"][0]["offers"][0]
+    assert offer["bulk_quantity"] == 5
+    assert offer["bulk_unit_millimes"] == 4960
+
+
+def test_catalog_hides_a_bulk_price_that_is_not_cheaper(mock_mongodb):
+    _, offer_id = _catalog_offer(millimes=8000)
+    db.update_offer(offer_id, bulk_quantity=5, bulk_unit_price=9)
+    offer = storefront_service.catalog()["services"][0]["offers"][0]
+    assert offer["bulk_quantity"] == 0
+    assert offer["bulk_unit_millimes"] == 0
+
+
 def test_catalog_does_not_refetch_each_offer_and_keeps_prices_live(mock_mongodb, monkeypatch):
     from unittest.mock import Mock
 

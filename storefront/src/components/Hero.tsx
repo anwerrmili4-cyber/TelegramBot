@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, Search, Sparkles } from "lucide-react";
+import { FilmReel } from "@/components/FilmReel";
 import { HowItWorks } from "@/components/HowItWorks";
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
@@ -181,6 +182,8 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
           })}
         </div>
       </section>
+
+      <FilmReel offers={offers} />
 
       <section className="home-block" aria-labelledby="trend-title">
         <h2 id="trend-title">Tendances</h2>
