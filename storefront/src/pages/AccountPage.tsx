@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   ArrowRight,
   BadgeCheck,
+  Check,
   ChevronDown,
   Copy,
   FileDown,
@@ -17,17 +18,18 @@ import {
 } from "lucide-react";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, openProductRequest, openTicket, openWarranty, fetchWallet, resendVerificationCode } from "@/lib/api";
+import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, resendVerificationCode } from "@/lib/api";
 import { dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
-import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, CartStatus, Deposit, Wallet } from "@/types";
+import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, AccountWarranty, CartStatus, Deposit, Wallet } from "@/types";
 
 const TABS = [
   { id: "commandes", label: "Mes achats", icon: Package },
   { id: "portefeuille", label: "Portefeuille", icon: WalletIcon },
   { id: "support", label: "Support", icon: Headphones },
+  { id: "garanties", label: "Garanties", icon: ShieldCheck },
   { id: "demande", label: "Demande produit", icon: PackageSearch },
   { id: "profil", label: "Profil & sécurité", icon: UserRound },
 ] as const;
@@ -69,15 +71,53 @@ function StatusChip({ label, tone }: { label: string; tone: string }) {
   return <span className={`status-chip status-${tone}`}>{label}</span>;
 }
 
+function AccountSkeleton({ label }: { label: string }) {
+  return (
+    <div className="account-skeleton" role="status" aria-label={label}>
+      <span className="account-skeleton-row" />
+      <span className="account-skeleton-row" />
+    </div>
+  );
+}
+
 export function AccountPage() {
   const { customer, loading, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [panelFrom, setPanelFrom] = useState("0px");
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!loading && !customer) navigate(withNext(ROUTES.login, accountPath(tab)), { replace: true });
   }, [loading, customer, tab]);
 
+  useLayoutEffect(() => {
+    const list = tabsRef.current;
+    if (!list) return;
+    const place = () => {
+      const active = list.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+      if (!active) return;
+      list.style.setProperty("--pill-x", `${active.offsetLeft}px`);
+      list.style.setProperty("--pill-w", `${active.offsetWidth}px`);
+      list.dataset.pill = "ready";
+      const edge = 8;
+      const start = active.offsetLeft;
+      const end = start + active.offsetWidth;
+      if (start < list.scrollLeft + edge || end > list.scrollLeft + list.clientWidth - edge) {
+        list.scrollTo({ left: Math.max(0, start - 16), behavior: "smooth" });
+      }
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(list);
+    for (const button of list.querySelectorAll("button")) observer.observe(button);
+    return () => observer.disconnect();
+  }, [tab, customer]);
+
   function select(next: Tab) {
+    if (next === tab) return;
+    const current = TABS.findIndex((item) => item.id === tab);
+    const target = TABS.findIndex((item) => item.id === next);
+    setPanelFrom(target > current ? "8px" : "-8px");
     setTab(next);
     window.history.replaceState(null, "", accountPath(next));
   }
@@ -103,13 +143,16 @@ export function AccountPage() {
         </button>
       </header>
 
-      <div className="account-tabs" role="tablist" aria-label="Sections du compte">
+      <div className="account-tabs" role="tablist" aria-label="Sections du compte" ref={tabsRef}>
+        <span className="account-tab-pill" aria-hidden="true" />
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             role="tab"
+            id={`account-tab-${id}`}
             aria-selected={tab === id}
+            aria-controls="account-panel"
             className={tab === id ? "active" : ""}
             onClick={() => select(id)}
           >
@@ -118,7 +161,16 @@ export function AccountPage() {
         ))}
       </div>
 
-      {tab === "commandes" ? <OrdersTab /> : tab === "portefeuille" ? <WalletTab /> : tab === "support" ? <RequestsTab kind="support" /> : tab === "demande" ? <RequestsTab kind="product" /> : <ProfileTab />}
+      <div
+        id="account-panel"
+        role="tabpanel"
+        aria-labelledby={`account-tab-${tab}`}
+        className="account-panel"
+        style={{ "--panel-from": panelFrom } as CSSProperties}
+        key={tab}
+      >
+        {tab === "commandes" ? <OrdersTab /> : tab === "portefeuille" ? <WalletTab /> : tab === "support" ? <RequestsTab kind="support" /> : tab === "garanties" ? <WarrantiesTab /> : tab === "demande" ? <RequestsTab kind="product" /> : <ProfileTab />}
+      </div>
     </section>
   );
 }
@@ -160,7 +212,7 @@ function OrdersTab() {
       </div>
     );
   }
-  if (!data) return <p className="account-loading">Chargement de tes achats…</p>;
+  if (!data) return <AccountSkeleton label="Chargement de tes achats" />;
 
   return (
     <div className="account-section">
@@ -198,18 +250,133 @@ function OrdersTab() {
 }
 
 const WARRANTY_STATUS: Record<string, string> = {
-  pending_admin_check: "en attente",
-  accepted: "acceptée",
-  replacement_pending: "remplacement en cours",
-  replacement_delivered: "remplacement livré",
-  refunded: "remboursée",
-  refused: "refusée",
+  pending_admin_check: "En attente",
+  accepted: "Acceptée",
+  replacement_pending: "Remplacement en cours",
+  replacement_delivered: "Remplacement livré",
+  refunded: "Remboursée",
+  refused: "Refusée",
 };
 
+const WARRANTY_TONE: Record<string, string> = {
+  pending_admin_check: "pending",
+  accepted: "progress",
+  replacement_pending: "progress",
+  replacement_delivered: "done",
+  refunded: "done",
+  refused: "failed",
+};
+
+const TICKET_STATUS: Record<string, string> = {
+  open: "Ouverte",
+  waiting_admin: "En attente du support",
+  waiting_customer: "Réponse du support",
+  resolved: "Résolue",
+  closed: "Fermée",
+};
+
+const TICKET_TONE: Record<string, string> = {
+  open: "progress",
+  waiting_admin: "pending",
+  waiting_customer: "progress",
+  resolved: "done",
+  closed: "failed",
+};
+
+function when(value: string | number | null): string {
+  if (typeof value === "number") return dateTime(value);
+  if (typeof value !== "string" || !value) return "—";
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return "—";
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function threadClosed(status: string): boolean {
+  return status === "closed" || status === "resolved";
+}
+
+type StepState = "done" | "current" | "wait" | "failed";
+
+const STEP_WORD: Record<StepState, string> = {
+  done: "terminé",
+  current: "en cours",
+  wait: "à venir",
+  failed: "refusé",
+};
+
+function receiptSteps(order: AccountOrder): { label: string; state: StepState }[] {
+  const paid = Boolean(order.paid_at) || order.status === "confirmed" || order.status === "partial" || order.status === "delivered" || order.status === "mixed";
+  const cancelled = order.status === "cancelled";
+  const delivered = order.items.length > 0 && order.items.every((item) => item.status === "delivered");
+  const statuses = order.items.map((item) => item.warranty_status).filter((status): status is string => Boolean(status));
+  const openClaim = order.items.some((item) => item.warranty_open) || statuses.some((status) => status === "pending_admin_check" || status === "replacement_pending" || status === "accepted");
+  const settled = statuses.some((status) => status === "replacement_delivered" || status === "refunded");
+  const refused = statuses.some((status) => status === "refused");
+
+  const pay: StepState = paid ? "done" : cancelled ? "failed" : "current";
+  const ship: StepState = delivered ? "done" : cancelled ? (paid ? "failed" : "wait") : paid ? "current" : "wait";
+  let warranty: StepState = "wait";
+  if (openClaim) warranty = "current";
+  else if (settled) warranty = "done";
+  else if (refused) warranty = "failed";
+
+  return [
+    { label: "Payé", state: pay },
+    { label: "Livré", state: ship },
+    { label: "Garantie", state: warranty },
+  ];
+}
+
 function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; defaultOpen: boolean; onRefresh: () => void }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
+  const foldRef = useRef<HTMLDivElement>(null);
   const [label, tone] = CART_STATUS[order.status] ?? CART_STATUS.mixed;
   const count = order.items.reduce((sum, item) => sum + item.quantity, 0);
+  const steps = receiptSteps(order);
+
+  useEffect(() => {
+    if (!defaultOpen) return;
+    const frame = requestAnimationFrame(() => setOpen(true));
+    return () => cancelAnimationFrame(frame);
+  }, [defaultOpen]);
+
+  useLayoutEffect(() => {
+    const fold = foldRef.current;
+    if (!fold) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      fold.style.height = open ? "auto" : "0px";
+      return;
+    }
+    const current = fold.getBoundingClientRect().height;
+    let frame = 0;
+    let timer = 0;
+    if (open) {
+      const target = Math.max(fold.scrollHeight, current);
+      fold.style.height = `${current}px`;
+      frame = requestAnimationFrame(() => {
+        if (foldRef.current) foldRef.current.style.height = `${target}px`;
+      });
+      timer = window.setTimeout(() => {
+        if (foldRef.current) foldRef.current.style.height = "auto";
+      }, 360);
+    } else {
+      fold.style.height = `${current}px`;
+      frame = requestAnimationFrame(() => {
+        if (foldRef.current) foldRef.current.style.height = "0px";
+      });
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [open]);
+
   return (
     <li className={`order-card${open ? " open" : ""}`}>
       <button type="button" className="order-summary" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
@@ -224,8 +391,17 @@ function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; def
         <ChevronDown size={18} aria-hidden="true" className="order-chevron" />
       </button>
 
-      {open ? (
+      <div className="order-fold" ref={foldRef} inert={!open}>
         <div className="order-details">
+          <ol className="order-steps" aria-label="Suivi de la commande">
+            {steps.map((step) => (
+              <li key={step.label} className={`is-${step.state}`}>
+                <span className="step-dot" aria-hidden="true" />
+                <span>{step.label}</span>
+                <span className="account-live">{STEP_WORD[step.state]}</span>
+              </li>
+            ))}
+          </ol>
           <ul className="order-items">
             {order.items.map((item) => {
               const [itemLabel, itemTone] = LINE_STATUS[item.status] ?? LINE_STATUS.to_verify;
@@ -248,6 +424,7 @@ function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; def
                   {item.replacement ? <DeliveryBox content={item.replacement} deliveredAt={null} heading="Remplacement sous garantie" /> : null}
                   {item.warranty_open ? <WarrantyButton item={item} onSent={onRefresh} /> : null}
                   {item.warranty_status ? <small className="account-muted">Garantie : {WARRANTY_STATUS[item.warranty_status] || item.warranty_status}</small> : null}
+                  {item.warranty_status === "refused" && item.warranty_note ? <small className="account-muted">Motif du refus : {item.warranty_note}</small> : null}
                 </li>
               );
             })}
@@ -281,7 +458,7 @@ function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; def
           </dl>
           {order.invoice_number ? <InvoiceButton reference={order.reference} number={order.invoice_number} /> : null}
         </div>
-      ) : null}
+      </div>
     </li>
   );
 }
@@ -317,23 +494,37 @@ function InvoiceButton({ reference, number }: { reference: string; number: strin
 
 function DeliveryBox({ content, deliveredAt, heading }: { content: string; deliveredAt: number | null; heading?: string }) {
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
     <div className="delivery-box">
       <div className="delivery-head">
         <span>{heading || `Tes accès · livrés le ${dateTime(deliveredAt)}`}</span>
         <button
           type="button"
-          className="icon-button"
-          aria-label="Copier les accès"
-          onClick={() => {
-            void navigator.clipboard?.writeText(content).then(() => setCopied(true));
-          }}
+          className={copied ? "icon-button is-copied" : "icon-button"}
+          aria-label={copied ? "Accès copiés" : "Copier les accès"}
+          onClick={() => void copy()}
         >
-          <Copy size={15} aria-hidden="true" />
+          {copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
         </button>
       </div>
       <pre>{content}</pre>
-      {copied ? <small aria-live="polite">Copié.</small> : null}
+      <span className="account-live" aria-live="polite">{copied ? "Copié." : ""}</span>
     </div>
   );
 }
@@ -381,6 +572,93 @@ function WarrantyButton({ item, onSent }: { item: AccountOrderItem; onSent: () =
         <button type="button" className="button button-ghost" onClick={() => setOpen(false)}>Annuler</button>
         <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
       </div>
+    </form>
+  );
+}
+
+function WarrantiesTab() {
+  const { token, handleError } = useAuth();
+  const [claims, setClaims] = useState<AccountWarranty[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchWarranties(token, controller.signal)
+      .then((result) => setClaims(result.warranties))
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        handleError(reason);
+        setError(errorMessage(reason, "Impossible de charger tes garanties."));
+      });
+    return () => controller.abort();
+  }, [token, handleError]);
+
+  if (error && !claims) return <p className="form-error">{error}</p>;
+  if (!claims) return <AccountSkeleton label="Chargement des garanties" />;
+  if (!claims.length) {
+    return <p className="account-muted">Aucune demande de garantie pour le moment. Tu peux en ouvrir une depuis une commande livrée.</p>;
+  }
+
+  return (
+    <ul className="order-list">
+      {claims.map((claim) => (
+        <li key={claim.id} className="account-card">
+          <div className="ticket-card-head">
+            <strong>{claim.offer_name || `Commande #${claim.order_id}`}</strong>
+            <StatusChip label={WARRANTY_STATUS[claim.status] || claim.status} tone={WARRANTY_TONE[claim.status] || "pending"} />
+          </div>
+          <small className="account-muted">
+            Garantie #{claim.id} · Commande #{claim.order_id} · {when(claim.created_at)}
+          </small>
+          <p>{claim.reason}</p>
+          {claim.admin_note ? (
+            <p className="warranty-note">
+              <small>{claim.status === "refused" ? "Motif du refus" : "Message du support"}</small>
+              <span>{claim.admin_note}</span>
+            </p>
+          ) : null}
+          {claim.refund_millimes > 0 && claim.status !== "refused" && claim.status !== "replacement_delivered" ? (
+            <small className="account-muted">
+              {claim.status === "refunded" ? "Remboursé" : "Remboursement estimé"} : {money(claim.refund_millimes)}
+            </small>
+          ) : null}
+          {claim.replacement ? <DeliveryBox content={claim.replacement} deliveredAt={null} heading="Remplacement sous garantie" /> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TicketReply({ ticketId, onSent }: { ticketId: number; onSent: () => void }) {
+  const { token, handleError } = useAuth();
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await replyToTicket(token, { ticket_id: ticketId, message });
+      setMessage("");
+      onSent();
+    } catch (reason) {
+      handleError(reason);
+      setError(errorMessage(reason, "La réponse n'a pas pu être envoyée."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="ticket-reply" onSubmit={(event) => void submit(event)}>
+      <label>
+        Ta réponse
+        <textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={1} maxLength={2000} rows={3} required />
+      </label>
+      {error ? <small className="form-error">{error}</small> : null}
+      <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Répondre"}</button>
     </form>
   );
 }
@@ -446,12 +724,14 @@ function RequestsTab({ kind }: { kind: "support" | "product" }) {
         {error ? <small className="form-error">{error}</small> : null}
         <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
       </form>
-      {!tickets ? <p className="account-loading">Chargement…</p> : tickets.length ? (
+      {!tickets ? <AccountSkeleton label="Chargement des demandes" /> : tickets.length ? (
         <ul className="order-list">
           {tickets.map((ticket) => (
             <li key={ticket.id} className="account-card">
-              <strong>Demande #{ticket.id}</strong>
-              <small className="account-muted">{ticket.status}</small>
+              <div className="ticket-card-head">
+                <strong>Demande #{ticket.id}</strong>
+                <StatusChip label={TICKET_STATUS[ticket.status] || ticket.status} tone={TICKET_TONE[ticket.status] || "pending"} />
+              </div>
               <ul className="ticket-thread">
                 {ticket.messages.map((entry) => (
                   <li key={entry.id} className={entry.sender === "admin" ? "from-admin" : ""}>
@@ -460,6 +740,11 @@ function RequestsTab({ kind }: { kind: "support" | "product" }) {
                   </li>
                 ))}
               </ul>
+              {threadClosed(ticket.status) ? (
+                <small className="account-muted">Cette conversation est fermée.</small>
+              ) : (
+                <TicketReply ticketId={ticket.id} onSent={() => setAttempt((value) => value + 1)} />
+              )}
             </li>
           ))}
         </ul>
@@ -492,7 +777,7 @@ function WalletTab() {
   }, [load]);
 
   if (error && !wallet) return <p className="form-error">{error}</p>;
-  if (!wallet) return <p className="account-loading">Chargement du portefeuille…</p>;
+  if (!wallet) return <AccountSkeleton label="Chargement du portefeuille" />;
 
   const pending = wallet.deposits.filter((deposit) => deposit.status === "pending");
   return (

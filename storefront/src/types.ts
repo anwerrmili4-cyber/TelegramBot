@@ -110,6 +110,8 @@ export type AccountOrderItem = {
   warranty_status?: string;
   warranty_id?: number | null;
   replacement?: string;
+  /** Refusal note, when the claim was turned down. */
+  warranty_note?: string;
 };
 
 export type AccountMessage = {

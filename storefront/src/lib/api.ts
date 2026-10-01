@@ -2,6 +2,7 @@ import type {
   AccountOrders,
   AccountTicket,
   AccountTickets,
+  AccountWarranties,
   AuthSession,
   Catalog,
   CheckoutResult,
@@ -166,6 +167,14 @@ export function openProductRequest(token: string, message: string) {
 
 export function openWarranty(token: string, payload: { order_id: number; reason: string }) {
   return postJson<{ ok: boolean }>("/api/storefront/auth/warranties", payload, token);
+}
+
+export function fetchWarranties(token: string, signal?: AbortSignal) {
+  return getAuthed<AccountWarranties>("/api/storefront/auth/warranties", token, signal);
+}
+
+export function replyToTicket(token: string, payload: { ticket_id: number; message: string }) {
+  return postJson<{ ok: boolean; ticket: AccountTicket }>("/api/storefront/auth/ticket-messages", payload, token);
 }
 
 /** Download the PDF invoice of a paid order. */
