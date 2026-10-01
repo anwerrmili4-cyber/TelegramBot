@@ -257,6 +257,10 @@
   filter: none;
 }
 
+.poster-art .warranty-badge {
+  z-index: 2;
+}
+
 .poster-nav {
   position: absolute;
   top: 50%;

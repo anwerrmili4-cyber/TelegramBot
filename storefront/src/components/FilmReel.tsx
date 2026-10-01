@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type AnimationEvent, type CSSProperties, t
 import { ArrowRight, ChevronLeft, ChevronRight, Layers } from "lucide-react";
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
+import { warrantyView } from "@/lib/warranty";
 import { Link, productPath } from "@/lib/router";
 import type { Offer } from "@/types";
 
@@ -153,6 +154,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
             const active = slideIndex === current;
             const picture = offer.image_url || offer.service_logo_url;
             const deal = isDeal(offer);
+            const warranty = warrantyView(offer);
             const percent = discountPercent(offer);
             const unit = deal ? offer.bulk_unit_millimes ?? offer.price_millimes : offer.price_millimes;
             const classes = ["poster", picture ? "" : "no-img", deal ? "is-bulk" : "", active ? "on" : "", leaving === slideIndex ? "leaving" : ""]
@@ -165,7 +167,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 to={productPath(offer.id)}
                 style={{ "--pi": slideIndex } as CSSProperties}
                 aria-roledescription="slide"
-                aria-label={`${slideIndex + 1} sur ${count} : ${offer.name}`}
+                aria-label={`${slideIndex + 1} sur ${count} : ${offer.name}, ${warranty.label}`}
                 aria-hidden={active ? undefined : true}
                 tabIndex={active ? undefined : -1}
               >
@@ -203,6 +205,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                       {offer.service_emoji}
                     </span>
                   )}
+                  <span className={warranty.covered ? "warranty-badge is-covered" : "warranty-badge is-open"}>{warranty.label}</span>
                 </div>
               </Link>
             );
