@@ -22,6 +22,15 @@ export const ROUTES = {
   messenger: "/messagerie",
 } as const;
 
+export function productPath(id: number): string {
+  return `/produit/${id}`;
+}
+
+export function productId(path: string): number | null {
+  const match = /^\/produit\/(\d+)$/.exec(path);
+  return match ? Number(match[1]) : null;
+}
+
 /** `path` with a `next` parameter to come back to after signing in. */
 export function withNext(path: string, next: string): string {
   return `${path}?${new URLSearchParams({ next })}`;

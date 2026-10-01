@@ -1,20 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  CalendarClock,
-  Check,
-  Layers,
-  PackageCheck,
-  ShieldCheck,
-  ShoppingBag,
-  Tag,
-  Truck,
-  X,
-  Zap,
-} from "lucide-react";
+import { Check, Clock, Package, ShieldCheck, ShoppingBag, X, Zap } from "lucide-react";
 import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
-import { ServiceMark } from "@/components/ServiceMark";
-import { TiltMedia } from "@/components/TiltMedia";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import type { Offer } from "@/types";
@@ -27,6 +14,14 @@ type ProductDialogProps = {
   onAdd: (offer: Offer, quantity: number) => void;
   onBuyNow: (offer: Offer, quantity: number) => void;
 };
+
+function receiveLines(description: string) {
+  const lines = description
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length ? lines : ["Service digital disponible directement depuis notre catalogue."];
+}
 
 export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuyNow }: ProductDialogProps) {
   // Keep the last offer while the dialog animates out.
@@ -44,32 +39,17 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
   const blocked = !shown.available || ceiling < shown.min_quantity;
   const lockedOut = cartIsFull && !inCart;
   const period = periodLabel(shown.period_days);
-  const facts = [
-    { icon: CalendarClock, label: "Durée", value: period || "Selon l'offre" },
-    { icon: Truck, label: "Livraison", value: shown.delivery_delay || "Par email et dans ton espace" },
-    { icon: ShieldCheck, label: "Garantie", value: shown.warranty || "Support en cas de problème" },
-    {
-      icon: PackageCheck,
-      label: "Disponibilité",
-      value: !shown.available ? "Épuisé" : shown.stock < 0 ? "En stock" : `${shown.stock} en stock`,
-    },
-    {
-      icon: Layers,
-      label: "Quantité",
-      value:
-        shown.min_quantity > 1
-          ? `De ${shown.min_quantity} à ${shown.max_quantity} par commande`
-          : `Jusqu'à ${shown.max_quantity} par commande`,
-    },
-    { icon: Tag, label: "Catégorie", value: shown.category_label },
-  ];
+  const stock = !shown.available ? "Épuisé" : shown.stock < 0 ? "En stock" : `${shown.stock} en stock`;
+  const lines = receiveLines(shown.description);
 
   return (
     <Overlay open={Boolean(offer)} onClose={onClose} labelledBy="product-title" variant="dialog">
       <div className="product-dialog">
         <header className="dialog-head">
           <div className="product-service">
-            <ServiceMark offer={shown} />
+            <span className="cat-mark">
+              {shown.image_url ? <img src={assetUrl(shown.image_url)} alt="" /> : shown.service_emoji}
+            </span>
             <div>
               <span className="kicker">{shown.service_name}</span>
               <small>Pack #{shown.package_number}</small>
@@ -80,88 +60,182 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
           </button>
         </header>
 
-        <div className="product-body">
-          <div className={`product-stage${shown.image_url ? "" : " product-stage-plain"}`}>
-            <div className="product-stage-copy">
-              <div className="product-title">
-                <h2 id="product-title">{shown.name}</h2>
-                {shown.badge ? <em className="offer-badge">{shown.badge}</em> : null}
-              </div>
-              <p className="product-price">
-                <strong>{money(shown.price_millimes)}</strong>
-                <small>par unité</small>
-              </p>
-              {period ? <p className="product-stage-period">{period}</p> : null}
-              <section className="product-description-section" aria-label="Description">
-                <h3>Description</h3>
-                <p className="product-description">
-                  {shown.description || "Service digital disponible directement depuis notre catalogue."}
-                </p>
-              </section>
-            </div>
-            {shown.image_url ? (
-              <TiltMedia className="product-media" restX={6} restY={-8}>
+        <div className="product-body pdp-layout">
+          <div className="pdp-main">
+            <div className="gal-stage">
+              {shown.image_url ? (
                 <img src={assetUrl(shown.image_url)} alt="" decoding="async" />
-              </TiltMedia>
-            ) : null}
+              ) : (
+                <span className="prod-ph">{shown.service_emoji}</span>
+              )}
+              <span className="pricechip">{money(shown.price_millimes)}</span>
+            </div>
+
+            <div className="pdp-tags">
+              <span className="tag tag-blue">{shown.category_label}</span>
+              {shown.available ? (
+                <span className="tag">
+                  <Zap size={13} aria-hidden="true" /> Livraison immédiate
+                </span>
+              ) : null}
+              {shown.warranty ? (
+                <span className="tag">
+                  <ShieldCheck size={13} aria-hidden="true" /> Garantie
+                </span>
+              ) : null}
+              {shown.badge ? <span className="tag">{shown.badge}</span> : null}
+            </div>
+
+            <h2 id="product-title">{shown.name}</h2>
+            <p className="pdp-meta">
+              {period ? (
+                <span>
+                  <Clock size={15} aria-hidden="true" /> {period}
+                </span>
+              ) : null}
+              <span>
+                <Package size={15} aria-hidden="true" /> {stock}
+              </span>
+            </p>
+
+            <div className="seller-pill">
+              <img src="/logo.png" alt="" width="38" height="38" />
+              <div>
+                <b>BlackMarket</b>
+                <span>revendeur indépendant</span>
+              </div>
+            </div>
+
+            <section className="desc-card" aria-labelledby="product-desc-title">
+              <h3 id="product-desc-title">Description</h3>
+              <div className="desc-sec">
+                <span className="label-caps">Ce que tu reçois</span>
+                <div className="rich">
+                  {lines.map((line) => (
+                    <p key={line}>
+                      <Check size={16} aria-hidden="true" />
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <div className="desc-sec">
+                <span className="label-caps">Livraison et garantie</span>
+                <dl className="facts">
+                  <div>
+                    <dt>
+                      <Zap size={16} aria-hidden="true" /> Livraison
+                    </dt>
+                    <dd>{shown.delivery_delay || "Par email et dans ton espace"}</dd>
+                  </div>
+                  {period ? (
+                    <div>
+                      <dt>
+                        <Clock size={16} aria-hidden="true" /> Durée
+                      </dt>
+                      <dd>{period}</dd>
+                    </div>
+                  ) : null}
+                  {shown.warranty ? (
+                    <div>
+                      <dt>
+                        <ShieldCheck size={16} aria-hidden="true" /> Garantie
+                      </dt>
+                      <dd>{shown.warranty}</dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt>
+                      <Package size={16} aria-hidden="true" /> Enregistré dans
+                    </dt>
+                    <dd>Mes achats</dd>
+                  </div>
+                </dl>
+              </div>
+            </section>
           </div>
 
-          <dl className="product-facts">
-            {facts.map(({ icon: Icon, label, value }) => (
-              <div key={label}>
-                <dt>
-                  <Icon size={15} aria-hidden="true" /> {label}
-                </dt>
-                <dd>{value}</dd>
+          <aside className="order-card">
+            <span className="label-caps">Ta commande</span>
+            <div className="oline">
+              <span className="cat-mark">
+                {shown.image_url ? <img src={assetUrl(shown.image_url)} alt="" /> : shown.service_emoji}
+              </span>
+              <div>
+                <b>{shown.name}</b>
+                <small>
+                  {shown.service_name} · {money(shown.price_millimes)} l'unité
+                </small>
               </div>
-            ))}
-          </dl>
-
-          <p className="product-note">
-            <Zap size={16} aria-hidden="true" />
-            Payé avec ton portefeuille, un produit en stock est livré immédiatement par email et dans ton espace
-            client.
-          </p>
+            </div>
+            <p className="order-stock">
+              <Package size={15} aria-hidden="true" />
+              <span>Stock disponible</span>
+              <b>{stock}</b>
+            </p>
+            {blocked ? (
+              <span className="offer-unavailable">Indisponible pour le moment</span>
+            ) : (
+              <>
+                <div className="order-qty">
+                  <span>Quantité</span>
+                  <QuantityStepper
+                    value={quantity}
+                    min={shown.min_quantity}
+                    max={ceiling}
+                    label={`Quantité pour ${shown.name}`}
+                    onChange={setQuantity}
+                  />
+                </div>
+                <div className="order-total">
+                  <div>
+                    <span>Total</span>
+                    <small>
+                      {quantity} article{quantity > 1 ? "s" : ""} · sans frais ajoutés
+                    </small>
+                  </div>
+                  <b>{money(shown.price_millimes * quantity)}</b>
+                </div>
+                <p className="order-note">
+                  <Zap size={15} aria-hidden="true" />
+                  <span>
+                    <b>Livraison · {shown.delivery_delay || "immédiate"}</b>
+                    L'accès arrive par email et reste dans ton espace dès que le paiement est confirmé.
+                  </span>
+                </p>
+                {shown.warranty ? (
+                  <p className="order-note">
+                    <ShieldCheck size={15} aria-hidden="true" />
+                    <span>
+                      <b>Garantie · {shown.warranty}</b>
+                      La demande se fait depuis la commande.
+                    </span>
+                  </p>
+                ) : null}
+                <div className="product-actions">
+                  <button
+                    type="button"
+                    className="button button-ghost"
+                    disabled={lockedOut}
+                    onClick={() => onAdd(shown, quantity)}
+                  >
+                    {inCart ? <Check size={16} aria-hidden="true" /> : <ShoppingBag size={16} aria-hidden="true" />}
+                    {inCart ? `Au panier (${inCart})` : "Ajouter au panier"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    disabled={lockedOut}
+                    onClick={() => onBuyNow(shown, quantity)}
+                  >
+                    Acheter maintenant
+                  </button>
+                </div>
+                {lockedOut ? <small className="drawer-notice">Ton panier a atteint sa limite de produits.</small> : null}
+              </>
+            )}
+          </aside>
         </div>
-
-        <footer className="product-foot">
-          {blocked ? (
-            <span className="offer-unavailable">Indisponible pour le moment</span>
-          ) : (
-            <>
-              <div className="product-quantity">
-                <QuantityStepper
-                  value={quantity}
-                  min={shown.min_quantity}
-                  max={ceiling}
-                  label={`Quantité pour ${shown.name}`}
-                  onChange={setQuantity}
-                />
-                <b>{money(shown.price_millimes * quantity)}</b>
-              </div>
-              <div className="product-actions">
-                <button
-                  type="button"
-                  className="button button-ghost"
-                  disabled={lockedOut}
-                  onClick={() => onAdd(shown, quantity)}
-                >
-                  {inCart ? <Check size={16} aria-hidden="true" /> : <ShoppingBag size={16} aria-hidden="true" />}
-                  {inCart ? `Au panier (${inCart})` : "Ajouter au panier"}
-                </button>
-                <button
-                  type="button"
-                  className="button button-primary"
-                  disabled={lockedOut}
-                  onClick={() => onBuyNow(shown, quantity)}
-                >
-                  Acheter maintenant
-                </button>
-              </div>
-              {lockedOut ? <small className="drawer-notice">Ton panier a atteint sa limite de produits.</small> : null}
-            </>
-          )}
-        </footer>
       </div>
     </Overlay>
   );

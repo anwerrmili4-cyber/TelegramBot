@@ -24,18 +24,38 @@ function searchTo(query: string) {
   navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
 }
 
-function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: Offer) => void }) {
+export function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: Offer) => void }) {
+  const stock = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
   return (
-    <button type="button" className="prod-tile" onClick={() => onOpen(offer)}>
+    <button type="button" className={offer.available ? "prod-tile" : "prod-tile sold-out"} onClick={() => onOpen(offer)}>
       <span className="prod-tile-media">
-        {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : null}
+        {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
       </span>
-      <em>{offer.category_label}</em>
-      <strong>{offer.name}</strong>
-      <b>{money(offer.price_millimes)}</b>
-      <small>{offer.available ? (offer.stock < 0 ? "En stock" : `${offer.stock} en stock`) : "Épuisé"}</small>
+      <span className="prod-tile-body">
+        <em>{offer.category_label}</em>
+        <strong>{offer.name}</strong>
+        <small>
+          {stock}
+          {offer.warranty ? ` · ${offer.warranty}` : ""}
+        </small>
+        <span className="prod-tile-foot">
+          <b>{money(offer.price_millimes)}</b>
+          <span className="go" aria-hidden="true">
+            <ArrowUpRight size={16} />
+          </span>
+        </span>
+      </span>
     </button>
   );
+}
+
+function categoryMark(offers: Offer[], categoryId: string) {
+  const inCategory = offers.filter((offer) => offer.category === categoryId);
+  const logo = inCategory.find((offer) => offer.service_logo_url);
+  if (logo) return { src: assetUrl(logo.service_logo_url), emoji: "" };
+  const image = inCategory.find((offer) => offer.image_url);
+  if (image) return { src: assetUrl(image.image_url), emoji: "" };
+  return { src: "", emoji: inCategory.find((offer) => offer.service_emoji)?.service_emoji ?? "" };
 }
 
 export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
@@ -105,13 +125,19 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
         <div className="cat-grid">
           {categories.slice(0, 8).map((category) => {
             const count = offers.filter((offer) => offer.category === category.id).length;
+            const mark = categoryMark(offers, category.id);
             return (
               <Link key={category.id} className="cat-card" to={`${ROUTES.shop}?categorie=${encodeURIComponent(category.id)}#catalogue`}>
+                <span className="cat-mark">
+                  {mark.src ? <img src={mark.src} alt="" /> : mark.emoji}
+                </span>
                 <span className="go" aria-hidden="true">
-                  <ArrowUpRight size={16} />
+                  <ArrowUpRight size={15} />
                 </span>
                 <strong>{category.label}</strong>
-                <small>{count} produit{count > 1 ? "s" : ""}</small>
+                <small>
+                  {count} produit{count > 1 ? "s" : ""}
+                </small>
               </Link>
             );
           })}

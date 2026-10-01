@@ -5,13 +5,13 @@ import { CatalogSection } from "@/components/CatalogSection";
 import { CheckoutDialog } from "@/components/CheckoutDialog";
 import { Hero } from "@/components/Hero";
 import { IntroSplash } from "@/components/IntroSplash";
-import { ProductDialog } from "@/components/ProductDialog";
+import { ProductPage } from "@/components/ProductPage";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
-import { Link, RouteProgress, ROUTES, usePathname } from "@/lib/router";
+import { Link, navigate, productId, productPath, RouteProgress, ROUTES, usePathname } from "@/lib/router";
 import { AccountPage } from "@/pages/AccountPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -60,8 +60,9 @@ export default function App() {
 
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [openOffer, setOpenOffer] = useState<Offer | null>(null);
   const path = usePathname();
+  const openedId = productId(path);
+  const openProduct = (offer: Offer) => navigate(productPath(offer.id));
   const Page = PAGES[path];
   const categories = catalog?.categories ?? [];
 
@@ -92,13 +93,27 @@ export default function App() {
         ) : path === ROUTES.categories ? (
           <CategoriesPage categories={categories} offers={offers} />
         ) : path === ROUTES.deals ? (
-          <DealsPage offers={offers} onOpenOffer={setOpenOffer} />
+          <DealsPage offers={offers} onOpenOffer={openProduct} />
         ) : path === ROUTES.prices ? (
-          <PricesPage offers={offers} onOpenOffer={setOpenOffer} />
+          <PricesPage offers={offers} onOpenOffer={openProduct} />
+        ) : openedId ? (
+          <ProductPage
+            offer={offers.find((item) => item.id === openedId) ?? null}
+            loading={loading}
+            related={offers.filter((item) => item.id !== openedId && item.category === offers.find((offer) => offer.id === openedId)?.category)}
+            inCart={cart.quantityOf(openedId)}
+            cartIsFull={cart.isFull}
+            onOpenOffer={openProduct}
+            onAdd={(offer, quantity) => cart.add(offer, quantity)}
+            onBuyNow={(offer, quantity) => {
+              if (!cart.quantityOf(offer.id)) cart.add(offer, quantity);
+              setCheckoutOpen(true);
+            }}
+          />
         ) : path === ROUTES.home || path === ROUTES.shop ? (
           <>
             {path === ROUTES.home ? (
-              <Hero offers={offers} categories={categories} onOpenOffer={setOpenOffer} />
+              <Hero offers={offers} categories={categories} onOpenOffer={openProduct} />
             ) : (
               <CatalogSection
                 offers={offers}
@@ -107,7 +122,7 @@ export default function App() {
                 error={error}
                 cart={cart}
                 onReload={reload}
-                onOpenOffer={setOpenOffer}
+                onOpenOffer={openProduct}
               />
             )}
           </>
@@ -126,7 +141,7 @@ export default function App() {
 
       <SiteFooter />
 
-      {cart.count && !cartOpen && !checkoutOpen && !openOffer && (path === ROUTES.home || path === ROUTES.shop) ? (
+      {cart.count && !cartOpen && !checkoutOpen && (path === ROUTES.home || path === ROUTES.shop) ? (
         <button type="button" className="cart-bar" onClick={() => setCartOpen(true)}>
           <ShoppingCart size={18} aria-hidden="true" />
           <span>
@@ -135,19 +150,6 @@ export default function App() {
           <ArrowRight size={18} aria-hidden="true" />
         </button>
       ) : null}
-
-      <ProductDialog
-        offer={openOffer}
-        inCart={openOffer ? cart.quantityOf(openOffer.id) : 0}
-        cartIsFull={cart.isFull}
-        onClose={() => setOpenOffer(null)}
-        onAdd={(offer, quantity) => cart.add(offer, quantity)}
-        onBuyNow={(offer, quantity) => {
-          if (!cart.quantityOf(offer.id)) cart.add(offer, quantity);
-          setOpenOffer(null);
-          setCheckoutOpen(true);
-        }}
-      />
 
       <CartDrawer
         open={cartOpen}
