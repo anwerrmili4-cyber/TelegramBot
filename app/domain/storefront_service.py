@@ -105,13 +105,17 @@ def _offer_on_sale(offer: dict[str, Any]) -> bool:
     return _site_visible(offer) and _price_millimes(offer) > 0
 
 
-def _plain_text(value: Any, *, limit: int = 700) -> str:
+def _plain_text(value: Any, *, limit: int = 700, keep_breaks: bool = False) -> str:
     text = str(value or "").replace("[[HTML]]", " ")
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(text)
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n\s*\n+", "\n", text)
+    text = re.sub(r" *\n *", "\n", text)
+    if keep_breaks:
+        text = re.sub(r"\n{3,}", "\n\n", text)
+    else:
+        text = re.sub(r"\n+", "\n", text)
     return text.strip()[:limit]
 
 
@@ -194,7 +198,7 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "id": int(offer["id"]),
         "package_number": str(offer.get("package_number") or offer["id"]),
         "name": _display_name(offer, "Offre"),
-        "description": _plain_text(offer.get("site_description_fr"), limit=3000),
+        "description": _plain_text(offer.get("site_description_fr"), limit=8000, keep_breaks=True),
         "price_millimes": price_millimes,
         "currency": "TND",
         "available": unlimited or stock > 0,

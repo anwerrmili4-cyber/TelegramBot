@@ -24,12 +24,58 @@ const PAY_STEPS = [
   ["Un souci ?", "Le support est à un message."],
 ];
 
+const URL_PATTERN = /https?:\/\/[^\s<]+/g;
+
 function receiveLines(description: string) {
   const lines = description
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
   return lines.length ? lines : ["Service digital disponible directement depuis notre catalogue."];
+}
+
+function linkify(text: string) {
+  const parts = text.split(URL_PATTERN);
+  return parts.map((part, index) => {
+    if (!/^https?:\/\//.test(part)) return part;
+    const url = part.replace(/[),.;:!?]+$/, "");
+    return (
+      <span key={index}>
+        <a href={url} target="_blank" rel="noopener noreferrer">
+          {url}
+        </a>
+        {part.slice(url.length)}
+      </span>
+    );
+  });
+}
+
+function DescriptionBody({ text }: { text: string }) {
+  const lines = receiveLines(text);
+  const long = text.length > 280 || lines.length > 6;
+  if (!long) {
+    return (
+      <div className="rich">
+        {lines.map((line, index) => (
+          <p key={index}>
+            <Check size={16} aria-hidden="true" />
+            <span>{linkify(line)}</span>
+          </p>
+        ))}
+      </div>
+    );
+  }
+  const blocks = text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  return (
+    <div className="rich is-long">
+      {(blocks.length ? blocks : lines).map((block, index) => (
+        <p key={index}>{linkify(block)}</p>
+      ))}
+    </div>
+  );
 }
 
 export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpenOffer, onAdd, onBuyNow }: ProductPageProps) {
@@ -63,7 +109,6 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const stockLabel = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
   const low = offer.available && offer.stock > 0 && offer.stock <= 3;
   const bar = offer.stock < 0 ? 100 : Math.max(6, Math.min(100, offer.stock * 8));
-  const lines = receiveLines(offer.description);
   const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(String(offer.service_id))}#catalogue`;
   const shareTitle = offer.name;
 
@@ -143,14 +188,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
             </h2>
             <div className="desc-sec">
               <span className="label-caps">Ce que tu reçois</span>
-              <div className="rich">
-                {lines.map((line) => (
-                  <p key={line}>
-                    <Check size={16} aria-hidden="true" />
-                    {line}
-                  </p>
-                ))}
-              </div>
+              <DescriptionBody text={offer.description} />
             </div>
             <div className="desc-sec">
               <span className="label-caps">Livraison et garantie</span>

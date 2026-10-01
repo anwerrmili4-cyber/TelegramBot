@@ -784,6 +784,21 @@
   font-size: 15.5px;
   font-weight: 700;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.desc-card .rich.is-long p {
+  display: block;
+  margin: 0 0 14px;
+  font-weight: 500;
+  white-space: pre-line;
+}
+
+.desc-card .rich a {
+  color: var(--brand);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .desc-card .rich svg {

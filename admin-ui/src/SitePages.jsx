@@ -266,6 +266,7 @@ function SiteDepositsPage({ onAction }) {
 }
 
 const DURATION_UNITS = [["days", "Jours"], ["months", "Mois"], ["years", "Années"]];
+const DESCRIPTION_LIMIT = 8000;
 
 function decimalInput(value) {
   return value || value === 0 ? String(value).replace(".", ",") : "";
@@ -356,7 +357,16 @@ function ProductEditor({ row, services, categories, rate, defaultServiceId, onCl
           <input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={120} required autoFocus={creating} placeholder="Ex. Netflix Premium 1 mois" />
         </Field>
         <Field label="Description en français" wide>
-          <textarea value={form.site_description_fr} onChange={(event) => set("site_description_fr", event.target.value)} maxLength={700} rows={4} placeholder="Ce que reçoit le client sur le site, conditions d’utilisation…" />
+          <textarea
+            className="site-description"
+            value={form.site_description_fr}
+            onChange={(event) => set("site_description_fr", event.target.value.slice(0, DESCRIPTION_LIMIT))}
+            rows={14}
+            placeholder={"Guide, conditions, liens…\nUn saut de ligne = une nouvelle ligne sur la fiche.\nUne ligne vide sépare les paragraphes."}
+          />
+          <small className={form.site_description_fr.length > DESCRIPTION_LIMIT * 0.9 ? "site-hint" : "site-field-help"}>
+            {form.site_description_fr.length.toLocaleString("fr-FR")} / {DESCRIPTION_LIMIT.toLocaleString("fr-FR")} caractères. Les sauts de ligne et les liens https sont conservés.
+          </small>
         </Field>
         <Field label="Image du produit (site, optionnel)" wide>
           <div className="site-logo-picker">

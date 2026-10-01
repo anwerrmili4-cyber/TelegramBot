@@ -1626,7 +1626,7 @@ def add_offer(
         "tn_price_millimes": tn_price_millimes,
         "name_ar": str(name_ar or "")[:200],
         "description_ar": str(description_ar or "")[:2000],
-        "site_description_fr": str(site_description_fr or "")[:2000],
+        "site_description_fr": str(site_description_fr or "")[:8000],
         "site_description_ar": str(site_description_ar or "")[:2000],
         "site_image_url": str(site_image_url or "")[:1000],
         "site_portrait_url": str(site_portrait_url or "")[:1000],

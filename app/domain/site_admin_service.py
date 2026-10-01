@@ -36,6 +36,13 @@ class SiteAdminError(ValueError):
     """Raised with a French message the admin UI shows as-is."""
 
 
+SITE_DESCRIPTION_LIMIT = 8000
+
+
+def _site_description(value: Any) -> str:
+    return str(value or "").strip()[:SITE_DESCRIPTION_LIMIT]
+
+
 def _first(params: dict[str, list[str]], key: str) -> str:
     values = params.get(key) or [""]
     return str(values[0] or "").strip()
@@ -297,7 +304,7 @@ def update_offer(form: dict[str, Any]) -> dict[str, Any]:
         "site_featured": _truthy(form.get("site_featured")),
         "site_badge": str(form.get("site_badge") or "").strip()[:48],
         "site_category": category,
-        "site_description_fr": str(form.get("site_description_fr") or "").strip()[:700],
+        "site_description_fr": _site_description(form.get("site_description_fr")),
     }
     update: dict[str, Any] = {"$set": changes}
     if price is None:
@@ -443,7 +450,7 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
     period_value, period_unit, period_days = _duration(form, "period", 30, allow_zero=False, label="Durée")
     warranty_value, warranty_unit, warranty_days = _duration(form, "warranty", 0, allow_zero=True, label="Garantie")
     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
-    description = str(form.get("site_description_fr") or "").strip()[:700]
+    description = _site_description(form.get("site_description_fr"))
     unlimited = str(form.get("stock_mode") or "inventory") == "unlimited"
     image = None
     if str(form.get("image") or "").strip():
