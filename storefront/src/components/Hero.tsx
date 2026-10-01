@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { ArrowUpRight, Search, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Search, Sparkles } from "lucide-react";
 import { HowItWorks } from "@/components/HowItWorks";
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
@@ -61,7 +61,10 @@ function categoryMark(offers: Offer[], categoryId: string) {
 export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
   const [query, setQuery] = useState("");
   const available = offers.filter((offer) => offer.available);
-  const trending = (offers.filter((offer) => offer.featured).length ? offers.filter((offer) => offer.featured) : available).slice(0, 8);
+  const featured = offers.filter((offer) => offer.featured);
+  const highlighted = featured.length ? featured : available;
+  const popular = highlighted.slice(0, 4);
+  const trending = highlighted.slice(0, 8);
   const fresh = [...available].sort((a, b) => b.id - a.id).slice(0, 4);
 
   function search(event: FormEvent) {
@@ -71,7 +74,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
 
   return (
     <>
-      <section className="hero" aria-labelledby="hero-title">
+      <section className={popular.length ? "hero has-popular" : "hero"} aria-labelledby="hero-title">
         <div className="hero-card">
           <span className="hero-eyebrow">
             <Sparkles size={14} aria-hidden="true" /> Livraison immédiate · 24/7
@@ -103,6 +106,38 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             ))}
           </div>
         </div>
+        {popular.length ? (
+          <aside className="hero-popular" aria-label="Populaire en ce moment">
+            <header>
+              <span>Populaire en ce moment</span>
+              <span className="live">
+                <span className="live-dot" aria-hidden="true" /> En direct
+              </span>
+            </header>
+            <ul>
+              {popular.map((offer) => {
+                const mark = offer.image_url || offer.service_logo_url;
+                return (
+                  <li key={offer.id}>
+                    <button type="button" onClick={() => onOpenOffer(offer)}>
+                      <span className="pop-mark">
+                        {mark ? <img src={assetUrl(mark)} alt="" /> : offer.service_emoji}
+                      </span>
+                      <span className="pop-copy">
+                        <strong>{offer.name}</strong>
+                        <small>{offer.service_name}</small>
+                      </span>
+                      <b>{money(offer.price_millimes)}</b>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <Link className="pop-more" to={ROUTES.shop}>
+              Voir les tendances <ArrowRight size={16} aria-hidden="true" />
+            </Link>
+          </aside>
+        ) : null}
         <ul className="hero-stats">
           <li>
             <strong>{offers.length || "—"}</strong>
