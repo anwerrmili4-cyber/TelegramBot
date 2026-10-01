@@ -98,14 +98,6 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
               </span>
             </p>
 
-            <div className="seller-pill">
-              <img src="/logo.png" alt="" width="38" height="38" />
-              <div>
-                <b>BlackMarket</b>
-                <span>revendeur indépendant</span>
-              </div>
-            </div>
-
             <section className="desc-card" aria-labelledby="product-desc-title">
               <h3 id="product-desc-title">Description</h3>
               <div className="desc-sec">

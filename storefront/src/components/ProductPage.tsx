@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, Clock, List, Lock, Package, Share2, ShieldCheck, ShoppingBag, Zap } from "lucide-react";
+import { ArrowLeft, Check, Clock, List, Lock, Package, Share2, ShieldCheck, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
 import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
@@ -62,7 +62,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const period = periodLabel(offer.period_days);
   const stockLabel = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
   const low = offer.available && offer.stock > 0 && offer.stock <= 3;
-  const bar = offer.stock < 0 ? 100 : Math.max(12, Math.min(100, offer.stock * 18));
+  const bar = offer.stock < 0 ? 100 : Math.max(6, Math.min(100, offer.stock * 8));
   const lines = receiveLines(offer.description);
   const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(String(offer.service_id))}#catalogue`;
   const shareTitle = offer.name;
@@ -135,18 +135,6 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
             <span>
               <Package size={15} aria-hidden="true" /> {stockLabel}
             </span>
-          </p>
-
-          <div className="seller-pill">
-            <img src="/logo.png" alt="" width="38" height="38" />
-            <div>
-              <b>BlackMarket</b>
-              <span>revendeur indépendant</span>
-            </div>
-          </div>
-          <p className="pdp-legal">
-            BlackMarket est un revendeur indépendant. Les noms et logos appartiennent à leurs propriétaires et servent
-            seulement à décrire le produit.
           </p>
 
           <section className="desc-card" aria-labelledby="product-desc-title">
@@ -223,7 +211,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
           <aside className="order-card">
             <span className="label-caps">Ta commande</span>
             <div className="oline">
-              <span className="cat-mark">
+              <span className="order-thumb">
                 {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : offer.service_emoji}
               </span>
               <div>
@@ -234,16 +222,29 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
               </div>
             </div>
 
-            <div className="stock-meter">
+            <div className={`stockbox${low ? " low" : ""}`}>
               <div>
-                <Package size={15} aria-hidden="true" />
-                <span>Stock disponible</span>
-                <b>{stockLabel}</b>
+                <span className="sb-label">
+                  <Package size={16} aria-hidden="true" /> Stock disponible
+                </span>
+                <b className="sb-count">
+                  {offer.available && offer.stock >= 0 ? (
+                    <>
+                      {offer.stock} <small>en stock</small>
+                    </>
+                  ) : (
+                    stockLabel
+                  )}
+                </b>
               </div>
-              <i aria-hidden="true">
-                <span style={{ width: `${blocked ? 0 : bar}%` }} />
-              </i>
-              {low ? <small>Plus que {offer.stock} — commande bientôt</small> : null}
+              <div className="sb-meter" aria-hidden="true">
+                <i style={{ width: `${blocked ? 0 : bar}%` }} />
+              </div>
+              {low ? (
+                <p className="sb-note">
+                  <TriangleAlert size={14} aria-hidden="true" /> Plus que {offer.stock} — commande bientôt
+                </p>
+              ) : null}
             </div>
 
             {blocked ? (
@@ -271,39 +272,39 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                   </div>
                   <b>{money(offer.price_millimes * quantity)}</b>
                 </div>
-                <p className="order-note">
-                  <Zap size={15} aria-hidden="true" />
-                  <span>
+                <div className="info-box">
+                  <div>
                     <b>Livraison · {offer.available ? "immédiate" : "indisponible"}</b>
-                    L'accès arrive sur ta commande dès que le paiement est confirmé.
-                  </span>
-                </p>
-                <p className="order-note">
-                  <ShieldCheck size={15} aria-hidden="true" />
-                  <span>
+                    <p>L'accès arrive sur ta commande dès que le paiement est confirmé.</p>
+                  </div>
+                  <div>
                     <b>Garantie · {offer.warranty || "Sans garantie"}</b>
-                    {offer.warranty
-                      ? "La demande se fait depuis la commande."
-                      : "Vendu comme décrit. Le support reste joignable en cas de souci."}
-                  </span>
-                </p>
-                <button
-                  type="button"
-                  className="button button-primary pdp-pay"
-                  disabled={lockedOut}
-                  onClick={() => onBuyNow(offer, quantity)}
-                >
-                  Acheter maintenant
-                </button>
-                <button
-                  type="button"
-                  className="button button-ghost pdp-pay"
-                  disabled={lockedOut}
-                  onClick={() => onAdd(offer, quantity)}
-                >
-                  {inCart ? <Check size={16} aria-hidden="true" /> : <ShoppingBag size={16} aria-hidden="true" />}
-                  {inCart ? `Au panier (${inCart})` : "Ajouter au panier"}
-                </button>
+                    <p>
+                      {offer.warranty
+                        ? "La demande se fait depuis la commande."
+                        : "Vendu comme décrit. Le support reste joignable en cas de souci."}
+                    </p>
+                  </div>
+                </div>
+                <div className="order-actions">
+                  <button
+                    type="button"
+                    className="button button-primary pdp-pay"
+                    disabled={lockedOut}
+                    onClick={() => onBuyNow(offer, quantity)}
+                  >
+                    Acheter maintenant
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-ghost pdp-pay"
+                    disabled={lockedOut}
+                    onClick={() => onAdd(offer, quantity)}
+                  >
+                    {inCart ? <Check size={16} aria-hidden="true" /> : <ShoppingBag size={16} aria-hidden="true" />}
+                    {inCart ? `Au panier (${inCart})` : "Ajouter au panier"}
+                  </button>
+                </div>
                 {lockedOut ? <small className="drawer-notice">Ton panier a atteint sa limite de produits.</small> : null}
               </>
             )}
