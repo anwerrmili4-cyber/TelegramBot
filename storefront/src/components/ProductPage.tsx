@@ -81,11 +81,15 @@ function DescriptionBody({ text }: { text: string }) {
 export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpenOffer, onAdd, onBuyNow }: ProductPageProps) {
   const [quantity, setQuantity] = useState(1);
   const [copied, setCopied] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [agreeHint, setAgreeHint] = useState(false);
 
   useEffect(() => {
     if (!offer) return;
     setQuantity(offer.min_quantity);
     setCopied(false);
+    setAgreed(false);
+    setAgreeHint(false);
   }, [offer]);
 
   if (!offer) {
@@ -111,6 +115,22 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const bar = offer.stock < 0 ? 100 : Math.max(6, Math.min(100, offer.stock * 8));
   const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(String(offer.service_id))}#catalogue`;
   const shareTitle = offer.name;
+  const mustAgree = offer.description.trim().length > 0;
+
+  function showDescription() {
+    document.getElementById("product-desc")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function buy(action: "add" | "now") {
+    if (mustAgree && !agreed) {
+      setAgreeHint(true);
+      showDescription();
+      document.getElementById("agree-description")?.focus();
+      return;
+    }
+    if (action === "now") onBuyNow(offer, quantity);
+    else onAdd(offer, quantity);
+  }
 
   async function share() {
     const url = window.location.href;
@@ -182,7 +202,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
             </span>
           </p>
 
-          <section className="desc-card" aria-labelledby="product-desc-title">
+          <section className="desc-card" id="product-desc" aria-labelledby="product-desc-title">
             <h2 id="product-desc-title">
               <List size={18} aria-hidden="true" /> Description
             </h2>
@@ -324,12 +344,42 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                     </p>
                   </div>
                 </div>
+                {mustAgree ? (
+                  <label className={agreeHint && !agreed ? "agree-desc is-needed" : "agree-desc"}>
+                    <input
+                      id="agree-description"
+                      type="checkbox"
+                      checked={agreed}
+                      onChange={(event) => {
+                        setAgreed(event.target.checked);
+                        if (event.target.checked) setAgreeHint(false);
+                      }}
+                    />
+                    <span>
+                      J'ai lu et j'accepte la{" "}
+                      <a
+                        href="#product-desc"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          showDescription();
+                        }}
+                      >
+                        description
+                      </a>{" "}
+                      de ce produit.
+                    </span>
+                  </label>
+                ) : null}
+                {agreeHint && !agreed ? (
+                  <p className="agree-hint">Coche la case après avoir lu la description.</p>
+                ) : null}
                 <div className="order-actions">
                   <button
                     type="button"
                     className="button button-primary pdp-pay"
                     disabled={lockedOut}
-                    onClick={() => onBuyNow(offer, quantity)}
+                    onClick={() => buy("now")}
                   >
                     Acheter maintenant
                   </button>
@@ -337,7 +387,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                     type="button"
                     className="button button-ghost pdp-pay"
                     disabled={lockedOut}
-                    onClick={() => onAdd(offer, quantity)}
+                    onClick={() => buy("add")}
                   >
                     {inCart ? <Check size={16} aria-hidden="true" /> : <ShoppingBag size={16} aria-hidden="true" />}
                     {inCart ? `Au panier (${inCart})` : "Ajouter au panier"}

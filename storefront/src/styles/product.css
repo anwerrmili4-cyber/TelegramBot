@@ -256,6 +256,44 @@
   line-height: 1.45;
 }
 
+.agree-desc {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--ink-700);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.agree-desc.is-needed {
+  border-color: var(--gold);
+}
+
+.agree-desc input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: none;
+  accent-color: var(--brand);
+}
+
+.agree-desc a {
+  color: var(--brand);
+  font-weight: 650;
+}
+
+.agree-hint {
+  margin: 8px 0 0;
+  color: var(--gold);
+  font-size: 13px;
+}
+
 .order-actions {
   display: grid;
   gap: 10px;
