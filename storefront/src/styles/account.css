@@ -728,10 +728,12 @@
   display: grid;
   justify-items: center;
   gap: 7px;
+  min-width: 0;
   color: var(--text-mute);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
+  text-align: center;
   text-transform: uppercase;
 }
 
@@ -828,6 +830,14 @@
 .order-item-head span {
   display: grid;
   gap: 3px;
+  min-width: 0;
+}
+
+.order-item-head strong,
+.order-item-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .order-item-head strong {
@@ -1077,6 +1087,17 @@
   .order-chevron {
     grid-column: 2;
     justify-self: end;
+  }
+
+  .order-steps li {
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+
+  .order-card,
+  .order-fold,
+  .order-items > li {
+    max-width: 100%;
   }
 
   .account-page {

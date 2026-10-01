@@ -19,6 +19,10 @@
   color: var(--text);
 }
 
+.account-mark {
+  display: none;
+}
+
 .account-chip {
   padding-right: 4px;
 }
@@ -257,12 +261,25 @@ button.auth-inline-link:disabled {
 }
 
 @media (max-width: 760px) {
-  .account-link > span {
+  .account-link > .account-name {
     display: none;
   }
 
+  .account-mark {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
   .account-link {
-    padding: 0 11px;
+    padding: 0 5px;
+    border-color: transparent;
   }
 
   .account-chip > span {

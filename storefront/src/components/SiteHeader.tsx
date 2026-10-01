@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ChevronDown, LifeBuoy, List, Megaphone, Menu, MessageCircle, Search, ShoppingCart, X } from "lucide-react";
+import { ChevronDown, LifeBuoy, List, LogIn, Megaphone, Menu, MessageCircle, Search, ShoppingCart, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
@@ -187,12 +187,14 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
       <div className="header-actions">
         {customer ? (
           <Link className="account-link" to={accountPath("commandes")} title={customer.email}>
-            <span>{firstName}</span>
+            <span className="account-mark" aria-hidden="true">{(firstName || "B").slice(0, 1)}</span>
+            <span className="account-name">{firstName}</span>
           </Link>
         ) : loading ? null : (
           <>
-            <Link className="button button-ghost" to={ROUTES.login}>
-              Connexion
+            <Link className="button button-ghost header-login" to={ROUTES.login}>
+              <LogIn size={16} aria-hidden="true" />
+              <span>Connexion</span>
             </Link>
             <Link className="button button-primary header-signup" to={ROUTES.register}>
               Inscription
