@@ -407,7 +407,7 @@ def test_stock_and_flash_templates_have_a_dedicated_editable_admin_section():
     )
 
 
-def test_official_preorder_catalog_uses_its_own_row(monkeypatch):
+def test_official_preorder_catalog_sits_with_other_services(monkeypatch):
     monkeypatch.setattr(kb.db, "list_catalog_offers", lambda: [
         {
             "id": 1, "service_id": 2,
@@ -424,10 +424,9 @@ def test_official_preorder_catalog_uses_its_own_row(monkeypatch):
     keyboard = kb.preorder_services_keyboard("fr")
 
     assert [button.callback_data for button in keyboard.inline_keyboard[0]] == [
-        "preorder_svc:2"
+        "preorder_svc:2", "preorder_svc:1",
     ]
     assert keyboard.inline_keyboard[0][0].style == "primary"
-    assert keyboard.inline_keyboard[1][0].callback_data == "preorder_svc:1"
 
 
 def test_stock_label_accepts_admin_premium_emoji(monkeypatch):
@@ -568,22 +567,21 @@ def test_official_catalog_button_supports_left_and_right_emojis(monkeypatch):
     assert button.style == "primary"
 
 
-def test_official_subscriptions_variant_is_first_and_sky_blue(monkeypatch):
+def test_official_subscriptions_share_the_catalog_row(monkeypatch):
     monkeypatch.setattr(kb.db, "list_services_with_stock", lambda: sorted([
         {"id": 1, "name": "Chat GPT", "total_stock": 5},
         {"id": 2, "name": "Officiels subscriptions", "total_stock": 5},
     ], key=db._service_sort_key))
 
     keyboard = kb.services_keyboard("fr")
-    button = keyboard.inline_keyboard[0][0]
 
-    assert button.callback_data == "svc:2"
-    assert button.style == "primary"
-    assert len(keyboard.inline_keyboard[0]) == 1
-    assert keyboard.inline_keyboard[1][0].callback_data == "svc:1"
+    assert [button.callback_data for button in keyboard.inline_keyboard[0]] == [
+        "svc:1", "svc:2",
+    ]
+    assert all(button.style == "primary" for button in keyboard.inline_keyboard[0])
 
 
-def test_official_subscriptions_move_from_catalog_to_home(mock_mongodb):
+def test_official_subscriptions_appear_in_the_catalog(mock_mongodb):
     regular_id = db.add_service("Streaming", "🎬")
     official_id = db.add_service("officiels subscribes", "⭐")
     db.add_offer(regular_id, "Netflix", 5.0, 4)
@@ -596,19 +594,20 @@ def test_official_subscriptions_move_from_catalog_to_home(mock_mongodb):
         for row in kb.catalog_offers_keyboard("fr").inline_keyboard
         for button in row
     ]
-    assert f"svc:{official_id}" not in catalog_callbacks
+    assert f"svc:{official_id}" in catalog_callbacks
     assert f"svc:{regular_id}" in catalog_callbacks
 
-    home = kb.home_keyboard("fr", 42)
-    assert home.inline_keyboard[0][0].callback_data == "catalog"
-    official_button = home.inline_keyboard[1][0]
-    assert official_button.callback_data == f"svc:{official_id}"
-    assert official_button.style == "primary"
-    assert len(home.inline_keyboard[1]) == 1
+    home_callbacks = [
+        button.callback_data
+        for row in kb.home_keyboard("fr", 42).inline_keyboard
+        for button in row
+    ]
+    assert home_callbacks[0] == "catalog"
+    assert f"svc:{official_id}" not in home_callbacks
 
-    assert kb.offers_keyboard("fr", official_id).inline_keyboard[-1][0].callback_data == "home"
+    assert kb.offers_keyboard("fr", official_id).inline_keyboard[-1][0].callback_data == "catalog"
     detail = kb.offer_detail_keyboard("fr", db.get_offer(monthly_id))
-    assert detail.inline_keyboard[-1][0].callback_data == f"svc:{official_id}"
+    assert detail.inline_keyboard[-1][0].callback_data == "catalog"
 
 
 def test_out_of_stock_items_sink_below_available_ones(mock_mongodb):

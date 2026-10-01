@@ -894,9 +894,7 @@ def catalog_admin_keyboard():
         _service_button_text(s),
         callback_data=f"adm_svc:{s['id']}",
         icon_custom_emoji_id=_safe_custom_emoji_id(s.get("custom_emoji_id")),
-        style=None if db.is_official_subscriptions_service(s) else (
-            "success" if s["active"] else "danger"
-        ),
+        style="success" if s["active"] else "danger",
     ) for s in db.list_services(active_only=False)]
     rows = _two_column_rows(service_buttons)
     rows.append([

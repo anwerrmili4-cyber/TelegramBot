@@ -316,14 +316,6 @@ def home_keyboard(lang, user_id):
             translated_button(lang, "menu_support", callback_data="support", style="danger"),
         ],
     ]
-    official = db.get_official_subscriptions_service()
-    if official:
-        candidate_rows.insert(1, [InlineKeyboardButton(
-            service_button_label(official, 46),
-            callback_data=f"svc:{official['id']}",
-            style="primary",
-            icon_custom_emoji_id=valid_custom_emoji_id(official.get("custom_emoji_id")),
-        )])
     rows = []
     for row in candidate_rows:
         visible = [button for button in row if button.callback_data not in hidden]
@@ -409,22 +401,14 @@ def services_keyboard(lang):
 
     for _cat, svcs in categories.items():
         row = []
-        for _i, svc in enumerate(svcs):
+        for svc in svcs:
             label = service_button_label(svc, 34)
-            is_official = db.is_official_subscriptions_service(svc)
-            service_button = InlineKeyboardButton(
+            row.append(InlineKeyboardButton(
                 label,
                 callback_data=f"svc:{svc['id']}",
                 style="primary",
                 icon_custom_emoji_id=svc.get("custom_emoji_id") or None,
-            )
-            if is_official:
-                if row:
-                    buttons.append(row)
-                    row = []
-                buttons.append([service_button])
-                continue
-            row.append(service_button)
+            ))
             if len(row) == 2:
                 buttons.append(row)
                 row = []
@@ -472,11 +456,7 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
     price_tbd = t(lang, "price_tbd")
     stock_icon = db.get_text_override_icon("stock_label", lang) or None
 
-    # Official subscriptions have their own home-menu button.
-    all_offers = [
-        offer for offer in db.list_catalog_offers()
-        if not db.is_official_subscriptions_service(offer.get("service_name"))
-    ]
+    all_offers = list(db.list_catalog_offers())
 
     # Group offers by service_id
     service_offers = {}
@@ -640,10 +620,7 @@ def offers_keyboard(lang, service_id):
             style=btn_style,
             icon_custom_emoji_id=button_icon,
         )])
-    if db.is_official_subscriptions_service(service):
-        buttons.append([translated_button(lang, "btn_main_menu", callback_data="home")])
-    else:
-        buttons.append([translated_button(lang, "btn_back_services", callback_data="catalog")])
+    buttons.append([translated_button(lang, "btn_back_services", callback_data="catalog")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -658,11 +635,7 @@ def offer_detail_keyboard(lang, offer):
         )])
     if offer.get("price") is not None and db.offer_has_stock(offer):
         buttons.append([translated_button(lang, "btn_buy", callback_data=f"buy:{offer['id']}")])
-    back = "catalog"
-    service_id = offer.get("service_id")
-    if service_id is not None and db.is_official_subscriptions_service(db.get_service(service_id)):
-        back = f"svc:{service_id}" if len(db.list_offers(service_id)) > 1 else "home"
-    buttons.append([translated_button(lang, "btn_back", callback_data=back)])
+    buttons.append([translated_button(lang, "btn_back", callback_data="catalog")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -697,20 +670,12 @@ def preorder_services_keyboard(lang):
             "custom_emoji_id": service_icon,
             "suffix_emoji": offer.get("service_suffix_emoji"),
         }, 28)
-        is_official = db.is_official_subscriptions_service(service_name)
-        service_button = InlineKeyboardButton(
+        row.append(InlineKeyboardButton(
             label,
             callback_data=f"preorder_svc:{service_id}",
             style="primary",
             icon_custom_emoji_id=service_icon,
-        )
-        if is_official:
-            if row:
-                rows.append(row)
-                row = []
-            rows.append([service_button])
-            continue
-        row.append(service_button)
+        ))
         if len(row) == 2:
             rows.append(row)
             row = []

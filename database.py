@@ -6,7 +6,6 @@ import os
 import re
 import threading
 import time
-import unicodedata
 from datetime import UTC, datetime, timedelta
 
 from cryptography.fernet import Fernet
@@ -25,28 +24,8 @@ _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
 
 
-def _normalized_service_name(value):
-    value = unicodedata.normalize("NFKD", str(value or "").casefold())
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", value.encode("ascii", "ignore").decode()).split())
-
-
-def is_official_subscriptions_service(value):
-    """Return whether a service is the catalogue that must stay pinned first."""
-    name = value.get("name") if isinstance(value, dict) else value
-    tokens = _normalized_service_name(name).split()
-    has_official = any(
-        token.startswith("official") or token.startswith("officiel")
-        for token in tokens
-    )
-    has_subscription = any(token.startswith("subscri") for token in tokens)
-    return has_official and has_subscription
-
-
 def _service_sort_key(service):
-    # The owner's official-subscriptions catalogue is always pinned first,
-    # independently of accents, casing, or its stored sort_order.
-    pinned = 0 if is_official_subscriptions_service(service) else 1
-    return pinned, int(service.get("sort_order", 0)), int(service.get("id", 0))
+    return int(service.get("sort_order", 0)), int(service.get("id", 0))
 
 
 def is_otp_service_name(value):
@@ -999,16 +978,6 @@ def list_services(active_only=True):
     query = {"active": 1} if active_only else {}
     services = [_sanitize_service_emoji(_public(x)) for x in get_conn().services.find(query)]
     return sorted(services, key=_service_sort_key)
-
-
-def get_official_subscriptions_service():
-    """Return the active official-subscriptions service shown on the home menu."""
-    for service in list_services():
-        if not is_official_subscriptions_service(service):
-            continue
-        if get_conn().offers.count_documents({"service_id": service["id"], "active": 1}, limit=1):
-            return service
-    return None
 
 
 def list_services_with_stock(active_only=True):

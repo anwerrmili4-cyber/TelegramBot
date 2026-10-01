@@ -82,31 +82,33 @@ def test_dashboard_services_include_offers(mock_mongodb):
     assert service["offer_count"] == 1
 
 
-def test_official_subscribes_catalog_is_always_first(mock_mongodb):
+def test_official_subscribes_follow_normal_catalog_order(mock_mongodb):
     regular_id = db.add_service("Streaming", "🎬")
     official_id = db.add_service("officiels subscribes", "✅")
-    db.add_offer(regular_id, "Regular", 2.0, 1)
+    regular_offer = db.add_offer(regular_id, "Regular", 2.0, 1)
     official_offer = db.add_offer(official_id, "Official", 3.0, 1)
 
-    assert db.list_services()[0]["id"] == official_id
-    assert db.list_services_with_stock()[0]["id"] == official_id
-    assert db.dashboard_data()["services"][0]["id"] == official_id
-    assert db.list_catalog_offers()[0]["id"] == official_offer
+    assert [service["id"] for service in db.list_services()[:2]] == [regular_id, official_id]
+    assert [service["id"] for service in db.list_services_with_stock()[:2]] == [regular_id, official_id]
+    assert [service["id"] for service in db.dashboard_data()["services"][:2]] == [regular_id, official_id]
+    assert [offer["id"] for offer in db.list_catalog_offers()[:2]] == [regular_offer, official_offer]
 
-    admin_button = admin.catalog_admin_keyboard().inline_keyboard[0][0]
-    assert admin_button.callback_data == f"adm_svc:{official_id}"
-    assert admin_button.style is None
+    admin_buttons = {
+        button.callback_data: button
+        for row in admin.catalog_admin_keyboard().inline_keyboard
+        for button in row
+    }
+    assert admin_buttons[f"adm_svc:{official_id}"].style == "success"
 
 
-def test_official_subscriptions_name_variant_is_pinned(mock_mongodb):
+def test_official_subscriptions_name_variant_is_not_pinned(mock_mongodb):
     regular_id = db.add_service("Chat GPT", "🤖")
     official_id = db.add_service("Officiels subscriptions", "✅")
 
     services = db.list_services()
 
-    assert services[0]["id"] == official_id
-    assert services[1]["id"] == regular_id
-    assert db.is_official_subscriptions_service(services[0])
+    assert services[0]["id"] == regular_id
+    assert services[1]["id"] == official_id
 
 
 def test_offer_can_move_between_services_and_keeps_api_config_in_sync(mock_mongodb):
