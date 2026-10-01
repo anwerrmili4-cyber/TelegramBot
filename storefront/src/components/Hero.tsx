@@ -3,6 +3,7 @@ import { ArrowRight, ArrowUpRight, Search, Sparkles } from "lucide-react";
 import { HowItWorks } from "@/components/HowItWorks";
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
+import { warrantyView } from "@/lib/warranty";
 import { Link, navigate, ROUTES } from "@/lib/router";
 import type { Category, Offer } from "@/types";
 
@@ -26,17 +27,19 @@ function searchTo(query: string) {
 
 export function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: Offer) => void }) {
   const stock = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
+  const warranty = warrantyView(offer);
   return (
     <button type="button" className={offer.available ? "prod-tile" : "prod-tile sold-out"} onClick={() => onOpen(offer)}>
       <span className="prod-tile-media">
         {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
+        <span className={warranty.covered ? "warranty-badge is-covered" : "warranty-badge is-open"}>{warranty.label}</span>
       </span>
       <span className="prod-tile-body">
         <em>{offer.service_name}</em>
         <strong>{offer.name}</strong>
         <small>
           {stock}
-          {offer.warranty ? ` · ${offer.warranty}` : ""}
+          {warranty.duration ? ` · ${warranty.duration}` : ""}
         </small>
         <span className="prod-tile-foot">
           <b>{money(offer.price_millimes)}</b>

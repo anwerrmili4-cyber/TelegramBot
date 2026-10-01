@@ -4,6 +4,7 @@ import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
+import { warrantyView } from "@/lib/warranty";
 import { Link, ROUTES } from "@/lib/router";
 import type { Offer } from "@/types";
 
@@ -116,6 +117,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(String(offer.service_id))}#catalogue`;
   const shareTitle = offer.name;
   const product = offer;
+  const warranty = warrantyView(product);
   const mustAgree = product.description.trim().length > 0;
 
   function showDescription() {
@@ -183,11 +185,13 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                 <Zap size={13} aria-hidden="true" /> Livraison immédiate
               </span>
             ) : null}
-            {offer.warranty ? (
-              <span className="tag">
-                <ShieldCheck size={13} aria-hidden="true" /> Garantie
+            {warranty.covered ? (
+              <span className="tag tag-ok">
+                <ShieldCheck size={13} aria-hidden="true" /> {warranty.label}
               </span>
-            ) : null}
+            ) : (
+              <span className="tag tag-warn">{warranty.label}</span>
+            )}
             {offer.badge ? <span className="tag">{offer.badge}</span> : null}
           </div>
 
@@ -230,13 +234,13 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                   <dt>
                     <ShieldCheck size={16} aria-hidden="true" /> Garantie
                   </dt>
-                  <dd>{offer.warranty || "Sans garantie"}</dd>
+                  <dd>{warranty.label}</dd>
                 </div>
                 <div>
                   <dt>
                     <ShieldCheck size={16} aria-hidden="true" /> Remplacement
                   </dt>
-                  <dd>{offer.warranty ? "Depuis la commande" : "Non couvert"}</dd>
+                  <dd>{warranty.covered ? "Depuis la commande" : "Non couvert"}</dd>
                 </div>
                 <div>
                   <dt>
@@ -337,9 +341,9 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                     <p>L'accès arrive sur ta commande dès que le paiement est confirmé.</p>
                   </div>
                   <div>
-                    <b>Garantie · {offer.warranty || "Sans garantie"}</b>
+                    <b>Garantie · {warranty.label}</b>
                     <p>
-                      {offer.warranty
+                      {warranty.covered
                         ? "La demande se fait depuis la commande."
                         : "Vendu comme décrit. Le support reste joignable en cas de souci."}
                     </p>

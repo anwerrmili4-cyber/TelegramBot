@@ -40,15 +40,32 @@ export function clampQuantity(
   return Math.min(ceiling, Math.max(offer.min_quantity, Math.round(quantity) || offer.min_quantity));
 }
 
-/** Display a period as the customer thinks of it rather than in raw days. */
-export function periodLabel(days: number): string {
+/** A duration the customer reads in months: 30 days and 1 month are both "1 mois". */
+export function monthsLabel(days: number): string {
   if (days <= 0) return "";
-  if (days % 365 === 0) {
-    const years = days / 365;
-    return `${years} ${plural(years, "an", "ans")}`;
+  const months = days % 30 === 0 ? days / 30 : Math.max(1, Math.round(days / 30));
+  return `${months} mois`;
+}
+
+/** Display a period in French months, never in days. */
+export function periodLabel(days: number): string {
+  return monthsLabel(days);
+}
+
+const DURATION_TEXT = /^(\d+)\s*(day|days|jour|jours|j|month|months|mois|year|years|an|ans)$/i;
+
+/** Turn "30 days", "1 month" or "1 year" into a French month count. */
+export function frenchDuration(value: string, fallbackDays = 0): string {
+  const match = value.trim().toLowerCase().match(DURATION_TEXT);
+  let days = fallbackDays;
+  if (match) {
+    const amount = Number(match[1]);
+    const unit = match[2];
+    if (unit === "j" || unit.startsWith("day") || unit.startsWith("jour")) days = amount;
+    else if (unit === "mois" || unit.startsWith("month")) days = amount * 30;
+    else days = amount * 365;
   }
-  if (days % 30 === 0) return `${days / 30} mois`;
-  return `${days} ${plural(days, "jour", "jours")}`;
+  return monthsLabel(days);
 }
 
 /** Strip anything that is not part of a local Tunisian 8-digit number. */

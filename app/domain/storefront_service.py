@@ -172,19 +172,24 @@ def _site_warranty_days(offer: dict[str, Any]) -> int:
     return 0
 
 
+def _months_label(days: int) -> str:
+    if days <= 0:
+        return ""
+    months = days // 30 if days % 30 == 0 else max(1, round(days / 30))
+    return f"{months} mois"
+
+
 def _site_warranty_label(offer: dict[str, Any]) -> str:
-    if "site_note" in offer and str(offer.get("site_note") or "").strip():
-        return _plain_text(offer.get("site_note"), limit=160)
     days = _site_warranty_days(offer)
-    if days <= 0 and ("site_warranty_days" in offer or "site_note" in offer):
-        return "NW"
-    if days > 0:
-        return warranty_service.format_duration(
-            offer.get("site_warranty_value") or days,
-            offer.get("site_warranty_unit") or "days",
-            "fr",
-        )
-    return ""
+    period = _site_period_days(offer)
+    note = str(offer.get("site_note") or "").strip()
+    code = note.upper()
+    if days <= 0:
+        return "Non garanti"
+    if code == "FW" or (period > 0 and days == period):
+        return "Garantie complète"
+    months = _months_label(days)
+    return months or _plain_text(note, limit=160)
 
 
 def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:

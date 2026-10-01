@@ -15,6 +15,8 @@ export type Offer = {
   delivery_delay: string;
   period_days: number;
   warranty: string;
+  /** `0` means the product is sold without a warranty. */
+  warranty_days?: number;
   featured: boolean;
   badge: string;
   image_url: string;

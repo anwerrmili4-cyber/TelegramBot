@@ -4,6 +4,7 @@ import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
+import { warrantyView } from "@/lib/warranty";
 import type { Offer } from "@/types";
 
 type ProductDialogProps = {
@@ -39,6 +40,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
   const blocked = !shown.available || ceiling < shown.min_quantity;
   const lockedOut = cartIsFull && !inCart;
   const period = periodLabel(shown.period_days);
+  const warranty = warrantyView(shown);
   const stock = !shown.available ? "Épuisé" : shown.stock < 0 ? "En stock" : `${shown.stock} en stock`;
   const lines = receiveLines(shown.description);
 
@@ -78,11 +80,13 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                   <Zap size={13} aria-hidden="true" /> Livraison immédiate
                 </span>
               ) : null}
-              {shown.warranty ? (
-                <span className="tag">
-                  <ShieldCheck size={13} aria-hidden="true" /> Garantie
+              {warranty.covered ? (
+                <span className="tag tag-ok">
+                  <ShieldCheck size={13} aria-hidden="true" /> {warranty.label}
                 </span>
-              ) : null}
+              ) : (
+                <span className="tag tag-warn">{warranty.label}</span>
+              )}
               {shown.badge ? <span className="tag">{shown.badge}</span> : null}
             </div>
 
@@ -128,14 +132,12 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                       <dd>{period}</dd>
                     </div>
                   ) : null}
-                  {shown.warranty ? (
-                    <div>
-                      <dt>
-                        <ShieldCheck size={16} aria-hidden="true" /> Garantie
-                      </dt>
-                      <dd>{shown.warranty}</dd>
-                    </div>
-                  ) : null}
+                  <div>
+                    <dt>
+                      <ShieldCheck size={16} aria-hidden="true" /> Garantie
+                    </dt>
+                    <dd>{warranty.label}</dd>
+                  </div>
                   <div>
                     <dt>
                       <Package size={16} aria-hidden="true" /> Enregistré dans
@@ -195,15 +197,15 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                     L'accès arrive par email et reste dans ton espace dès que le paiement est confirmé.
                   </span>
                 </p>
-                {shown.warranty ? (
-                  <p className="order-note">
-                    <ShieldCheck size={15} aria-hidden="true" />
-                    <span>
-                      <b>Garantie · {shown.warranty}</b>
-                      La demande se fait depuis la commande.
-                    </span>
-                  </p>
-                ) : null}
+                <p className="order-note">
+                  <ShieldCheck size={15} aria-hidden="true" />
+                  <span>
+                    <b>Garantie · {warranty.label}</b>
+                    {warranty.covered
+                      ? "La demande se fait depuis la commande."
+                      : "Vendu comme décrit. Le support reste joignable en cas de souci."}
+                  </span>
+                </p>
                 <div className="product-actions">
                   <button
                     type="button"
