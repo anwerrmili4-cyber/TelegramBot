@@ -72,7 +72,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
             </div>
 
             <div className="pdp-tags">
-              <span className="tag tag-blue">{shown.category_label}</span>
+              <span className="tag tag-blue">{shown.service_name}</span>
               {shown.available ? (
                 <span className="tag">
                   <Zap size={13} aria-hidden="true" /> Livraison immédiate

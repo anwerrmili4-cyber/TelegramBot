@@ -29,7 +29,7 @@ export function CategoriesPage({ categories, offers }: { categories: Category[];
       </PageIntro>
       <ul className="category-grid">
         {categories.map((category) => {
-          const count = offers.filter((offer) => offer.category === category.id).length;
+          const count = offers.filter((offer) => String(offer.service_id) === category.id).length;
           return (
             <li key={category.id}>
               <Link to={`${ROUTES.shop}?categorie=${encodeURIComponent(category.id)}#catalogue`}>
@@ -60,7 +60,7 @@ export function DealsPage({ offers, onOpenOffer }: { offers: Offer[]; onOpenOffe
             <button type="button" onClick={() => onOpenOffer(offer)}>
               <span>
                 <strong>{offer.name}</strong>
-                <small>{offer.category_label}</small>
+                <small>{offer.service_name}</small>
               </span>
               <b>{money(offer.price_millimes)}</b>
             </button>
@@ -82,7 +82,7 @@ export function PricesPage({ offers, onOpenOffer }: { offers: Offer[]; onOpenOff
           <thead>
             <tr>
               <th>Produit</th>
-              <th>Catégorie</th>
+              <th>Service</th>
               <th>Prix</th>
               <th>Stock</th>
             </tr>
@@ -95,7 +95,7 @@ export function PricesPage({ offers, onOpenOffer }: { offers: Offer[]; onOpenOff
                     {offer.name}
                   </button>
                 </td>
-                <td>{offer.category_label}</td>
+                <td>{offer.service_name}</td>
                 <td>{money(offer.price_millimes)}</td>
                 <td>{offer.available ? (offer.stock < 0 ? "En stock" : offer.stock) : "Épuisé"}</td>
               </tr>

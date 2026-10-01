@@ -39,7 +39,7 @@ export function CatalogSection({
   const visible = useMemo(() => {
     const term = searchable(query.trim());
     return offers
-      .filter((offer) => category === "all" || offer.category === category)
+      .filter((offer) => category === "all" || String(offer.service_id) === category)
       .filter(
         (offer) =>
           !term ||

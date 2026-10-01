@@ -64,7 +64,9 @@ export default function App() {
   const openedId = productId(path);
   const openProduct = (offer: Offer) => navigate(productPath(offer.id));
   const Page = PAGES[path];
-  const categories = catalog?.categories ?? [];
+  const categories = (catalog?.services ?? [])
+    .filter((service) => service.offers.length)
+    .map((service) => ({ id: String(service.id), label: service.name }));
 
   // Closing the last line should not leave an empty drawer or dialog on screen.
   useEffect(() => {
@@ -82,7 +84,7 @@ export default function App() {
         cartTotalMillimes={cart.totalMillimes}
         categories={categories.map((category) => ({
           ...category,
-          count: offers.filter((offer) => offer.category === category.id).length,
+          count: offers.filter((offer) => String(offer.service_id) === category.id).length,
         }))}
         onOpenCart={() => setCartOpen(true)}
       />
@@ -100,7 +102,7 @@ export default function App() {
           <ProductPage
             offer={offers.find((item) => item.id === openedId) ?? null}
             loading={loading}
-            related={offers.filter((item) => item.id !== openedId && item.category === offers.find((offer) => offer.id === openedId)?.category)}
+            related={offers.filter((item) => item.id !== openedId && item.service_id === offers.find((offer) => offer.id === openedId)?.service_id)}
             inCart={cart.quantityOf(openedId)}
             cartIsFull={cart.isFull}
             onOpenOffer={openProduct}

@@ -32,7 +32,7 @@ export function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: O
         {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
       </span>
       <span className="prod-tile-body">
-        <em>{offer.category_label}</em>
+        <em>{offer.service_name}</em>
         <strong>{offer.name}</strong>
         <small>
           {stock}
@@ -50,7 +50,7 @@ export function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: O
 }
 
 function categoryMark(offers: Offer[], categoryId: string) {
-  const inCategory = offers.filter((offer) => offer.category === categoryId);
+  const inCategory = offers.filter((offer) => String(offer.service_id) === categoryId);
   const logo = inCategory.find((offer) => offer.service_logo_url);
   if (logo) return { src: assetUrl(logo.service_logo_url), emoji: "" };
   const image = inCategory.find((offer) => offer.image_url);
@@ -124,7 +124,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
         <p>Là où le catalogue est le plus fourni.</p>
         <div className="cat-grid">
           {categories.slice(0, 8).map((category) => {
-            const count = offers.filter((offer) => offer.category === category.id).length;
+            const count = offers.filter((offer) => String(offer.service_id) === category.id).length;
             const mark = categoryMark(offers, category.id);
             return (
               <Link key={category.id} className="cat-card" to={`${ROUTES.shop}?categorie=${encodeURIComponent(category.id)}#catalogue`}>

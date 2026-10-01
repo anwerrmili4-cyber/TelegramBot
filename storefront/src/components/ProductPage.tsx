@@ -64,7 +64,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const low = offer.available && offer.stock > 0 && offer.stock <= 3;
   const bar = offer.stock < 0 ? 100 : Math.max(12, Math.min(100, offer.stock * 18));
   const lines = receiveLines(offer.description);
-  const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(offer.category)}#catalogue`;
+  const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(String(offer.service_id))}#catalogue`;
   const shareTitle = offer.name;
 
   async function share() {
