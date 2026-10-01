@@ -5,14 +5,13 @@ import { CatalogSection } from "@/components/CatalogSection";
 import { CheckoutDialog } from "@/components/CheckoutDialog";
 import { Hero } from "@/components/Hero";
 import { IntroSplash } from "@/components/IntroSplash";
-import { HowItWorks } from "@/components/HowItWorks";
 import { ProductDialog } from "@/components/ProductDialog";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
-import { Link, ROUTES, usePathname } from "@/lib/router";
+import { Link, RouteProgress, ROUTES, usePathname } from "@/lib/router";
 import { AccountPage } from "@/pages/AccountPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -75,10 +74,19 @@ export default function App() {
 
   return (
     <div className="page" id="top">
+      <RouteProgress />
       <IntroSplash />
-      <SiteHeader cartCount={cart.count} cartTotalMillimes={cart.totalMillimes} onOpenCart={() => setCartOpen(true)} />
+      <SiteHeader
+        cartCount={cart.count}
+        cartTotalMillimes={cart.totalMillimes}
+        categories={categories.map((category) => ({
+          ...category,
+          count: offers.filter((offer) => offer.category === category.id).length,
+        }))}
+        onOpenCart={() => setCartOpen(true)}
+      />
 
-      <main>
+      <main key={path} className="page-enter">
         {Page ? (
           <Page />
         ) : path === ROUTES.categories ? (
@@ -91,17 +99,17 @@ export default function App() {
           <>
             {path === ROUTES.home ? (
               <Hero offers={offers} categories={categories} onOpenOffer={setOpenOffer} />
-            ) : null}
-            <CatalogSection
-              offers={offers}
-              categories={categories}
-              loading={loading}
-              error={error}
-              cart={cart}
-              onReload={reload}
-              onOpenOffer={setOpenOffer}
-            />
-            {path === ROUTES.home ? <HowItWorks /> : null}
+            ) : (
+              <CatalogSection
+                offers={offers}
+                categories={categories}
+                loading={loading}
+                error={error}
+                cart={cart}
+                onReload={reload}
+                onOpenOffer={setOpenOffer}
+              />
+            )}
           </>
         ) : (
           <section className="doc-page">

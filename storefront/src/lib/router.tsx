@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
+import { useEffect, useState, useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
 
 export const ROUTES = {
   home: "/",
@@ -34,6 +34,32 @@ export function nextPath(fallback: string = ROUTES.home): string {
 }
 
 const NAVIGATE_EVENT = "storefront:navigate";
+
+/** Thin bar at the top of the viewport while a route change is painting. */
+export function RouteProgress() {
+  const [going, setGoing] = useState(false);
+
+  useEffect(() => {
+    let timer = 0;
+    const start = () => {
+      setGoing(false);
+      requestAnimationFrame(() => {
+        setGoing(true);
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => setGoing(false), 420);
+      });
+    };
+    window.addEventListener(NAVIGATE_EVENT, start);
+    window.addEventListener("popstate", start);
+    return () => {
+      window.removeEventListener(NAVIGATE_EVENT, start);
+      window.removeEventListener("popstate", start);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  return <div className={going ? "route-progress go" : "route-progress"} />;
+}
 
 function subscribe(onChange: () => void) {
   window.addEventListener("popstate", onChange);

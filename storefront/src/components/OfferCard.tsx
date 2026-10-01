@@ -2,7 +2,6 @@ import { useState } from "react";
 import { CalendarClock, Check, ChevronRight, ShieldCheck, ShoppingBag, Truck } from "lucide-react";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { ServiceMark } from "@/components/ServiceMark";
-import { TiltMedia } from "@/components/TiltMedia";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { stagger } from "@/lib/motion";
@@ -42,9 +41,9 @@ export function OfferCard({ offer, index, inCart, cartIsFull, onAdd, onOpen }: O
 
       <button type="button" className="offer-open" onClick={() => onOpen(offer)} aria-label={`Voir le détail de ${offer.name}`}>
         {offer.image_url ? (
-          <TiltMedia className="offer-media" restX={7 + (index % 3) * 2} restY={-16 + (index % 4) * 4}>
+          <span className="offer-media">
             <img src={assetUrl(offer.image_url)} alt="" loading="lazy" decoding="async" />
-          </TiltMedia>
+          </span>
         ) : null}
 
         <h3>{offer.name}</h3>
