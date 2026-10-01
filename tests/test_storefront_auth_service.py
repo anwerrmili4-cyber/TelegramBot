@@ -175,7 +175,7 @@ def test_forgot_password_does_not_reveal_unknown_emails(mock_mongodb, sent_email
 
 def _reset_token(sent_emails):
     message = sent_emails[-1]
-    assert message["subject"] == "Réinitialise ton mot de passe"
+    assert message["subject"] == "Nouveau mot de passe"
     link = re.search(r"https://shop\.example\.tn/reinitialiser-mot-de-passe\?token=\S+", message["text"]).group(0)
     return link.split("token=", 1)[1]
 

@@ -278,28 +278,34 @@ def _account_button(label: str, section: str = "") -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _duration(minutes: int) -> str:
+    return "1 minute" if int(minutes) == 1 else f"{int(minutes)} minutes"
+
+
 def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
+    delay = _duration(minutes)
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph("Voici ton code pour confirmer ton adresse email :")
+        + _paragraph("Entre ce code pour confirmer ton adresse.")
         + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:8px 0 22px"><tr>'
         f'<td align="center" style="background:{_BG};border:1px dashed #3a3a42;border-radius:16px;padding:22px 10px">'
-        f'<div style="font-family:{_MONO};font-size:36px;font-weight:800;letter-spacing:.38em;color:{_TEXT};'
-        f'padding-left:.38em">{escape(code)}</div>'
-        f'<div style="margin-top:8px;font-size:12px;color:{_MUTED}">Valable {minutes} minutes</div>'
+        f'<div style="font-family:{_MONO};font-size:36px;font-weight:800;letter-spacing:.28em;color:{_TEXT};'
+        f'padding-left:.28em">{escape(code)}</div>'
+        f'<div style="margin-top:8px;font-size:12px;color:{_MUTED}">Valable {delay}</div>'
         "</td></tr></table>"
-        + _note("Ne partage jamais ce code, même avec quelqu'un qui dit faire partie de notre équipe.", "pending")
-        + _paragraph("Si tu n'as pas créé de compte, ignore simplement cet email.")
+        + _paragraph("Ne le partage avec personne. Si tu n'as rien demandé, ignore cet e-mail.")
     )
     text = (
-        f"{_greeting(name)}\n\nTon code de vérification {BRAND} : {code}\n\n"
-        f"Il expire dans {minutes} minutes. Ne le partage avec personne.\n"
-        "Si tu n'as pas créé de compte, ignore simplement cet email."
+        f"{_greeting(name)}\n\n"
+        "Entre ce code pour confirmer ton adresse :\n\n"
+        f"{code}\n\n"
+        f"Valable {delay}. Ne le partage avec personne.\n"
+        "Si tu n'as rien demandé, ignore cet e-mail."
     )
     send(
         to,
-        f"{code} est ton code de vérification",
-        _layout("Confirme ton adresse email", body, badge="Vérification", preheader=f"Ton code : {code}"),
+        f"{code} — code BlackMarket",
+        _layout("Confirme ton adresse", body, badge="Code", preheader=f"Ton code : {code}. Valable {delay}."),
         text,
     )
 
@@ -340,19 +346,20 @@ def send_welcome(to: str, name: str, site_url: str) -> None:
 def send_password_reset(to: str, name: str, link: str) -> None:
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Tu as demandé à réinitialiser le mot de passe de ton compte {BRAND}.")
-        + _button("Choisir un nouveau mot de passe", link)
-        + _note("Ce lien expire dans une heure. Si tu n'es pas à l'origine de cette demande, ignore cet email.", "pending")
+        + _paragraph("Choisis un nouveau mot de passe avec le bouton ci-dessous.")
+        + _button("Choisir un mot de passe", link)
+        + _paragraph("Le lien est valable une heure. Si tu n'as rien demandé, ignore cet e-mail : ton mot de passe actuel ne change pas.")
     )
     text = (
-        f"{_greeting(name)}\n\nTu as demandé à réinitialiser le mot de passe de ton compte {BRAND}.\n"
-        f"Choisis un nouveau mot de passe ici : {link}\n\n"
-        "Ce lien expire dans une heure. Si tu n'es pas à l'origine de cette demande, ignore cet email."
+        f"{_greeting(name)}\n\n"
+        "Choisis un nouveau mot de passe ici :\n"
+        f"{link}\n\n"
+        "Le lien est valable une heure. Si tu n'as rien demandé, ignore cet e-mail."
     )
     send(
         to,
-        "Réinitialise ton mot de passe",
-        _layout("Réinitialise ton mot de passe", body, badge="Sécurité", preheader="Lien valable une heure."),
+        "Nouveau mot de passe",
+        _layout("Nouveau mot de passe", body, badge="Sécurité", preheader="Le lien est valable une heure."),
         text,
     )
 
