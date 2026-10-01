@@ -120,6 +120,11 @@ function providerLabel(value) {
   return PROVIDER_LABELS[value] || value || "Stock interne";
 }
 
+function supplierMonogram(value) {
+  const letters = String(value || "").replace(/[^A-Za-z0-9]/g, "");
+  return (letters.slice(0, 2) || "AP").toUpperCase();
+}
+
 function money(value, currency = "USDT") {
   return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(value || 0))} ${currency}`;
 }
@@ -1592,7 +1597,21 @@ function ApiProductsPage({ data, onAction, setToast }) {
     const haystack = searchField === "all" ? Object.values(searchable).join(" ") : searchable[searchField] || "";
     return !search || haystack.toLowerCase().includes(search.toLowerCase());
   }).sort((left, right) => Number(Boolean(right.enabled)) - Number(Boolean(left.enabled)));
-  const supplierName = catalog?.supplier_name || providerMeta.find((item) => item.id === provider)?.name || provider || "";
+  const activeProvider = providerMeta.find((item) => item.id === provider);
+  const supplierName = catalog?.supplier_name || activeProvider?.name || provider || "";
+  const health = providerHealth[provider] || {};
+  const connectionState = !provider
+    ? ""
+    : loading || health.status === "checking"
+      ? "checking"
+      : health.status || (catalog ? "online" : "unknown");
+  const connectionLabel = {
+    online: "Catalogue synchronisé",
+    checking: "Synchronisation…",
+    offline: health.error || "Connexion interrompue",
+    unknown: "En attente de synchronisation",
+  }[connectionState] || "";
+  const usageRatio = catalogProducts.length ? Math.round((usedCount / catalogProducts.length) * 100) : 0;
   const saveProduct = async (payload) => {
     const result = await onAction(payload);
     if (result) await loadProvider(provider, { selectCatalog: true });
@@ -1703,115 +1722,185 @@ function ApiProductsPage({ data, onAction, setToast }) {
           )}
         </section>
       )}
-      {workspaceTab === "catalog" && <div className="supplier-browser"><aside className="supplier-directory"><div className="supplier-directory-heading"><Cloud size={18} /><strong>Fournisseurs</strong><span>{providerMeta.length}</span></div>{providerMeta.map((item) => <button key={item.id} disabled={!item.configured} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><span className="supplier-monogram">{(item.name || item.id).slice(0, 2).toUpperCase()}</span><span><strong>{item.name || item.id}</strong><small>{item.configured ? "Connexion configurée" : "Configuration requise"}</small></span><ChevronRight size={15} /></button>)}{!providerMeta.length && <p className="control-caption">{providerError ? "Liste indisponible." : "Aucun fournisseur disponible."}</p>}<p className="control-caption">Les fournisseurs non configurés restent visibles, leurs actions sont indisponibles.</p></aside><div className="supplier-catalog">
-      {!provider && <div className="supplier-empty"><Cloud size={38} /><h3>Connectez votre premier fournisseur</h3><p>Les produits apparaîtront après configuration d’une connexion. Consultez les diagnostics ou ajoutez un connecteur personnalisé.</p><ActionButton secondary onClick={() => setWorkspaceTab("connectors")}>Ouvrir les connecteurs</ActionButton></div>}
-      {catalog && (
-        <div className="api-summary">
-          <div>
-            <span>Fournisseur</span>
-            <strong>{catalog.supplier_name || provider}</strong>
+      {workspaceTab === "catalog" && (
+        <div className="supplier-workbench">
+          <div className="supplier-dock">
+            <div className="supplier-switcher">
+              <span className="supplier-switcher-label">Fournisseurs <b>{providerMeta.length}</b></span>
+              <div className="supplier-switcher-rail" role="tablist" aria-label="Fournisseurs">
+              {providerMeta.map((item) => {
+                const itemHealth = providerHealth[item.id] || {};
+                const meta = !item.configured
+                  ? "À configurer"
+                  : itemHealth.products != null
+                    ? `${itemHealth.products} produits`
+                    : "Connecté";
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={provider === item.id}
+                    disabled={!item.configured}
+                    className={provider === item.id ? "active" : ""}
+                    onClick={() => setProvider(item.id)}
+                  >
+                    <span className="supplier-monogram">{supplierMonogram(item.name || item.id)}</span>
+                    <span className="supplier-switcher-copy">
+                      <strong>{item.name || item.id}</strong>
+                      <small>{meta}</small>
+                    </span>
+                  </button>
+                );
+              })}
+              {!providerMeta.length && (
+                <p className="control-caption">{providerError ? "Liste indisponible." : "Aucun fournisseur disponible."}</p>
+              )}
+              </div>
+            </div>
+            {provider && (
+              <>
+                <header className="supplier-command">
+                  <div className="supplier-identity">
+                    <span className="supplier-monogram lg">{supplierMonogram(supplierName || activeProvider?.name || provider)}</span>
+                    <div>
+                      {activeProvider?.name && activeProvider.name !== supplierName && (
+                        <span className="supplier-provider-kicker">{activeProvider.name}</span>
+                      )}
+                      <strong>{supplierName || provider}</strong>
+                      <small className={`supplier-live ${connectionState}`} title={health.error || undefined}>
+                        <i />
+                        {connectionLabel}
+                      </small>
+                    </div>
+                  </div>
+                  <dl className="supplier-metrics">
+                    <div>
+                      <dt>Solde</dt>
+                      <dd>{catalog ? money(catalog.balance, catalog.currency || "USDT") : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Utilisés</dt>
+                      <dd>{catalog ? usedCount : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Disponibles</dt>
+                      <dd>{catalog ? catalogProducts.length : "—"}</dd>
+                    </div>
+                  </dl>
+                  <div className="supplier-meter" role="img" aria-label={`${usageRatio}% du catalogue est publié dans la boutique`}>
+                    <span style={{ width: `${usageRatio}%` }} />
+                  </div>
+                </header>
+                <div className="supplier-toolbar">
+                  <div className="supplier-segments" role="group" aria-label="Classer les produits API">
+                    <button type="button" aria-pressed={usageFilter === "all"} className={usageFilter === "all" ? "active" : ""} onClick={() => setUsageFilter("all")}>
+                      Tous <b>{catalogProducts.length}</b>
+                    </button>
+                    <button type="button" aria-pressed={usageFilter === "used"} className={usageFilter === "used" ? "active" : ""} onClick={() => setUsageFilter("used")}>
+                      Utilisés <b>{usedCount}</b>
+                    </button>
+                    <button type="button" aria-pressed={usageFilter === "unused"} className={usageFilter === "unused" ? "active" : ""} onClick={() => setUsageFilter("unused")}>
+                      Non utilisés <b>{unusedCount}</b>
+                    </button>
+                  </div>
+                  <FilterBar
+                    search={search}
+                    setSearch={setSearch}
+                    searchField={searchField}
+                    setSearchField={setSearchField}
+                    options={[["all", "Tout"], ["name", "Nom du produit"], ["product_id", "ID fournisseur"], ["description", "Description"]]}
+                    resultCount={visibleProducts.length}
+                    placeholder="Nom, ID fournisseur ou description…"
+                  />
+                </div>
+              </>
+            )}
           </div>
-          <div>
-            <span>Solde</span>
-            <strong>
-              {money(catalog.balance, catalog.currency || "USDT")}
-            </strong>
-          </div>
-          <div>
-            <span>Produits utilisés</span>
-            <strong>{usedCount}</strong>
-          </div>
-          <div>
-            <span>Produits disponibles</span>
-            <strong>{catalog.products?.length || 0}</strong>
-          </div>
+          {!provider && (
+            <div className="supplier-empty">
+              <Cloud size={38} />
+              <h3>Connectez votre premier fournisseur</h3>
+              <p>Les produits apparaîtront après configuration d’une connexion. Consultez les diagnostics ou ajoutez un connecteur personnalisé.</p>
+              <ActionButton secondary onClick={() => setWorkspaceTab("connectors")}>Ouvrir les connecteurs</ActionButton>
+            </div>
+          )}
+          {provider && (
+            <section className="data-panel supplier-products">
+              {!!visibleProducts.length && (
+                <div className="responsive-table">
+                  <table className="supplier-product-table">
+                    <thead>
+                      <tr>
+                        <th>Produit</th>
+                        <th className="num">Achat</th>
+                        <th className="num">Vente</th>
+                        <th className="num">Marge</th>
+                        <th className="num">Stock</th>
+                        <th>Utilisation</th>
+                        <th className="supplier-col-actions" aria-label="Actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleProducts.map((product) => {
+                        const wholesale = Number(product.wholesale_price);
+                        const retail = Number(product.retail_price);
+                        const margin = Number.isFinite(wholesale) && retail > 0 ? retail - wholesale : null;
+                        const marginPercent = margin != null && wholesale > 0 ? Math.round((margin / wholesale) * 100) : null;
+                        const stock = Number(product.stock || 0);
+                        const summary = product.description || "Produit fournisseur";
+                        return (
+                          <tr
+                            className={product.enabled ? "api-product-used" : "api-product-unused"}
+                            key={product.id}
+                            onClick={() => setEditing(product)}
+                          >
+                            <td>
+                              <div className="supplier-product-name">
+                                <strong>{product.display_name || product.name}</strong>
+                                <small title={summary}>ID {product.id} · {summary}</small>
+                              </div>
+                            </td>
+                            <td className="num">{money(product.wholesale_price, product.currency)}</td>
+                            <td className="num"><strong className="supplier-retail">{money(product.retail_price, product.currency)}</strong></td>
+                            <td className="num">
+                              {margin == null ? "—" : <span className={`supplier-margin ${margin < 0 ? "negative" : ""}`}>{money(margin, product.currency)}{marginPercent != null && <small> {marginPercent}%</small>}</span>}
+                            </td>
+                            <td className="num">
+                              <span className={stock > 0 ? "supplier-stock" : "supplier-stock empty"}>
+                                <i />
+                                {stock > 0 ? stock.toLocaleString("fr-FR") : "Épuisé"}
+                              </span>
+                            </td>
+                            <td><span className={product.enabled ? "api-usage-badge used" : "api-usage-badge unused"}>{product.enabled ? <CheckCircle2 size={11} /> : <Archive size={11} />}{product.enabled ? "Utilisé" : "Non utilisé"}</span></td>
+                            <td className="supplier-col-actions">
+                              <div className="inline-actions">
+                                <button type="button" aria-label={`Configurer ${product.display_name || product.name}`} title="Configurer" onClick={(event) => { event.stopPropagation(); setEditing(product); }}>
+                                  <Edit3 size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {loading && (
+                <div className="table-loading">Connexion au fournisseur…</div>
+              )}
+              {!loading && !visibleProducts.length && (
+                <Empty
+                  icon={Cloud}
+                  title={search || usageFilter !== "all" ? "Aucun résultat" : "Aucun produit API"}
+                  text={search || usageFilter !== "all" ? "Essayez un autre nom, identifiant ou filtre." : "Vérifiez la configuration de ce fournisseur."}
+                />
+              )}
+            </section>
+          )}
         </div>
       )}
-      {catalog && <div className="api-usage-classifier" aria-label="Classer les produits API"><button className={usageFilter === "all" ? "active" : ""} onClick={() => setUsageFilter("all")}><Boxes size={16} /><span><strong>Tous les produits</strong><small>Catalogue complet</small></span><b>{catalogProducts.length}</b></button><button className={`used ${usageFilter === "used" ? "active" : ""}`} onClick={() => setUsageFilter("used")}><CheckCircle2 size={16} /><span><strong>Produits utilisés</strong><small>Actifs dans votre catalogue</small></span><b>{usedCount}</b></button><button className={`unused ${usageFilter === "unused" ? "active" : ""}`} onClick={() => setUsageFilter("unused")}><Archive size={16} /><span><strong>Produits non utilisés</strong><small>Disponibles chez le fournisseur</small></span><b>{unusedCount}</b></button></div>}
-      <FilterBar
-        search={search}
-        setSearch={setSearch}
-        searchField={searchField}
-        setSearchField={setSearchField}
-        options={[["all", "Tout"], ["name", "Nom du produit"], ["product_id", "ID fournisseur"], ["description", "Description"]]}
-        resultCount={visibleProducts.length}
-        placeholder="Nom, ID fournisseur ou description…"
-      />
-      <section className="data-panel supplier-products">
-        {!!supplierName && (
-          <header className="panel-heading">
-            <div>
-              <span className="eyebrow">Catalogue fournisseur</span>
-              <h2>{supplierName}</h2>
-            </div>
-            <span className="supplier-products-count">{visibleProducts.length} produit(s) affiché(s)</span>
-          </header>
-        )}
-        {!!visibleProducts.length && (
-          <div className="responsive-table">
-            <table className="supplier-product-table">
-              <thead>
-                <tr>
-                  <th>Produit</th>
-                  <th className="supplier-col-desc">Description</th>
-                  <th>Achat</th>
-                  <th>Vente</th>
-                  <th>Marge</th>
-                  <th>Stock</th>
-                  <th>Utilisation</th>
-                  <th className="supplier-col-actions" aria-label="Actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {visibleProducts.map((product) => {
-                  const wholesale = Number(product.wholesale_price);
-                  const retail = Number(product.retail_price);
-                  const margin = Number.isFinite(wholesale) && retail > 0 ? retail - wholesale : null;
-                  const marginPercent = margin != null && wholesale > 0 ? Math.round((margin / wholesale) * 100) : null;
-                  return (
-                    <tr
-                      className={product.enabled ? "api-product-used" : "api-product-unused"}
-                      key={product.id}
-                      onClick={() => setEditing(product)}
-                    >
-                      <td>
-                        <strong>{product.display_name || product.name}</strong>
-                        <small>ID {product.id}</small>
-                      </td>
-                      <td className="supplier-col-desc"><span>{product.description || "Produit fournisseur"}</span></td>
-                      <td>{money(product.wholesale_price, product.currency)}</td>
-                      <td><strong className="supplier-retail">{money(product.retail_price, product.currency)}</strong></td>
-                      <td>
-                        {margin == null ? "—" : <span className={`supplier-margin ${margin < 0 ? "negative" : ""}`}>{money(margin, product.currency)}{marginPercent != null && <small> {marginPercent}%</small>}</span>}
-                      </td>
-                      <td><span className={product.stock > 0 ? "api-online" : "api-offline"}>{product.stock > 0 ? `${product.stock} en stock` : "Épuisé"}</span></td>
-                      <td><span className={product.enabled ? "api-usage-badge used" : "api-usage-badge unused"}>{product.enabled ? <CheckCircle2 size={11} /> : <Archive size={11} />}{product.enabled ? "Utilisé" : "Non utilisé"}</span></td>
-                      <td className="supplier-col-actions">
-                        <div className="inline-actions">
-                          <button aria-label={`Configurer ${product.display_name || product.name}`} title="Configurer" onClick={(event) => { event.stopPropagation(); setEditing(product); }}>
-                            <Edit3 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {loading && (
-          <div className="table-loading">Connexion au fournisseur…</div>
-        )}
-        {!loading && !visibleProducts.length && (
-          <Empty
-            icon={Cloud}
-            title={search ? "Aucun résultat" : "Aucun produit API"}
-            text={search ? "Essayez un autre nom ou identifiant fournisseur." : "Vérifiez la configuration de ce fournisseur."}
-          />
-        )}
-      </section>
-      </div></div>}
       {workspaceTab === "keys" && <BuyerKeys setToast={setToast} writeToken={data.dashboard_write_token} />}
       {workspaceTab === "connectors" && <CustomExternalApis setToast={setToast} writeToken={data.dashboard_write_token} />}
       {editing && (
@@ -3286,6 +3375,17 @@ function WarrantiesPage({ onAction, data, channel = "" }) {
   const [editor, setEditor] = useState(null);
   const [value, setValue] = useState("");
   const site = channel === "tn_site";
+  useEffect(() => {
+    const navigateToWarranty = (event) => {
+      const pageId = site ? "site-warranties" : "warranties";
+      if (event.detail?.page !== pageId || event.detail?.entityId == null) return;
+      setSearch(String(event.detail.entityId));
+      setStatus("");
+      setPage(1);
+    };
+    window.addEventListener("admin:navigate", navigateToWarranty);
+    return () => window.removeEventListener("admin:navigate", navigateToWarranty);
+  }, [site]);
   const [result, loading] = useRemoteList("/admin/api/warranties", { search, status, page, per_page: 25, ...(site ? { channel: "tn_site" } : {}) }, { refreshInterval: 10000 });
   const refresh = () => window.dispatchEvent(new CustomEvent("admin:data-synced"));
   const run = async (payload) => {
@@ -3320,19 +3420,21 @@ function SupportPage({ onAction, onNavigate, data, channel = "" }) {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [targetTicketId, setTargetTicketId] = useState(initialTicket);
+  const site = channel === "tn_site";
   useEffect(() => {
     const navigateToTicket = (event) => {
-      if (event.detail?.page !== "support" || event.detail?.entityId == null) return;
+      const pageId = site ? "site-support" : "support";
+      if (event.detail?.page !== pageId || event.detail?.entityId == null) return;
       const id = String(event.detail.entityId);
       setTargetTicketId(id);
       setSearchField("ticket_id");
       setSearch(id);
+      setStatus("");
       setPage(1);
     };
     window.addEventListener("admin:navigate", navigateToTicket);
     return () => window.removeEventListener("admin:navigate", navigateToTicket);
-  }, []);
-  const site = channel === "tn_site";
+  }, [site]);
   const [result, loading] = useRemoteList("/admin/api/tickets", {
     status, search, search_field: searchField, page, per_page: 25,
     ...(site ? { channel: "tn_site", exclude_category: "catalog_request" } : {}),
@@ -3355,19 +3457,21 @@ function ProductRequestsPage({ onAction, onNavigate, data, channel = "" }) {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [targetTicketId, setTargetTicketId] = useState(initialRequest);
+  const site = channel === "tn_site";
   useEffect(() => {
     const navigateToRequest = (event) => {
-      if (event.detail?.page !== "product-requests" || event.detail?.entityId == null) return;
+      const pageId = site ? "site-product-requests" : "product-requests";
+      if (event.detail?.page !== pageId || event.detail?.entityId == null) return;
       const id = String(event.detail.entityId);
       setTargetTicketId(id);
       setSearchField("ticket_id");
       setSearch(id);
+      setStatus("");
       setPage(1);
     };
     window.addEventListener("admin:navigate", navigateToRequest);
     return () => window.removeEventListener("admin:navigate", navigateToRequest);
-  }, []);
-  const site = channel === "tn_site";
+  }, [site]);
   const [result, loading] = useRemoteList("/admin/api/tickets", {
     category: "catalog_request", status, search, search_field: searchField, page, per_page: 25,
     ...(site ? { channel: "tn_site" } : {}),
