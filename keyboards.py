@@ -475,7 +475,12 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
         offers_in_service = service_offers.get(sid, [])
         # A service only needs its own catalogue screen when there is actually
         # a choice to make.  Single offers are actionable from the main catalog.
-        should_group = len(offers_in_service) > 1
+        # Official subscriptions have no category button: each product is listed
+        # directly on the catalog.
+        should_group = (
+            len(offers_in_service) > 1
+            and not db.is_official_subscriptions_service(offer.get("service_name"))
+        )
 
         if should_group:
             if sid not in added_services:

@@ -587,14 +587,16 @@ def test_official_subscriptions_appear_in_the_catalog(mock_mongodb):
     db.add_offer(regular_id, "Netflix", 5.0, 4)
     db.add_offer(regular_id, "Disney", 5.0, 4)
     monthly_id = db.add_offer(official_id, "Official monthly", 4.0, 4)
-    db.add_offer(official_id, "Official yearly", 40.0, 4)
+    yearly_id = db.add_offer(official_id, "Official yearly", 40.0, 4)
 
     catalog_callbacks = [
         button.callback_data
         for row in kb.catalog_offers_keyboard("fr").inline_keyboard
         for button in row
     ]
-    assert f"svc:{official_id}" in catalog_callbacks
+    assert f"svc:{official_id}" not in catalog_callbacks
+    assert f"off:{monthly_id}" in catalog_callbacks
+    assert f"off:{yearly_id}" in catalog_callbacks
     assert f"svc:{regular_id}" in catalog_callbacks
 
     home_callbacks = [

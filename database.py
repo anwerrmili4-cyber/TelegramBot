@@ -28,6 +28,18 @@ def _service_sort_key(service):
     return int(service.get("sort_order", 0)), int(service.get("id", 0))
 
 
+def is_official_subscriptions_service(value):
+    """Return whether a service's products belong directly on the catalog."""
+    name = value.get("name") if isinstance(value, dict) else value
+    tokens = " ".join(re.sub(r"[^a-z0-9]+", " ", str(name or "").casefold()).split()).split()
+    has_official = any(
+        token.startswith("official") or token.startswith("officiel")
+        for token in tokens
+    )
+    has_subscription = any(token.startswith("subscri") for token in tokens)
+    return has_official and has_subscription
+
+
 def is_otp_service_name(value):
     """Return whether a service uses the legacy OTP / Codex-number flow."""
     normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split())
