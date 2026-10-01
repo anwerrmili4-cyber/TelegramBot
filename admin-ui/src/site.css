@@ -1,3 +1,39 @@
+/* Site Tunisie workspace matches storefront v1.1: near-black, blue accent, pill controls. */
+html[data-workspace="site"] {
+  color-scheme: dark;
+  --bg: #050506;
+  --panel: #0c0c0e;
+  --panel-soft: #141416;
+  --sidebar: #050506;
+  --line: #2a2a2f;
+  --line-bright: #3a3a42;
+  --text: #f5f5f7;
+  --muted: #a1a1aa;
+  --accent: #1a73ff;
+  --accent-soft: rgba(26, 115, 255, 0.16);
+  --accent-contrast: #ffffff;
+  --green: #3ddc97;
+  --amber: #f0b429;
+  --red: #ff6b6b;
+  --mono-action: #1a73ff;
+  --mono-action-text: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+
+html[data-workspace="site"] .app-shell { border-top: 3px solid #1a73ff; border-image: none; }
+html[data-workspace="site"] .brand-logo { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
+html[data-workspace="site"] .workspace-switch { border-color: var(--line); background: var(--panel-soft); border-radius: 999px; }
+html[data-workspace="site"] .workspace-switch button { border-radius: 999px; }
+html[data-workspace="site"] .workspace-switch button[aria-selected="true"] { background: #1a73ff; color: #fff; }
+html[data-workspace="site"] .nav-item { border-radius: 999px; }
+html[data-workspace="site"] .nav-item.active { color: #fff; border-color: transparent; background: #1a73ff; box-shadow: none; }
+html[data-workspace="site"] .nav-item small { background: rgba(255, 255, 255, 0.18); color: #fff; }
+html[data-workspace="site"] .nav-item:not(.active) small { background: rgba(26, 115, 255, 0.2); color: #9ec1ff; }
+html[data-workspace="site"] .site-tabs button,
+html[data-workspace="site"] .action-button { border-radius: 999px; }
+html[data-workspace="site"] .site-tabs button[aria-selected="true"] { background: #1a73ff; color: #fff; border-color: transparent; box-shadow: none; }
+
 .workspace-switch { display:grid; grid-template-columns:1fr 1fr; gap:3px; margin:14px 0 4px; padding:3px; border:1px solid #2a2a2a; border-radius:11px; background:#141414; }
 .workspace-switch button { position:relative; display:flex; align-items:center; justify-content:center; gap:6px; min-height:34px; padding:0 6px; border:0; border-radius:8px; background:transparent; color:#a8a8a8; font-size:12px; font-weight:600; white-space:nowrap; cursor:pointer; transition:background .18s, color .18s; }
 .workspace-switch button[aria-selected="true"] { background:#fff; color:#050505; }

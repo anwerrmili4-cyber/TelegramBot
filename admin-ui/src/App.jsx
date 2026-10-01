@@ -183,8 +183,8 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
       />
       <aside className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
         <div className="brand">
-          <div className="brand-mark">{initials(data?.shop_name || "BlackMarket")}</div>
-          <div><strong>{data?.shop_name || "BlackMarket"}</strong><span>Commerce workspace</span></div>
+          {siteMode ? <img className="brand-logo" src={`${import.meta.env.BASE_URL}logo.png`} alt="" width="40" height="40" /> : <div className="brand-mark">{initials(data?.shop_name || "BlackMarket")}</div>}
+          <div><strong>{siteMode ? "BlackMarket" : (data?.shop_name || "BlackMarket")}</strong><span>{siteMode ? "Site Tunisie" : "Commerce workspace"}</span></div>
           <button className="icon-button mobile-only" onClick={onClose} aria-label="Fermer"><X size={20} /></button>
         </div>
 
@@ -672,6 +672,9 @@ export default function App() {
   }, [loadData]);
   useEffect(() => { document.documentElement.dataset.adminDensity = density; }, [density]);
   useEffect(() => { document.documentElement.dataset.adminTheme = theme; }, [theme]);
+  useEffect(() => {
+    document.documentElement.dataset.workspace = isSitePage(activePage) ? "site" : "bot";
+  }, [activePage]);
   useEffect(() => {
     const openSearch = (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {

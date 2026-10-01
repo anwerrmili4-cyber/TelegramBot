@@ -8,6 +8,18 @@ export const ROUTES = {
   forgotPassword: "/mot-de-passe-oublie",
   resetPassword: "/reinitialiser-mot-de-passe",
   account: "/mon-compte",
+  shop: "/boutique",
+  categories: "/categories",
+  deals: "/offres",
+  prices: "/prix",
+  news: "/annonces",
+  help: "/support",
+  terms: "/conditions",
+  privacy: "/confidentialite",
+  contact: "/contact",
+  community: "/communaute",
+  report: "/signaler",
+  messenger: "/messagerie",
 } as const;
 
 /** `path` with a `next` parameter to come back to after signing in. */

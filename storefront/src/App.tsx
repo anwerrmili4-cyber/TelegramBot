@@ -12,13 +12,26 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
-import { ROUTES, usePathname } from "@/lib/router";
+import { Link, ROUTES, usePathname } from "@/lib/router";
 import { AccountPage } from "@/pages/AccountPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
+import {
+  CategoriesPage,
+  CommunityPage,
+  ContactPage,
+  DealsPage,
+  HelpPage,
+  MessengerPage,
+  NewsPage,
+  PricesPage,
+  PrivacyPage,
+  ReportPage,
+  TermsPage,
+} from "@/pages/StorePages";
 import type { Offer } from "@/types";
 
 const PAGES: Record<string, ComponentType | undefined> = {
@@ -28,6 +41,15 @@ const PAGES: Record<string, ComponentType | undefined> = {
   [ROUTES.forgotPassword]: ForgotPasswordPage,
   [ROUTES.resetPassword]: ResetPasswordPage,
   [ROUTES.account]: AccountPage,
+  [ROUTES.news]: NewsPage,
+  [ROUTES.help]: HelpPage,
+  "/aide": HelpPage,
+  [ROUTES.terms]: TermsPage,
+  [ROUTES.privacy]: PrivacyPage,
+  [ROUTES.contact]: ContactPage,
+  [ROUTES.community]: CommunityPage,
+  [ROUTES.report]: ReportPage,
+  [ROUTES.messenger]: MessengerPage,
 };
 
 const DEFAULT_MAX_LINES = 12;
@@ -40,7 +62,9 @@ export default function App() {
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [openOffer, setOpenOffer] = useState<Offer | null>(null);
-  const Page = PAGES[usePathname()];
+  const path = usePathname();
+  const Page = PAGES[path];
+  const categories = catalog?.categories ?? [];
 
   // Closing the last line should not leave an empty drawer or dialog on screen.
   useEffect(() => {
@@ -57,26 +81,44 @@ export default function App() {
       <main>
         {Page ? (
           <Page />
-        ) : (
+        ) : path === ROUTES.categories ? (
+          <CategoriesPage categories={categories} offers={offers} />
+        ) : path === ROUTES.deals ? (
+          <DealsPage offers={offers} onOpenOffer={setOpenOffer} />
+        ) : path === ROUTES.prices ? (
+          <PricesPage offers={offers} onOpenOffer={setOpenOffer} />
+        ) : path === ROUTES.home || path === ROUTES.shop ? (
           <>
-            <Hero />
+            {path === ROUTES.home ? (
+              <Hero offers={offers} categories={categories} onOpenOffer={setOpenOffer} />
+            ) : null}
             <CatalogSection
               offers={offers}
-              categories={catalog?.categories ?? []}
+              categories={categories}
               loading={loading}
               error={error}
               cart={cart}
               onReload={reload}
               onOpenOffer={setOpenOffer}
             />
-            <HowItWorks />
+            {path === ROUTES.home ? <HowItWorks /> : null}
           </>
+        ) : (
+          <section className="doc-page">
+            <header className="page-intro">
+              <span className="kicker">BlackMarket</span>
+              <h1>Page introuvable</h1>
+              <p>
+                <Link to={ROUTES.home}>Retour à l'accueil</Link>
+              </p>
+            </header>
+          </section>
         )}
       </main>
 
       <SiteFooter />
 
-      {cart.count && !cartOpen && !checkoutOpen && !openOffer && !Page ? (
+      {cart.count && !cartOpen && !checkoutOpen && !openOffer && (path === ROUTES.home || path === ROUTES.shop) ? (
         <button type="button" className="cart-bar" onClick={() => setCartOpen(true)}>
           <ShoppingCart size={18} aria-hidden="true" />
           <span>

@@ -187,7 +187,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 12px 15px;
-  border: 1px solid rgba(224, 58, 48, 0.28);
+  border: 1px solid rgba(var(--brand-rgb), 0.28);
   border-radius: var(--radius);
   background: var(--brand-wash);
 }

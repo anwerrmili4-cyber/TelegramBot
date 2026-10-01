@@ -39,7 +39,7 @@
   background: conic-gradient(
     from var(--aurora-angle),
     transparent 0%,
-    rgba(224, 58, 48, 0.16) 18%,
+    rgba(var(--brand-rgb), 0.16) 18%,
     transparent 38%,
     rgba(240, 180, 41, 0.12) 58%,
     transparent 78%

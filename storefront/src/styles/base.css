@@ -98,6 +98,14 @@ button {
   font-size: 14px;
 }
 
+@media (max-width: 760px) {
+  .section-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -106,7 +114,7 @@ button {
   min-height: 44px;
   padding: 0 18px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: var(--ink-600);
   font-size: 14px;
   font-weight: 650;

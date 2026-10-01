@@ -24,7 +24,7 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 38% 50%, rgba(224, 58, 48, 0.32), transparent 55%),
+    radial-gradient(circle at 38% 50%, rgba(var(--brand-rgb), 0.32), transparent 55%),
     radial-gradient(circle at 64% 48%, rgba(56, 189, 248, 0.26), transparent 55%);
   filter: blur(60px);
   animation:
@@ -53,7 +53,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 0 22px rgba(56, 189, 248, 0.35)) drop-shadow(0 0 18px rgba(224, 58, 48, 0.3));
+  filter: drop-shadow(0 0 22px rgba(56, 189, 248, 0.35)) drop-shadow(0 0 18px rgba(var(--brand-rgb), 0.3));
   animation: intro-logo-in 1.1s var(--ease-spring) 0.15s both;
 }
 
@@ -66,7 +66,7 @@
 }
 
 .intro-ring-late {
-  border-color: rgba(224, 58, 48, 0.5);
+  border-color: rgba(var(--brand-rgb), 0.5);
   animation-delay: 0.85s;
 }
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RotateCcw, Search, ServerCrash, SearchX } from "lucide-react";
 import { OfferCard } from "@/components/OfferCard";
 import { searchable } from "@/lib/format";
@@ -27,6 +27,14 @@ export function CatalogSection({
 }: CatalogSectionProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nextQuery = params.get("q");
+    const nextCategory = params.get("categorie");
+    if (nextQuery) setQuery(nextQuery);
+    if (nextCategory) setCategory(nextCategory);
+  }, []);
 
   const visible = useMemo(() => {
     const term = searchable(query.trim());

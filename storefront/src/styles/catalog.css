@@ -26,7 +26,7 @@
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: var(--ink-800);
   color: var(--text-mute);
 }
@@ -64,7 +64,7 @@
   min-height: 44px;
   padding: 0 15px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-mute);
   font-size: 13px;
@@ -78,9 +78,9 @@
 }
 
 .filters button.active {
-  border-color: rgba(224, 58, 48, 0.42);
+  border-color: rgba(var(--brand-rgb), 0.42);
   background: var(--brand-wash);
-  color: #ff9a94;
+  color: #9ec1ff;
 }
 
 /* ---------- Offer grid ---------- */
@@ -107,7 +107,7 @@
 
 .offer:hover {
   transform: translateY(-4px);
-  border-color: rgba(224, 58, 48, 0.4);
+  border-color: rgba(var(--brand-rgb), 0.4);
   box-shadow: var(--shadow-card);
 }
 
@@ -203,7 +203,7 @@
 }
 
 .offer-open:hover h3 {
-  color: #ff9a94;
+  color: #9ec1ff;
 }
 
 .offer-more {
