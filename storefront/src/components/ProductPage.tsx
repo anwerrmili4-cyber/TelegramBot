@@ -115,7 +115,8 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const bar = offer.stock < 0 ? 100 : Math.max(6, Math.min(100, offer.stock * 8));
   const shopCategory = `${ROUTES.shop}?categorie=${encodeURIComponent(String(offer.service_id))}#catalogue`;
   const shareTitle = offer.name;
-  const mustAgree = offer.description.trim().length > 0;
+  const product = offer;
+  const mustAgree = product.description.trim().length > 0;
 
   function showDescription() {
     document.getElementById("product-desc")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -128,8 +129,8 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
       document.getElementById("agree-description")?.focus();
       return;
     }
-    if (action === "now") onBuyNow(offer, quantity);
-    else onAdd(offer, quantity);
+    if (action === "now") onBuyNow(product, quantity);
+    else onAdd(product, quantity);
   }
 
   async function share() {
