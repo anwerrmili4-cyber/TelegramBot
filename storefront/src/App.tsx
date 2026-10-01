@@ -122,7 +122,6 @@ export default function App() {
                 categories={categories}
                 loading={loading}
                 error={error}
-                cart={cart}
                 onReload={reload}
                 onOpenOffer={openProduct}
               />

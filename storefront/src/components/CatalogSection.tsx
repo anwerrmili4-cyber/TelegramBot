@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { RotateCcw, Search, ServerCrash, SearchX } from "lucide-react";
-import { OfferCard } from "@/components/OfferCard";
+import { ProductTile } from "@/components/Hero";
 import { searchable } from "@/lib/format";
 import { stagger, withViewTransition } from "@/lib/motion";
 import type { Category, Offer } from "@/types";
-import type { Cart } from "@/hooks/useCart";
 
 type CatalogSectionProps = {
   offers: Offer[];
   categories: Category[];
   loading: boolean;
   error: string;
-  cart: Cart;
   onReload: () => void;
   onOpenOffer: (offer: Offer) => void;
 };
@@ -21,7 +19,6 @@ export function CatalogSection({
   categories,
   loading,
   error,
-  cart,
   onReload,
   onOpenOffer,
 }: CatalogSectionProps) {
@@ -93,7 +90,7 @@ export function CatalogSection({
       </div>
 
       {loading ? (
-        <div className="offer-grid" aria-busy="true" aria-label="Chargement du catalogue">
+        <div className="tile-grid" aria-busy="true" aria-label="Chargement du catalogue">
           {[0, 1, 2, 3, 4, 5].map((key) => (
             <div className="offer-skeleton" key={key} style={stagger(key)}>
               <i />
@@ -113,17 +110,9 @@ export function CatalogSection({
           </button>
         </div>
       ) : visible.length ? (
-        <div className="offer-grid">
-          {visible.map((offer, index) => (
-            <OfferCard
-              key={offer.id}
-              offer={offer}
-              index={index}
-              inCart={cart.quantityOf(offer.id)}
-              cartIsFull={cart.isFull}
-              onAdd={cart.add}
-              onOpen={onOpenOffer}
-            />
+        <div className="tile-grid">
+          {visible.map((offer) => (
+            <ProductTile key={offer.id} offer={offer} onOpen={onOpenOffer} />
           ))}
         </div>
       ) : (
