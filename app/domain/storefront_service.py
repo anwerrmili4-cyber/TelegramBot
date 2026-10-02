@@ -91,25 +91,14 @@ def _price_millimes(offer: dict[str, Any]) -> int:
         return 0
 
 
-def _bulk_deal(offer: dict[str, Any]) -> tuple[int, int]:
-    """Project a real USDT bulk discount onto the dinar price.
+def _bulk_deal(_offer: dict[str, Any]) -> tuple[int, int]:
+    """A group price only exists when the offer stores one in dinars.
 
-    The site never invents a dinar amount from the bot price. It only keeps the
-    discount ratio when buying the bulk quantity is actually cheaper.
+    ``bulk_unit_price`` belongs to the bot and is in USDT. Turning that
+    discount into dinars invented a unit price the catalogue never saved and
+    that checkout never charges. The homepage was advertising that invention.
     """
-    regular_tn = _price_millimes(offer)
-    try:
-        quantity = int(offer.get("bulk_quantity") or 0)
-        regular_usdt = Decimal(str(offer.get("price") or 0))
-        bulk_usdt = Decimal(str(offer.get("bulk_unit_price")))
-    except (InvalidOperation, TypeError, ValueError):
-        return 0, 0
-    if quantity < 2 or regular_tn <= 0 or regular_usdt <= 0 or not (0 <= bulk_usdt < regular_usdt):
-        return 0, 0
-    bulk_tn = int((Decimal(regular_tn) * bulk_usdt / regular_usdt).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-    if bulk_tn <= 0 or bulk_tn >= regular_tn:
-        return 0, 0
-    return quantity, bulk_tn
+    return 0, 0
 
 
 def suggested_price_millimes(offer: dict[str, Any], rate: float | None = None) -> int:
