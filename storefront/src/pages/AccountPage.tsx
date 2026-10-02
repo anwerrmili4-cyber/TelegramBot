@@ -563,16 +563,27 @@ function WarrantyButton({ item, onSent }: { item: AccountOrderItem; onSent: () =
       </button>
     );
   }
+  const length = reason.trim().length;
   return (
-    <form className="account-form" onSubmit={(event) => void submit(event)}>
+    <form className="warranty-form" onSubmit={(event) => void submit(event)}>
       <label>
-        Problème rencontré
-        <textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={8} maxLength={1000} rows={3} required />
+        <span>Problème rencontré</span>
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          minLength={8}
+          maxLength={1000}
+          rows={4}
+          required
+          autoFocus
+          placeholder="Ex. Le mot de passe ne fonctionne plus, le compte est déjà utilisé…"
+        />
+        <small>{length < 8 ? "Décris le problème en au moins 8 caractères." : `${length} / 1000`}</small>
       </label>
       {error ? <small className="form-error">{error}</small> : null}
-      <div className="account-inline-actions">
+      <div className="warranty-form-actions">
         <button type="button" className="button button-ghost" onClick={() => setOpen(false)}>Annuler</button>
-        <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
+        <button type="submit" className="button button-primary" disabled={busy || length < 8}>{busy ? "Envoi…" : "Envoyer"}</button>
       </div>
     </form>
   );
