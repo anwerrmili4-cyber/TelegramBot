@@ -57,7 +57,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
   const [hovering, setHovering] = useState(false);
   const [focused, setFocused] = useState(false);
   const [hidden, setHidden] = useState(false);
-  const [inView, setInView] = useState(true);
+  const [inView, setInView] = useState(false);
   const reduced = useReducedMotion();
   const rootRef = useRef<HTMLElement>(null);
   const swiped = useRef(false);
@@ -81,7 +81,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
 
   useEffect(() => {
     if (leaving === null) return;
-    const timer = window.setTimeout(() => setLeaving(null), 820);
+    const timer = window.setTimeout(() => setLeaving(null), 900);
     return () => window.clearTimeout(timer);
   }, [leaving]);
 
@@ -90,9 +90,12 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
   function go(next: number, direction: number) {
     const target = ((next % count) + count) % count;
     if (target === current) return;
+    const from = current;
     setDir(direction);
-    setLeaving(current);
-    setIndex(target);
+    window.requestAnimationFrame(() => {
+      setLeaving(from);
+      setIndex(target);
+    });
   }
 
   function advance(event: AnimationEvent<HTMLElement>) {
@@ -160,6 +163,8 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
             const classes = ["poster", picture ? "" : "no-img", deal ? "is-bulk" : "", active ? "on" : "", leaving === slideIndex ? "leaving" : ""]
               .filter(Boolean)
               .join(" ");
+            const kicker = deal ? `Offre groupe · dès ${offer.bulk_quantity}+` : offer.badge || "Sélection";
+            const promo = !deal && kicker.trim().toUpperCase() === "PROMO";
             return (
               <Link
                 key={offer.id}
@@ -173,10 +178,16 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
               >
                 {picture ? <img className="poster-bg" src={assetUrl(picture)} alt="" aria-hidden="true" decoding="async" /> : null}
                 <div className="poster-body">
-                  <span className="poster-kicker">
-                    <Layers size={14} aria-hidden="true" />
-                    {deal ? `Offre groupe · dès ${offer.bulk_quantity}+` : offer.badge || "Sélection"}
-                  </span>
+                  <div className="poster-meta">
+                    <span className={promo ? "poster-kicker is-promo" : "poster-kicker"}>
+                      <Layers size={14} aria-hidden="true" />
+                      <span>{kicker}</span>
+                    </span>
+                    <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+                      {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+                      {warranty.label}
+                    </span>
+                  </div>
                   {deal ? (
                     <div className="poster-off">
                       <span>−{percent}</span>
@@ -207,10 +218,6 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                           {offer.service_emoji}
                         </span>
                       )}
-                    </span>
-                    <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
-                      {warranty.tone === "none" ? <ShieldOff size={18} aria-hidden="true" /> : <ShieldCheck size={18} aria-hidden="true" />}
-                      {warranty.label}
                     </span>
                   </div>
                 </div>

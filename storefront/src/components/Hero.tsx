@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, Search, Sparkles } from "lucide-react";
 import { FilmReel } from "@/components/FilmReel";
 import { HowItWorks } from "@/components/HowItWorks";
@@ -26,11 +26,31 @@ function searchTo(query: string) {
   navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
 }
 
-export function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: Offer) => void }) {
+export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen: (offer: Offer) => void; index?: number }) {
   const stock = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
   const warranty = warrantyView(offer);
+  const tileRef = useRef<HTMLButtonElement>(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const node = tileRef.current;
+    if (!node) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        setShown(true);
+        observer.disconnect();
+      },
+      { threshold: 0.2 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const classes = [offer.available ? "prod-tile" : "prod-tile sold-out", shown ? "is-in" : ""].filter(Boolean).join(" ");
   return (
-    <button type="button" className={offer.available ? "prod-tile" : "prod-tile sold-out"} onClick={() => onOpen(offer)}>
+    <button ref={tileRef} type="button" className={classes} style={{ "--i": index } as CSSProperties} onClick={() => onOpen(offer)}>
       <span className="prod-tile-media">
         {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
         <span className={warrantyBadgeClass("warranty-badge", warranty.tone)}>{warranty.label}</span>
@@ -57,8 +77,6 @@ function categoryMark(offers: Offer[], categoryId: string) {
   const inCategory = offers.filter((offer) => String(offer.service_id) === categoryId);
   const logo = inCategory.find((offer) => offer.service_logo_url);
   if (logo) return { src: assetUrl(logo.service_logo_url), emoji: "" };
-  const image = inCategory.find((offer) => offer.image_url);
-  if (image) return { src: assetUrl(image.image_url), emoji: "" };
   return { src: "", emoji: inCategory.find((offer) => offer.service_emoji)?.service_emoji ?? "" };
 }
 
@@ -87,7 +105,10 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             BlackMarket <em>livré en secondes.</em>
           </h1>
           <p className="hero-lead">
-            Des produits digitaux aux meilleurs prix, payés en dinar. Livraison rapide, et tes accès restent dans ton compte.
+            <span className="hero-lead-long">
+              Des produits digitaux aux meilleurs prix, payés en dinar. Livraison rapide, et tes accès restent dans ton compte.
+            </span>
+            <span className="hero-lead-short">Payé en dinar. Tes accès restent dans ton compte.</span>
           </p>
           <form className="hero-search" onSubmit={search}>
             <Search size={18} aria-hidden="true" />
@@ -98,8 +119,9 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
               placeholder="Que cherches-tu ?"
               aria-label="Rechercher un produit"
             />
-            <button type="submit" className="button button-primary">
-              Chercher
+            <button type="submit" className="button button-primary" aria-label="Chercher">
+              <Search className="hero-search-go" size={18} aria-hidden="true" />
+              <span className="hero-search-label">Chercher</span>
             </button>
           </form>
           <div className="hero-cats">
@@ -120,7 +142,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             </header>
             <ul>
               {popular.map((offer) => {
-                const mark = offer.image_url || offer.service_logo_url;
+                const mark = offer.service_logo_url;
                 return (
                   <li key={offer.id}>
                     <button type="button" onClick={() => onOpenOffer(offer)}>
@@ -144,21 +166,28 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
         ) : null}
         <ul className="hero-stats">
           <li>
-            <strong>{offers.length || "—"}</strong>
+            <strong>{offers.length}</strong>
             <span>produits</span>
           </li>
           <li>
-            <strong>{available.length || "—"}</strong>
+            <strong>{available.length}</strong>
             <span>en stock</span>
           </li>
           <li>
-            <strong>{categories.length || "—"}</strong>
+            <strong>{categories.length}</strong>
             <span>catégories</span>
           </li>
         </ul>
+        {highlighted.length ? (
+          <div className="hero-picks">
+            {highlighted.slice(0, 2).map((offer, index) => (
+              <ProductTile key={offer.id} offer={offer} index={index} onOpen={onOpenOffer} />
+            ))}
+          </div>
+        ) : null}
       </section>
 
-      <section className="home-block" aria-labelledby="cats-title">
+      <section className="home-block home-cats" aria-labelledby="cats-title">
         <h2 id="cats-title">Catégories phares</h2>
         <p>Là où le catalogue est le plus fourni.</p>
         <div className="cat-grid">
@@ -179,30 +208,39 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
                 </small>
               </Link>
             );
-          })}
+            })}
         </div>
+        <Link className="home-more" to={ROUTES.shop}>
+          Voir plus
+        </Link>
       </section>
 
       <FilmReel offers={offers} />
 
-      <section className="home-block" aria-labelledby="trend-title">
+      <section className="home-block home-trends" aria-labelledby="trend-title">
         <h2 id="trend-title">Tendances</h2>
         <p>Les produits mis en avant, ou ceux qui sont en stock.</p>
         <div className="tile-grid">
-          {trending.map((offer) => (
-            <ProductTile key={offer.id} offer={offer} onOpen={onOpenOffer} />
+          {trending.map((offer, index) => (
+            <ProductTile key={offer.id} offer={offer} index={index} onOpen={onOpenOffer} />
           ))}
         </div>
+        <Link className="home-more" to={ROUTES.shop}>
+          Voir plus
+        </Link>
       </section>
 
       {fresh.length ? (
-        <section className="home-block" aria-labelledby="new-title">
+        <section className="home-block home-fresh" aria-labelledby="new-title">
           <h2 id="new-title">Nouveautés</h2>
           <div className="tile-grid">
-            {fresh.map((offer) => (
-              <ProductTile key={offer.id} offer={offer} onOpen={onOpenOffer} />
+            {fresh.map((offer, index) => (
+              <ProductTile key={offer.id} offer={offer} index={index} onOpen={onOpenOffer} />
             ))}
           </div>
+          <Link className="home-more" to={ROUTES.shop}>
+            Voir plus
+          </Link>
         </section>
       ) : null}
 

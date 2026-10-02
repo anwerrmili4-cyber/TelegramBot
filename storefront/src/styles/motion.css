@@ -60,6 +60,7 @@
 .hero-eyebrow,
 .hero h1,
 .hero-lead,
+.hero-search,
 .hero-actions,
 .hero-trust {
   animation: rise-in 0.7s var(--ease) both;
@@ -73,6 +74,7 @@
   animation-delay: 120ms;
 }
 
+.hero-search,
 .hero-actions {
   animation-delay: 180ms;
 }
@@ -85,6 +87,67 @@
   from {
     opacity: 0;
     transform: translateY(14px);
+  }
+}
+
+@media (max-width: 760px) {
+  .hero::after {
+    content: none;
+    animation: none;
+  }
+
+  .hero-eyebrow,
+  .hero h1,
+  .hero-lead,
+  .hero-search {
+    animation-name: rise-in-phone;
+    animation-duration: 0.4s;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .hero-eyebrow {
+    animation-delay: 0ms;
+  }
+
+  .hero h1 {
+    animation-delay: 50ms;
+  }
+
+  .hero-lead {
+    animation-delay: 100ms;
+  }
+
+  .hero-search {
+    animation-delay: 150ms;
+  }
+
+  .hero-cats,
+  .hero-popular li {
+    animation: rise-in-phone 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .hero-cats {
+    animation-delay: 200ms;
+  }
+
+  .hero-popular li:nth-child(1) {
+    animation-delay: 250ms;
+  }
+
+  .hero-popular li:nth-child(2) {
+    animation-delay: 300ms;
+  }
+
+  .hero-popular li:nth-child(3) {
+    animation-delay: 350ms;
+  }
+
+}
+
+@keyframes rise-in-phone {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
   }
 }
 
@@ -104,6 +167,21 @@
   .catalog-toolbar {
     animation-name: reveal-fade;
   }
+
+  @media (max-width: 760px) {
+    .steps-grid li {
+      animation: none;
+    }
+
+    .home-block > h2,
+    .steps .section-head,
+    .home-cats .cat-card:first-child,
+    .steps-grid li:first-child {
+      animation: rise-in-phone 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 20%;
+    }
+  }
 }
 
 @keyframes reveal {
@@ -116,6 +194,37 @@
 @keyframes reveal-fade {
   from {
     opacity: 0;
+  }
+}
+
+/* Homepage product cards: one rise when they enter, then hover can move them. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero-picks .prod-tile,
+  .home-trends .prod-tile,
+  .home-fresh .prod-tile {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  .hero-picks .prod-tile.is-in,
+  .home-trends .prod-tile.is-in,
+  .home-fresh .prod-tile.is-in {
+    animation: tile-rise 400ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation-delay: calc(var(--i, 0) * 70ms);
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tile-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -199,6 +308,21 @@
   .cart-bar {
     opacity: 0;
     translate: 0 130%;
+  }
+}
+
+@media (max-width: 760px) {
+  .cart-bar {
+    transition:
+      opacity 0.25s var(--ease),
+      translate 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @starting-style {
+    .cart-bar {
+      opacity: 0;
+      translate: 0 8px;
+    }
   }
 }
 
@@ -334,8 +458,16 @@
   .hero-eyebrow,
   .hero h1,
   .hero-lead,
+  .hero-search,
+  .hero-cats,
+  .hero-popular li,
   .hero-actions,
   .hero-trust,
+  .home-block > h2,
+  .home-cats .cat-card:first-child,
+  .hero-picks .prod-tile,
+  .home-trends .prod-tile,
+  .home-fresh .prod-tile,
   .offer,
   .offer-skeleton,
   .cart-lines li,
@@ -349,6 +481,13 @@
   .steps-grid li,
   .site-footer > * {
     animation: none !important;
+  }
+
+  .hero-picks .prod-tile,
+  .home-trends .prod-tile,
+  .home-fresh .prod-tile {
+    opacity: 1;
+    transform: none;
   }
 
   .cart-bar {
