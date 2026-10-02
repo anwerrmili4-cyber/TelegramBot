@@ -232,7 +232,9 @@ def _site_warranty_label(offer: dict[str, Any]) -> str:
     if code == "FW" or (period > 0 and days == period):
         return "Garantie complète"
     months = _months_label(days)
-    return months or _plain_text(note, limit=160)
+    if months:
+        return f"Garantie {months}"
+    return _plain_text(note, limit=160)
 
 
 def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:

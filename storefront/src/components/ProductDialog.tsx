@@ -4,7 +4,7 @@ import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
-import { warrantyView } from "@/lib/warranty";
+import { warrantyTagClass, warrantyView } from "@/lib/warranty";
 import type { Offer } from "@/types";
 
 type ProductDialogProps = {
@@ -82,13 +82,9 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                   <Zap size={13} aria-hidden="true" /> Livraison immédiate
                 </span>
               ) : null}
-              {warranty.covered ? (
-                <span className="tag tag-ok">
-                  <ShieldCheck size={13} aria-hidden="true" /> {warranty.label}
-                </span>
-              ) : (
-                <span className="tag tag-warn">{warranty.label}</span>
-              )}
+              <span className={warrantyTagClass(warranty.tone)}>
+                {warranty.tone === "none" ? warranty.label : <><ShieldCheck size={13} aria-hidden="true" /> {warranty.label}</>}
+              </span>
               {shown.badge ? <span className="tag">{shown.badge}</span> : null}
             </div>
 

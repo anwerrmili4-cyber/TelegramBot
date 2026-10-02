@@ -287,6 +287,11 @@
   background: #d12626;
 }
 
+.poster-warranty.is-months {
+  background: #e6a800;
+  color: #1a1400;
+}
+
 .poster-nav {
   position: absolute;
   top: 50%;

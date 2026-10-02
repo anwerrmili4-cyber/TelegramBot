@@ -426,6 +426,9 @@ def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
     assert public["price_millimes"] == 32000
     assert public["description"] == "Compte personnel"
     assert public["badge"] == "Nouveau"
+    assert public["warranty"] == "Garantie 3 mois"
+    assert public["period_days"] == 365
+    assert public["warranty_days"] == 90
 
 
 def test_optional_remark_is_saved_on_the_product_by_the_admin(mock_mongodb):

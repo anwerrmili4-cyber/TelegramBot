@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type AnimationEvent, type CSSProperties, t
 import { ArrowRight, ChevronLeft, ChevronRight, Layers, ShieldCheck, ShieldOff } from "lucide-react";
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
-import { warrantyView } from "@/lib/warranty";
+import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, productPath } from "@/lib/router";
 import type { Offer } from "@/types";
 
@@ -206,8 +206,8 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                         {offer.service_emoji}
                       </span>
                     )}
-                    <span className={warranty.covered ? "poster-warranty is-covered" : "poster-warranty is-open"}>
-                      {warranty.covered ? <ShieldCheck size={18} aria-hidden="true" /> : <ShieldOff size={18} aria-hidden="true" />}
+                    <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+                      {warranty.tone === "none" ? <ShieldOff size={18} aria-hidden="true" /> : <ShieldCheck size={18} aria-hidden="true" />}
                       {warranty.label}
                     </span>
                   </div>

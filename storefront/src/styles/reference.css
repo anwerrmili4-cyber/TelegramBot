@@ -493,6 +493,12 @@
   animation: warranty-glow-alert 1.8s ease-in-out infinite;
 }
 
+.warranty-badge.is-months {
+  background: #e6a800;
+  color: #1a1400;
+  animation: warranty-glow-months 1.8s ease-in-out infinite;
+}
+
 @keyframes warranty-glow {
   0%,
   100% {
@@ -513,6 +519,16 @@
   }
 }
 
+@keyframes warranty-glow-months {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(230, 168, 0, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(230, 168, 0, 0);
+  }
+}
+
 :root[data-theme="light"] .tag-warn {
   color: var(--danger);
 }
@@ -520,7 +536,8 @@
 @media (prefers-reduced-motion: reduce) {
   .warranty-badge,
   .tag-ok,
-  .tag-warn {
+  .tag-warn,
+  .tag-months {
     animation: none;
   }
 }
@@ -537,6 +554,17 @@
   background: rgba(209, 38, 38, 0.14);
   color: #ffb4b4;
   animation: warranty-glow-alert 1.8s ease-in-out infinite;
+}
+
+.tag-months {
+  border-color: rgba(230, 168, 0, 0.55);
+  background: rgba(230, 168, 0, 0.18);
+  color: #f0c14a;
+  animation: warranty-glow-months 1.8s ease-in-out infinite;
+}
+
+:root[data-theme="light"] .tag-months {
+  color: #8a6200;
 }
 
 .prod-ph {

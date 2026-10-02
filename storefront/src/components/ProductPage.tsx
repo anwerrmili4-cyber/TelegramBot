@@ -4,7 +4,7 @@ import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
-import { warrantyView } from "@/lib/warranty";
+import { warrantyTagClass, warrantyView } from "@/lib/warranty";
 import { Link, ROUTES } from "@/lib/router";
 import type { Offer } from "@/types";
 
@@ -187,13 +187,9 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                 <Zap size={13} aria-hidden="true" /> Livraison immédiate
               </span>
             ) : null}
-            {warranty.covered ? (
-              <span className="tag tag-ok">
-                <ShieldCheck size={13} aria-hidden="true" /> {warranty.label}
-              </span>
-            ) : (
-              <span className="tag tag-warn">{warranty.label}</span>
-            )}
+            <span className={warrantyTagClass(warranty.tone)}>
+              {warranty.tone === "none" ? warranty.label : <><ShieldCheck size={13} aria-hidden="true" /> {warranty.label}</>}
+            </span>
             {offer.badge ? <span className="tag">{offer.badge}</span> : null}
           </div>
 
