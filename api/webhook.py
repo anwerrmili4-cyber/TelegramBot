@@ -2594,6 +2594,11 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200, {"ok": True, "message": f"Offre « {result['name']} » {state} sur le site."})
                 return
 
+            elif action == "site_reorder_catalog":
+                site_admin_service.reorder_services(form)
+                self._reply(200, {"ok": True, "message": "Ordre du site enregistré."})
+                return
+
             elif action == "site_service_visibility":
                 result = site_admin_service.set_service_visibility(form)
                 state = "affiché" if result["site_enabled"] else "masqué"

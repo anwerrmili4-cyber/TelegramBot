@@ -370,7 +370,7 @@ export default function SiteCatalogPage({ onAction }) {
     const next = [...ids];
     const [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
-    if (await onAction({ action: "reorder_catalog", item_type: "service", ordered_ids: next.join(",") })) refreshLists();
+    if (await onAction({ action: "site_reorder_catalog", ordered_ids: next.join(",") })) refreshLists();
   };
   const tabs = [["all", "Toutes"], ["on_sale", "En vente"], ["no_price", "Sans prix DT"], ["hidden", "Masquées"], ["disabled", "Désactivées"]];
   return <div className="operations-page site-page">
@@ -448,7 +448,7 @@ export default function SiteCatalogPage({ onAction }) {
         })}
       </div>}
     <section className="site-panel">
-      <header><h3><Globe2 size={17} />Services</h3><small>Le nom du service est la catégorie du site. Les flèches changent l’ordre.</small></header>
+      <header><h3><Globe2 size={17} />Services</h3><small>Le nom du service est la catégorie du site. Les flèches changent l’ordre sur le site.</small></header>
       {!services.length ? <Empty icon={Globe2} title="Aucun service" text="Créez un premier service pour y ranger vos produits." />
         : <div className="site-service-grid">{services.map((service) => <div key={service.id} className={`site-service${service.site_enabled ? "" : " site-row-disabled"}`}>
           {service.logo_url ? <img className="site-thumb" src={service.logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{service.emoji || <Globe2 size={15} />}</span>}

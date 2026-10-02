@@ -380,7 +380,7 @@ function ErrorState({ message, onRetry }) {
 }
 
 const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|add_inventory$|site_(cart_deliver|cart_cancel|offer_update|offer_save|service_save|service_visibility|settings_save|deposit_approve|deposit_reject|wallet_adjust)$)/;
-const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog"]);
+const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog", "site_reorder_catalog"]);
 
 function describeAdminChange(params = {}) {
   const action = String(params.action || "change");

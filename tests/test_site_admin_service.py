@@ -105,6 +105,32 @@ def test_catalog_groups_offers_by_storefront_category(mock_mongodb):
     assert [row["id"] for row in filtered["items"]] == [other]
 
 
+def test_site_category_order_does_not_change_the_bot_order(mock_mongodb):
+    netflix, _ = _offer(name="Netflix 1 mois", service="Netflix")
+    spotify, _ = _offer(name="Spotify 1 mois", service="Spotify")
+    bot_rows = [row for row in db.list_services(active_only=False) if row.get("archived") != 1]
+    bot_ids = [row["id"] for row in bot_rows]
+    bot_orders = [row.get("sort_order") for row in bot_rows]
+    site_ids = list(reversed(bot_ids))
+
+    site_admin_service.reorder_services({"ordered_ids": ",".join(str(item) for item in site_ids)})
+
+    unchanged = [row for row in db.list_services(active_only=False) if row.get("archived") != 1]
+    assert [row["id"] for row in unchanged] == bot_ids
+    assert [row.get("sort_order") for row in unchanged] == bot_orders
+    assert db.get_service(spotify)["site_sort_order"] == site_ids.index(spotify)
+    assert db.get_service(netflix)["site_sort_order"] == site_ids.index(netflix)
+
+    admin = site_admin_service.catalog({})
+    assert [service["id"] for service in admin["services"]] == site_ids
+    assert [group["service_id"] for group in admin["groups"][:2]] == [spotify, netflix]
+    assert [service["name"] for service in storefront_service.catalog()["services"]] == ["Spotify", "Netflix"]
+
+    db.reorder_catalog("service", bot_ids)
+    assert [row["id"] for row in db.list_services() if row["id"] in {netflix, spotify}] == [netflix, spotify]
+    assert [service["name"] for service in storefront_service.catalog()["services"]] == ["Spotify", "Netflix"]
+
+
 def test_update_offer_sets_and_clears_the_dinar_price(mock_mongodb):
     _, offer_id = _offer(millimes=None)
     site_admin_service.update_offer({

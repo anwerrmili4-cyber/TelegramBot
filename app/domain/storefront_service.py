@@ -277,7 +277,7 @@ def catalog() -> dict[str, Any]:
     services: list[dict[str, Any]] = []
     used_categories: set[str] = set()
     flat_groups: dict[str, dict[str, Any]] = {}
-    for service in db.list_services(active_only=False):
+    for service in db.sort_for_site(db.list_services(active_only=False)):
         if not _site_visible(service):
             continue
         # Official subscriptions is only a bot folder. On the site each product

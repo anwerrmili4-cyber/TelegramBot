@@ -28,6 +28,27 @@ def _service_sort_key(service):
     return int(service.get("sort_order", 0)), int(service.get("id", 0))
 
 
+def sort_for_site(items):
+    """Order storefront rows without following a later change to the bot order.
+
+    Rows keep the bot ``sort_order`` until an admin saves a site order. After
+    that, ``site_sort_order`` is the storefront order, and rows created later
+    stay at the end until they are placed.
+    """
+    rows = list(items)
+    anchored = any(row.get("site_sort_order") is not None for row in rows)
+
+    def key(row):
+        raw = row.get("site_sort_order")
+        if raw is None:
+            order = 10**9 if anchored else int(row.get("sort_order") or 0)
+        else:
+            order = int(raw)
+        return order, int(row.get("id") or 0)
+
+    return sorted(rows, key=key)
+
+
 def is_official_subscriptions_service(value):
     """Return whether a service's products belong directly on the catalog."""
     name = value.get("name") if isinstance(value, dict) else value
@@ -2122,9 +2143,15 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
     }
 
 
-def reorder_catalog(item_type, ordered_ids, service_id=None):
-    """Persist a complete service order or one service's complete offer order."""
+def reorder_catalog(item_type, ordered_ids, service_id=None, *, order_field="sort_order"):
+    """Persist a complete service order or one service's complete offer order.
+
+    ``sort_order`` is the bot catalog. ``site_sort_order`` is the storefront,
+    so changing one channel leaves the other where it was.
+    """
     item_type = str(item_type or "").strip().lower()
+    if order_field not in {"sort_order", "site_sort_order"}:
+        raise ValueError("Ordre du catalogue invalide")
     ids = [int(value) for value in ordered_ids]
     if not ids or len(ids) > 2000 or len(ids) != len(set(ids)):
         raise ValueError("Ordre du catalogue invalide")
@@ -2143,8 +2170,13 @@ def reorder_catalog(item_type, ordered_ids, service_id=None):
     if set(existing_ids) != set(ids):
         raise ValueError("Le catalogue a changé. Actualisez la page puis réessayez.")
     for position, item_id in enumerate(ids):
-        collection.update_one({"id": item_id}, {"$set": {"sort_order": position}})
-    return {"item_type": item_type, "ordered_ids": ids, "service_id": int(service_id) if service_id is not None else None}
+        collection.update_one({"id": item_id}, {"$set": {order_field: position}})
+    return {
+        "item_type": item_type,
+        "ordered_ids": ids,
+        "service_id": int(service_id) if service_id is not None else None,
+        "order_field": order_field,
+    }
 
 
 def save_reseller_product_config(

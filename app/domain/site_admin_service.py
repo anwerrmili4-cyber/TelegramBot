@@ -249,10 +249,10 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
     search = _first(params, "search").lower()[:80]
     service_filter = _first(params, "service_id")
 
-    visible_services = [
+    visible_services = db.sort_for_site([
         service for service in db.list_services(active_only=False)
         if service.get("archived") != 1
-    ]
+    ])
     offers_by_service = db.list_offers_for_services(
         visible_services, active_only=False, include_archived=False,
     )
@@ -350,6 +350,25 @@ def update_offer(form: dict[str, Any]) -> dict[str, Any]:
     db.get_conn().offers.update_one({"id": offer_id}, update)
     db.audit_event("site_catalog.offer_updated", details={"offer_id": offer_id, "tn_price_millimes": price, **changes})
     return {"offer_id": offer_id, "name": offer.get("name", ""), "tn_price_millimes": price}
+
+
+def reorder_services(form: dict[str, Any]) -> dict[str, Any]:
+    """Save the storefront category order. The bot catalog order stays put."""
+    ordered_ids = []
+    for part in str(form.get("ordered_ids") or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ordered_ids.append(int(part))
+        except ValueError as exc:
+            raise SiteAdminError("Ordre du catalogue invalide.") from exc
+    try:
+        result = db.reorder_catalog("service", ordered_ids, order_field="site_sort_order")
+    except ValueError as exc:
+        raise SiteAdminError(str(exc)) from exc
+    db.audit_event("site_catalog.reordered", details={**result, "reversible": False})
+    return result
 
 
 def set_service_visibility(form: dict[str, Any]) -> dict[str, Any]:
