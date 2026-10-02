@@ -261,6 +261,7 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "featured": bool(offer.get("site_featured")),
         "badge": str(offer.get("site_badge") or "").strip()[:48],
         "image_url": _safe_image_url(offer.get("site_image_url")),
+        "video_url": _safe_image_url(offer.get("site_video_url")),
         "category": category,
         "category_label": CATEGORY_LABELS[category],
         "service_id": int(service["id"]),

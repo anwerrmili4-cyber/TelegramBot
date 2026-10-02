@@ -20,6 +20,8 @@ export type Offer = {
   featured: boolean;
   badge: string;
   image_url: string;
+  /** Optional product video. Empty when the offer has none. */
+  video_url?: string;
   category: string;
   category_label: string;
   service_id: number;

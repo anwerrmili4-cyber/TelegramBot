@@ -60,6 +60,14 @@
   object-fit: contain;
 }
 
+.pdp-page .gal-stage video {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: contain;
+  background: #000;
+}
+
 .pdp-page .pdp-tags {
   margin-top: 18px;
 }

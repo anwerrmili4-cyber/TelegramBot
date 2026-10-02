@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 import time
 from typing import Any
 
@@ -139,6 +140,72 @@ def load_offer_image(offer_id: Any) -> tuple[bytes, str] | None:
     except (TypeError, ValueError):
         return None
     row = db.get_conn().offer_images.find_one({"offer_id": offer_id})
+    if not row:
+        return None
+    return bytes(row["data"]), str(row.get("content_type") or "application/octet-stream")
+
+
+MAX_OFFER_VIDEO_BYTES = 8_000_000
+OFFER_VIDEO_PATH = "/api/storefront/offer-video"
+_VIDEO_URL = re.compile(r"^data:(video/(?:mp4|webm));base64,([A-Za-z0-9+/=\s]+)$")
+_VIDEO_SIGNATURES = {
+    "video/mp4": lambda data: len(data) >= 12 and data[4:8] == b"ftyp",
+    "video/webm": lambda data: data.startswith(b"\x1a\x45\xdf\xa3"),
+}
+
+
+def decode_offer_video(data_url: Any) -> tuple[bytes, str]:
+    match = _VIDEO_URL.fullmatch(str(data_url or "").strip())
+    if not match:
+        raise LogoError("La vidéo doit être un fichier MP4 ou WebM.")
+    content_type, encoded = match.groups()
+    try:
+        data = base64.b64decode(encoded, validate=False)
+    except (binascii.Error, ValueError) as exc:
+        raise LogoError("Le fichier de la vidéo est illisible.") from exc
+    if not data or len(data) > MAX_OFFER_VIDEO_BYTES:
+        raise LogoError("La vidéo doit peser moins de 8 Mo.")
+    if not _VIDEO_SIGNATURES[content_type](data):
+        raise LogoError("Le fichier de la vidéo est illisible.")
+    return data, content_type
+
+
+def save_offer_video(offer_id: int, data: bytes, content_type: str) -> str:
+    """Store an uploaded product video and point the offer's site video at it."""
+    version = time.time_ns() // 1_000_000
+    conn = db.get_conn()
+    conn.offer_videos.update_one(
+        {"offer_id": int(offer_id)},
+        {"$set": {
+            "offer_id": int(offer_id),
+            "content_type": content_type,
+            "size": len(data),
+            "data": Binary(data),
+            "updated_at": int(time.time()),
+        }},
+        upsert=True,
+    )
+    url = f"{OFFER_VIDEO_PATH}?id={int(offer_id)}&v={version}"
+    conn.offers.update_one({"id": int(offer_id)}, {"$set": {"site_video_url": url}})
+    return url
+
+
+def remove_offer_video(offer_id: int) -> None:
+    conn = db.get_conn()
+    conn.offer_videos.delete_one({"offer_id": int(offer_id)})
+    conn.offers.update_one({"id": int(offer_id)}, {"$set": {"site_video_url": ""}})
+
+
+def is_uploaded_offer_video(url: Any) -> bool:
+    return str(url or "").startswith(f"{OFFER_VIDEO_PATH}?")
+
+
+def load_offer_video(offer_id: Any) -> tuple[bytes, str] | None:
+    try:
+        offer_id = int(offer_id)
+    except (TypeError, ValueError):
+        return None
+    row = db.get_conn().offer_videos.find_one({"offer_id": offer_id})
     if not row:
         return None
     return bytes(row["data"]), str(row.get("content_type") or "application/octet-stream")

@@ -176,6 +176,7 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) ->
         "site_remark": str(offer.get("site_remark") or ""),
         "site_requires_info": offer.get("site_requires_info") is True,
         "site_image_url": str(offer.get("site_image_url") or ""),
+        "site_video_url": str(offer.get("site_video_url") or ""),
         "description": str(offer.get("description") or ""),
         "on_sale": (
             storefront_service._site_visible(service)
@@ -566,6 +567,13 @@ def _image_url(value: Any) -> str:
     return url
 
 
+def _video_url(value: Any) -> str:
+    url = str(value or "").strip()[:1000]
+    if url and not storefront_service._safe_image_url(url):
+        raise SiteAdminError("La vidéo doit être une adresse https://…")
+    return url
+
+
 def save_offer(form: dict[str, Any]) -> dict[str, Any]:
     """Create or edit the storefront side of a shared offer.
 
@@ -604,6 +612,12 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             image = site_logo_service.decode_offer_image(form.get("image"))
         except site_logo_service.LogoError as exc:
             raise SiteAdminError(str(exc)) from exc
+    video = None
+    if str(form.get("video") or "").strip():
+        try:
+            video = site_logo_service.decode_offer_video(form.get("video"))
+        except site_logo_service.LogoError as exc:
+            raise SiteAdminError(str(exc)) from exc
     fields: dict[str, Any] = {
         "site_name": name,
         "site_note": note,
@@ -620,6 +634,7 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         "site_category": category,
         "site_description_fr": description,
         "site_image_url": _image_url(form.get("site_image_url")),
+        "site_video_url": _video_url(form.get("site_video_url")),
         "site_remark": str(form.get("site_remark") or "").strip()[:400],
         "site_requires_info": _truthy(form.get("site_requires_info")),
     }
@@ -664,6 +679,7 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         extras = {
             "site_remark": fields["site_remark"],
             "site_requires_info": fields["site_requires_info"],
+            "site_video_url": fields["site_video_url"],
         }
         if fields.get("site_category_name"):
             extras["site_category_name"] = fields["site_category_name"]
@@ -693,7 +709,7 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             inventory_service.sync_offer_stock(offer_id)
         created = False
 
-    image_change = None
+        image_change = None
     if image:
         site_logo_service.save_offer_image(offer_id, *image)
         image_change = "uploaded"
@@ -705,6 +721,18 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             conn.offers.update_one({"id": offer_id}, {"$set": {"site_image_url": fields["site_image_url"]}})
         image_change = "removed"
 
+    video_change = None
+    if video:
+        site_logo_service.save_offer_video(offer_id, *video)
+        video_change = "uploaded"
+    elif previous and site_logo_service.is_uploaded_offer_video(previous.get("site_video_url")) and (
+        _truthy(form.get("remove_video")) or fields["site_video_url"] != previous.get("site_video_url")
+    ):
+        site_logo_service.remove_offer_video(offer_id)
+        if fields["site_video_url"] and not site_logo_service.is_uploaded_offer_video(fields["site_video_url"]):
+            conn.offers.update_one({"id": offer_id}, {"$set": {"site_video_url": fields["site_video_url"]}})
+        video_change = "removed"
+
     db.audit_event(
         "site_catalog.offer_created" if created else "site_catalog.offer_updated",
         details={
@@ -713,6 +741,7 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             "name": name,
             "tn_price_millimes": tn_price,
             "image": image_change,
+            "video": video_change,
         },
     )
     return {"offer_id": offer_id, "name": name, "created": created, "tn_price_millimes": tn_price}

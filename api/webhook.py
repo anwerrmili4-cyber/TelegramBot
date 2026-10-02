@@ -635,13 +635,14 @@ class handler(BaseHTTPRequestHandler):
                 })
             return
 
-        if path in {site_logo_service.PUBLIC_PATH, site_logo_service.OFFER_IMAGE_PATH}:
+        if path in {site_logo_service.PUBLIC_PATH, site_logo_service.OFFER_IMAGE_PATH, site_logo_service.OFFER_VIDEO_PATH}:
             image_id = parse_qs(url.query).get("id", [""])[0]
-            logo = (
-                site_logo_service.load(image_id)
-                if path == site_logo_service.PUBLIC_PATH
-                else site_logo_service.load_offer_image(image_id)
-            )
+            if path == site_logo_service.PUBLIC_PATH:
+                logo = site_logo_service.load(image_id)
+            elif path == site_logo_service.OFFER_VIDEO_PATH:
+                logo = site_logo_service.load_offer_video(image_id)
+            else:
+                logo = site_logo_service.load_offer_image(image_id)
             if not logo:
                 self._reply(404, {"ok": False, "error": "Logo introuvable."})
                 return
@@ -649,6 +650,8 @@ class handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
+            if path == site_logo_service.OFFER_VIDEO_PATH:
+                self.send_header("Accept-Ranges", "bytes")
             self.send_header("Cache-Control", "public, max-age=31536000, immutable")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -1881,7 +1884,7 @@ class handler(BaseHTTPRequestHandler):
             return
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if size > 2_000_000:
+            if size > 14_000_000:
                 raise ValueError("Request too large")
             form = {k: v[0] for k, v in parse_qs(self.rfile.read(size).decode(), keep_blank_values=True).items()}
             action = form.get("action")

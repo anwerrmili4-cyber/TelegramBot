@@ -114,6 +114,7 @@ class StorefrontHandler(webhook.handler):
         "/api/storefront/cart",
         "/api/storefront/service-logo",
         "/api/storefront/offer-image",
+        "/api/storefront/offer-video",
         *webhook.STOREFRONT_AUTH_GET_PATHS,
     )
     _ALLOWED_POST = frozenset({"/api/storefront/orders", *webhook.STOREFRONT_AUTH_POST_PATHS})
@@ -126,7 +127,7 @@ class StorefrontHandler(webhook.handler):
             # Catalog artwork may be any https URL; fonts come from Google and
             # inline styles carry the per-card animation offsets. The
             # accounts.google.com/gsi sources serve the "Sign in with Google" button.
-            "default-src 'self'; img-src 'self' data: https:; "
+            "default-src 'self'; img-src 'self' data: https:; media-src 'self' https:; "
             "script-src 'self' https://accounts.google.com/gsi/client; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; "
             "font-src 'self' https://fonts.gstatic.com; "

@@ -65,7 +65,9 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
         <div className="product-body pdp-layout">
           <div className="pdp-main">
             <div className="gal-stage">
-              {shown.image_url ? (
+              {shown.video_url ? (
+                <video src={assetUrl(shown.video_url)} poster={shown.image_url ? assetUrl(shown.image_url) : undefined} controls playsInline preload="metadata" />
+              ) : shown.image_url ? (
                 <img src={assetUrl(shown.image_url)} alt="" decoding="async" />
               ) : (
                 <span className="prod-ph">{shown.service_emoji}</span>

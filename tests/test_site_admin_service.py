@@ -282,6 +282,32 @@ def test_save_service_rejects_invalid_logo_without_creating(mock_mongodb, logo, 
     assert site_admin_service.catalog({})["services"] == []
 
 
+def test_save_offer_uploads_and_removes_a_product_video(mock_mongodb):
+    service_id, offer_id = _offer()
+    base = {"offer_id": str(offer_id), "service_id": str(service_id), "name": "Netflix 1 mois", "tn_price": "15"}
+    payload = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 8
+
+    site_admin_service.save_offer({**base, "video": _data_url(payload, "video/mp4")})
+    url = db.get_offer(offer_id)["site_video_url"]
+    assert url.startswith(f"/api/storefront/offer-video?id={offer_id}&v=")
+    assert site_logo_service.load_offer_video(offer_id) == (payload, "video/mp4")
+    public = next(
+        offer
+        for service in storefront_service.catalog()["services"]
+        for offer in service["offers"]
+        if offer["id"] == offer_id
+    )
+    assert public["video_url"] == url
+    assert public["image_url"] == ""
+
+    site_admin_service.save_offer({**base, "site_video_url": "", "remove_video": "1"})
+    assert site_logo_service.load_offer_video(offer_id) is None
+    assert db.get_offer(offer_id)["site_video_url"] == ""
+
+    with pytest.raises(site_admin_service.SiteAdminError, match="MP4 ou WebM"):
+        site_admin_service.save_offer({**base, "video": _data_url(payload, "video/avi")})
+
+
 def test_save_offer_uploads_and_removes_product_image(mock_mongodb):
     service_id, offer_id = _offer()
     base = {"offer_id": str(offer_id), "service_id": str(service_id), "name": "Netflix 1 mois", "tn_price": "15"}

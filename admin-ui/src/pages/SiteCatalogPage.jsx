@@ -9,6 +9,7 @@ import {
   ClipboardPaste,
   Copy,
   Edit3,
+  Film,
   Globe2,
   PackagePlus,
   Plus,
@@ -51,6 +52,7 @@ function productForm(row, defaultServiceId) {
     site_remark: row?.site_remark || "",
     site_requires_info: Boolean(row?.site_requires_info),
     site_image_url: row?.site_image_url || "",
+    site_video_url: row?.site_video_url || "",
     delivery_delay: row?.delivery_delay || "Instantané après confirmation",
     period_value: String(row?.period_value || 30),
     period_unit: row?.period_unit || "days",
@@ -78,9 +80,13 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
   const [image, setImage] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
   const [imageError, setImageError] = useState("");
+  const [video, setVideo] = useState("");
+  const [removeVideo, setRemoveVideo] = useState(false);
+  const [videoError, setVideoError] = useState("");
   const uploadedUrl = form.site_image_url.startsWith(OFFER_IMAGE_PATH) ? form.site_image_url : "";
   const serviceLogo = services.find((service) => String(service.id) === String(form.service_id))?.logo_url || "";
   const imagePreview = image || form.site_image_url;
+  const videoPreview = video || form.site_video_url;
   const acceptImage = async (file) => {
     try {
       const data = await readImageFile(file, MAX_OFFER_IMAGE_BYTES);
@@ -110,6 +116,29 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
     void acceptImage(file);
   };
   const clearImage = () => { setImage(""); set("site_image_url", ""); setRemoveImage(true); };
+  const acceptVideo = async (file) => {
+    try {
+      if (!VIDEO_TYPES.includes(file.type)) throw new Error("Format accepté : MP4 ou WebM.");
+      if (file.size > MAX_VIDEO_BYTES) throw new Error("La vidéo doit peser moins de 8 Mo.");
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Impossible de lire cette vidéo."));
+        reader.readAsDataURL(file);
+      });
+      setVideoError("");
+      setVideo(data);
+      setRemoveVideo(false);
+    } catch (error) {
+      setVideoError(error.message);
+    }
+  };
+  const pickVideo = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void acceptVideo(file);
+  };
+  const clearVideo = () => { setVideo(""); set("site_video_url", ""); setRemoveVideo(true); };
   const submit = (event) => {
     event.preventDefault();
     onSave({
@@ -117,7 +146,9 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
       ...(row ? { offer_id: row.id } : {}),
       ...form,
       image,
+      video,
       remove_image: removeImage ? "1" : "0",
+      remove_video: removeVideo ? "1" : "0",
       site_enabled: form.site_enabled ? "1" : "0",
       site_featured: form.site_featured ? "1" : "0",
       site_requires_info: form.site_requires_info ? "1" : "0",
@@ -158,11 +189,15 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
             <span className="site-logo-preview">{imagePreview || serviceLogo ? <img src={imagePreview || serviceLogo} alt="Image du produit" /> : <ImageIcon size={18} />}</span>
             <label className="action-button secondary site-logo-upload"><Upload size={15} />{imagePreview ? "Remplacer" : "Importer une image"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickImage} /></label>
             <ActionButton type="button" secondary icon={ClipboardPaste} onClick={pasteImage}>Coller direct</ActionButton>
+            <label className="action-button secondary site-logo-upload"><Film size={15} />{videoPreview ? "Remplacer la vidéo" : "Ajouter une vidéo"}<input type="file" accept={VIDEO_TYPES.join(",")} onChange={pickVideo} /></label>
             {imagePreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearImage}>Retirer</ActionButton>}
+            {videoPreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearVideo}>Retirer la vidéo</ActionButton>}
           </div>
+          {videoPreview ? <video className="site-video-preview" src={videoPreview} controls playsInline preload="metadata" /> : null}
           {!image && !uploadedUrl && <input value={form.site_image_url} onChange={(event) => { set("site_image_url", event.target.value); setRemoveImage(false); }} type="url" maxLength={1000} placeholder="…ou collez un lien https://…/image.png" aria-label="Lien de l’image" />}
           {imageError ? <small className="site-hint"><AlertTriangle size={13} />{imageError}</small>
-            : <small className="site-field-help">PNG, JPEG ou WebP, 1 Mo max. Collez une capture avec Coller direct ou Ctrl+V. {imagePreview ? "Remplace le logo du service pour ce produit." : serviceLogo ? "Sans image, le logo du service est affiché." : "Sans image, l’emoji du service est affiché."}</small>}
+            : videoError ? <small className="site-hint"><AlertTriangle size={13} />{videoError}</small>
+            : <small className="site-field-help">Image : PNG, JPEG ou WebP, 1 Mo max. Vidéo : MP4 ou WebM, 8 Mo max. L’image reste l’aperçu, la vidéo se joue sur la fiche. {imagePreview ? "Remplace le logo du service pour ce produit." : serviceLogo ? "Sans image, le logo du service est affiché." : "Sans image, l’emoji du service est affiché."}</small>}
         </Field>
       </div>
       <h3 className="site-section-title">Prix</h3>
@@ -231,6 +266,8 @@ const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_BYTES = 500_000;
 const MAX_OFFER_IMAGE_BYTES = 1_000_000;
 const OFFER_IMAGE_PATH = "/api/storefront/offer-image";
+const VIDEO_TYPES = ["video/mp4", "video/webm"];
+const MAX_VIDEO_BYTES = 8_000_000;
 
 function imageType(type) {
   return type === "image/jpg" ? "image/jpeg" : type;
