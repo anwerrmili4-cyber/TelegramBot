@@ -65,7 +65,7 @@ function DurationInput({ value, unit, min, onValue, onUnit }) {
   </div>;
 }
 
-function ProductEditor({ row, services, rate, defaultServiceId, onClose, onSave }) {
+function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, onSave }) {
   const [form, setForm] = useState(() => productForm(row, defaultServiceId || services[0]?.id));
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const creating = !row;
@@ -193,7 +193,7 @@ function ProductEditor({ row, services, rate, defaultServiceId, onClose, onSave 
         </Field>}
       </div>
       {!form.tn_price && <p className="site-hint"><AlertTriangle size={14} />Sans prix en dinars, le produit reste masqué du site. Le bot garde son propre prix et son propre état.</p>}
-      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={creating ? Plus : Save}>{creating ? "Créer le produit" : "Enregistrer"}</ActionButton></div>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose} disabled={busy}>Annuler</ActionButton><ActionButton type="submit" icon={creating ? Plus : Save} disabled={busy}>{busy ? "Enregistrement…" : creating ? "Créer le produit" : "Enregistrer"}</ActionButton></div>
     </form>
   </Modal>;
 }
@@ -241,7 +241,7 @@ function CategoryRename({ group, onClose, onSave }) {
   </Modal>;
 }
 
-function ServiceEditor({ service, onClose, onSave }) {
+function ServiceEditor({ service, busy, onClose, onSave }) {
   const [form, setForm] = useState({
     name: service?.name || "",
     site_enabled: service ? service.site_enabled : true,
@@ -289,7 +289,7 @@ function ServiceEditor({ service, onClose, onSave }) {
         </Field>
         <Field label="Affichage" wide><label className="switch"><input type="checkbox" checked={form.site_enabled} onChange={(event) => set("site_enabled", event.target.checked)} /><span />Afficher ce service sur le site</label></Field>
       </div>
-      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={service ? Save : Plus}>{service ? "Enregistrer" : "Créer le service"}</ActionButton></div>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose} disabled={busy}>Annuler</ActionButton><ActionButton type="submit" icon={service ? Save : Plus} disabled={busy}>{busy ? "Enregistrement…" : service ? "Enregistrer" : "Créer le service"}</ActionButton></div>
     </form>
   </Modal>;
 }
@@ -325,6 +325,7 @@ export default function SiteCatalogPage({ onAction }) {
   const [category, setCategory] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [editor, setEditor] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [result, loading] = useRemoteList("/admin/api/site-catalog", { search, status, service_id: serviceId });
   const counts = result.counts || {};
   const services = result.services || [];
@@ -336,7 +337,13 @@ export default function SiteCatalogPage({ onAction }) {
   }, [category, result.groups]);
   const close = () => setEditor(null);
   const run = async (payload) => {
-    if (await onAction(payload)) { close(); refreshLists(); }
+    if (saving) return null;
+    setSaving(true);
+    try {
+      if (await onAction(payload)) { close(); refreshLists(); }
+    } finally {
+      setSaving(false);
+    }
   };
   const toggleService = async (service) => {
     if (await onAction({ action: "site_service_visibility", service_id: service.id, site_enabled: service.site_enabled ? "0" : "1" })) refreshLists();
@@ -456,8 +463,8 @@ export default function SiteCatalogPage({ onAction }) {
           </span>
         </div>)}</div>}
     </section>
-    {editor?.type === "product" && <ProductEditor row={editor.row} services={services} rate={Number(result.tnd_per_usdt) || 0} defaultServiceId={editor.serviceId || (serviceId ? Number(serviceId) : null)} onClose={close} onSave={run} />}
-    {editor?.type === "service" && <ServiceEditor service={editor.service} onClose={close} onSave={run} />}
+    {editor?.type === "product" && <ProductEditor row={editor.row} services={services} rate={Number(result.tnd_per_usdt) || 0} defaultServiceId={editor.serviceId || (serviceId ? Number(serviceId) : null)} busy={saving} onClose={close} onSave={run} />}
+    {editor?.type === "service" && <ServiceEditor service={editor.service} busy={saving} onClose={close} onSave={run} />}
     {editor?.type === "category" && <CategoryRename group={editor.group} onClose={close} onSave={run} />}
     {editor?.type === "move" && <MoveOffer row={editor.row} services={services} onClose={close} onSave={run} />}
     {editor?.type === "stock" && <StockEditor row={editor.row} onClose={close} onSave={run} />}

@@ -521,7 +521,7 @@ export default function App() {
   const notificationRequestRef = useRef(null);
   const previousNotificationIdsRef = useRef(null);
 
-  const loadData = useCallback(async (background = false, forceFresh = false) => {
+  const loadData = useCallback(async (background = false, forceFresh = false, scope = "full") => {
     if (dataRequestRef.current) {
       await dataRequestRef.current;
       if (!forceFresh) return;
@@ -530,14 +530,15 @@ export default function App() {
       background ? setRefreshing(true) : setLoading(true);
       if (!background) setError("");
       try {
-        const response = await fetch("/admin/api/data", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(20_000) });
+        const response = await fetch(scope === "shell" ? "/admin/api/data?scope=shell" : "/admin/api/data", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(20_000) });
         if (response.status === 401) {
           setAuthenticated(false);
           setLoading(false);
           return;
         }
         if (!response.ok) throw new Error(`Erreur serveur (${response.status}).`);
-        setData(await response.json());
+        const payload = await response.json();
+        setData((current) => (scope === "shell" && current ? { ...current, ...payload } : payload));
         setAuthenticated(true);
         setSyncError("");
         setLastSynced(new Date());
@@ -777,7 +778,9 @@ export default function App() {
       if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Action refusée.");
       if (!quiet) setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
       if (refreshGlobal) {
-        await Promise.all([loadData(true, true), loadNotifications(true)]);
+        // The write is done. Refresh badges in the background so Enregistrer
+        // does not wait for the full dashboard.
+        void Promise.all([loadData(true, true, "shell"), loadNotifications(true)]);
       }
       syncChannelRef.current?.postMessage({ type: "data-changed", at: Date.now() });
       return payload;

@@ -994,7 +994,8 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
             try:
-                data = db.dashboard_data()
+                scope = parse_qs(url.query).get("scope", ["full"])[0]
+                data = db.dashboard_data(include_history=scope != "shell")
                 data["shop_name"] = os.environ.get("HP_SHOP_NAME", "BlackMarket").strip()
                 data["currency"] = CURRENCY
                 data["bot_username"] = os.environ.get(

@@ -10,6 +10,20 @@ import database as db
 import pytest
 
 
+def test_shell_dashboard_skips_interaction_history(mock_mongodb):
+    db.log_interaction(7, interaction_type="button", action="home")
+
+    shell = db.dashboard_data(include_history=False)
+    full = db.dashboard_data()
+
+    assert "interactions" not in shell
+    assert "users" not in shell
+    assert "tickets" not in shell
+    assert shell["summary"]["users"] == full["summary"]["users"]
+    assert "audits" in shell
+    assert full["interactions"]["summary"]["total"] == 1
+
+
 def test_dashboard_comparisons_and_alerts(mock_mongodb):
     now = int(time.time())
     today_start = now - (now % 86400)

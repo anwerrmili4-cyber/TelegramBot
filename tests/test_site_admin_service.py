@@ -3,6 +3,7 @@
 import base64
 import itertools
 import time
+from unittest.mock import Mock
 
 import pytest
 
@@ -36,6 +37,30 @@ def _cart(customer, offer_id, quantity=1):
         "receipt": RECEIPT,
         "items": [{"offer_id": offer_id, "quantity": quantity}],
     }, customer)
+
+
+def test_catalog_query_count_does_not_grow_with_services(mock_mongodb, monkeypatch):
+    watched = []
+    for collection in (mock_mongodb.services, mock_mongodb.offers, mock_mongodb.settings):
+        for name in ("find", "find_one"):
+            spy = Mock(wraps=getattr(collection, name))
+            monkeypatch.setattr(collection, name, spy)
+            watched.append(spy)
+
+    _offer()
+    for spy in watched:
+        spy.reset_mock()
+    site_admin_service.catalog({})
+    baseline = sum(spy.call_count for spy in watched)
+
+    for index in range(12):
+        _offer(name=f"Offer {index}", service=f"Service {index}")
+    for spy in watched:
+        spy.reset_mock()
+    result = site_admin_service.catalog({})
+
+    assert result["counts"]["all"] == 13
+    assert sum(spy.call_count for spy in watched) == baseline
 
 
 def test_catalog_groups_offers_by_site_status(mock_mongodb):

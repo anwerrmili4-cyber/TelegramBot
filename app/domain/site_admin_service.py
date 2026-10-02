@@ -124,7 +124,7 @@ def overview() -> dict[str, Any]:
     }
 
 
-def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:
+def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) -> dict[str, Any]:
     price = storefront_service._price_millimes(offer)
     unlimited = bool(offer.get("unlimited_stock"))
     configured_category = str(offer.get("site_category") or "").strip().lower()
@@ -163,7 +163,7 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, An
             offer.get("site_warranty_unit") if offer.get("site_warranty_value") is not None else "days"
         ),
         "tn_price_millimes": price or None,
-        "suggested_price_millimes": storefront_service.suggested_price_millimes(offer),
+        "suggested_price_millimes": storefront_service.suggested_price_millimes(offer, rate),
         "site_enabled": storefront_service.site_enabled(offer),
         "site_featured": bool(offer.get("site_featured")),
         "site_badge": str(offer.get("site_badge") or ""),
@@ -249,14 +249,20 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
     search = _first(params, "search").lower()[:80]
     service_filter = _first(params, "service_id")
 
+    visible_services = [
+        service for service in db.list_services(active_only=False)
+        if service.get("archived") != 1
+    ]
+    offers_by_service = db.list_offers_for_services(
+        visible_services, active_only=False, include_archived=False,
+    )
+    rate = site_settings_service.tnd_per_usdt()
     services = []
     rows = []
-    for service in db.list_services(active_only=False):
-        if service.get("archived") == 1:
-            continue
+    for service in visible_services:
         offers = [
-            _catalog_row(service, offer)
-            for offer in db.list_offers(int(service["id"]), active_only=False)
+            _catalog_row(service, offer, rate)
+            for offer in offers_by_service.get(int(service["id"]), [])
             if offer.get("archived") != 1
         ]
         services.append({
@@ -294,7 +300,7 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
         "status": status,
         "services": services,
         "categories": [{"id": key, "label": label} for key, label in storefront_service.CATEGORY_LABELS.items()],
-        "tnd_per_usdt": site_settings_service.tnd_per_usdt(),
+        "tnd_per_usdt": rate,
     }
 
 

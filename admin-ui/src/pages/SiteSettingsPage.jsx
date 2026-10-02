@@ -9,6 +9,7 @@ import { dinars } from "../site-format.jsx";
 export default function SiteSettingsPage({ onAction }) {
   const [result, loading] = useRemoteList("/admin/api/site-settings", {});
   const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (form || !result.available_payment_methods) return;
     setForm({
@@ -26,12 +27,18 @@ export default function SiteSettingsPage({ onAction }) {
   const setDetails = (id, value) => setForm((current) => ({ ...current, details: { ...current.details, [id]: value } }));
   const submit = async (event) => {
     event.preventDefault();
+    if (saving) return;
     const payload = { action: "site_settings_save", tnd_per_usdt: form.tnd_per_usdt };
     methods.forEach(({ id }) => {
       payload[`payment_${id}`] = form.methods.has(id) ? "1" : "0";
       payload[`details_${id}`] = form.details[id] || "";
     });
-    await onAction(payload);
+    setSaving(true);
+    try {
+      await onAction(payload);
+    } finally {
+      setSaving(false);
+    }
   };
   return <div className="operations-page site-page">
     <PageHeader title="Paramètres du site" description="Appliqués sur ourblackmarket.com en moins d’une minute, sans redéploiement." />
@@ -49,7 +56,7 @@ export default function SiteSettingsPage({ onAction }) {
           <label className="switch"><input type="checkbox" checked={form.methods.has(id)} onChange={() => toggleMethod(id)} /><span />{label}</label>
           <textarea value={form.details[id] || ""} onChange={(event) => setDetails(id, event.target.value)} maxLength={300} rows={3} required={form.methods.has(id)} placeholder={`Où envoyer l’argent par ${label} (numéro, nom du bénéficiaire…)`} aria-label={`Coordonnées ${label}`} />
         </div>)}</div>
-        <div className="dialog-actions"><ActionButton type="submit" icon={Save}>Enregistrer</ActionButton></div>
+        <div className="dialog-actions"><ActionButton type="submit" icon={Save} disabled={saving}>{saving ? "Enregistrement…" : "Enregistrer"}</ActionButton></div>
       </form>}
     </section>
   </div>;

@@ -1019,24 +1019,66 @@ def get_service(service_id):
     return _sanitize_service_emoji(_public(get_conn().services.find_one({"id": service_id})))
 
 
+def _prepare_service_offers(conn, service):
+    """Apply the Codex-number rules before that service's offers are read."""
+    if not service or not is_otp_service_name(service.get("name")):
+        return False
+    service_id = int(service["id"])
+    if service.get("name") != "Codex number":
+        conn.services.update_one({"id": service_id}, {"$set": {"name": "Codex number"}})
+        service["name"] = "Codex number"
+    _ensure_otp_service_offer(conn, service_id)
+    return True
+
+
 def list_offers(service_id, active_only=True):
+    conn = get_conn()
     service = get_service(service_id)
-    if service and is_otp_service_name(service.get("name")):
-        if service.get("name") != "Codex number":
-            get_conn().services.update_one(
-                {"id": service_id}, {"$set": {"name": "Codex number"}},
-            )
-            service["name"] = "Codex number"
-        _ensure_otp_service_offer(get_conn(), service_id)
+    otp = _prepare_service_offers(conn, service)
     query = {"service_id": service_id}
     if active_only:
         query["active"] = 1
-    offers = [_resolve_flash_sale(_public(x)) for x in get_conn().offers.find(query).sort("id", ASCENDING)]
-    if service and is_otp_service_name(service.get("name")):
+    offers = [_resolve_flash_sale(_public(x)) for x in conn.offers.find(query).sort("id", ASCENDING)]
+    if otp:
         values = _otp_offer_values()
         for offer in offers:
             offer.update(values)
     return offers
+
+
+def list_offers_for_services(services, active_only=False, include_archived=True):
+    """Return each service's offers from a single query.
+
+    The site catalog used to call :func:`list_offers` once per service, which
+    turned every save-and-reload into one round trip per category.
+    """
+    conn = get_conn()
+    grouped = {}
+    otp_ids = set()
+    service_ids = []
+    for service in services:
+        if service.get("id") is None:
+            continue
+        service_id = int(service["id"])
+        service_ids.append(service_id)
+        grouped[service_id] = []
+        if _prepare_service_offers(conn, service):
+            otp_ids.add(service_id)
+    if not service_ids:
+        return grouped
+    query = {"service_id": {"$in": service_ids}}
+    if active_only:
+        query["active"] = 1
+    if not include_archived:
+        query["archived"] = {"$ne": 1}
+    otp_values = _otp_offer_values()
+    for row in conn.offers.find(query).sort("id", ASCENDING):
+        offer = _resolve_flash_sale(_public(row))
+        service_id = int(offer.get("service_id") or 0)
+        if service_id in otp_ids:
+            offer.update(otp_values)
+        grouped.setdefault(service_id, []).append(offer)
+    return grouped
 
 
 def list_catalog_offers():
@@ -2424,31 +2466,48 @@ def interaction_analytics(days=30, limit=1000):
             {"created_at": {"$gte": start}}
         ).sort("created_at", DESCENDING).limit(max(1, int(limit)))
     ]
+    # Group on the server. Pulling every 30-day event into Python made each
+    # admin save wait on the full interaction history.
     daily_counts = {}
     type_counts = {}
+    for row in conn.interaction_events.aggregate([
+        {"$match": {"created_at": {"$gte": start}}},
+        {"$group": {
+            "_id": {
+                "day": {"$subtract": ["$created_at", {"$mod": ["$created_at", 86400]}]},
+                "type": {"$ifNull": ["$interaction_type", ""]},
+            },
+            "count": {"$sum": 1},
+        }},
+    ]):
+        day = datetime.fromtimestamp(int(row["_id"]["day"]), UTC).strftime("%Y-%m-%d")
+        kind = str(row["_id"].get("type") or "other")
+        count = int(row.get("count") or 0)
+        daily_counts[day] = daily_counts.get(day, 0) + count
+        type_counts[kind] = type_counts.get(kind, 0) + count
     service_click_counts = {}
     service_click_totals = {}
-    active_today = set()
-    live_users = set()
-    for event in conn.interaction_events.find(
-        {"created_at": {"$gte": start}},
-        {"created_at": 1, "user_id": 1, "interaction_type": 1, "action": 1, "content": 1},
-    ):
-        timestamp = int(event.get("created_at") or 0)
-        day = datetime.fromtimestamp(timestamp, UTC).strftime("%Y-%m-%d")
-        daily_counts[day] = daily_counts.get(day, 0) + 1
-        kind = str(event.get("interaction_type") or "other")
-        type_counts[kind] = type_counts.get(kind, 0) + 1
-        action = str(event.get("action") or "")
-        if kind == "button" and re.fullmatch(r"svc:\d+", action):
-            service_id = int(action.split(":", 1)[1])
-            key = (day, service_id)
-            service_click_counts[key] = service_click_counts.get(key, 0) + 1
-            service_click_totals[service_id] = service_click_totals.get(service_id, 0) + 1
-        if timestamp >= today_start:
-            active_today.add(event.get("user_id"))
-        if timestamp >= live_since:
-            live_users.add(event.get("user_id"))
+    for row in conn.interaction_events.aggregate([
+        {"$match": {
+            "created_at": {"$gte": start},
+            "interaction_type": "button",
+            "action": {"$regex": r"^svc:\d+$"},
+        }},
+        {"$group": {
+            "_id": {
+                "day": {"$subtract": ["$created_at", {"$mod": ["$created_at", 86400]}]},
+                "action": "$action",
+            },
+            "count": {"$sum": 1},
+        }},
+    ]):
+        day = datetime.fromtimestamp(int(row["_id"]["day"]), UTC).strftime("%Y-%m-%d")
+        service_id = int(str(row["_id"].get("action") or "svc:0").split(":", 1)[1])
+        count = int(row.get("count") or 0)
+        service_click_counts[(day, service_id)] = count
+        service_click_totals[service_id] = service_click_totals.get(service_id, 0) + count
+    active_today = set(conn.interaction_events.distinct("user_id", {"created_at": {"$gte": today_start}}))
+    live_users = set(conn.interaction_events.distinct("user_id", {"created_at": {"$gte": live_since}}))
     daily = []
     for offset in range(max(1, int(days))):
         day_timestamp = start + offset * 86400
@@ -2543,8 +2602,13 @@ def customer_order_query(query=None):
     return result
 
 
-def dashboard_data():
-    """Comprehensive dashboard data for the admin panel."""
+def dashboard_data(include_history=True):
+    """Comprehensive dashboard data for the admin panel.
+
+    ``include_history`` is false for the refresh that follows a save. Users,
+    tickets and the 30-day interaction log stay as already loaded; rebuilding
+    them blocked the editor until that history had been read.
+    """
     db = get_conn()
     now = int(time.time())
     today_start = now - (now % 86400)
@@ -2572,18 +2636,42 @@ def dashboard_data():
     delivered_orders = db.orders.count_documents(customer_order_query({"status": "delivered"}))
 
     # --- Revenue ---
-    def _revenue(match_filter):
-        result = list(db.orders.aggregate([
-            {"$match": customer_order_query(match_filter)},
-            {"$group": {"_id": None, "total": {"$sum": order_charge_total_expression()}}},
-        ]))
-        return round(result[0]["total"], 2) if result else 0.0
-
-    revenue_today = _revenue({"status": {"$in": paid_statuses}, "created_at": {"$gte": today_start}})
-    revenue_yesterday = _revenue({"status": {"$in": paid_statuses}, "created_at": {"$gte": yesterday_start, "$lt": today_start}})
-    revenue_7d = _revenue({"status": {"$in": paid_statuses}, "created_at": {"$gte": week_ago}})
-    revenue_30d = _revenue({"status": {"$in": paid_statuses}, "created_at": {"$gte": month_ago}})
-    revenue_prev_7d = _revenue({"status": {"$in": paid_statuses}, "created_at": {"$gte": prev_week_start, "$lt": week_ago}})
+    # One pass over the last 30 days instead of five separate order scans.
+    charge = order_charge_total_expression()
+    revenue_rows = list(db.orders.aggregate([
+        {"$match": customer_order_query({
+            "status": {"$in": paid_statuses},
+            "created_at": {"$gte": month_ago},
+        })},
+        {"$group": {
+            "_id": None,
+            "today": {"$sum": {"$cond": [{"$gte": ["$created_at", today_start]}, charge, 0]}},
+            "yesterday": {"$sum": {"$cond": [
+                {"$and": [
+                    {"$gte": ["$created_at", yesterday_start]},
+                    {"$lt": ["$created_at", today_start]},
+                ]},
+                charge,
+                0,
+            ]}},
+            "week": {"$sum": {"$cond": [{"$gte": ["$created_at", week_ago]}, charge, 0]}},
+            "month": {"$sum": charge},
+            "prev_week": {"$sum": {"$cond": [
+                {"$and": [
+                    {"$gte": ["$created_at", prev_week_start]},
+                    {"$lt": ["$created_at", week_ago]},
+                ]},
+                charge,
+                0,
+            ]}},
+        }},
+    ]))
+    revenue = revenue_rows[0] if revenue_rows else {}
+    revenue_today = round(revenue.get("today") or 0, 2)
+    revenue_yesterday = round(revenue.get("yesterday") or 0, 2)
+    revenue_7d = round(revenue.get("week") or 0, 2)
+    revenue_30d = round(revenue.get("month") or 0, 2)
+    revenue_prev_7d = round(revenue.get("prev_week") or 0, 2)
 
     # Conversion rate
     conversion_rate = round((paid_orders / total_orders * 100) if total_orders else 0, 1)
@@ -2774,17 +2862,21 @@ def dashboard_data():
         "recent_errors": recent_errors,
     }
 
-    return {
+    payload = {
         "summary": summary,
         "alerts": alerts,
         "orders": list_orders(limit=50),
         "services": services_enriched,
-        "users": list_users(limit=200),
-        "tickets": list_tickets(limit=50),
         "audits": list_audit_events(limit=100),
-        "interactions": interaction_analytics(days=30, limit=1000),
         **shop_settings(),
     }
+    if include_history:
+        payload.update({
+            "users": list_users(limit=200),
+            "tickets": list_tickets(limit=50),
+            "interactions": interaction_analytics(days=30, limit=1000),
+        })
+    return payload
 
 
 def create_ticket(user_id, message):

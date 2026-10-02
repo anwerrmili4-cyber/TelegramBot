@@ -112,11 +112,13 @@ def _bulk_deal(offer: dict[str, Any]) -> tuple[int, int]:
     return quantity, bulk_tn
 
 
-def suggested_price_millimes(offer: dict[str, Any]) -> int:
+def suggested_price_millimes(offer: dict[str, Any], rate: float | None = None) -> int:
     """Convert the bot's USDT price at the configured rate, rounded to 100 millimes."""
+    if rate is None:
+        rate = site_settings_service.tnd_per_usdt()
     try:
         price = Decimal(str(offer.get("price") or 0))
-        converted = price * Decimal(str(site_settings_service.tnd_per_usdt())) * 10
+        converted = price * Decimal(str(rate)) * 10
         return max(0, int(converted.quantize(Decimal("1"), rounding=ROUND_HALF_UP)) * 100)
     except (InvalidOperation, TypeError, ValueError):
         return 0
