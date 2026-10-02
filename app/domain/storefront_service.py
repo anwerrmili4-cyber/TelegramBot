@@ -363,7 +363,7 @@ def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int, str]]:
             raise StorefrontError("Offre ou quantité invalide.") from exc
         if quantity < 1:
             raise StorefrontError("Choisis au moins une unité par produit.")
-        info = _plain_text(entry.get("info"), limit=400)
+        info = _plain_text(entry.get("info"), limit=2000, keep_breaks=True)
         previous = merged.get(offer_id)
         if previous:
             quantity += previous[0]
@@ -391,7 +391,7 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
 
     remark = _plain_text(offer.get("site_remark"), limit=400)
     requires_info = offer.get("site_requires_info") is True
-    customer_info = _plain_text(info, limit=400) if requires_info else ""
+    customer_info = _plain_text(info, limit=2000, keep_breaks=True) if requires_info else ""
     if requires_info and not customer_info:
         raise StorefrontError(f"« {name} » : envoie les informations demandées.")
 

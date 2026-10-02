@@ -131,7 +131,7 @@ a.sidebar-footer { color:inherit; text-decoration:none; }
 .site-method-card textarea { width:100%; resize:vertical; }
 
 .site-line { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-.site-line-note { flex-basis: 100%; }
+.site-line-note { flex-basis: 100%; white-space: pre-line; }
 .site-delivery { white-space:pre-wrap; word-break:break-word; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; font-size:12px; }
 .site-receipt { display:inline-grid; gap:4px; color:inherit; text-decoration:none; }
 .site-receipt img { width:132px; max-height:170px; object-fit:cover; object-position:top; border:1px solid var(--line); border-radius:9px; background:var(--panel-soft); }

@@ -21,6 +21,34 @@ type CheckoutDialogProps = {
 
 type PayWith = "wallet" | "transfer";
 
+const BULLET = /^([•\u2022\-*]|\d+[.)])\s+(.+)$/;
+
+/** Split an admin remark into the introduction and each detail the customer must send. */
+function infoFields(remark: string, productName: string): { intro: string; items: string[] } {
+  const text = remark.replace(/\r\n/g, "\n").trim();
+  if (!text) return { intro: "", items: [`Informations pour ${productName}`] };
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const items = lines.flatMap((line) => {
+    const parts = line.split(/\s*•\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) return parts[0].endsWith(":") ? parts.slice(1) : parts;
+    const marked = line.match(BULLET);
+    return marked ? [marked[2].trim()] : [];
+  });
+  if (items.length >= 2) {
+    const intro = lines
+      .map((line) => (line.includes("•") ? line.split(/\s*•\s*/)[0].trim() : line))
+      .filter((line) => line && !BULLET.test(line) && line.endsWith(":"))
+      .join("\n");
+    return { intro, items };
+  }
+  return { intro: "", items: [text] };
+}
+
+function packedInfo(items: string[], answers: string[]): string {
+  if (items.length <= 1) return (answers[0] || "").trim();
+  return items.map((item, index) => `${item} : ${(answers[index] || "").trim()}`).join("\n");
+}
+
 export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirmed }: CheckoutDialogProps) {
   const { customer, token, handleError } = useAuth();
   const [balance, setBalance] = useState<number | null>(null);
@@ -28,7 +56,7 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
   const [method, setMethod] = useState(paymentMethods[0]?.id ?? "");
   const [reference, setReference] = useState("");
   const [receipt, setReceipt] = useState("");
-  const [info, setInfo] = useState<Record<number, string>>({});
+  const [info, setInfo] = useState<Record<number, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CheckoutResult | null>(null);
@@ -50,6 +78,14 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       });
     return () => controller.abort();
   }, [open, token, total, handleError]);
+
+  function setAnswer(offerId: number, index: number, value: string) {
+    setInfo((current) => {
+      const next = [...(current[offerId] || [])];
+      next[index] = value;
+      return { ...current, [offerId]: next };
+    });
+  }
 
   function close() {
     onClose();
@@ -81,7 +117,11 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
         return;
       }
     }
-    const missing = cart.lines.find((line) => line.offer.requires_info && !(info[line.offer.id] || "").trim());
+    const missing = cart.lines.find((line) => {
+      if (!line.offer.requires_info) return false;
+      const answers = info[line.offer.id] || [];
+      return infoFields(line.offer.remark || "", line.offer.name).items.some((_, index) => !(answers[index] || "").trim());
+    });
     if (missing) {
       setError(`« ${missing.offer.name} » : envoie les informations demandées.`);
       return;
@@ -96,7 +136,14 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
         items: cart.lines.map((line) => ({
           offer_id: line.offer.id,
           quantity: line.quantity,
-          ...(line.offer.requires_info ? { info: (info[line.offer.id] || "").trim() } : {}),
+          ...(line.offer.requires_info
+            ? {
+                info: packedInfo(
+                  infoFields(line.offer.remark || "", line.offer.name).items,
+                  info[line.offer.id] || [],
+                ),
+              }
+            : {}),
         })),
       });
       setResult(created);
@@ -241,33 +288,54 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
             </>
           )}
 
-          {cart.lines.map((line) =>
-            line.offer.requires_info ? (
-              <label key={line.offer.id}>
-                <span className="field-label">
-                  {line.offer.remark || `Informations pour ${line.offer.name}`}
-                </span>
-                <textarea
-                  name={`info-${line.offer.id}`}
-                  rows={2}
-                  maxLength={400}
-                  required
-                  value={info[line.offer.id] || ""}
-                  onChange={(event) =>
-                    setInfo((current) => ({ ...current, [line.offer.id]: event.target.value }))
-                  }
-                  placeholder="Tes informations"
-                />
-              </label>
-            ) : line.offer.remark ? (
-              <p key={line.offer.id} className="order-note">
-                <span>
-                  <b>Remarque · {line.offer.name}</b>
-                  {line.offer.remark}
-                </span>
-              </p>
-            ) : null,
-          )}
+          {cart.lines.map((line) => {
+            if (!line.offer.requires_info) {
+              return line.offer.remark ? (
+                <p key={line.offer.id} className="order-note">
+                  <span className="remark-copy">
+                    <b>Remarque · {line.offer.name}</b>
+                    {line.offer.remark}
+                  </span>
+                </p>
+              ) : null;
+            }
+            const prompt = infoFields(line.offer.remark || "", line.offer.name);
+            const answers = info[line.offer.id] || [];
+            return (
+              <fieldset key={line.offer.id} className="info-ask">
+                <legend>{line.offer.name}</legend>
+                {prompt.intro ? <p>{prompt.intro}</p> : null}
+                {prompt.items.map((item, index) => {
+                  const long = item.includes("\n") || item.length > 90;
+                  return (
+                    <label key={`${line.offer.id}-${index}`}>
+                      <span className="field-label">{item}</span>
+                      {long ? (
+                        <textarea
+                          name={`info-${line.offer.id}-${index}`}
+                          rows={3}
+                          maxLength={400}
+                          required
+                          autoComplete="off"
+                          value={answers[index] || ""}
+                          onChange={(event) => setAnswer(line.offer.id, index, event.target.value)}
+                        />
+                      ) : (
+                        <input
+                          name={`info-${line.offer.id}-${index}`}
+                          maxLength={400}
+                          required
+                          autoComplete="off"
+                          value={answers[index] || ""}
+                          onChange={(event) => setAnswer(line.offer.id, index, event.target.value)}
+                        />
+                      )}
+                    </label>
+                  );
+                })}
+              </fieldset>
+            );
+          })}
 
           {error ? (
             <p className="form-error" role="alert">

@@ -1168,6 +1168,10 @@
   color: var(--text);
 }
 
+.remark-copy {
+  white-space: pre-line;
+}
+
 .order-card .product-actions {
   grid-template-columns: 1fr;
 }

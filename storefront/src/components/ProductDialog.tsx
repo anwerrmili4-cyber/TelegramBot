@@ -192,7 +192,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                 </div>
                 {shown.remark || shown.requires_info ? (
                   <p className="order-note">
-                    <span>
+                    <span className="remark-copy">
                       <b>{shown.requires_info ? "Informations à envoyer" : "Remarque"}</b>
                       {shown.remark || "Tu enverras tes informations au moment du paiement."}
                     </span>
