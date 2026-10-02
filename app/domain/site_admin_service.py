@@ -144,6 +144,10 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) ->
         "service_name": str(service.get("name") or "Service"),
         "service_emoji": str(service.get("emoji") or ""),
         "service_logo_url": site_logo_service.logo_url(service),
+        "category_logo_url": site_logo_service.category_logo_url(
+            offer.get("site_category_logo_id"),
+            offer.get("site_category_logo_version"),
+        ),
         "service_visible": storefront_service._site_visible(service),
         "service_active": service_active,
         "active": active,
@@ -220,6 +224,7 @@ def _catalog_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 **category,
                 "count": 0,
                 "on_sale": 0,
+                "logo_url": "",
                 "offer_ids": [],
                 "items": [],
             }
@@ -227,6 +232,8 @@ def _catalog_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             ordered.append(category["id"])
         group["count"] += 1
         group["on_sale"] += int(bool(row["on_sale"]))
+        if row.get("category_logo_url") and not group.get("logo_url"):
+            group["logo_url"] = row["category_logo_url"]
         group["offer_ids"].append(int(row["id"]))
         group["items"].append(row)
     return [groups[key] for key in ordered]
@@ -481,7 +488,11 @@ def move_site_offer(form: dict[str, Any]) -> dict[str, Any]:
         raise SiteAdminError(str(exc)) from exc
     # The destination service name is the category. A leftover product-category
     # label would keep the offer in the folder it just left.
-    db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {"site_category_name": ""}})
+    db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {
+        "site_category_name": "",
+        "site_category_logo_id": "",
+        "site_category_logo_version": "",
+    }})
     service_name = str(service.get("site_name") or service.get("name") or "Service")
     db.audit_event("site_catalog.offer_moved", details={"offer_id": offer_id, "service_id": service_id})
     return {"offer_id": offer_id, "name": name, "service_name": service_name}
@@ -507,7 +518,11 @@ def move_catalog_offer(form: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         raise SiteAdminError(str(exc)) from exc
     if not db.is_official_subscriptions_service(service):
-        db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {"site_category_name": ""}})
+        db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {
+            "site_category_name": "",
+            "site_category_logo_id": "",
+            "site_category_logo_version": "",
+        }})
     name = str(offer.get("site_name") or offer.get("name") or "Produit")
     service_name = str(service.get("site_name") or service.get("name") or "Service")
     db.audit_event("site_catalog.offer_moved", details={
@@ -516,8 +531,36 @@ def move_catalog_offer(form: dict[str, Any]) -> dict[str, Any]:
     return {"offer_id": offer_id, "name": name, "service_name": service_name}
 
 
+def _category_logo_from_siblings(service_id: int, category_name: str, exclude_id: int | None = None) -> dict[str, int]:
+    """Logo already saved on another product of the same site category."""
+    wanted = category_name.casefold()
+    if not wanted:
+        return {}
+    query: dict[str, Any] = {
+        "service_id": int(service_id),
+        "archived": {"$ne": 1},
+        "site_category_logo_version": {"$gt": 0},
+    }
+    if exclude_id is not None:
+        query["id"] = {"$ne": int(exclude_id)}
+    for offer in db.get_conn().offers.find(query, {
+        "site_category_name": 1,
+        "site_category_logo_id": 1,
+        "site_category_logo_version": 1,
+        "name": 1,
+        "site_name": 1,
+    }):
+        if storefront_service._product_category_label(offer).casefold() != wanted:
+            continue
+        logo_id = offer.get("site_category_logo_id")
+        version = offer.get("site_category_logo_version")
+        if logo_id and version:
+            return {"site_category_logo_id": int(logo_id), "site_category_logo_version": int(version)}
+    return {}
+
+
 def rename_product_category(form: dict[str, Any]) -> dict[str, Any]:
-    """Rename the site category of products that still share the official folder."""
+    """Rename a product category and, when sent, replace its site logo."""
     name = str(form.get("name") or "").strip()[:120]
     if not name:
         raise SiteAdminError("Le nom de la catégorie est obligatoire.")
@@ -532,7 +575,15 @@ def rename_product_category(form: dict[str, Any]) -> dict[str, Any]:
             raise SiteAdminError("Produit invalide.") from exc
     if not offer_ids:
         raise SiteAdminError("Catégorie introuvable.")
-    updated = 0
+    logo = None
+    if str(form.get("logo") or "").strip():
+        try:
+            logo = site_logo_service.decode(form.get("logo"))
+        except site_logo_service.LogoError as exc:
+            raise SiteAdminError(str(exc)) from exc
+    remove_logo = _truthy(form.get("remove_logo")) and logo is None
+
+    targets = []
     for offer_id in offer_ids:
         offer = db.get_offer(offer_id)
         service = db.get_service(int(offer.get("service_id"))) if offer else None
@@ -540,12 +591,46 @@ def rename_product_category(form: dict[str, Any]) -> dict[str, Any]:
             continue
         if not db.is_official_subscriptions_service(service):
             continue
-        db.get_conn().offers.update_one({"id": offer_id}, {"$set": {"site_category_name": name}})
-        updated += 1
-    if not updated:
+        targets.append(offer)
+    if not targets:
         raise SiteAdminError("Catégorie introuvable.")
+
+    logo_id = 0
+    version = 0
+    for offer in targets:
+        if offer.get("site_category_logo_id") and offer.get("site_category_logo_version"):
+            logo_id = int(offer["site_category_logo_id"])
+            version = int(offer["site_category_logo_version"])
+            break
+    if not logo_id:
+        logo_id = min(int(offer["id"]) for offer in targets)
+
+    fields: dict[str, Any] = {"site_category_name": name}
+    unset: dict[str, str] = {}
+    if logo:
+        version = site_logo_service.save_category_logo(logo_id, *logo)
+        fields["site_category_logo_id"] = logo_id
+        fields["site_category_logo_version"] = version
+    elif remove_logo and version:
+        site_logo_service.remove_category_logo(logo_id)
+        unset = {"site_category_logo_id": "", "site_category_logo_version": ""}
+    elif version:
+        fields["site_category_logo_id"] = logo_id
+        fields["site_category_logo_version"] = version
+
+    conn = db.get_conn()
+    for offer in targets:
+        update: dict[str, Any] = {"$set": fields}
+        if unset:
+            update["$unset"] = unset
+        conn.offers.update_one({"id": int(offer["id"])}, update)
+    if remove_logo and version:
+        conn.offers.update_many(
+            {"site_category_logo_id": logo_id},
+            {"$unset": {"site_category_logo_id": "", "site_category_logo_version": ""}},
+        )
     db.audit_event("site_catalog.category_renamed", details={"name": name, "offer_ids": offer_ids})
-    return {"name": name, "updated": updated}
+    return {"name": name, "updated": len(targets)}
 
 
 def _duration(form: dict[str, Any], prefix: str, default: int, *, allow_zero: bool, label: str) -> tuple[int, str, int]:
@@ -640,10 +725,24 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
     }
     category_name = str(form.get("site_category_name") or "").strip()[:120]
     unset_category = not (db.is_official_subscriptions_service(service) and category_name)
+    logo_fields: dict[str, int] = {}
+    keep_own_logo = False
     if not unset_category:
         fields["site_category_name"] = category_name
+        logo_fields = _category_logo_from_siblings(
+            int(service["id"]),
+            category_name,
+            exclude_id=int(previous["id"]) if previous else None,
+        )
+        if logo_fields:
+            fields.update(logo_fields)
+        elif previous and previous.get("site_category_logo_version"):
+            old = str(previous.get("site_category_name") or "").strip() or storefront_service._product_category_label(previous)
+            keep_own_logo = old.casefold() == category_name.casefold()
 
     conn = db.get_conn()
+    image_change = None
+    video_change = None
     if previous is None:
         initial_inventory = str(form.get("initial_inventory") or "").strip()
         items = inventory_service.parse_bulk_inventory(initial_inventory) if initial_inventory and not unlimited else []
@@ -683,6 +782,9 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         }
         if fields.get("site_category_name"):
             extras["site_category_name"] = fields["site_category_name"]
+        if fields.get("site_category_logo_id"):
+            extras["site_category_logo_id"] = fields["site_category_logo_id"]
+            extras["site_category_logo_version"] = fields["site_category_logo_version"]
         conn.offers.update_one({"id": offer_id}, {"$set": extras})
         created = True
     else:
@@ -702,6 +804,11 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             fields["tn_price_millimes"] = tn_price
         if unset_category:
             unset["site_category_name"] = ""
+            unset["site_category_logo_id"] = ""
+            unset["site_category_logo_version"] = ""
+        elif not logo_fields and not keep_own_logo:
+            unset["site_category_logo_id"] = ""
+            unset["site_category_logo_version"] = ""
         if unset:
             update["$unset"] = unset
         conn.offers.update_one({"id": offer_id}, update)
@@ -709,7 +816,6 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             inventory_service.sync_offer_stock(offer_id)
         created = False
 
-        image_change = None
     if image:
         site_logo_service.save_offer_image(offer_id, *image)
         image_change = "uploaded"
@@ -721,7 +827,6 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
             conn.offers.update_one({"id": offer_id}, {"$set": {"site_image_url": fields["site_image_url"]}})
         image_change = "removed"
 
-    video_change = None
     if video:
         site_logo_service.save_offer_video(offer_id, *video)
         video_change = "uploaded"

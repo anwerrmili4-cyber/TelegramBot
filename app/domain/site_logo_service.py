@@ -73,6 +73,53 @@ def logo_url(service: dict[str, Any]) -> str:
     return f"{PUBLIC_PATH}?id={int(service['id'])}&v={int(version)}"
 
 
+CATEGORY_LOGO_PATH = "/api/storefront/category-logo"
+
+
+def save_category_logo(logo_id: int, data: bytes, content_type: str) -> int:
+    """Store one logo for a product category, shared by every offer in it."""
+    version = time.time_ns() // 1_000_000
+    conn = db.get_conn()
+    conn.category_logos.update_one(
+        {"logo_id": int(logo_id)},
+        {"$set": {
+            "logo_id": int(logo_id),
+            "content_type": content_type,
+            "size": len(data),
+            "data": Binary(data),
+            "updated_at": int(time.time()),
+        }},
+        upsert=True,
+    )
+    return version
+
+
+def remove_category_logo(logo_id: int) -> None:
+    db.get_conn().category_logos.delete_one({"logo_id": int(logo_id)})
+
+
+def category_logo_url(logo_id: Any, version: Any) -> str:
+    try:
+        logo_id = int(logo_id)
+        version = int(version)
+    except (TypeError, ValueError):
+        return ""
+    if logo_id <= 0 or version <= 0:
+        return ""
+    return f"{CATEGORY_LOGO_PATH}?id={logo_id}&v={version}"
+
+
+def load_category_logo(logo_id: Any) -> tuple[bytes, str] | None:
+    try:
+        logo_id = int(logo_id)
+    except (TypeError, ValueError):
+        return None
+    row = db.get_conn().category_logos.find_one({"logo_id": logo_id})
+    if not row:
+        return None
+    return bytes(row["data"]), str(row.get("content_type") or "application/octet-stream")
+
+
 def load(service_id: Any) -> tuple[bytes, str] | None:
     try:
         service_id = int(service_id)

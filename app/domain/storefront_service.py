@@ -302,17 +302,25 @@ def catalog() -> dict[str, Any]:
             public["service_name"] = label
             emoji = str(offer.get("emoji") or public["service_emoji"] or "✦").strip()[:8]
             public["service_emoji"] = emoji
+            category_logo = site_logo_service.category_logo_url(
+                offer.get("site_category_logo_id"),
+                offer.get("site_category_logo_version"),
+            )
+            if category_logo:
+                public["service_logo_url"] = category_logo
             group = flat_groups.get(label.casefold())
             if group is None:
                 group = {
                     "id": -int(offer["id"]),
                     "name": label,
                     "emoji": emoji,
-                    "logo_url": public["service_logo_url"],
+                    "logo_url": category_logo or public["service_logo_url"],
                     "offers": [],
                 }
                 flat_groups[label.casefold()] = group
                 services.append(group)
+            elif category_logo:
+                group["logo_url"] = category_logo
             public["service_id"] = group["id"]
             group["offers"].append(public)
         if offers:

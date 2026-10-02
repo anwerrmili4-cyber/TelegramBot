@@ -32,7 +32,7 @@ export function ProductTile({ offer, onOpen }: { offer: Offer; onOpen: (offer: O
   return (
     <button type="button" className={offer.available ? "prod-tile" : "prod-tile sold-out"} onClick={() => onOpen(offer)}>
       <span className="prod-tile-media">
-        {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
+        {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
         <span className={warranty.covered ? "warranty-badge is-covered" : "warranty-badge is-open"}>{warranty.label}</span>
       </span>
       <span className="prod-tile-body">

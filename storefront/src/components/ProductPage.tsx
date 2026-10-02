@@ -172,8 +172,8 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
           <div className="gal-stage">
             {offer.video_url ? (
               <video src={assetUrl(offer.video_url)} poster={offer.image_url ? assetUrl(offer.image_url) : undefined} controls playsInline preload="metadata" />
-            ) : offer.image_url ? (
-              <img src={assetUrl(offer.image_url)} alt="" decoding="async" />
+            ) : offer.image_url || offer.service_logo_url ? (
+              <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" decoding="async" />
             ) : (
               <span className="prod-ph">{offer.service_emoji}</span>
             )}
@@ -277,7 +277,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
             <span className="label-caps">Ta commande</span>
             <div className="oline">
               <span className="order-thumb">
-                {offer.image_url ? <img src={assetUrl(offer.image_url)} alt="" /> : offer.service_emoji}
+                {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : offer.service_emoji}
               </span>
               <div>
                 <b>{offer.name}</b>

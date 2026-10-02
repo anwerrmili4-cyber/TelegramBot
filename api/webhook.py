@@ -635,10 +635,12 @@ class handler(BaseHTTPRequestHandler):
                 })
             return
 
-        if path in {site_logo_service.PUBLIC_PATH, site_logo_service.OFFER_IMAGE_PATH, site_logo_service.OFFER_VIDEO_PATH}:
+        if path in {site_logo_service.PUBLIC_PATH, site_logo_service.CATEGORY_LOGO_PATH, site_logo_service.OFFER_IMAGE_PATH, site_logo_service.OFFER_VIDEO_PATH}:
             image_id = parse_qs(url.query).get("id", [""])[0]
             if path == site_logo_service.PUBLIC_PATH:
                 logo = site_logo_service.load(image_id)
+            elif path == site_logo_service.CATEGORY_LOGO_PATH:
+                logo = site_logo_service.load_category_logo(image_id)
             elif path == site_logo_service.OFFER_VIDEO_PATH:
                 logo = site_logo_service.load_offer_video(image_id)
             else:
@@ -2616,7 +2618,7 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "site_category_rename":
                 result = site_admin_service.rename_product_category(form)
-                self._reply(200, {"ok": True, "message": f"Catégorie renommée en « {result['name']} »."})
+                self._reply(200, {"ok": True, "message": f"Catégorie « {result['name']} » enregistrée."})
                 return
 
             elif action == "site_offer_move":

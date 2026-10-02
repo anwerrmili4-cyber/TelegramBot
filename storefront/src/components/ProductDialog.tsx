@@ -50,7 +50,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
         <header className="dialog-head">
           <div className="product-service">
             <span className="cat-mark">
-              {shown.image_url ? <img src={assetUrl(shown.image_url)} alt="" /> : shown.service_emoji}
+              {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" /> : shown.service_emoji}
             </span>
             <div>
               <span className="kicker">{shown.service_name}</span>
@@ -67,8 +67,8 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
             <div className="gal-stage">
               {shown.video_url ? (
                 <video src={assetUrl(shown.video_url)} poster={shown.image_url ? assetUrl(shown.image_url) : undefined} controls playsInline preload="metadata" />
-              ) : shown.image_url ? (
-                <img src={assetUrl(shown.image_url)} alt="" decoding="async" />
+              ) : shown.image_url || shown.service_logo_url ? (
+                <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" decoding="async" />
               ) : (
                 <span className="prod-ph">{shown.service_emoji}</span>
               )}
@@ -155,7 +155,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
             <span className="label-caps">Ta commande</span>
             <div className="oline">
               <span className="cat-mark">
-                {shown.image_url ? <img src={assetUrl(shown.image_url)} alt="" /> : shown.service_emoji}
+                {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" /> : shown.service_emoji}
               </span>
               <div>
                 <b>{shown.name}</b>

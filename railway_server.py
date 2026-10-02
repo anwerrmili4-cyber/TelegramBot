@@ -113,6 +113,7 @@ class StorefrontHandler(webhook.handler):
         "/api/storefront/order",
         "/api/storefront/cart",
         "/api/storefront/service-logo",
+        "/api/storefront/category-logo",
         "/api/storefront/offer-image",
         "/api/storefront/offer-video",
         *webhook.STOREFRONT_AUTH_GET_PATHS,

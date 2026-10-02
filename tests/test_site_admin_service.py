@@ -253,6 +253,66 @@ def _data_url(data: bytes, content_type: str = "image/png") -> str:
     return f"data:{content_type};base64,{base64.b64encode(data).decode()}"
 
 
+def test_product_category_uploads_and_removes_its_own_logo(mock_mongodb):
+    official_id = db.add_service("officiels subscribes", "⭐", sales_channels=["bot", "tn_site"])
+    first = db.add_offer(
+        official_id, "Manus 1 mois", 6.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=25000,
+    )
+    second = db.add_offer(
+        official_id, "Manus 12 mois", 18.0, 2,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=60000,
+    )
+
+    with pytest.raises(site_admin_service.SiteAdminError, match="PNG, JPEG ou WebP"):
+        site_admin_service.rename_product_category({
+            "name": "Autre",
+            "offer_ids": str(first),
+            "logo": "https://example.com/logo.png",
+        })
+    assert "site_category_name" not in db.get_offer(first)
+
+    site_admin_service.rename_product_category({
+        "name": "Manus",
+        "offer_ids": f"{first},{second}",
+        "logo": _data_url(_PNG),
+    })
+    grouped = {group["label"]: group for group in site_admin_service.catalog({})["groups"]}
+    url = grouped["Manus"]["logo_url"]
+    assert url.startswith(f"/api/storefront/category-logo?id={first}&v=")
+    assert site_logo_service.load_category_logo(first) == (_PNG, "image/png")
+    assert db.get_offer(second)["site_category_logo_id"] == first
+
+    public = {service["name"]: service for service in storefront_service.catalog()["services"]}
+    assert public["Manus"]["logo_url"] == url
+    assert {offer["service_logo_url"] for offer in public["Manus"]["offers"]} == {url}
+
+    site_admin_service.rename_product_category({
+        "name": "Manus AI",
+        "offer_ids": f"{first},{second}",
+    })
+    created = site_admin_service.save_offer({
+        "service_id": str(official_id),
+        "name": "Manus AI 3 mois",
+        "tn_price": "30",
+        "site_category_name": "Manus AI",
+        "site_enabled": "1",
+    })
+    assert db.get_offer(created["offer_id"])["site_category_logo_id"] == first
+    renamed = storefront_service.catalog()["services"][0]
+    assert renamed["name"] == "Manus AI"
+    assert renamed["logo_url"] == url
+
+    site_admin_service.rename_product_category({
+        "name": "Manus AI",
+        "offer_ids": f"{first},{second},{created['offer_id']}",
+        "remove_logo": "1",
+    })
+    assert site_logo_service.load_category_logo(first) is None
+    assert db.get_offer(second).get("site_category_logo_id") is None
+    assert storefront_service.catalog()["services"][0]["logo_url"] == ""
+
+
 def test_save_service_uploads_replaces_and_removes_logo(mock_mongodb):
     service_id = site_admin_service.save_service({"name": "Netflix", "logo": _data_url(_PNG)})["service_id"]
     service = db.get_service(service_id)

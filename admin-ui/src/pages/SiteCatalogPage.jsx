@@ -344,17 +344,69 @@ function MoveOffer({ row, services, onClose, onSave }) {
 
 function CategoryRename({ group, onClose, onSave }) {
   const [name, setName] = useState(group.label || "");
+  const [logo, setLogo] = useState("");
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const logoPreview = logo || (!removeLogo && group.logo_url) || "";
+  const acceptLogo = async (file) => {
+    try {
+      const data = await readImageFile(file, MAX_LOGO_BYTES);
+      setLogoError("");
+      setLogo(data);
+      setRemoveLogo(false);
+    } catch (error) {
+      setLogoError(error.message);
+    }
+  };
+  const pickLogo = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void acceptLogo(file);
+  };
+  const pasteLogo = async () => {
+    try {
+      await acceptLogo(await imageFromClipboard());
+    } catch (error) {
+      setLogoError(error.message);
+    }
+  };
+  const onPasteLogo = (event) => {
+    const file = fileFromPasteEvent(event);
+    if (!file) return;
+    event.preventDefault();
+    void acceptLogo(file);
+  };
+  const clearLogo = () => {
+    setLogo("");
+    setRemoveLogo(Boolean(group.logo_url));
+    setLogoError("");
+  };
   const submit = (event) => {
     event.preventDefault();
-    onSave({ action: "site_category_rename", name, offer_ids: (group.offer_ids || []).join(",") });
+    onSave({
+      action: "site_category_rename",
+      name,
+      offer_ids: (group.offer_ids || []).join(","),
+      logo,
+      remove_logo: removeLogo ? "1" : "0",
+    });
   };
   return <Modal title={`Renommer « ${group.label} »`} onClose={onClose}>
     <form className="operation-form" onSubmit={submit}>
       <Field label="Nom de la catégorie sur le site" wide>
         <input value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required autoFocus placeholder="Ex. ChatGPT, Google AI Pro" />
       </Field>
+      <Field label="Logo de la catégorie (site, optionnel)" wide>
+        <div className="site-logo-picker" tabIndex={0} onPaste={onPasteLogo}>
+          <span className="site-logo-preview">{logoPreview ? <img src={logoPreview} alt="Logo de la catégorie" /> : <ImageIcon size={18} />}</span>
+          <label className="action-button secondary site-logo-upload"><Upload size={15} />{logoPreview ? "Remplacer" : "Importer un logo"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickLogo} /></label>
+          <ActionButton type="button" secondary icon={ClipboardPaste} onClick={pasteLogo}>Coller direct</ActionButton>
+          {logoPreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearLogo}>Retirer</ActionButton>}
+        </div>
+        {logoError ? <small className="site-hint"><AlertTriangle size={13} />{logoError}</small> : <small className="site-field-help">PNG, JPEG ou WebP, 500 Ko max. Collez une capture avec Coller direct ou Ctrl+V. Ce logo remplace l’emoji de la catégorie sur le site.</small>}
+      </Field>
       <p>Ce nom s’affiche à la place du dossier d’origine. Pour déplacer un produit vers un autre service, ouvrez le produit et changez son service.</p>
-      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={Save}>Renommer</ActionButton></div>
+      <div className="dialog-actions"><ActionButton type="button" secondary onClick={onClose}>Annuler</ActionButton><ActionButton type="submit" icon={Save}>Enregistrer</ActionButton></div>
     </form>
   </Modal>;
 }
@@ -538,6 +590,7 @@ export default function SiteCatalogPage({ onAction }) {
             <header className="panel-heading catalog-collection-heading">
               <div className="catalog-collection-title">
                 <button type="button" className="catalog-collection-toggle" onClick={() => toggleCollapse(group.id)} aria-expanded={!folded} aria-label={`${folded ? "Déplier" : "Replier"} ${group.label}`}><ChevronRight size={16} /></button>
+                {group.logo_url ? <img className="site-thumb" src={group.logo_url} alt="" /> : null}
                 <div>
                   <span className="eyebrow">Catégorie · {group.count} produit(s) · {group.on_sale} en vente</span>
                   <h2>{group.label}</h2>
@@ -556,7 +609,7 @@ export default function SiteCatalogPage({ onAction }) {
                       const canStock = !row.unlimited_stock && !row.supplier_provider && !row.manual_stock;
                       return <tr key={row.id} className={`offer-row ${enabled ? "" : "inactive"}`}>
                         <td className="catalog-col-name"><div className="site-offer-cell">
-                          {row.site_image_url || row.service_logo_url ? <img className="site-thumb" src={row.site_image_url || row.service_logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
+                          {row.site_image_url || row.category_logo_url || row.service_logo_url ? <img className="site-thumb" src={row.site_image_url || row.category_logo_url || row.service_logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
                           <div><strong>{row.name}</strong><small>{row.service_name}{row.site_featured && <em className="site-chip"><Sparkles size={11} />Vedette</em>}{row.site_badge && <em className="site-chip">{row.site_badge}</em>}</small></div>
                         </div></td>
                         <td>{row.bot_price_usdt} USDT</td>
