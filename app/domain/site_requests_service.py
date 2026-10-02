@@ -12,9 +12,10 @@ from typing import Any
 
 import database as db
 from app.constants import OrderStatus, TicketCategory, TicketStatus
-from app.domain import support_service
+from app.domain import storefront_receipt_service, support_service
 
 SITE_CHANNEL = "tn_site"
+MAX_WARRANTY_PROOFS = 3
 _SUPPORT_CATEGORIES = {
     TicketCategory.PAYMENT,
     TicketCategory.DELIVERY,
@@ -138,6 +139,24 @@ def _warranty_window_open(order: dict[str, Any]) -> bool:
     return int(time.time()) <= delivered_at + days * 86400
 
 
+def _warranty_proofs(customer_id: int, payload: dict[str, Any]) -> list[int]:
+    raw = payload.get("proofs")
+    if not isinstance(raw, list) or not raw:
+        raise SiteRequestError("Ajoute au moins une preuve : une capture ou une photo du problème.")
+    if len(raw) > MAX_WARRANTY_PROOFS:
+        raise SiteRequestError(f"Tu peux joindre {MAX_WARRANTY_PROOFS} preuves au maximum.")
+    proof_ids = []
+    for item in raw:
+        try:
+            proof_ids.append(storefront_receipt_service.store(
+                item, customer_id=customer_id, purpose="warranty",
+            ))
+        except storefront_receipt_service.ReceiptError as exc:
+            message = str(exc).replace("reçu", "preuve").replace("Joins une capture de ton preuve", "Joins une preuve")
+            raise SiteRequestError(message) from exc
+    return proof_ids
+
+
 def create_warranty(customer: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     try:
         order_id = int(payload.get("order_id"))
@@ -155,6 +174,7 @@ def create_warranty(customer: dict[str, Any], payload: dict[str, Any]) -> dict[s
     })
     if existing:
         raise SiteRequestError("Une demande de garantie existe déjà pour cette commande.")
+    proof_ids = _warranty_proofs(int(customer["id"]), payload)
     delivered_at = int(order.get("delivered_at") or 0)
     days_used = max(0, (int(time.time()) - delivered_at) // 86400)
     warranty_days = int(order.get("warranty_days") or 0)
@@ -170,6 +190,7 @@ def create_warranty(customer: dict[str, Any], payload: dict[str, Any]) -> dict[s
         channel=SITE_CHANNEL,
         customer_id=int(customer["id"]),
         refund_millimes=refund_millimes,
+        proof_ids=proof_ids,
     )
     return {"ok": True, "warranty": _public_warranty(request, order)}
 
@@ -200,6 +221,7 @@ def _public_warranty(request: dict[str, Any], order: dict[str, Any]) -> dict[str
         "refund_millimes": int(request.get("refund_millimes") or 0),
         "replacement": request.get("replacement_text") or "",
         "days_used": int(request.get("days_used") or 0),
+        "proof_ids": [int(item) for item in request.get("proof_ids") or []],
         "created_at": request.get("created_at"),
         "updated_at": request.get("updated_at"),
     }

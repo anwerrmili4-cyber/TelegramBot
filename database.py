@@ -776,7 +776,7 @@ def reject_withdrawal(withdrawal_id, admin_note=""):
 
 def create_warranty_request(
     user_id, order_id, days_used, refund_amount, reason="",
-    *, channel="bot", customer_id=None, refund_millimes=0,
+    *, channel="bot", customer_id=None, refund_millimes=0, proof_ids=None,
 ):
     row = {
         "id": _next_id("warranty_requests"), "user_id": int(user_id or 0), "order_id": int(order_id),
@@ -787,6 +787,8 @@ def create_warranty_request(
         "customer_id": int(customer_id) if customer_id is not None else None,
         "status": "pending_admin_check", "created_at": datetime.now(UTC), "updated_at": datetime.now(UTC),
     }
+    if proof_ids is not None:
+        row["proof_ids"] = [int(item) for item in proof_ids]
     get_conn().warranty_requests.insert_one(row)
     _capture_admin_notifications()
     return _public(row)

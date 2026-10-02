@@ -262,6 +262,7 @@ STOREFRONT_AUTH_GET_PATHS = frozenset({
     "/api/storefront/auth/tickets",
     "/api/storefront/auth/product-requests",
     "/api/storefront/auth/warranties",
+    "/api/storefront/auth/warranty-proof",
     "/api/storefront/auth/wallet",
 })
 # Paths whose body carries a receipt screenshot.
@@ -1492,6 +1493,19 @@ class handler(BaseHTTPRequestHandler):
                 result = storefront_auth_service.customer_tickets(self._bearer_token())
             elif path == "/api/storefront/auth/product-requests" and self.command == "GET":
                 result = storefront_auth_service.customer_tickets(self._bearer_token(), category="catalog_request")
+            elif path == "/api/storefront/auth/warranty-proof" and self.command == "GET":
+                proof_id = parse_qs(urlsplit(self.path).query).get("id", [""])[0]
+                data, content_type = storefront_auth_service.warranty_proof(self._bearer_token(), proof_id)
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "private, max-age=3600")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                for key, value in cors.items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(data)
+                return
             elif path == "/api/storefront/auth/warranties" and self.command == "GET":
                 result = storefront_auth_service.customer_warranties(self._bearer_token())
             elif path == "/api/storefront/auth/wallet":
@@ -1499,9 +1513,12 @@ class handler(BaseHTTPRequestHandler):
             elif path == "/api/storefront/auth/logout":
                 result = storefront_auth_service.logout(self._bearer_token())
             else:
-                limit = (
-                    storefront_receipt_service.MAX_UPLOAD_BODY_BYTES if path in STOREFRONT_UPLOAD_PATHS else 8_000
-                )
+                if path == "/api/storefront/auth/warranties":
+                    limit = 3 * storefront_receipt_service.MAX_UPLOAD_BODY_BYTES
+                elif path in STOREFRONT_UPLOAD_PATHS:
+                    limit = storefront_receipt_service.MAX_UPLOAD_BODY_BYTES
+                else:
+                    limit = 8_000
                 payload = self._read_json_body(max_bytes=limit)
                 if path == "/api/storefront/orders":
                     result = storefront_auth_service.create_order(self._bearer_token(), payload)

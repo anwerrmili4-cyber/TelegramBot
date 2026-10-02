@@ -609,6 +609,23 @@ def customer_warranties(token: Any) -> dict[str, Any]:
     return site_requests_service.list_warranties(int(customer["id"]))
 
 
+def warranty_proof(token: Any, proof_id: Any) -> tuple[bytes, str]:
+    """Return one warranty photo, only for the customer who uploaded it."""
+    customer = customer_for_token(token)
+    try:
+        proof_id = int(proof_id)
+    except (TypeError, ValueError) as exc:
+        raise AuthError("Preuve introuvable.", status=404) from exc
+    row = db.get_conn().storefront_receipts.find_one({
+        "id": proof_id,
+        "customer_id": int(customer["id"]),
+        "purpose": "warranty",
+    })
+    if not row or not row.get("data"):
+        raise AuthError("Preuve introuvable.", status=404)
+    return bytes(row["data"]), str(row.get("content_type") or "image/jpeg")
+
+
 def open_warranty(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
     customer = customer_for_token(token)
     if not _is_verified(customer):

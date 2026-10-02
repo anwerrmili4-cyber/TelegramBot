@@ -157,6 +157,7 @@ export type AccountWarranty = {
   refund_millimes: number;
   replacement: string;
   days_used: number;
+  proof_ids?: number[];
   created_at: string | number | null;
   updated_at: string | number | null;
 };

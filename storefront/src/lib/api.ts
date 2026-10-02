@@ -164,8 +164,21 @@ export function openProductRequest(token: string, message: string) {
   return postJson<{ ok: boolean; ticket: AccountTicket }>("/api/storefront/auth/product-requests", { message }, token);
 }
 
-export function openWarranty(token: string, payload: { order_id: number; reason: string }) {
+export function openWarranty(token: string, payload: { order_id: number; reason: string; proofs: string[] }) {
   return postJson<{ ok: boolean }>("/api/storefront/auth/warranties", payload, token);
+}
+
+export async function fetchWarrantyProof(token: string, proofId: number): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api/storefront/auth/warranty-proof?id=${proofId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new ApiError("Connexion impossible. Vérifie ton réseau puis réessaie.");
+  }
+  if (!response.ok) throw new ApiError("Preuve introuvable.", response.status);
+  return response.blob();
 }
 
 export function fetchWarranties(token: string, signal?: AbortSignal) {
