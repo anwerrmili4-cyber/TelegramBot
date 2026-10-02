@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Check, Clock, List, Lock, Package, Share2, ShieldCheck, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
 import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
-import { assetUrl } from "@/lib/api";
+import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyTagClass, warrantyView } from "@/lib/warranty";
 import { Link, ROUTES } from "@/lib/router";
@@ -26,6 +27,65 @@ const PAY_STEPS = [
 ];
 
 const URL_PATTERN = /https?:\/\/[^\s<]+/g;
+
+function StockAlert({ offerId }: { offerId: number }) {
+  const { customer, token } = useAuth();
+  const [email, setEmail] = useState(customer?.email ?? "");
+  const [done, setDone] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await requestStockAlert(offerId, email.trim(), token || undefined);
+      setDone(result.already_available ? "Ce produit est déjà en stock." : "C'est noté. On t'écrit dès qu'il est disponible.");
+    } catch (reason) {
+      setError(errorMessage(reason, "L'alerte n'a pas pu être enregistrée."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="stock-alert" onSubmit={(event) => void submit(event)}>
+      <p>
+        {customer?.email
+          ? `Indisponible pour le moment. On t'écrit à ${customer.email} dès que c'est de nouveau en stock.`
+          : "Indisponible pour le moment. Laisse ton email et on t'écrit dès que c'est de nouveau en stock."}
+      </p>
+      {done ? (
+        <p className="stock-alert-done" role="status">
+          {done}
+        </p>
+      ) : (
+        <>
+          {customer ? null : (
+            <label>
+              Email
+              <input
+                required
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="toi@exemple.com"
+              />
+            </label>
+          )}
+          <button type="submit" className="button button-primary" disabled={busy}>
+            {busy ? "Enregistrement…" : "Me prévenir quand c'est disponible"}
+          </button>
+          {error ? <small className="form-error">{error}</small> : null}
+        </>
+      )}
+    </form>
+  );
+}
 
 function receiveLines(description: string) {
   const lines = description
@@ -84,6 +144,17 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const [copied, setCopied] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [agreeHint, setAgreeHint] = useState(false);
+  const [tint, setTint] = useState(0);
+  const [added, setAdded] = useState(false);
+  const pendingAdd = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (pendingAdd.current === null) return;
+    if (inCart > pendingAdd.current) {
+      pendingAdd.current = null;
+      setAdded(true);
+    }
+  }, [inCart]);
 
   useEffect(() => {
     if (!offer) return;
@@ -91,7 +162,10 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
     setCopied(false);
     setAgreed(false);
     setAgreeHint(false);
-  }, [offer]);
+    setTint(0);
+    setAdded(false);
+    pendingAdd.current = null;
+  }, [offer?.id]);
 
   if (!offer) {
     return (
@@ -132,7 +206,13 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
       return;
     }
     if (action === "now") onBuyNow(product, quantity);
-    else onAdd(product, quantity);
+    else {
+      pendingAdd.current = inCart;
+      onAdd(product, quantity);
+      window.setTimeout(() => {
+        pendingAdd.current = null;
+      }, 50);
+    }
   }
 
   async function share() {
@@ -177,6 +257,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
             ) : (
               <span className="prod-ph">{offer.service_emoji}</span>
             )}
+            {offer.available ? null : <span className="sold-stamp">Épuisé</span>}
             <span className="pricechip">{money(offer.price_millimes)}</span>
           </div>
 
@@ -308,7 +389,9 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
               ) : null}
             </div>
 
-            {blocked ? (
+            {!offer.available ? (
+              <StockAlert offerId={offer.id} />
+            ) : blocked ? (
               <span className="offer-unavailable">Indisponible pour le moment</span>
             ) : (
               <>
@@ -320,7 +403,10 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                       min={offer.min_quantity}
                       max={ceiling}
                       label={`Quantité pour ${offer.name}`}
-                      onChange={setQuantity}
+                      onChange={(next) => {
+                        setQuantity(next);
+                        setTint((value) => value + 1);
+                      }}
                     />
                   </div>
                 ) : null}
@@ -331,7 +417,10 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                       {quantity} article{quantity > 1 ? "s" : ""} · sans frais ajoutés
                     </small>
                   </div>
-                  <b>{money(offer.price_millimes * quantity)}</b>
+                  <b className={tint ? "is-fresh" : undefined} key={tint}>
+                    <span className="total-tint" aria-hidden="true" />
+                    {money(offer.price_millimes * quantity)}
+                  </b>
                 </div>
                 {offer.remark || offer.requires_info ? (
                   <p className="order-note">
@@ -404,6 +493,11 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                     {inCart ? `Au panier (${inCart})` : "Ajouter au panier"}
                   </button>
                 </div>
+                {added ? (
+                  <p className="add-confirm" role="status">
+                    Ajouté au panier
+                  </p>
+                ) : null}
                 {lockedOut ? <small className="drawer-notice">Ton panier a atteint sa limite de produits.</small> : null}
               </>
             )}

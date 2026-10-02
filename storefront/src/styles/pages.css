@@ -41,9 +41,25 @@
   text-align: left;
 }
 
-.category-grid a:hover,
-.price-list button:hover {
-  border-color: var(--brand);
+.price-list button,
+.category-grid a {
+  transition:
+    transform var(--motion-hover) var(--ease-out),
+    border-color var(--motion-hover) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .price-list button:hover,
+  .category-grid a:hover {
+    transform: translateY(calc(var(--motion-lift) * -1));
+    border-color: rgba(var(--brand-rgb), 0.45);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .news-list li {
+    animation: reveal-fade var(--motion-enter) var(--ease-out) both;
+  }
 }
 
 .category-grid span,
@@ -102,8 +118,19 @@
   font-weight: 650;
 }
 
-.price-table button:hover {
-  color: #9ec1ff;
+@media (hover: hover) and (pointer: fine) {
+  .price-table tbody tr {
+    transition: background-color 140ms var(--ease-out);
+  }
+
+  .price-table tbody tr:hover,
+  .price-table tbody tr:focus-within {
+    background: var(--ink-700);
+  }
+
+  .price-table button:hover {
+    color: #9ec1ff;
+  }
 }
 
 .doc-prose h2 {
@@ -220,15 +247,57 @@
   display: none;
 }
 
-.support-folds summary::after {
+.home-faq summary,
+.faq-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.support-folds summary::after,
+.home-faq summary::after,
+.faq-list summary::after {
   content: "+";
   color: var(--text-mute);
   font-size: 20px;
   font-weight: 500;
+  transition: transform 220ms var(--ease-out);
 }
 
-.support-folds details[open] summary::after {
-  content: "×";
+.support-folds details[open] summary::after,
+.home-faq details[open] summary::after,
+.faq-list details[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.support-folds details,
+.home-faq details,
+.faq-list details {
+  interpolate-size: allow-keywords;
+}
+
+.support-folds details::details-content,
+.home-faq details::details-content,
+.faq-list details::details-content {
+  block-size: 0;
+  overflow: clip;
+  opacity: 0;
+  content-visibility: hidden;
+  transition:
+    block-size 220ms var(--ease-in),
+    opacity 220ms var(--ease-in);
+}
+
+.support-folds details[open]::details-content,
+.home-faq details[open]::details-content,
+.faq-list details[open]::details-content {
+  block-size: auto;
+  opacity: 1;
+  content-visibility: visible;
+  transition:
+    block-size 220ms var(--ease-out),
+    opacity 220ms var(--ease-out);
 }
 
 .support-folds p {

@@ -39,12 +39,12 @@
   background: conic-gradient(
     from var(--aurora-angle),
     transparent 0%,
-    rgba(var(--brand-rgb), 0.16) 18%,
+    rgba(var(--brand-rgb), 0.08) 18%,
     transparent 38%,
-    rgba(240, 180, 41, 0.12) 58%,
+    rgba(240, 180, 41, 0.06) 58%,
     transparent 78%
   );
-  filter: blur(70px);
+  filter: blur(40px);
   animation: aurora-drift 22s linear infinite;
   pointer-events: none;
 }
@@ -57,73 +57,65 @@
 
 /* ---------- Page entry ---------- */
 
-.hero-eyebrow,
 .hero h1,
-.hero-lead,
-.hero-search,
-.hero-actions,
-.hero-trust {
-  animation: rise-in 0.7s var(--ease) both;
+.hero-lead {
+  animation: rise-in var(--motion-enter) var(--ease-out) both;
 }
 
 .hero h1 {
-  animation-delay: 60ms;
+  animation-delay: 0ms;
 }
 
 .hero-lead {
-  animation-delay: 120ms;
+  animation-delay: 70ms;
 }
 
 .hero-search,
-.hero-actions {
-  animation-delay: 180ms;
-}
-
+.hero-eyebrow,
+.hero-actions,
 .hero-trust {
-  animation-delay: 240ms;
+  animation: none;
 }
 
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(var(--motion-distance));
   }
 }
 
-@media (max-width: 760px) {
+@media (hover: none), (max-width: 760px) {
   .hero::after {
     content: none;
     animation: none;
   }
+}
 
+@media (max-width: 760px) {
   .hero-eyebrow,
   .hero h1,
-  .hero-lead,
-  .hero-search {
+  .hero-lead {
     animation-name: rise-in-phone;
-    animation-duration: 0.4s;
-    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    animation-duration: var(--motion-enter);
+    animation-timing-function: var(--ease-out);
   }
 
-  .hero-eyebrow {
-    animation-delay: 0ms;
+  .hero-eyebrow,
+  .hero-search {
+    animation: none;
   }
 
   .hero h1 {
-    animation-delay: 50ms;
+    animation-delay: 0ms;
   }
 
   .hero-lead {
-    animation-delay: 100ms;
-  }
-
-  .hero-search {
-    animation-delay: 150ms;
+    animation-delay: 70ms;
   }
 
   .hero-cats,
   .hero-popular li {
-    animation: rise-in-phone 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: rise-in-phone var(--motion-enter) var(--ease-out) both;
   }
 
   .hero-cats {
@@ -177,7 +169,7 @@
     .steps .section-head,
     .home-cats .cat-card:first-child,
     .steps-grid li:first-child {
-      animation: rise-in-phone 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+      animation: rise-in-phone var(--motion-enter) var(--ease-out) both;
       animation-timeline: view();
       animation-range: entry 8% cover 20%;
     }
@@ -199,18 +191,18 @@
 
 /* Homepage product cards: one rise when they enter, then hover can move them. */
 @media (prefers-reduced-motion: no-preference) {
-  .hero-picks .prod-tile,
-  .home-trends .prod-tile,
-  .home-fresh .prod-tile {
+  .hero-picks .prod-tile.is-armed:not(.is-in),
+  .home-trends .prod-tile.is-armed:not(.is-in),
+  .home-fresh .prod-tile.is-armed:not(.is-in) {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(var(--motion-distance));
   }
 
   .hero-picks .prod-tile.is-in,
   .home-trends .prod-tile.is-in,
   .home-fresh .prod-tile.is-in {
-    animation: tile-rise 400ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
-    animation-delay: calc(var(--i, 0) * 70ms);
+    animation: tile-rise var(--motion-enter) var(--ease-out) backwards;
+    animation-delay: calc(min(var(--i, 0), 4) * 60ms);
     opacity: 1;
     transform: none;
   }
@@ -219,7 +211,7 @@
 @keyframes tile-rise {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(var(--motion-distance));
   }
 
   to {
@@ -232,9 +224,7 @@
 
 .offer,
 .offer-skeleton {
-  animation: card-in 0.5s var(--ease) both;
-  /* Cards cascade in reading order; the cap keeps a long grid from crawling. */
-  animation-delay: calc(min(var(--index, 0), 11) * 45ms);
+  animation: reveal-fade 180ms var(--ease-out) both;
 }
 
 @keyframes card-in {
@@ -247,13 +237,15 @@
 .offer > footer .button-primary svg,
 .hero-actions .button svg,
 .cart-bar svg:last-child {
-  transition: transform 0.24s var(--ease);
+  transition: transform var(--motion-hover) var(--ease-out);
 }
 
-.offer > footer .button-primary:hover svg,
-.hero-actions .button:hover svg,
-.cart-bar:hover svg:last-child {
-  transform: translateX(3px);
+@media (hover: hover) and (pointer: fine) {
+  .offer > footer .button-primary:hover svg,
+  .hero-actions .button:hover svg,
+  .cart-bar:hover svg:last-child {
+    transform: translateX(3px);
+  }
 }
 
 /* Cards keep their identity across a filter change instead of being
@@ -266,13 +258,13 @@
 
   ::view-transition-old(root),
   ::view-transition-new(root) {
-    animation-duration: 260ms;
+    animation-duration: var(--motion-hover);
   }
 
   /* The catalogue chip pill slides on its own. A root crossfade would fade it. */
   ::view-transition-group(catalog-filter-pill) {
-    animation-duration: 0.48s;
-    animation-timing-function: var(--ease-spring);
+    animation-duration: var(--motion-hover);
+    animation-timing-function: var(--ease-out);
   }
 
   ::view-transition-old(catalog-filter-pill) {
@@ -287,7 +279,7 @@
 /* ---------- Cart affordances ---------- */
 
 .cart-button > b {
-  animation: badge-pop 0.42s var(--ease-spring) both;
+  animation: badge-pop var(--motion-hover) var(--ease-out) both;
 }
 
 @keyframes badge-pop {
@@ -334,19 +326,19 @@
 /* ---------- Overlays ---------- */
 
 .overlay[data-state="open"] .overlay-backdrop {
-  animation: fade-in 0.22s var(--ease) both;
+  animation: fade-in var(--motion-drawer) var(--ease-out) both;
 }
 
 .overlay[data-state="closing"] .overlay-backdrop {
-  animation: fade-in 0.2s var(--ease-exit) reverse both;
+  animation: fade-in var(--motion-exit) var(--ease-in) reverse both;
 }
 
 .overlay-drawer[data-state="open"] .overlay-panel {
-  animation: drawer-in 0.42s var(--ease-spring) both;
+  animation: drawer-in var(--motion-drawer) var(--ease-out) both;
 }
 
 .overlay-drawer[data-state="closing"] .overlay-panel {
-  animation: drawer-out 0.24s var(--ease-exit) both;
+  animation: drawer-out var(--motion-exit) var(--ease-in) both;
 }
 
 .overlay-dialog[data-state="open"] .overlay-panel {
@@ -365,13 +357,13 @@
 
 @keyframes drawer-in {
   from {
-    translate: 100% 0;
+    transform: translateX(100%);
   }
 }
 
 @keyframes drawer-out {
   to {
-    translate: 100% 0;
+    transform: translateX(100%);
   }
 }
 
@@ -391,8 +383,7 @@
 }
 
 .cart-lines li {
-  animation: card-in 0.36s var(--ease) both;
-  animation-delay: calc(min(var(--index, 0), 8) * 40ms);
+  animation: reveal-fade var(--motion-hover) var(--ease-out) both;
 }
 
 .success-mark {
@@ -416,15 +407,9 @@
   height: auto;
   max-height: 78%;
   object-fit: contain;
-  transform: rotateX(var(--tilt-x, 14deg)) rotateY(var(--tilt-y, -20deg)) translateZ(28px);
-  transform-style: preserve-3d;
-  filter: drop-shadow(16px 26px 14px rgba(20, 24, 32, 0.32));
-  transition: transform 0.45s var(--ease);
-  animation: tilt-bob 4.8s ease-in-out infinite;
-}
-
-.tilt-media:hover img {
-  transition: transform 0.08s linear;
+  transform: none;
+  filter: none;
+  transition: none;
   animation: none;
 }
 

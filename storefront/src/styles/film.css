@@ -41,8 +41,8 @@
 .poster.on,
 .poster.leaving {
   transition:
-    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s var(--ease-out),
+    opacity 0.7s var(--ease-out),
     visibility 0s;
 }
 
@@ -70,11 +70,10 @@
   object-fit: cover;
   filter: blur(34px) saturate(1.45);
   transform: scale(1.08);
-  transition: transform 7s linear;
 }
 
 .poster.on .poster-bg {
-  transform: scale(1.18);
+  transform: scale(1.08);
 }
 
 .poster::before {
@@ -95,20 +94,9 @@
 }
 
 .poster-body > *:not(.poster-price) {
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
-}
-
-.poster.on .poster-body > *:not(.poster-price) {
   opacity: 1;
   transform: none;
 }
-
-.poster.on .poster-body > :nth-child(2) { transition-delay: 0.07s; }
-.poster.on .poster-body > :nth-child(3) { transition-delay: 0.14s; }
-.poster.on .poster-body > :nth-child(4) { transition-delay: 0.21s; }
-.poster.on .poster-body > :nth-child(5) { transition-delay: 0.28s; }
 
 .poster-kicker {
   display: inline-flex;
@@ -363,6 +351,21 @@
   color: #fff;
 }
 
+.poster-play {
+  position: absolute;
+  z-index: 4;
+  right: 16px;
+  bottom: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(8, 10, 14, 0.72);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .poster-nav {
   position: absolute;
   top: 50%;
@@ -450,11 +453,15 @@
 }
 
 .poster-dots button.on i {
-  animation: poster-bar var(--dwell, 4.1s) linear forwards;
+  width: 0;
+}
+
+.posters:not(.paused) .poster-dots button.on i {
+  animation: poster-bar var(--dwell, 6s) linear forwards;
 }
 
 .posters.paused .poster-dots button.on i {
-  animation-play-state: paused;
+  animation: none;
 }
 
 @keyframes poster-bar {
@@ -619,10 +626,6 @@
     font-size: 16px;
   }
 
-  .poster:active .poster-cta {
-    transform: scale(0.97);
-  }
-
   .poster-dots {
     right: 16px;
     bottom: 12px;
@@ -678,5 +681,25 @@
   .poster-dots button.on i {
     width: 100%;
     animation: none;
+  }
+}
+
+@media (max-width: 760px) and (hover: none),
+  (max-width: 760px) and (pointer: coarse) {
+  .poster:active .poster-cta {
+    transform: scale(0.98);
+    transition-duration: var(--motion-press);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .poster:active .poster-cta,
+  .button:active:not(:disabled),
+  .prod-tile:active,
+  .price-list button:active,
+  .offer:active,
+  .category-grid a:active {
+    transform: none;
+    transition: none;
   }
 }

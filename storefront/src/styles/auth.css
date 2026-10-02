@@ -88,6 +88,13 @@
 .auth-form {
   display: grid;
   gap: 15px;
+  animation: fade-in 200ms var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-form {
+    animation: none;
+  }
 }
 
 .google-auth {
@@ -158,12 +165,11 @@
   outline: 0;
   font-size: 14px;
   font-weight: 500;
-  transition: border-color 0.16s var(--ease), box-shadow 0.16s var(--ease);
+  transition: border-color var(--motion-hover) var(--ease-out);
 }
 
 .auth-form input:focus {
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px var(--brand-wash);
 }
 
 .password-field {

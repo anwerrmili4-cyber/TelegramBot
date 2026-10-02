@@ -6,7 +6,7 @@ import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, productPath } from "@/lib/router";
 import type { Offer } from "@/types";
 
-const DWELL_MS = 4100;
+const DWELL_MS = 6000;
 
 function isDeal(offer: Offer): boolean {
   const bulk = offer.bulk_unit_millimes ?? 0;
@@ -58,12 +58,14 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
   const [focused, setFocused] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [inView, setInView] = useState(false);
+  const [userHold, setUserHold] = useState(false);
   const reduced = useReducedMotion();
   const rootRef = useRef<HTMLElement>(null);
   const swiped = useRef(false);
   const originX = useRef(0);
+  const originY = useRef(0);
   const current = count ? ((index % count) + count) % count : 0;
-  const paused = hovering || focused || hidden || !inView || reduced;
+  const paused = hovering || focused || hidden || !inView || reduced || userHold;
 
   useEffect(() => {
     const onHide = () => setHidden(document.hidden);
@@ -87,7 +89,8 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
 
   if (count === 0) return null;
 
-  function go(next: number, direction: number) {
+  function go(next: number, direction: number, manual = false) {
+    if (manual) setUserHold(true);
     const target = ((next % count) + count) % count;
     if (target === current) return;
     const from = current;
@@ -99,7 +102,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
   }
 
   function advance(event: AnimationEvent<HTMLElement>) {
-    if (paused || count < 2 || event.animationName !== "poster-bar") return;
+    if (paused || event.currentTarget.classList.contains("paused") || count < 2 || event.animationName !== "poster-bar") return;
     go(current + 1, 1);
   }
 
@@ -107,15 +110,17 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
     if ((event.target as HTMLElement).closest("button")) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     originX.current = event.clientX;
+    originY.current = event.clientY;
     swiped.current = false;
   }
 
   function onPointerUp(event: PointerEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
-    const delta = event.clientX - originX.current;
-    if (Math.abs(delta) < 48) return;
+    const deltaX = event.clientX - originX.current;
+    const deltaY = event.clientY - originY.current;
+    if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
     swiped.current = true;
-    go(current + (delta < 0 ? 1 : -1), delta < 0 ? 1 : -1);
+    go(current + (deltaX < 0 ? 1 : -1), deltaX < 0 ? 1 : -1, true);
   }
 
   return (
@@ -127,7 +132,10 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
         onAnimationEnd={advance}
         onMouseEnter={() => setHovering(true)}
         onMouseLeave={() => setHovering(false)}
-        onFocus={() => setFocused(true)}
+        onFocus={(event) => {
+          const target = event.target as HTMLElement;
+          setFocused(!target.closest(".poster-play"));
+        }}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node)) setFocused(false);
         }}
@@ -135,10 +143,10 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
           if (count < 2) return;
           if (event.key === "ArrowRight") {
             event.preventDefault();
-            go(current + 1, 1);
+            go(current + 1, 1, true);
           } else if (event.key === "ArrowLeft") {
             event.preventDefault();
-            go(current - 1, -1);
+            go(current - 1, -1, true);
           }
         }}
       >
@@ -227,12 +235,22 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
         </div>
         {count > 1 ? (
           <>
-            <button className="poster-nav prev" type="button" aria-label="Précédent" onClick={() => go(current - 1, -1)}>
+            <button className="poster-nav prev" type="button" aria-label="Précédent" onClick={() => go(current - 1, -1, true)}>
               <ChevronLeft size={18} aria-hidden="true" />
             </button>
-            <button className="poster-nav next" type="button" aria-label="Suivant" onClick={() => go(current + 1, 1)}>
+            <button className="poster-nav next" type="button" aria-label="Suivant" onClick={() => go(current + 1, 1, true)}>
               <ChevronRight size={18} aria-hidden="true" />
             </button>
+            {!reduced ? (
+              <button
+                className="poster-play"
+                type="button"
+                aria-pressed={userHold}
+                onClick={() => setUserHold((held) => !held)}
+              >
+                {userHold ? "Lecture" : "Pause"}
+              </button>
+            ) : null}
             <div className="poster-dots">
               {slides.map((offer, slideIndex) => {
                 const on = slideIndex === current;
@@ -243,7 +261,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                     className={on ? "on" : ""}
                     aria-label={`Offre ${slideIndex + 1}`}
                     aria-current={on ? "true" : undefined}
-                    onClick={() => go(slideIndex, slideIndex > current ? 1 : -1)}
+                    onClick={() => go(slideIndex, slideIndex > current ? 1 : -1, true)}
                   >
                     <i />
                   </button>

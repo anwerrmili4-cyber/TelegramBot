@@ -283,6 +283,7 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/ticket-messages",
     "/api/storefront/auth/product-requests",
     "/api/storefront/auth/warranties",
+    "/api/storefront/stock-alerts",
 })
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
 
@@ -1550,6 +1551,10 @@ class handler(BaseHTTPRequestHandler):
                     )
                 elif path == "/api/storefront/auth/warranties":
                     result = storefront_auth_service.open_warranty(self._bearer_token(), payload)
+                elif path == "/api/storefront/stock-alerts":
+                    from app.domain import stock_alert_service
+
+                    result = stock_alert_service.subscribe(payload, self._bearer_token())
                 else:
                     result = storefront_auth_service.reset_password(payload)
             self._reply(200, result, headers=cors)

@@ -637,3 +637,25 @@ def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str)
         _layout("Recharge refusée", body, badge="Refusée", tone="danger", preheader=reason),
         text,
     )
+
+
+def send_back_in_stock(to: str, name: str, product: str, link: str) -> None:
+    """Tell someone who asked to be warned that a sold-out product is back."""
+    button = _button("Voir le produit", link)
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"{_strong(escape(product))} est de nouveau disponible.")
+        + _note("Le stock part vite. Ouvre la fiche pour le commander tant qu'il est là.", "success")
+        + button
+    )
+    text = (
+        f"{_greeting(name)}\n\n{product} est de nouveau disponible.\n\n"
+        "Le stock part vite. Ouvre la fiche pour le commander tant qu'il est là.\n\n"
+        f"{link}\n"
+    )
+    send(
+        to,
+        f"{product} est de nouveau disponible",
+        _layout("De nouveau disponible", body, badge="En stock", tone="success", preheader=product),
+        text,
+    )

@@ -232,6 +232,14 @@ export function changePassword(token: string, payload: { current_password: strin
   return postJson<{ ok: boolean }>("/api/storefront/auth/password", payload, token);
 }
 
+export function requestStockAlert(offerId: number, email: string, token?: string) {
+  return postJson<{ ok: boolean; already_available?: boolean }>(
+    "/api/storefront/stock-alerts",
+    { offer_id: offerId, email },
+    token,
+  );
+}
+
 export function errorMessage(reason: unknown, fallback: string): string {
   return reason instanceof Error && reason.message ? reason.message : fallback;
 }

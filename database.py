@@ -403,6 +403,12 @@ def init_db():
     db.storefront_invoices.create_index("id", unique=True)
     db.storefront_invoices.create_index("cart_reference", unique=True)
     db.storefront_invoices.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])
+    db.storefront_stock_alerts.create_index(
+        [("offer_id", ASCENDING), ("email", ASCENDING)],
+        unique=True,
+        partialFilterExpression={"notified_at": None},
+    )
+    db.storefront_stock_alerts.create_index([("offer_id", ASCENDING), ("notified_at", ASCENDING)])
     if not schema or int(schema.get("version") or 0) < 15:
         _remove_legacy_announcement_overrides(db)
     if not schema or int(schema.get("version") or 0) < 17:
@@ -1301,7 +1307,9 @@ def update_offer(
     site_warranty_value=None,
     site_warranty_unit=None,
 ):
-    existing = get_conn().offers.find_one({"id": offer_id}, {"service_id": 1}) or {}
+    existing = get_conn().offers.find_one(
+        {"id": offer_id}, {"service_id": 1, "stock": 1, "unlimited_stock": 1}
+    ) or {}
     if service_id is not None and int(service_id) != int(existing.get("service_id") or 0):
         source_service = get_service(existing.get("service_id"))
         target_service = get_service(int(service_id))
@@ -1377,6 +1385,10 @@ def update_offer(
         values["archived"] = 0
     if values:
         get_conn().offers.update_one({"id": offer_id}, {"$set": values})
+        if "stock" in values or "unlimited_stock" in values:
+            from app.domain import stock_alert_service
+
+            stock_alert_service.release(int(offer_id))
         if service_id is not None:
             get_conn().reseller_products.update_many(
                 {"local_offer_id": int(offer_id)},

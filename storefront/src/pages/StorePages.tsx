@@ -198,8 +198,13 @@ export function HelpPage() {
         })}
         <div className="support-folds">
           {SUPPORT_FOLDS.map((item) => (
-            <details key={item.title}>
-              <summary>{item.title}</summary>
+            <details
+              key={item.title}
+              onToggle={(event) => {
+                event.currentTarget.querySelector("summary")?.setAttribute("aria-expanded", String(event.currentTarget.open));
+              }}
+            >
+              <summary aria-expanded="false">{item.title}</summary>
               <p>{item.body}</p>
             </details>
           ))}

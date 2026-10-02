@@ -251,6 +251,9 @@ def _restock(conn: Any, line: dict[str, Any]) -> None:
     offer = conn.offers.find_one({"id": line["offer_id"]}, {"unlimited_stock": 1}) or {}
     if not offer.get("unlimited_stock"):
         conn.offers.update_one({"id": line["offer_id"]}, {"$inc": {"stock": int(line.get("qty") or 1)}})
+        from app.domain import stock_alert_service
+
+        stock_alert_service.release(int(line["offer_id"]))
 
 
 def _delivery_block(line: dict[str, Any], content: str) -> str:

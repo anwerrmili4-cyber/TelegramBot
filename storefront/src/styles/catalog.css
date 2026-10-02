@@ -79,10 +79,10 @@
 .filters[data-pill="ready"] .filter-pill {
   opacity: 1;
   transition:
-    transform 0.48s var(--ease-spring),
-    width 0.48s var(--ease-spring),
-    height 0.48s var(--ease-spring),
-    top 0.48s var(--ease-spring);
+    transform var(--motion-hover) var(--ease-out),
+    width var(--motion-hover) var(--ease-out),
+    height var(--motion-hover) var(--ease-out),
+    top var(--motion-hover) var(--ease-out);
 }
 
 .filters::-webkit-scrollbar {
@@ -101,12 +101,14 @@
   color: var(--text-mute);
   font-size: 13px;
   font-weight: 650;
-  transition: color 0.16s var(--ease), background 0.16s var(--ease);
+  transition: color var(--motion-hover) var(--ease-out), background var(--motion-hover) var(--ease-out);
 }
 
-.filters button:hover {
-  color: var(--text);
-  background: var(--ink-600);
+@media (hover: hover) and (pointer: fine) {
+  .filters button:hover {
+    color: var(--text);
+    background: var(--ink-600);
+  }
 }
 
 .filters button.active,
@@ -130,6 +132,11 @@
   gap: 16px;
 }
 
+.catalog .tile-grid,
+.catalog .catalog-state {
+  animation: reveal-fade var(--motion-hover) var(--ease-out);
+}
+
 .offer {
   display: flex;
   flex-direction: column;
@@ -139,25 +146,24 @@
   border-radius: var(--radius-lg);
   background: linear-gradient(168deg, var(--ink-700), var(--ink-800) 70%);
   transition:
-    transform 0.24s var(--ease),
-    border-color 0.2s var(--ease),
-    box-shadow 0.24s var(--ease);
+    transform var(--motion-hover) var(--ease-out),
+    border-color var(--motion-hover) var(--ease-out);
 }
 
-.offer:hover {
-  transform: translateY(-4px);
-  border-color: rgba(var(--brand-rgb), 0.4);
-  box-shadow: var(--shadow-card);
+@media (hover: hover) and (pointer: fine) {
+  .offer:hover {
+    transform: translateY(calc(var(--motion-lift) * -1));
+    border-color: rgba(var(--brand-rgb), 0.4);
+  }
+
+  .offer-blocked:hover {
+    transform: none;
+    border-color: var(--line-soft);
+  }
 }
 
 .offer-blocked {
   opacity: 0.6;
-}
-
-.offer-blocked:hover {
-  transform: none;
-  border-color: var(--line-soft);
-  box-shadow: none;
 }
 
 .offer > header {

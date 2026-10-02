@@ -44,6 +44,15 @@
   --font-body: Inter, "Segoe UI", system-ui, sans-serif;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --motion-press: 120ms;
+  --motion-hover: 180ms;
+  --motion-drawer: 250ms;
+  --motion-exit: 190ms;
+  --motion-enter: 380ms;
+  --motion-distance: 12px;
+  --motion-lift: 4px;
 }
 
 :root[data-theme="light"] {

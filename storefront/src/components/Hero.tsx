@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, Search, Sparkles } from "lucide-react";
 import { FilmReel } from "@/components/FilmReel";
 import { HowItWorks } from "@/components/HowItWorks";
-import { assetUrl } from "@/lib/api";
+import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, navigate, ROUTES } from "@/lib/router";
@@ -26,13 +27,89 @@ function searchTo(query: string) {
   navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
 }
 
+function TileNotify({ offerId }: { offerId: number }) {
+  const { customer, token } = useAuth();
+  const [email, setEmail] = useState("");
+  const [ask, setAsk] = useState(false);
+  const [done, setDone] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function send(address: string) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await requestStockAlert(offerId, address.trim(), token || undefined);
+      setDone(result.already_available ? "Déjà en stock" : "C'est noté");
+    } catch (reason) {
+      setError(errorMessage(reason, "Alerte impossible"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done) {
+    return (
+      <p className="tile-notify-done" role="status">
+        {done}
+      </p>
+    );
+  }
+
+  if (!customer && ask) {
+    return (
+      <form
+        className="tile-notify"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send(email);
+        }}
+      >
+        <input
+          required
+          type="email"
+          autoComplete="email"
+          inputMode="email"
+          aria-label="Email"
+          value={email}
+          placeholder="toi@exemple.com"
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <button type="submit" className="button button-primary" disabled={busy}>
+          {busy ? "Enregistrement…" : "Me prévenir"}
+        </button>
+        {error ? <small className="form-error">{error}</small> : null}
+      </form>
+    );
+  }
+
+  return (
+    <div className="tile-notify">
+      <button
+        type="button"
+        className="button button-primary"
+        disabled={busy}
+        aria-label="Me prévenir quand c'est disponible"
+        onClick={() => {
+          if (customer?.email) void send(customer.email);
+          else setAsk(true);
+        }}
+      >
+        {busy ? "Enregistrement…" : "Me prévenir"}
+      </button>
+      {error ? <small className="form-error">{error}</small> : null}
+    </div>
+  );
+}
+
 export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen: (offer: Offer) => void; index?: number }) {
   const stock = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
   const warranty = warrantyView(offer);
-  const tileRef = useRef<HTMLButtonElement>(null);
+  const tileRef = useRef<HTMLElement>(null);
   const [shown, setShown] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = tileRef.current;
     if (!node) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -44,32 +121,37 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
       },
       { threshold: 0.2 },
     );
+    node.classList.add("is-armed");
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
 
   const classes = [offer.available ? "prod-tile" : "prod-tile sold-out", shown ? "is-in" : ""].filter(Boolean).join(" ");
   return (
-    <button ref={tileRef} type="button" className={classes} style={{ "--i": index } as CSSProperties} onClick={() => onOpen(offer)}>
-      <span className="prod-tile-media">
-        {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
-        <span className={warrantyBadgeClass("warranty-badge", warranty.tone)}>{warranty.label}</span>
-      </span>
-      <span className="prod-tile-body">
-        <em>{offer.service_name}</em>
-        <strong>{offer.name}</strong>
-        <small>
-          {stock}
-          {warranty.duration ? ` · ${warranty.duration}` : ""}
-        </small>
-        <span className="prod-tile-foot">
-          <b>{money(offer.price_millimes)}</b>
-          <span className="go" aria-hidden="true">
-            <ArrowUpRight size={16} />
+    <article ref={tileRef} className={classes} style={{ "--i": index } as CSSProperties}>
+      <button type="button" className="prod-tile-open" onClick={() => onOpen(offer)}>
+        <span className="prod-tile-media">
+          {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
+          <span className={warrantyBadgeClass("warranty-badge", warranty.tone)}>{warranty.label}</span>
+          {offer.available ? null : <span className="sold-stamp">Épuisé</span>}
+        </span>
+        <span className="prod-tile-body">
+          <em>{offer.service_name}</em>
+          <strong>{offer.name}</strong>
+          <small>
+            {stock}
+            {warranty.duration ? ` · ${warranty.duration}` : ""}
+          </small>
+          <span className="prod-tile-foot">
+            <b>{money(offer.price_millimes)}</b>
+            <span className="go" aria-hidden="true">
+              <ArrowUpRight size={16} />
+            </span>
           </span>
         </span>
-      </span>
-    </button>
+      </button>
+      {offer.available ? null : <TileNotify offerId={offer.id} />}
+    </article>
   );
 }
 
@@ -250,8 +332,13 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
         <h2 id="faq-title">Questions fréquentes</h2>
         <p>Sinon, le support est à un message.</p>
         {FAQ.map(([title, body]) => (
-          <details key={title}>
-            <summary>{title}</summary>
+          <details
+            key={title}
+            onToggle={(event) => {
+              event.currentTarget.querySelector("summary")?.setAttribute("aria-expanded", String(event.currentTarget.open));
+            }}
+          >
+            <summary aria-expanded="false">{title}</summary>
             <p>{body}</p>
           </details>
         ))}

@@ -77,6 +77,10 @@ def sync_offer_stock(offer_id: int) -> int:
         "status": InventoryStatus.AVAILABLE,
     })
     conn.offers.update_one({"id": offer_id}, {"$set": {"stock": available}})
+    if available > 0:
+        from app.domain import stock_alert_service
+
+        stock_alert_service.release(offer_id)
     return available
 
 
