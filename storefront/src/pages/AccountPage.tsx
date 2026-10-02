@@ -18,8 +18,7 @@ import {
 } from "lucide-react";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, fetchWarrantyProof, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, resendVerificationCode } from "@/lib/api";
-import { receiptDataUrl } from "@/lib/image";
+import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, resendVerificationCode } from "@/lib/api";
 import { dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
@@ -538,7 +537,7 @@ function WarrantyButton({ item, onSent }: { item: AccountOrderItem; onSent: () =
   const { token, handleError } = useAuth();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
-  const [proofs, setProofs] = useState<string[]>([]);
+  const [proofs] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
