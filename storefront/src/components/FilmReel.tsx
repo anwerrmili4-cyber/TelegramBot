@@ -199,13 +199,15 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 </div>
                 <div className={offer.image_url ? "poster-art" : "poster-art brandpic"}>
                   <div className="poster-shot">
-                    {picture ? (
-                      <img src={assetUrl(picture)} alt="" decoding="async" width={400} height={400} />
-                    ) : (
-                      <span className="poster-emoji" aria-hidden="true">
-                        {offer.service_emoji}
-                      </span>
-                    )}
+                    <span className="poster-still">
+                      {picture ? (
+                        <img src={assetUrl(picture)} alt="" decoding="async" width={400} height={400} />
+                      ) : (
+                        <span className="poster-emoji" aria-hidden="true">
+                          {offer.service_emoji}
+                        </span>
+                      )}
+                    </span>
                     <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
                       {warranty.tone === "none" ? <ShieldOff size={18} aria-hidden="true" /> : <ShieldCheck size={18} aria-hidden="true" />}
                       {warranty.label}

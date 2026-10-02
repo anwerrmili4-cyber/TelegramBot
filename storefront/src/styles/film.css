@@ -235,7 +235,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
 .poster.on .poster-shot {
@@ -243,8 +243,24 @@
   transform: none;
 }
 
+.poster-still {
+  position: absolute;
+  inset: -12%;
+  display: grid;
+}
+
+.poster-still img,
+.poster-still .poster-emoji {
+  width: 100%;
+  height: 100%;
+}
+
+.poster.on .poster-still {
+  animation: film-still 7.2s ease-in-out infinite alternate;
+}
+
 .poster.on .poster-art {
-  animation: film-logo 6.4s ease-in-out infinite alternate;
+  animation: film-frame 6.4s ease-in-out infinite alternate;
 }
 
 .poster.on .poster-body {
@@ -252,13 +268,19 @@
 }
 
 .posters.paused .poster-art,
-.posters.paused .poster-body {
+.posters.paused .poster-body,
+.posters.paused .poster-still {
   animation-play-state: paused;
 }
 
-@keyframes film-logo {
-  from { transform: translate3d(-10px, 8px, 0) rotate(-2.4deg); }
-  to { transform: translate3d(12px, -14px, 0) rotate(2.2deg); }
+@keyframes film-still {
+  from { transform: scale(1.05) translate3d(-4%, 3%, 0); }
+  to { transform: scale(1.14) translate3d(5%, -4%, 0); }
+}
+
+@keyframes film-frame {
+  from { transform: translate3d(0, 6px, 0); }
+  to { transform: translate3d(0, -8px, 0); }
 }
 
 @keyframes film-copy {
@@ -467,7 +489,8 @@
   }
 
   .poster.on .poster-art,
-  .poster.on .poster-body {
+  .poster.on .poster-body,
+  .poster.on .poster-still {
     animation: none;
   }
 
