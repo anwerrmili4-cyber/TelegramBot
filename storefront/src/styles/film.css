@@ -243,6 +243,29 @@
   transform: none;
 }
 
+.poster.on .poster-art {
+  animation: film-logo 6.4s ease-in-out infinite alternate;
+}
+
+.poster.on .poster-body {
+  animation: film-copy 6.4s ease-in-out infinite alternate;
+}
+
+.posters.paused .poster-art,
+.posters.paused .poster-body {
+  animation-play-state: paused;
+}
+
+@keyframes film-logo {
+  from { transform: translate3d(-10px, 8px, 0) rotate(-2.4deg); }
+  to { transform: translate3d(12px, -14px, 0) rotate(2.2deg); }
+}
+
+@keyframes film-copy {
+  from { transform: translate3d(0, 10px, 0); }
+  to { transform: translate3d(0, -12px, 0); }
+}
+
 .poster.leaving .poster-shot {
   opacity: 0;
   transform: translateX(calc(var(--dir, 1) * -46px)) scale(0.96);
@@ -263,20 +286,22 @@
 
 .poster-warranty {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 50%;
+  left: 50%;
   z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  max-width: 100%;
-  padding: 12px 16px 12px 12px;
-  border-radius: 0 0 18px 0;
+  max-width: calc(100% - 24px);
+  padding: 10px 14px;
+  border-radius: 999px;
   color: #fff;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
 }
 
 .poster-warranty.is-covered {
@@ -439,6 +464,11 @@
   .poster-bg,
   .poster:hover .poster-cta {
     transition: none;
+  }
+
+  .poster.on .poster-art,
+  .poster.on .poster-body {
+    animation: none;
   }
 
   .poster-body > *,
