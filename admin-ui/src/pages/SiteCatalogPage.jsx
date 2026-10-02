@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  ClipboardPaste,
   Copy,
   Edit3,
   Globe2,
@@ -80,17 +81,33 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
   const uploadedUrl = form.site_image_url.startsWith(OFFER_IMAGE_PATH) ? form.site_image_url : "";
   const serviceLogo = services.find((service) => String(service.id) === String(form.service_id))?.logo_url || "";
   const imagePreview = image || form.site_image_url;
+  const acceptImage = async (file) => {
+    try {
+      const data = await readImageFile(file, MAX_OFFER_IMAGE_BYTES);
+      setImageError("");
+      setImage(data);
+      setRemoveImage(false);
+    } catch (error) {
+      setImageError(error.message);
+    }
+  };
   const pickImage = (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
+    if (file) void acceptImage(file);
+  };
+  const pasteImage = async () => {
+    try {
+      await acceptImage(await imageFromClipboard());
+    } catch (error) {
+      setImageError(error.message);
+    }
+  };
+  const onPasteImage = (event) => {
+    const file = fileFromPasteEvent(event);
     if (!file) return;
-    if (!LOGO_TYPES.includes(file.type)) { setImageError("Format accepté : PNG, JPEG ou WebP."); return; }
-    if (file.size > MAX_OFFER_IMAGE_BYTES) { setImageError("L’image doit peser moins de 1 Mo."); return; }
-    setImageError("");
-    const reader = new FileReader();
-    reader.onload = () => { setImage(String(reader.result || "")); setRemoveImage(false); };
-    reader.onerror = () => setImageError("Impossible de lire ce fichier.");
-    reader.readAsDataURL(file);
+    event.preventDefault();
+    void acceptImage(file);
   };
   const clearImage = () => { setImage(""); set("site_image_url", ""); setRemoveImage(true); };
   const submit = (event) => {
@@ -137,14 +154,15 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
           </small>
         </Field>
         <Field label="Image du produit (site, optionnel)" wide>
-          <div className="site-logo-picker">
+          <div className="site-logo-picker" tabIndex={0} onPaste={onPasteImage}>
             <span className="site-logo-preview">{imagePreview || serviceLogo ? <img src={imagePreview || serviceLogo} alt="Image du produit" /> : <ImageIcon size={18} />}</span>
             <label className="action-button secondary site-logo-upload"><Upload size={15} />{imagePreview ? "Remplacer" : "Importer une image"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickImage} /></label>
+            <ActionButton type="button" secondary icon={ClipboardPaste} onClick={pasteImage}>Coller direct</ActionButton>
             {imagePreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearImage}>Retirer</ActionButton>}
           </div>
           {!image && !uploadedUrl && <input value={form.site_image_url} onChange={(event) => { set("site_image_url", event.target.value); setRemoveImage(false); }} type="url" maxLength={1000} placeholder="…ou collez un lien https://…/image.png" aria-label="Lien de l’image" />}
           {imageError ? <small className="site-hint"><AlertTriangle size={13} />{imageError}</small>
-            : <small className="site-field-help">PNG, JPEG ou WebP, 1 Mo max. {imagePreview ? "Remplace le logo du service pour ce produit." : serviceLogo ? "Sans image, le logo du service est affiché." : "Sans image, l’emoji du service est affiché."}</small>}
+            : <small className="site-field-help">PNG, JPEG ou WebP, 1 Mo max. Collez une capture avec Coller direct ou Ctrl+V. {imagePreview ? "Remplace le logo du service pour ce produit." : serviceLogo ? "Sans image, le logo du service est affiché." : "Sans image, l’emoji du service est affiché."}</small>}
         </Field>
       </div>
       <h3 className="site-section-title">Prix</h3>
@@ -214,6 +232,58 @@ const MAX_LOGO_BYTES = 500_000;
 const MAX_OFFER_IMAGE_BYTES = 1_000_000;
 const OFFER_IMAGE_PATH = "/api/storefront/offer-image";
 
+function imageType(type) {
+  return type === "image/jpg" ? "image/jpeg" : type;
+}
+
+function imageFileError(file, maxBytes) {
+  if (!file) return "Aucune image dans le presse-papiers.";
+  if (!LOGO_TYPES.includes(imageType(file.type))) return "Format accepté : PNG, JPEG ou WebP.";
+  if (file.size > maxBytes) return maxBytes <= MAX_LOGO_BYTES ? "Le logo doit peser moins de 500 Ko." : "L’image doit peser moins de 1 Mo.";
+  return "";
+}
+
+function readImageFile(file, maxBytes) {
+  const error = imageFileError(file, maxBytes);
+  if (error) return Promise.reject(new Error(error));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Impossible de lire ce fichier."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function imageFromClipboard() {
+  if (!navigator.clipboard?.read) throw new Error("Collez avec Ctrl+V dans la zone de l’image.");
+  let items;
+  try {
+    items = await navigator.clipboard.read();
+  } catch {
+    throw new Error("Autorisez le collage, ou copiez l’image puis appuyez sur Ctrl+V.");
+  }
+  for (const item of items) {
+    const type = ["image/png", "image/jpeg", "image/jpg", "image/webp"].find((entry) => item.types.includes(entry));
+    if (!type) continue;
+    const blob = await item.getType(type);
+    return new File([blob], "collage", { type: imageType(type) });
+  }
+  throw new Error("Aucune image dans le presse-papiers.");
+}
+
+function fileFromPasteEvent(event) {
+  const items = event.clipboardData?.items;
+  if (!items) return null;
+  for (const item of items) {
+    if (item.kind === "file" && LOGO_TYPES.includes(imageType(item.type))) {
+      const file = item.getAsFile();
+      if (!file) return null;
+      return file.type === imageType(file.type) ? file : new File([file], file.name || "collage", { type: imageType(file.type) });
+    }
+  }
+  return null;
+}
+
 function MoveOffer({ row, services, onClose, onSave }) {
   const [serviceId, setServiceId] = useState(String(row.service_id || ""));
   const same = String(serviceId) === String(row.service_id);
@@ -262,17 +332,32 @@ function ServiceEditor({ service, busy, onClose, onSave }) {
   const [logoError, setLogoError] = useState("");
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const logoPreview = form.logo || (!form.remove_logo && service?.logo_url) || "";
+  const acceptLogo = async (file) => {
+    try {
+      const data = await readImageFile(file, MAX_LOGO_BYTES);
+      setLogoError("");
+      setForm((current) => ({ ...current, logo: data, remove_logo: false }));
+    } catch (error) {
+      setLogoError(error.message);
+    }
+  };
   const pickLogo = (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
+    if (file) void acceptLogo(file);
+  };
+  const pasteLogo = async () => {
+    try {
+      await acceptLogo(await imageFromClipboard());
+    } catch (error) {
+      setLogoError(error.message);
+    }
+  };
+  const onPasteLogo = (event) => {
+    const file = fileFromPasteEvent(event);
     if (!file) return;
-    if (!LOGO_TYPES.includes(file.type)) { setLogoError("Format accepté : PNG, JPEG ou WebP."); return; }
-    if (file.size > MAX_LOGO_BYTES) { setLogoError("Le logo doit peser moins de 500 Ko."); return; }
-    setLogoError("");
-    const reader = new FileReader();
-    reader.onload = () => setForm((current) => ({ ...current, logo: String(reader.result || ""), remove_logo: false }));
-    reader.onerror = () => setLogoError("Impossible de lire ce fichier.");
-    reader.readAsDataURL(file);
+    event.preventDefault();
+    void acceptLogo(file);
   };
   const clearLogo = () => setForm((current) => ({ ...current, logo: "", remove_logo: Boolean(service?.logo_url) }));
   const submit = (event) => {
@@ -291,12 +376,13 @@ function ServiceEditor({ service, busy, onClose, onSave }) {
       <div className="form-grid">
         <Field label="Nom sur le site"><input value={form.name} onChange={(event) => set("name", event.target.value)} maxLength={80} required autoFocus placeholder="Ex. Netflix" /></Field>
         <Field label="Logo du service (site, optionnel)" wide>
-          <div className="site-logo-picker">
+          <div className="site-logo-picker" tabIndex={0} onPaste={onPasteLogo}>
             <span className="site-logo-preview">{logoPreview ? <img src={logoPreview} alt="Logo du service" /> : service?.emoji || <ImageIcon size={18} />}</span>
             <label className="action-button secondary site-logo-upload"><Upload size={15} />{logoPreview ? "Remplacer" : "Importer un logo"}<input type="file" accept={LOGO_TYPES.join(",")} onChange={pickLogo} /></label>
+            <ActionButton type="button" secondary icon={ClipboardPaste} onClick={pasteLogo}>Coller direct</ActionButton>
             {logoPreview && <ActionButton type="button" secondary danger icon={Trash2} onClick={clearLogo}>Retirer</ActionButton>}
           </div>
-          {logoError ? <small className="site-hint"><AlertTriangle size={13} />{logoError}</small> : <small className="site-field-help">PNG, JPEG ou WebP, 500 Ko max. Idéalement carré (256 × 256 px). Remplace l’emoji sur le site.</small>}
+          {logoError ? <small className="site-hint"><AlertTriangle size={13} />{logoError}</small> : <small className="site-field-help">PNG, JPEG ou WebP, 500 Ko max. Collez une capture avec Coller direct ou Ctrl+V. Idéalement carré (256 × 256 px). Remplace l’emoji sur le site.</small>}
         </Field>
         <Field label="Affichage" wide><label className="switch"><input type="checkbox" checked={form.site_enabled} onChange={(event) => set("site_enabled", event.target.checked)} /><span />Afficher ce service sur le site</label></Field>
       </div>
