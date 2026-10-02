@@ -49,10 +49,40 @@
 }
 
 .filters {
+  position: relative;
   display: flex;
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
+  --pill-x: 0px;
+  --pill-y: 0px;
+  --pill-w: 0px;
+  --pill-h: 0px;
+}
+
+.filter-pill {
+  position: absolute;
+  z-index: 0;
+  top: var(--pill-y);
+  left: 0;
+  width: var(--pill-w);
+  height: var(--pill-h);
+  border: 1px solid rgba(var(--brand-rgb), 0.42);
+  border-radius: var(--radius-pill);
+  background: var(--brand-wash);
+  opacity: 0;
+  pointer-events: none;
+  view-transition-name: catalog-filter-pill;
+  transform: translateX(var(--pill-x));
+}
+
+.filters[data-pill="ready"] .filter-pill {
+  opacity: 1;
+  transition:
+    transform 0.48s var(--ease-spring),
+    width 0.48s var(--ease-spring),
+    height 0.48s var(--ease-spring),
+    top 0.48s var(--ease-spring);
 }
 
 .filters::-webkit-scrollbar {
@@ -60,6 +90,8 @@
 }
 
 .filters button {
+  position: relative;
+  z-index: 1;
   flex: none;
   min-height: 44px;
   padding: 0 15px;
@@ -77,10 +109,17 @@
   background: var(--ink-600);
 }
 
-.filters button.active {
-  border-color: rgba(var(--brand-rgb), 0.42);
-  background: var(--brand-wash);
+.filters button.active,
+.filters button.active:hover {
+  border-color: transparent;
+  background: transparent;
   color: var(--link-bright);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filters[data-pill="ready"] .filter-pill {
+    transition: none;
+  }
 }
 
 /* ---------- Offer grid ---------- */

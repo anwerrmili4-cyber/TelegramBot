@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
@@ -23,6 +23,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
 import { toggleTheme, useTheme } from "@/lib/theme";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
+import { placeSlidingPill } from "@/lib/slidingPill";
 import { accountPath } from "@/pages/AccountPage";
 
 type SiteHeaderProps = {
@@ -65,12 +66,38 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
   const [moreOpen, setMoreOpen] = useState(false);
   const [catsOpen, setCatsOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const navRef = useRef<HTMLElement>(null);
   const { customer, loading } = useAuth();
   const theme = useTheme();
   const path = usePathname();
   const firstName = customer?.name.split(" ")[0] ?? "";
   const moreCurrent = MORE.some((item) => item.to === path) || path === "/aide";
   const catsCurrent = path === ROUTES.categories;
+
+  function pillOn(kind: "home" | "shop" | "cats" | "deals" | "more") {
+    if (catsOpen) return kind === "cats";
+    if (moreOpen) return kind === "more";
+    if (kind === "home") return path === ROUTES.home;
+    if (kind === "shop") return path === ROUTES.shop;
+    if (kind === "deals") return path === ROUTES.deals;
+    if (kind === "cats") return catsCurrent;
+    return moreCurrent;
+  }
+
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const place = () => {
+      placeSlidingPill(nav, nav.querySelector<HTMLElement>("[data-pill-target]"));
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(nav);
+    for (const control of nav.querySelectorAll<HTMLElement>(":scope > a, :scope > .nav-more > button")) {
+      observer.observe(control);
+    }
+    return () => observer.disconnect();
+  }, [path, catsOpen, moreOpen]);
 
   function closeMenus() {
     setMenuOpen(false);
@@ -235,12 +262,14 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
         <strong>BlackMarket</strong>
       </Link>
 
-      <nav className="site-nav" aria-label="Navigation principale">
+      <nav className="site-nav" aria-label="Navigation principale" ref={navRef}>
+        <span className="site-nav-pill" aria-hidden="true" />
         {BEFORE.map((item) => (
           <Link
             key={item.to}
             to={item.to}
             aria-current={path === item.to ? "page" : undefined}
+            data-pill-target={pillOn(item.to === ROUTES.home ? "home" : "shop") ? "true" : undefined}
             onClick={closeMenus}
           >
             {item.label}
@@ -252,6 +281,7 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
             aria-expanded={catsOpen}
             aria-haspopup="true"
             aria-current={catsCurrent ? "page" : undefined}
+            data-pill-target={pillOn("cats") ? "true" : undefined}
             onClick={() => {
               setCatsOpen((value) => !value);
               setMoreOpen(false);
@@ -283,6 +313,7 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
             key={item.to}
             to={item.to}
             aria-current={path === item.to ? "page" : undefined}
+            data-pill-target={pillOn("deals") ? "true" : undefined}
             onClick={closeMenus}
           >
             {item.label}
@@ -294,6 +325,7 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
             aria-expanded={moreOpen}
             aria-haspopup="true"
             aria-current={moreCurrent ? "page" : undefined}
+            data-pill-target={pillOn("more") ? "true" : undefined}
             onClick={() => {
               setMoreOpen((value) => !value);
               setCatsOpen(false);

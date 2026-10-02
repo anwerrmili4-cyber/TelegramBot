@@ -159,6 +159,20 @@
   ::view-transition-new(root) {
     animation-duration: 260ms;
   }
+
+  /* The catalogue chip pill slides on its own. A root crossfade would fade it. */
+  ::view-transition-group(catalog-filter-pill) {
+    animation-duration: 0.48s;
+    animation-timing-function: var(--ease-spring);
+  }
+
+  ::view-transition-old(catalog-filter-pill) {
+    display: none;
+  }
+
+  ::view-transition-new(catalog-filter-pill) {
+    animation: none;
+  }
 }
 
 /* ---------- Cart affordances ---------- */

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Search, ServerCrash, SearchX } from "lucide-react";
 import { ProductTile } from "@/components/Hero";
 import { searchable } from "@/lib/format";
-import { stagger, withViewTransition } from "@/lib/motion";
+import { prefersReducedMotion, stagger, withViewTransition } from "@/lib/motion";
+import { placeSlidingPill } from "@/lib/slidingPill";
 import type { Category, Offer } from "@/types";
 
 type CatalogSectionProps = {
@@ -24,6 +25,7 @@ export function CatalogSection({
 }: CatalogSectionProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
+  const filtersRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -43,6 +45,30 @@ export function CatalogSection({
           searchable(`${offer.name} ${offer.service_name} ${offer.description}`).includes(term),
       );
   }, [offers, category, query]);
+
+  useLayoutEffect(() => {
+    const list = filtersRef.current;
+    if (!list) return;
+    const place = () => {
+      const active = list.querySelector<HTMLButtonElement>("button.active");
+      placeSlidingPill(list, active);
+      if (!active) return;
+      const edge = 8;
+      const start = active.offsetLeft;
+      const end = start + active.offsetWidth;
+      if (start < list.scrollLeft + edge || end > list.scrollLeft + list.clientWidth - edge) {
+        list.scrollTo({
+          left: Math.max(0, start - 16),
+          behavior: prefersReducedMotion() ? "auto" : "smooth",
+        });
+      }
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(list);
+    for (const button of list.querySelectorAll("button")) observer.observe(button);
+    return () => observer.disconnect();
+  }, [category, categories]);
 
   return (
     <section className="catalog" id="catalogue" aria-labelledby="catalog-title">
@@ -68,7 +94,8 @@ export function CatalogSection({
             aria-label="Rechercher une offre"
           />
         </label>
-        <div className="filters" role="group" aria-label="Filtrer par catégorie">
+        <div className="filters" role="group" aria-label="Filtrer par catégorie" ref={filtersRef}>
+          <span className="filter-pill" aria-hidden="true" />
           <button
             type="button"
             className={category === "all" ? "active" : ""}

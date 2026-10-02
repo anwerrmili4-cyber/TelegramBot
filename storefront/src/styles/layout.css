@@ -46,6 +46,7 @@
 }
 
 .site-nav {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -56,10 +57,41 @@
   color: var(--text-soft);
   font-size: 13px;
   font-weight: 600;
+  --pill-x: 0px;
+  --pill-y: 0px;
+  --pill-w: 0px;
+  --pill-h: 0px;
+}
+
+.site-nav-pill {
+  position: absolute;
+  z-index: 0;
+  top: var(--pill-y);
+  left: 0;
+  width: var(--pill-w);
+  height: var(--pill-h);
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(var(--pill-x));
+}
+
+.site-nav[data-pill="ready"] .site-nav-pill {
+  opacity: 1;
+  transition:
+    transform 0.48s var(--ease-spring),
+    width 0.48s var(--ease-spring),
+    height 0.48s var(--ease-spring),
+    top 0.48s var(--ease-spring);
 }
 
 .site-nav > a,
 .nav-more > button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
   padding: 8px 14px;
   border: 0;
   border-radius: var(--radius-pill);
@@ -83,9 +115,11 @@
   background: var(--ink-600);
 }
 
-.site-nav > a[aria-current="page"],
-.nav-more > button[aria-current="page"] {
-  background: var(--brand);
+.site-nav > a[data-pill-target],
+.nav-more > button[data-pill-target],
+.site-nav > a[data-pill-target]:hover,
+.nav-more > button[data-pill-target]:hover {
+  background: transparent;
   color: #fff;
 }
 
@@ -124,6 +158,12 @@
 
 .nav-more-panel svg {
   color: var(--text-mute);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-nav[data-pill="ready"] .site-nav-pill {
+    transition: none;
+  }
 }
 
 .header-actions {
@@ -542,11 +582,39 @@
     display: flex;
   }
 
+  .site-nav-pill {
+    display: none;
+  }
+
   .site-nav > a,
   .nav-more > button {
     justify-content: space-between;
     padding: 13px;
     border-radius: var(--radius-sm);
+  }
+
+  .site-nav > a[data-pill-target],
+  .nav-more > button[data-pill-target] {
+    background: transparent;
+    color: var(--text-soft);
+  }
+
+  .site-nav > a[data-pill-target]:hover,
+  .nav-more > button[data-pill-target]:hover {
+    background: var(--ink-600);
+    color: var(--text);
+  }
+
+  .site-nav > a[aria-current="page"],
+  .nav-more > button[aria-current="page"],
+  .site-nav > a[data-pill-target][aria-current="page"],
+  .nav-more > button[data-pill-target][aria-current="page"],
+  .site-nav > a[aria-current="page"]:hover,
+  .nav-more > button[aria-current="page"]:hover,
+  .site-nav > a[data-pill-target][aria-current="page"]:hover,
+  .nav-more > button[data-pill-target][aria-current="page"]:hover {
+    background: var(--brand);
+    color: #fff;
   }
 
   .site-nav > a:hover,
