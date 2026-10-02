@@ -202,6 +202,53 @@
   font-size: 19px;
 }
 
+.checkout-lines {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checkout-lines > li {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.checkout-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.checkout-line strong {
+  display: block;
+  font-size: 14px;
+}
+
+.checkout-line small {
+  color: var(--text-mute);
+  font-size: 12px;
+}
+
+.checkout-line b {
+  flex: none;
+  font-size: 14px;
+}
+
+.checkout-lines .info-ask {
+  padding: 0;
+  border: 0;
+}
+
+.checkout-lines .order-note {
+  margin: 0;
+}
+
 .checkout-form label {
   display: grid;
   gap: 7px;

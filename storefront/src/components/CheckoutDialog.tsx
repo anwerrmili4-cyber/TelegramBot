@@ -214,6 +214,67 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
             <strong>{money(total)}</strong>
           </div>
 
+          <ul className="checkout-lines">
+            {cart.lines.map((line) => {
+              const prompt = line.offer.requires_info ? infoFields(line.offer.remark || "", line.offer.name) : null;
+              const answers = info[line.offer.id] || [];
+              return (
+                <li key={line.offer.id}>
+                  <div className="checkout-line">
+                    <span>
+                      <strong>{line.offer.name}</strong>
+                      <small>
+                        {line.quantity} {plural(line.quantity, "unité", "unités")}
+                      </small>
+                    </span>
+                    <b>{money(line.offer.price_millimes * line.quantity)}</b>
+                  </div>
+                  {prompt ? (
+                    <fieldset className="info-ask">
+                      <legend>Pour ce produit</legend>
+                      {prompt.intro ? <p>{prompt.intro}</p> : null}
+                      {prompt.items.map((item, index) => {
+                        const long = item.includes("\n") || item.length > 90;
+                        return (
+                          <label key={`${line.offer.id}-${index}`}>
+                            <span className="field-label">{item}</span>
+                            {long ? (
+                              <textarea
+                                name={`info-${line.offer.id}-${index}`}
+                                rows={3}
+                                maxLength={400}
+                                required
+                                autoComplete="off"
+                                value={answers[index] || ""}
+                                onChange={(event) => setAnswer(line.offer.id, index, event.target.value)}
+                              />
+                            ) : (
+                              <input
+                                name={`info-${line.offer.id}-${index}`}
+                                maxLength={400}
+                                required
+                                autoComplete="off"
+                                value={answers[index] || ""}
+                                onChange={(event) => setAnswer(line.offer.id, index, event.target.value)}
+                              />
+                            )}
+                          </label>
+                        );
+                      })}
+                    </fieldset>
+                  ) : line.offer.remark ? (
+                    <p className="order-note">
+                      <span className="remark-copy">
+                        <b>Remarque</b>
+                        {line.offer.remark}
+                      </span>
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+
           <fieldset className="pay-with">
             <legend>Payer avec</legend>
             <label className={payWith === "wallet" ? "selected" : ""}>
@@ -287,55 +348,6 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
               <ReceiptField value={receipt} onChange={setReceipt} onError={setError} />
             </>
           )}
-
-          {cart.lines.map((line) => {
-            if (!line.offer.requires_info) {
-              return line.offer.remark ? (
-                <p key={line.offer.id} className="order-note">
-                  <span className="remark-copy">
-                    <b>Remarque · {line.offer.name}</b>
-                    {line.offer.remark}
-                  </span>
-                </p>
-              ) : null;
-            }
-            const prompt = infoFields(line.offer.remark || "", line.offer.name);
-            const answers = info[line.offer.id] || [];
-            return (
-              <fieldset key={line.offer.id} className="info-ask">
-                <legend>{line.offer.name}</legend>
-                {prompt.intro ? <p>{prompt.intro}</p> : null}
-                {prompt.items.map((item, index) => {
-                  const long = item.includes("\n") || item.length > 90;
-                  return (
-                    <label key={`${line.offer.id}-${index}`}>
-                      <span className="field-label">{item}</span>
-                      {long ? (
-                        <textarea
-                          name={`info-${line.offer.id}-${index}`}
-                          rows={3}
-                          maxLength={400}
-                          required
-                          autoComplete="off"
-                          value={answers[index] || ""}
-                          onChange={(event) => setAnswer(line.offer.id, index, event.target.value)}
-                        />
-                      ) : (
-                        <input
-                          name={`info-${line.offer.id}-${index}`}
-                          maxLength={400}
-                          required
-                          autoComplete="off"
-                          value={answers[index] || ""}
-                          onChange={(event) => setAnswer(line.offer.id, index, event.target.value)}
-                        />
-                      )}
-                    </label>
-                  );
-                })}
-              </fieldset>
-            );
-          })}
 
           {error ? (
             <p className="form-error" role="alert">
