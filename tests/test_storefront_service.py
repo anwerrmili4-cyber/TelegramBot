@@ -241,6 +241,48 @@ def test_wallet_payment_with_insufficient_balance_creates_nothing(mock_mongodb, 
     assert storefront_wallet_service.balance(customer["id"]) == 5000
 
 
+def test_product_remark_comes_from_the_admin_not_the_client(mock_mongodb, customer):
+    _, offer_id = _catalog_offer()
+    db.get_conn().offers.update_one(
+        {"id": offer_id},
+        {"$set": {"site_remark": "Active le compte sur cet email.", "site_requires_info": False}},
+    )
+    public = next(
+        offer
+        for service in storefront_service.catalog()["services"]
+        for offer in service["offers"]
+        if offer["id"] == offer_id
+    )
+    assert public["remark"] == "Active le compte sur cet email."
+    assert public["requires_info"] is False
+
+    result = _create(
+        customer,
+        note="note du client",
+        items=[{"offer_id": offer_id, "quantity": 1, "info": "secret"}],
+    )
+    order = db.get_order(result["order_ids"][0])
+    assert order["customer_note"] == ""
+    assert order["customer_info"] == ""
+    assert order["site_remark"] == "Active le compte sur cet email."
+
+
+def test_products_that_need_customer_information_store_the_answer(mock_mongodb, customer):
+    _, offer_id = _catalog_offer(name="Netflix")
+    db.get_conn().offers.update_one(
+        {"id": offer_id},
+        {"$set": {"site_remark": "Email du compte", "site_requires_info": True}},
+    )
+    with pytest.raises(storefront_service.StorefrontError, match="informations"):
+        _create(customer, items=[{"offer_id": offer_id, "quantity": 1}])
+
+    result = _create(customer, items=[{"offer_id": offer_id, "quantity": 1, "info": "  amine@mail.test  "}])
+    order = db.get_order(result["order_ids"][0])
+    assert order["customer_info"] == "amine@mail.test"
+    assert order["site_remark"] == "Email du compte"
+    assert order["customer_note"] == ""
+
+
 def test_repeated_offer_lines_are_merged_into_one_order(mock_mongodb, customer):
     _, offer_id = _catalog_offer(millimes=10000)
     result = _create(customer, items=[

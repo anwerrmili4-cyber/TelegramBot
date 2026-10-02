@@ -335,6 +335,14 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                   </div>
                   <b>{money(offer.price_millimes * quantity)}</b>
                 </div>
+                {offer.remark || offer.requires_info ? (
+                  <p className="order-note">
+                    <span>
+                      <b>{offer.requires_info ? "Informations à envoyer" : "Remarque"}</b>
+                      {offer.remark || "Tu enverras tes informations au moment du paiement."}
+                    </span>
+                  </p>
+                ) : null}
                 <div className="info-box">
                   <div>
                     <b>Livraison · {offer.available ? "immédiate" : "indisponible"}</b>

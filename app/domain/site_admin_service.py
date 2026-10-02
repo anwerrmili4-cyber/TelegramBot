@@ -173,6 +173,8 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) ->
         "effective_category": category,
         "category_label": storefront_service.CATEGORY_LABELS[category],
         "site_description_fr": str(offer.get("site_description_fr") or ""),
+        "site_remark": str(offer.get("site_remark") or ""),
+        "site_requires_info": offer.get("site_requires_info") is True,
         "site_image_url": str(offer.get("site_image_url") or ""),
         "description": str(offer.get("description") or ""),
         "on_sale": (
@@ -618,6 +620,8 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         "site_category": category,
         "site_description_fr": description,
         "site_image_url": _image_url(form.get("site_image_url")),
+        "site_remark": str(form.get("site_remark") or "").strip()[:400],
+        "site_requires_info": _truthy(form.get("site_requires_info")),
     }
     category_name = str(form.get("site_category_name") or "").strip()[:120]
     unset_category = not (db.is_official_subscriptions_service(service) and category_name)
@@ -657,11 +661,13 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         )
         if items:
             inventory_service.add_items(offer_id, items)
+        extras = {
+            "site_remark": fields["site_remark"],
+            "site_requires_info": fields["site_requires_info"],
+        }
         if fields.get("site_category_name"):
-            conn.offers.update_one(
-                {"id": offer_id},
-                {"$set": {"site_category_name": fields["site_category_name"]}},
-            )
+            extras["site_category_name"] = fields["site_category_name"]
+        conn.offers.update_one({"id": offer_id}, {"$set": extras})
         created = True
     else:
         if int(previous.get("service_id") or 0) != service_id:

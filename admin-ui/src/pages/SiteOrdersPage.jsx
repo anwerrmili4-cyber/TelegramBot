@@ -43,6 +43,8 @@ export default function SiteOrdersPage({ onAction }) {
           {cart.customer_phone && <div><dt>Téléphone</dt><dd>{cart.customer_phone}</dd></div>}
           <div><dt>Articles</dt><dd>{cart.items.map((item) => <span key={item.order_id} className="site-line">
             {item.quantity} × {item.service_name ? `${item.service_name} — ` : ""}{item.offer_name} <small>({dinars(item.total_millimes)} · {LINE_STATUS[item.status] || item.status}{item.automatic ? " automatiquement" : ""})</small>
+            {item.site_remark ? <small className="site-line-note">Remarque : {item.site_remark}</small> : null}
+            {item.customer_info ? <small className="site-line-note">Informations du client : {item.customer_info}</small> : null}
             {item.automatic && <em className="site-chip"><Zap size={11} />Stock</em>}
           </span>)}</dd></div>
           <div><dt>Paiement</dt><dd>{cart.payment_label}{cart.transaction_reference ? <> · réf. <strong>{cart.transaction_reference}</strong></> : ""}</dd></div>

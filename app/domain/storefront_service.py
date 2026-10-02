@@ -269,6 +269,8 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "service_logo_url": site_logo_service.logo_url(service),
         "bulk_quantity": bulk_quantity,
         "bulk_unit_millimes": bulk_unit_millimes,
+        "remark": _plain_text(offer.get("site_remark"), limit=400),
+        "requires_info": offer.get("site_requires_info") is True,
     }
 
 
@@ -334,11 +336,13 @@ def catalog() -> dict[str, Any]:
     }
 
 
-def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int]]:
-    """Normalise a cart payload into merged ``(offer_id, quantity)`` pairs.
+def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int, str]]:
+    """Normalise a cart payload into merged ``(offer_id, quantity, info)`` rows.
 
     A single ``offer_id``/``quantity`` pair is still accepted so a cached copy
-    of an older frontend keeps working against this endpoint.
+    of an older frontend keeps working against this endpoint. ``info`` is the
+    customer's answer when the product asks for one. A cart-wide note is ignored:
+    the remark itself is written by the administrator on the product.
     """
     raw = payload.get("items")
     if raw is None and payload.get("offer_id") is not None:
@@ -348,7 +352,7 @@ def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int]]:
     if len(raw) > MAX_CART_LINES:
         raise StorefrontError(f"Un panier accepte au maximum {MAX_CART_LINES} produits différents.")
 
-    merged: dict[int, int] = {}
+    merged: dict[int, tuple[int, str]] = {}
     for entry in raw:
         if not isinstance(entry, dict):
             raise StorefrontError("Panier invalide.")
@@ -359,11 +363,16 @@ def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int]]:
             raise StorefrontError("Offre ou quantité invalide.") from exc
         if quantity < 1:
             raise StorefrontError("Choisis au moins une unité par produit.")
-        merged[offer_id] = merged.get(offer_id, 0) + quantity
-    return list(merged.items())
+        info = _plain_text(entry.get("info"), limit=400)
+        previous = merged.get(offer_id)
+        if previous:
+            quantity += previous[0]
+            info = info or previous[1]
+        merged[offer_id] = (quantity, info)
+    return [(offer_id, quantity, info) for offer_id, (quantity, info) in merged.items()]
 
 
-def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
+def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, Any]:
     """Validate one cart line against the live catalog and price it in TND."""
     offer = db.get_offer(offer_id)
     service = db.get_service(int(offer.get("service_id"))) if offer else None
@@ -380,6 +389,12 @@ def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
     if not offer.get("unlimited_stock") and int(offer.get("stock") or 0) < quantity:
         raise StorefrontError(f"« {name} » : le stock disponible est insuffisant.")
 
+    remark = _plain_text(offer.get("site_remark"), limit=400)
+    requires_info = offer.get("site_requires_info") is True
+    customer_info = _plain_text(info, limit=400) if requires_info else ""
+    if requires_info and not customer_info:
+        raise StorefrontError(f"« {name} » : envoie les informations demandées.")
+
     unit_millimes = _price_millimes(offer)
     return {
         "offer_id": int(offer["id"]),
@@ -391,6 +406,8 @@ def _resolved_line(offer_id: int, quantity: int) -> dict[str, Any]:
         "period_days": _site_period_days(offer),
         "warranty_days": _site_warranty_days(offer),
         "warranty": _site_warranty_label(offer),
+        "customer_info": customer_info,
+        "site_remark": remark,
     }
 
 
@@ -470,8 +487,10 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
     name = str(customer.get("name") or "")
     email = str(customer.get("email") or "")
     method = _payment_method(payload.get("payment_method"))
-    note = _plain_text(payload.get("note"), limit=400)
-    lines = [_resolved_line(offer_id, quantity) for offer_id, quantity in _requested_lines(payload)]
+    lines = [
+        _resolved_line(offer_id, quantity, info)
+        for offer_id, quantity, info in _requested_lines(payload)
+    ]
     cart_total = sum(line["total_millimes"] for line in lines)
     by_wallet = method == site_orders_service.WALLET_METHOD
 
@@ -503,7 +522,9 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
             "customer_name": name,
             "customer_email": email,
             "customer_phone": str(customer.get("phone") or ""),
-            "customer_note": note,
+            "customer_note": "",
+            "customer_info": line["customer_info"],
+            "site_remark": line["site_remark"],
             "payment_reference": payment_reference,
             "payment_reference_key": payment_reference.lower(),
             "receipt_id": receipt_id,
@@ -716,6 +737,8 @@ def customer_carts(customer_id: int, email: str = "") -> list[dict[str, Any]]:
                     "unit_millimes": int(line.get("unit_price_millimes") or 0),
                     "total_millimes": int(line.get("total_millimes") or 0),
                     "period_days": int(line.get("period_days") or 0),
+                    "site_remark": str(line.get("site_remark") or ""),
+                    "customer_info": str(line.get("customer_info") or ""),
                     "status": _LINE_STATUSES.get(str(line.get("status") or ""), "to_verify"),
                     "delivered_at": line.get("delivered_at"),
                     "delivery": delivery_by_id.get(int(line["id"]), "")

@@ -133,8 +133,7 @@ export type CheckoutPayload = {
   transaction_reference?: string;
   /** Receipt screenshot as a `data:image/...` URL, for transfers only. */
   receipt?: string;
-  note?: string;
-  items: { offer_id: number; quantity: number }[];
+  items: { offer_id: number; quantity: number; info?: string }[];
 };
 
 export function submitCheckout(token: string, payload: CheckoutPayload): Promise<CheckoutResult> {

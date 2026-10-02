@@ -342,6 +342,31 @@ def test_save_offer_creates_a_sellable_product_with_stock(mock_mongodb):
     assert public["badge"] == "Nouveau"
 
 
+def test_optional_remark_is_saved_on_the_product_by_the_admin(mock_mongodb):
+    service_id, offer_id = _offer()
+    site_admin_service.save_offer({
+        "offer_id": str(offer_id),
+        "service_id": str(service_id),
+        "name": "Netflix 1 mois",
+        "tn_price": "15",
+        "site_remark": "  Préférence de profil  ",
+        "site_requires_info": "1",
+    })
+    offer = db.get_offer(offer_id)
+    assert offer["site_remark"] == "Préférence de profil"
+    assert offer["site_requires_info"] is True
+    assert offer.get("note") != "Préférence de profil"
+
+    public = next(
+        item
+        for service in storefront_service.catalog()["services"]
+        for item in service["offers"]
+        if item["id"] == offer_id
+    )
+    assert public["remark"] == "Préférence de profil"
+    assert public["requires_info"] is True
+
+
 def test_save_offer_keeps_bot_copy_and_shares_stock_mode(mock_mongodb):
     service_id, offer_id = _offer()
     db.update_offer(offer_id, description="Texte bot", note="30 days", active=1)

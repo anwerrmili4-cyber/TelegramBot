@@ -417,6 +417,8 @@ function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; def
                         {item.service_name}
                         {period ? ` · ${period}` : ""} · {money(item.total_millimes)}
                       </small>
+                      {item.site_remark ? <small className="account-muted">Remarque : {item.site_remark}</small> : null}
+                      {item.customer_info ? <small className="account-muted">Tes informations : {item.customer_info}</small> : null}
                     </span>
                     <StatusChip label={itemLabel} tone={itemTone} />
                   </div>

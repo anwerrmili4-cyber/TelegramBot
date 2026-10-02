@@ -47,6 +47,8 @@ function productForm(row, defaultServiceId) {
     site_enabled: row ? row.site_enabled : true,
     site_featured: row?.site_featured || false,
     site_description_fr: row?.site_description_fr || "",
+    site_remark: row?.site_remark || "",
+    site_requires_info: Boolean(row?.site_requires_info),
     site_image_url: row?.site_image_url || "",
     delivery_delay: row?.delivery_delay || "Instantané après confirmation",
     period_value: String(row?.period_value || 30),
@@ -101,6 +103,7 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
       remove_image: removeImage ? "1" : "0",
       site_enabled: form.site_enabled ? "1" : "0",
       site_featured: form.site_featured ? "1" : "0",
+      site_requires_info: form.site_requires_info ? "1" : "0",
     });
   };
   return <Modal title={creating ? "Nouveau produit" : `${row.service_name} — ${row.name}`} onClose={onClose} wide>
@@ -162,6 +165,14 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
         </Field>
         <Field label="Mise en avant">
           <label className="switch"><input type="checkbox" checked={form.site_featured} onChange={(event) => set("site_featured", event.target.checked)} /><span />Produit vedette</label>
+        </Field>
+        <Field label="Remarque (optionnel)" wide>
+          <textarea value={form.site_remark} onChange={(event) => set("site_remark", event.target.value.slice(0, 400))} rows={3} maxLength={400} placeholder="Ex. Envoie l’email du compte à activer" />
+          <small className="site-field-help">Écrite ici et affichée au client. Le client ne rédige pas cette remarque.</small>
+        </Field>
+        <Field label="Informations du client" wide>
+          <label className="switch"><input type="checkbox" checked={form.site_requires_info} onChange={(event) => set("site_requires_info", event.target.checked)} /><span />Le client doit envoyer ses informations au paiement</label>
+          <small className="site-field-help">Pour les produits qui ont besoin d’un email, d’un identifiant ou d’une précision. La remarque lui dit quoi envoyer.</small>
         </Field>
       </div>
       <h3 className="site-section-title">Livraison, durée et garantie</h3>

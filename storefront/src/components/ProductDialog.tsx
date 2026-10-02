@@ -190,6 +190,14 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                   </div>
                   <b>{money(shown.price_millimes * quantity)}</b>
                 </div>
+                {shown.remark || shown.requires_info ? (
+                  <p className="order-note">
+                    <span>
+                      <b>{shown.requires_info ? "Informations à envoyer" : "Remarque"}</b>
+                      {shown.remark || "Tu enverras tes informations au moment du paiement."}
+                    </span>
+                  </p>
+                ) : null}
                 <p className="order-note">
                   <Zap size={15} aria-hidden="true" />
                   <span>

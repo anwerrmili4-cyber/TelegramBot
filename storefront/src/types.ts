@@ -31,6 +31,10 @@ export type Offer = {
   bulk_quantity?: number;
   /** Dinar unit price once `bulk_quantity` is reached. `0` when there is no deal. */
   bulk_unit_millimes?: number;
+  /** Shop note written by the administrator. Empty when the product has none. */
+  remark?: string;
+  /** The customer must send details for this product at checkout. */
+  requires_info?: boolean;
 };
 
 export type Category = { id: string; label: string };
@@ -107,6 +111,8 @@ export type AccountOrderItem = {
   unit_millimes: number;
   total_millimes: number;
   period_days: number;
+  site_remark?: string;
+  customer_info?: string;
   status: "to_verify" | "confirmed" | "delivered" | "cancelled";
   delivered_at: number | null;
   /** Access details, only once the line is delivered. */

@@ -28,7 +28,7 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
   const [method, setMethod] = useState(paymentMethods[0]?.id ?? "");
   const [reference, setReference] = useState("");
   const [receipt, setReceipt] = useState("");
-  const [note, setNote] = useState("");
+  const [info, setInfo] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CheckoutResult | null>(null);
@@ -59,7 +59,7 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       setResult(null);
       setReference("");
       setReceipt("");
-      setNote("");
+      setInfo({});
       onConfirmed();
     }
   }
@@ -81,6 +81,11 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
         return;
       }
     }
+    const missing = cart.lines.find((line) => line.offer.requires_info && !(info[line.offer.id] || "").trim());
+    if (missing) {
+      setError(`« ${missing.offer.name} » : envoie les informations demandées.`);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -88,8 +93,11 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
         payment_method: payWith === "wallet" ? "wallet" : chosenMethod?.id ?? "",
         transaction_reference: payWith === "transfer" ? reference.trim() : undefined,
         receipt: payWith === "transfer" ? receipt : undefined,
-        note: note.trim(),
-        items: cart.lines.map((line) => ({ offer_id: line.offer.id, quantity: line.quantity })),
+        items: cart.lines.map((line) => ({
+          offer_id: line.offer.id,
+          quantity: line.quantity,
+          ...(line.offer.requires_info ? { info: (info[line.offer.id] || "").trim() } : {}),
+        })),
       });
       setResult(created);
       setBalance(created.balance_millimes);
@@ -233,19 +241,33 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
             </>
           )}
 
-          <label>
-            <span className="field-label">
-              Remarque <i>(optionnel)</i>
-            </span>
-            <textarea
-              name="note"
-              rows={2}
-              maxLength={400}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Une préférence, une précision…"
-            />
-          </label>
+          {cart.lines.map((line) =>
+            line.offer.requires_info ? (
+              <label key={line.offer.id}>
+                <span className="field-label">
+                  {line.offer.remark || `Informations pour ${line.offer.name}`}
+                </span>
+                <textarea
+                  name={`info-${line.offer.id}`}
+                  rows={2}
+                  maxLength={400}
+                  required
+                  value={info[line.offer.id] || ""}
+                  onChange={(event) =>
+                    setInfo((current) => ({ ...current, [line.offer.id]: event.target.value }))
+                  }
+                  placeholder="Tes informations"
+                />
+              </label>
+            ) : line.offer.remark ? (
+              <p key={line.offer.id} className="order-note">
+                <span>
+                  <b>Remarque · {line.offer.name}</b>
+                  {line.offer.remark}
+                </span>
+              </p>
+            ) : null,
+          )}
 
           {error ? (
             <p className="form-error" role="alert">

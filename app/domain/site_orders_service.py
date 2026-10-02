@@ -111,6 +111,8 @@ def _cart_summary(reference: str, lines: list[dict[str, Any]]) -> dict[str, Any]
             "unit_millimes": int(line.get("unit_price_millimes") or 0),
             "total_millimes": int(line.get("total_millimes") or 0),
             "status": str(line.get("status") or ""),
+            "customer_info": str(line.get("customer_info") or ""),
+            "site_remark": str(line.get("site_remark") or ""),
             "automatic": line.get("delivery_text") == AUTOMATIC_DELIVERY,
             "delivery_note": ""
             if line.get("delivery_text") == AUTOMATIC_DELIVERY
