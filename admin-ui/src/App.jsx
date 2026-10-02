@@ -509,6 +509,7 @@ export default function App() {
   const [notificationsSynced, setNotificationsSynced] = useState(null);
   const [busyAction, setBusyAction] = useState("");
   const [toast, setToast] = useState(null);
+  const [siteDone, setSiteDone] = useState(null);
   const [pendingActionCount, setPendingActionCount] = useState(0);
   const [actionConfirmation, setActionConfirmation] = useState(null);
   const [density, setDensity] = useState(window.localStorage.getItem("admin-density") === "compact" ? "compact" : "comfortable");
@@ -520,6 +521,8 @@ export default function App() {
   const syncChannelRef = useRef(null);
   const notificationRequestRef = useRef(null);
   const previousNotificationIdsRef = useRef(null);
+  const pauseNotificationToastsRef = useRef(0);
+  const siteDoneTimerRef = useRef(null);
 
   const loadData = useCallback(async (background = false, forceFresh = false, scope = "full") => {
     if (dataRequestRef.current) {
@@ -579,7 +582,7 @@ export default function App() {
         const items = Array.isArray(payload.items) ? payload.items : [];
         const nextIds = new Set(items.map((item) => item.id));
         const previousIds = previousNotificationIdsRef.current;
-        if (previousIds) {
+        if (previousIds && Date.now() >= pauseNotificationToastsRef.current) {
           const fresh = items.find((item) => !previousIds.has(item.id) && item.actionable);
           if (fresh) setToast({ type: fresh.severity === "error" ? "error" : "success", title: fresh.title, message: fresh.message });
         }
@@ -603,6 +606,10 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    setSiteDone(null);
+    return () => window.clearTimeout(siteDoneTimerRef.current);
+  }, [activePage]);
   useEffect(() => {
     if (!authenticated) return undefined;
     loadNotifications();
@@ -776,7 +783,16 @@ export default function App() {
       const payload = await response.json();
       if (response.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
       if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Action refusée.");
-      if (!quiet) setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
+      if (isSitePage(activePage)) {
+        if (!quiet) {
+          pauseNotificationToastsRef.current = Date.now() + 8000;
+          setSiteDone(payload.message || "");
+          window.clearTimeout(siteDoneTimerRef.current);
+          siteDoneTimerRef.current = window.setTimeout(() => setSiteDone(null), 5000);
+        }
+      } else if (!quiet) {
+        setToast({ title: "Action enregistrée", message: payload.message || "Les modifications ont été appliquées." });
+      }
       if (refreshGlobal) {
         // The write is done. Refresh badges in the background so Enregistrer
         // does not wait for the full dashboard.
@@ -885,7 +901,7 @@ export default function App() {
         <div className={`sync-status ${syncError ? "has-error" : ""}`} role="status"><span>{syncError || (lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")}` : "Connexion au panneau…")}</span>{syncError && <button onClick={() => loadData(true)}>Réessayer</button>}</div>
         <main className={`content page-${activePage}`} id="main-content">
           {data?.preview_mode && <p className="preview-notice" role="status">Prévisualisation locale · données fictives · aucune écriture réelle</p>}
-          {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message="La session administrateur n’a pas pu être restaurée." onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : isSitePage(activePage) ? <SitePage key={activePage} page={activePage} data={data} onAction={adminAction} onNavigate={navigate} setToast={setToast} /> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
+          {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message="La session administrateur n’a pas pu être restaurée." onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : isSitePage(activePage) ? <><p className="site-done" role="status" hidden={siteDone == null}><CheckCheck size={18} /><span><strong>Terminé.</strong>{siteDone ? ` ${siteDone}` : ""}</span></p><SitePage key={activePage} page={activePage} data={data} onAction={adminAction} onNavigate={navigate} setToast={setToast} /></> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
         </main>
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}

@@ -34,6 +34,9 @@ html[data-workspace="site"] .site-tabs button,
 html[data-workspace="site"] .action-button { border-radius: 999px; }
 html[data-workspace="site"] .site-tabs button[aria-selected="true"] { background: #1a73ff; color: #fff; border-color: transparent; box-shadow: none; }
 
+.site-done { position: sticky; top: 90px; z-index: 20; display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--green) 16%, var(--panel)); color: var(--text); font-size: 14px; line-height: 1.4; }
+.site-done[hidden] { display: none; }
+.site-done strong { font-weight: 700; }
 .workspace-switch { display:grid; grid-template-columns:1fr 1fr; gap:3px; margin:14px 0 4px; padding:3px; border:1px solid #2a2a2a; border-radius:11px; background:#141414; }
 .workspace-switch button { position:relative; display:flex; align-items:center; justify-content:center; gap:6px; min-height:34px; padding:0 6px; border:0; border-radius:8px; background:transparent; color:#a8a8a8; font-size:12px; font-weight:600; white-space:nowrap; cursor:pointer; transition:background .18s, color .18s; }
 .workspace-switch button[aria-selected="true"] { background:#fff; color:#050505; }
