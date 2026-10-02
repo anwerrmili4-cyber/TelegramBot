@@ -26,12 +26,12 @@ import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, AccountWarranty, CartStatus, Deposit, Wallet } from "@/types";
 
 const TABS = [
-  { id: "commandes", label: "Mes achats", icon: Package },
-  { id: "portefeuille", label: "Portefeuille", icon: WalletIcon },
-  { id: "support", label: "Support", icon: Headphones },
-  { id: "garanties", label: "Garanties", icon: ShieldCheck },
-  { id: "demande", label: "Demande produit", icon: PackageSearch },
-  { id: "profil", label: "Profil & sécurité", icon: UserRound },
+  { id: "commandes", label: "Mes achats", short: "Achats", icon: Package },
+  { id: "portefeuille", label: "Portefeuille", short: "Solde", icon: WalletIcon },
+  { id: "support", label: "Support", short: "Support", icon: Headphones },
+  { id: "garanties", label: "Garanties", short: "Garanties", icon: ShieldCheck },
+  { id: "demande", label: "Demande produit", short: "Demande", icon: PackageSearch },
+  { id: "profil", label: "Profil & sécurité", short: "Profil", icon: UserRound },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -93,24 +93,42 @@ export function AccountPage() {
   useLayoutEffect(() => {
     const list = tabsRef.current;
     if (!list) return;
+    const markOverflow = () => {
+      const max = list.scrollWidth - list.clientWidth;
+      list.toggleAttribute("data-overflow-start", list.scrollLeft > 4);
+      list.toggleAttribute("data-overflow-end", max - list.scrollLeft > 4);
+    };
     const place = () => {
       const active = list.querySelector<HTMLButtonElement>('[aria-selected="true"]');
       if (!active) return;
       list.style.setProperty("--pill-x", `${active.offsetLeft}px`);
       list.style.setProperty("--pill-w", `${active.offsetWidth}px`);
-      list.dataset.pill = "ready";
-      const edge = 8;
+      const nextTab = active.nextElementSibling;
+      const tail = nextTab instanceof HTMLElement ? nextTab.offsetWidth + 8 : 12;
       const start = active.offsetLeft;
       const end = start + active.offsetWidth;
-      if (start < list.scrollLeft + edge || end > list.scrollLeft + list.clientWidth - edge) {
-        list.scrollTo({ left: Math.max(0, start - 16), behavior: "smooth" });
+      const view = list.clientWidth;
+      const max = Math.max(0, list.scrollWidth - view);
+      let left = list.scrollLeft;
+      if (end + tail > left + view) left = end + tail - view;
+      if (start - 12 < left) left = Math.max(0, start - 12);
+      left = Math.min(max, Math.max(0, left));
+      const first = list.dataset.pill !== "ready";
+      list.dataset.pill = "ready";
+      if (Math.abs(left - list.scrollLeft) > 2) {
+        list.scrollTo({ left, behavior: first ? "auto" : "smooth" });
       }
+      markOverflow();
     };
     place();
     const observer = new ResizeObserver(place);
     observer.observe(list);
     for (const button of list.querySelectorAll("button")) observer.observe(button);
-    return () => observer.disconnect();
+    list.addEventListener("scroll", markOverflow, { passive: true });
+    return () => {
+      observer.disconnect();
+      list.removeEventListener("scroll", markOverflow);
+    };
   }, [tab, customer]);
 
   function select(next: Tab) {
@@ -145,7 +163,7 @@ export function AccountPage() {
 
       <div className="account-tabs" role="tablist" aria-label="Sections du compte" ref={tabsRef}>
         <span className="account-tab-pill" aria-hidden="true" />
-        {TABS.map(({ id, label, icon: Icon }) => (
+        {TABS.map(({ id, label, short, icon: Icon }) => (
           <button
             key={id}
             type="button"
@@ -153,10 +171,13 @@ export function AccountPage() {
             id={`account-tab-${id}`}
             aria-selected={tab === id}
             aria-controls="account-panel"
+            aria-label={label}
             className={tab === id ? "active" : ""}
             onClick={() => select(id)}
           >
-            <Icon size={16} aria-hidden="true" /> {label}
+            <Icon size={16} aria-hidden="true" />
+            <span className="account-tab-long">{label}</span>
+            <span className="account-tab-short">{short}</span>
           </button>
         ))}
       </div>
@@ -668,8 +689,8 @@ function TicketReply({ ticketId, onSent }: { ticketId: number; onSent: () => voi
   return (
     <form className="ticket-reply" onSubmit={(event) => void submit(event)}>
       <label>
-        Ta réponse
-        <textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={1} maxLength={2000} rows={3} required />
+        <span>Ta réponse</span>
+        <textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={1} maxLength={2000} rows={3} required placeholder="Écris ta réponse…" />
       </label>
       {error ? <small className="form-error">{error}</small> : null}
       <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Répondre"}</button>
@@ -722,7 +743,7 @@ function RequestsTab({ kind }: { kind: "support" | "product" }) {
         <p className="account-muted">{product ? "Dis-nous quel service il te manque. La demande reste sur le site." : "La réponse apparaîtra ici, dans ton compte."}</p>
         {!product ? (
           <label>
-            Sujet
+            <span>Sujet</span>
             <select value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="order">Commande</option>
               <option value="payment">Paiement</option>
@@ -732,8 +753,16 @@ function RequestsTab({ kind }: { kind: "support" | "product" }) {
           </label>
         ) : null}
         <label>
-          Message
-          <textarea value={message} onChange={(event) => setMessage(event.target.value)} minLength={8} maxLength={2000} rows={4} required />
+          <span>Message</span>
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            minLength={8}
+            maxLength={2000}
+            rows={4}
+            required
+            placeholder={product ? "Netflix, ChatGPT, un jeu, un abonnement…" : "Décris le problème…"}
+          />
         </label>
         {error ? <small className="form-error">{error}</small> : null}
         <button type="submit" className="button button-primary" disabled={busy}>{busy ? "Envoi…" : "Envoyer"}</button>
