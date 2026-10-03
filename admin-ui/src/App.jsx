@@ -439,7 +439,7 @@ function describeAdminChange(params = {}) {
     manual_deliver_order: ["Livrer cette commande", "Le contenu saisi sera envoyé au client et la commande sera mise à jour."],
     message_customer: ["Envoyer ce message", "Le client recevra le message saisi depuis le bot."],
     site_mail_send: ["Envoyer ce message", "Il part aux clients choisis du site, depuis l’adresse déjà configurée. Une adresse inconnue ne peut pas être ajoutée."],
-    site_notify_publish: ["Publier cette notification", "Elle apparaît pour les clients vérifiés du site. Aucun email n'est envoyé."],
+    site_notify_publish: ["Publier cette notification", "Elle apparaît dans la cloche des clients vérifiés et part aussi par email. Une adresse inconnue ne peut pas être ajoutée."],
     run_external_connector: ["Exécuter cette requête", "La requête sera envoyée au connecteur externe sélectionné."],
     save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
     save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],

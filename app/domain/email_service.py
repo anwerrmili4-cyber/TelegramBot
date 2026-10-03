@@ -79,6 +79,49 @@ def send_client_message(to: str, name: str, subject: str, message: str) -> None:
     send(to, title, html, text)
 
 
+def notification_content(
+    name: str,
+    kind_label: str,
+    title: str,
+    message: str,
+    link: str,
+    product_link: str = "",
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of a shop notification also sent by email."""
+    body_text = str(message or "").strip()[:2000]
+    heading = str(title or "").strip()[:120]
+    label = str(kind_label or "Notification").strip()[:40]
+    html_body = escape(body_text).replace("\n", "<br>")
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"{_strong(escape(label))} — {escape(heading)}")
+        + _paragraph(html_body)
+        + (_button("Voir le produit", product_link) if product_link else "")
+        + _button("Voir mes notifications", link)
+    )
+    text = (
+        f"{_greeting(name)}\n\n{label} — {heading}\n\n{body_text}\n\n"
+        + (f"Voir le produit : {product_link}\n" if product_link else "")
+        + f"Voir mes notifications : {link}\n"
+    )
+    subject = f"{label} — {heading}"
+    return subject, _layout(heading, body, badge=label, preheader=body_text[:120]), text
+
+
+def send_notification(
+    to: str,
+    name: str,
+    kind_label: str,
+    title: str,
+    message: str,
+    link: str,
+    product_link: str = "",
+) -> None:
+    """Email one verified site customer a notification that is also shown on the site."""
+    subject, html, text = notification_content(name, kind_label, title, message, link, product_link)
+    send(to, subject, html, text)
+
+
 def _sender() -> str:
     return os.environ.get("RESEND_FROM", "").strip() or DEFAULT_SENDER
 
@@ -455,32 +498,54 @@ def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
 
 def welcome_content(name: str, site_url: str) -> tuple[str, str, str]:
     """Subject, HTML and text of the account-created email."""
-    steps = "".join(
-        '<tr>'
-        f'<td style="padding:10px 12px 10px 0;vertical-align:top;width:30px">'
-        f'<div style="width:28px;height:28px;line-height:28px;border-radius:999px;background:rgba(224,58,48,.16);'
-        f'color:#ff6b61;font-size:13px;font-weight:800;text-align:center">{number}</div></td>'
-        f'<td style="padding:10px 0;font-size:14px;color:{_SOFT}">{_strong(title)}<br>{text}</td></tr>'
-        for number, title, text in (
-            (1, "Recharge ton portefeuille", "Par D17, Flouci, IZI ou Wafa Cash, avec la capture de ton reçu."),
-            (2, "Achète en un clic", "Paie tes commandes directement avec ton solde."),
-            (3, "Reçois tes accès", "Par email et dans ton espace client, disponibles à tout moment."),
-        )
+    steps = (
+        ("01", "Recharge", "D17, Flouci, IZI ou Wafa Cash. Tu envoies le reçu, on crédite ton solde."),
+        ("02", "Choisis", "Netflix, ChatGPT, Spotify et le reste du catalogue, au prix du jour en dinars."),
+        ("03", "Reçois", "L'accès arrive par email et reste dans ton espace, même après la période."),
+    )
+    cards = "".join(
+        "<tr>"
+        f'<td style="padding:0 0 10px">'
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">'
+        f'<tr><td style="background:{_BG};border:1px solid {_LINE};border-left:3px solid {_BRAND};'
+        f'border-radius:14px;padding:14px 16px">'
+        f'<div style="font-family:{_MONO};font-size:11px;font-weight:700;letter-spacing:.16em;color:#ff6b61">{number}</div>'
+        f'<div style="margin-top:4px;font-size:16px;font-weight:800;color:{_TEXT}">{escape(title)}</div>'
+        f'<div style="margin-top:4px;font-size:13px;line-height:1.5;color:{_SOFT}">{escape(detail)}</div>'
+        "</td></tr></table></td></tr>"
+        for number, title, detail in steps
+    )
+    pays = "".join(
+        f'<span style="display:inline-block;margin:0 6px 6px 0;padding:6px 10px;border-radius:999px;'
+        f'background:{_BG};border:1px solid {_LINE};font-size:12px;font-weight:700;color:{_TEXT}">{escape(label)}</span>'
+        for label in ("D17", "Flouci", "IZI", "Wafa Cash", "Portefeuille")
     )
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ton compte {BRAND} est prêt. Voici comment ça marche :")
-        + _panel(f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{steps}</table>')
-        + (_button("Découvrir le catalogue", site_url) if site_url else "")
+        + _paragraph(
+            f"Ton compte {_strong(BRAND)} est ouvert. "
+            "Tu paies en dinars, tu reçois l'accès, et tout reste dans ton espace."
+        )
+        + f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:8px 0 6px">{cards}</table>'
+        + f'<div style="margin:4px 0 8px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{_MUTED}">Payer avec</div>'
+        + f'<div style="margin:0 0 8px">{pays}</div>'
+        + (_button("Entrer dans la boutique", site_url) if site_url else "")
     )
     text = (
-        f"{_greeting(name)}\n\nTon compte {BRAND} est prêt.\n"
-        "Recharge ton portefeuille par D17, Flouci, IZI ou Wafa Cash, puis achète en un clic : "
-        "tes accès arrivent par email et restent disponibles dans ton espace client."
-        + (f"\n\n{site_url}" if site_url else "")
+        f"{_greeting(name)}\n\nTon compte {BRAND} est ouvert.\n"
+        "1. Recharge par D17, Flouci, IZI ou Wafa Cash.\n"
+        "2. Choisis dans le catalogue, au prix du jour en dinars.\n"
+        "3. Reçois tes accès par email. Ils restent dans ton espace.\n"
+        + (f"\n{site_url}" if site_url else "")
     )
     subject = f"Bienvenue sur {BRAND}"
-    html = _layout("Bienvenue !", body, badge="Compte créé", tone="success", preheader="Ton compte est prêt.")
+    html = _layout(
+        "Bienvenue dans la boutique",
+        body,
+        badge="Compte créé",
+        tone="success",
+        preheader="Ton espace est ouvert. Paie en dinars, reçois tes accès.",
+    )
     return subject, html, text
 
 
@@ -1098,6 +1163,7 @@ STYLE_TONES = {
     "send_ticket_reply": "brand",
     "send_client_message": "brand",
     "send_favorite": "brand",
+    "send_notification": "brand",
     "resend": "brand",
 }
 

@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 import database as db
-from app.domain import storefront_service
+from app.domain import email_service, storefront_service
 
 _MAX_AUDIENCE = 100
 _KINDS = {
@@ -37,12 +37,13 @@ def _ensure(conn: Any) -> None:
     )
 
 
-def _verified_count(conn: Any) -> int:
-    count = 0
-    for account in conn.storefront_customers.find({"email_verified": {"$ne": False}}, {"email": 1}):
-        if str(account.get("email") or "").strip():
-            count += 1
-    return count
+def _verified_people(conn: Any) -> list[dict[str, str]]:
+    people = []
+    for account in conn.storefront_customers.find({"email_verified": {"$ne": False}}):
+        email = str(account.get("email") or "").strip()
+        if email:
+            people.append({"email": email, "name": str(account.get("name") or "")})
+    return people
 
 
 def _catalog_ids() -> set[int]:
@@ -141,7 +142,7 @@ def mark_all_read(customer: dict[str, Any]) -> dict[str, Any]:
 
 
 def publish(form: dict[str, Any]) -> dict[str, Any]:
-    """Publish one notification for every verified site customer. No email is sent."""
+    """Publish one notification and email it to every verified site customer."""
     kind = str(form.get("kind") or "").strip()
     title = str(form.get("title") or "").strip()
     body = str(form.get("body") or form.get("message") or "").strip()
@@ -163,7 +164,8 @@ def publish(form: dict[str, Any]) -> dict[str, Any]:
 
     conn = db.get_conn()
     _ensure(conn)
-    audience = _verified_count(conn)
+    people = _verified_people(conn)
+    audience = len(people)
     if audience < 1:
         raise NotificationError("Aucun client vérifié pour le moment.")
     if audience > _MAX_AUDIENCE:
@@ -179,8 +181,20 @@ def publish(form: dict[str, Any]) -> dict[str, Any]:
         "audience_count": audience,
         "offer_id": offer_id,
     })
+    account_link = f"{email_service.site_url()}/mon-compte?onglet=notifications"
+    product_link = f"{email_service.site_url()}/produit/{offer_id}" if kind == "novelty" and offer_id else ""
+    for person in people:
+        email_service.send_notification(
+            person["email"],
+            person["name"],
+            _KINDS[kind],
+            title,
+            body,
+            account_link,
+            product_link,
+        )
     noun = "client" if audience == 1 else "clients"
-    return {"ok": True, "message": f"Notification publiée pour {audience} {noun}."}
+    return {"ok": True, "message": f"Notification publiée et envoyée par email à {audience} {noun}."}
 
 
 def admin_list() -> dict[str, Any]:

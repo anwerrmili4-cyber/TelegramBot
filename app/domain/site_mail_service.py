@@ -37,6 +37,7 @@ _KIND_LABELS = {
     "send_ticket_reply": "Réponse du support",
     "send_client_message": "Message du shop",
     "send_favorite": "Favori",
+    "send_notification": "Notification",
 }
 
 

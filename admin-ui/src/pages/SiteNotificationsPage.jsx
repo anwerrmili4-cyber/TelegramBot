@@ -53,7 +53,7 @@ export default function SiteNotificationsPage({ onAction }) {
     <div className="operations-page">
       <PageHeader
         title="Notifications"
-        description="Les clients vérifiés voient la nouveauté, le message ou l'actualité dans leur cloche. Aucun email n'est envoyé."
+        description="Les clients vérifiés la voient dans leur cloche et la reçoivent aussi par email."
       />
       <section className="mail-compose" aria-labelledby="notify-form-title">
         <h2 id="notify-form-title">Publier</h2>

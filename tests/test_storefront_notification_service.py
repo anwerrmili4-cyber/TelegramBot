@@ -36,7 +36,7 @@ def _publish_three(offer_id: int) -> None:
     })
 
 
-def test_a_verified_client_sees_three_kinds_and_read_state_stays_private(mock_mongodb, site_customer):
+def test_a_verified_client_sees_three_kinds_and_read_state_stays_private(mock_mongodb, site_customer, sent_emails):
     owner = site_customer()
     other = site_customer(name="Sana", email="sana@example.com")
     unverified = {
@@ -62,6 +62,14 @@ def test_a_verified_client_sees_three_kinds_and_read_state_stays_private(mock_mo
     novelty = next(item for item in feed["items"] if item["kind"] == "novelty")
     assert novelty["href"] == f"/produit/{offer_id}"
     assert "stranger@example.com" not in str(feed)
+    recipients = [message["to"][0] for message in sent_emails]
+    assert recipients.count("amine@example.com") == 3
+    assert recipients.count("sana@example.com") == 3
+    assert "pending@example.com" not in recipients
+    assert "stranger@example.com" not in recipients
+    novelty_mail = next(message for message in sent_emails if message["subject"].startswith("Nouveauté"))
+    assert f"/produit/{offer_id}" in novelty_mail["text"]
+    assert "onglet=notifications" in novelty_mail["text"]
 
     hidden = storefront_notification_service.for_customer(unverified)
     assert hidden["items"] == []
