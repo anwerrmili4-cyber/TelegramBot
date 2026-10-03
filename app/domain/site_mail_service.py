@@ -62,23 +62,37 @@ def _list_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def recent_messages() -> list[dict[str, Any]]:
     allowed = _customer_emails()
+    merged = list(email_service.list_provider_messages())
     rows = db.get_conn().storefront_mail_log.find().sort("created_at", -1).limit(300)
-    shown = []
+    seen = {str(item["id"]) for item in merged}
     for row in rows:
-        if str(row.get("to") or "").strip().lower() not in allowed:
+        address = str(row.get("to") or "").strip().lower()
+        if address not in allowed:
             continue
-        shown.append(_list_row(row))
-        if len(shown) == 100:
-            break
-    return shown
+        item = _list_row(row)
+        if str(item["id"]) in seen:
+            continue
+        merged.append(item)
+        seen.add(str(item["id"]))
+    merged = [item for item in merged if str(item.get("to") or "").strip().lower() in allowed]
+    merged.sort(key=lambda item: int(item.get("created_at") or 0), reverse=True)
+    return merged[:100]
 
 
 def message_detail(message_id: Any) -> dict[str, Any] | None:
+    raw = str(message_id or "")
+    if raw.startswith("rs-"):
+        item = email_service.provider_message(raw[3:])
+        if not item:
+            return None
+        if str(item.get("to") or "").strip().lower() not in _customer_emails():
+            return None
+        return {"ok": True, **item}
     try:
-        message_id = int(message_id)
+        numeric_id = int(raw)
     except (TypeError, ValueError):
         return None
-    row = db.get_conn().storefront_mail_log.find_one({"id": message_id})
+    row = db.get_conn().storefront_mail_log.find_one({"id": numeric_id})
     if not row:
         return None
     if str(row.get("to") or "").strip().lower() not in _customer_emails():

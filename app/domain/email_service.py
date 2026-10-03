@@ -16,10 +16,12 @@ import inspect
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 from collections.abc import Sequence
 from html import escape
 from typing import Any
@@ -99,6 +101,88 @@ def _post(message: dict[str, Any]) -> None:
         log.error("Resend rejected an email (%s): %s", exc.code, exc.read()[:500])
     except (urllib.error.URLError, TimeoutError):
         log.exception("An email could not be sent through Resend")
+
+
+def _resend_json(path: str) -> dict[str, Any]:
+    api_key = _api_key()
+    if not api_key:
+        return {}
+    request = urllib.request.Request(
+        f"https://api.resend.com{path}",
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+            "User-Agent": "blackmarket-storefront/1.0",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = json.loads(response.read().decode() or "{}")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _stamp(value: Any) -> int:
+    raw = str(value or "")
+    if not raw:
+        return 0
+    try:
+        return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
+
+
+def list_provider_messages(limit: int = 50) -> list[dict[str, Any]]:
+    """Emails Resend already accepted, newest first. Empty when the key is absent."""
+    try:
+        payload = _resend_json(f"/emails?limit={max(1, min(int(limit), 100))}")
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        log.exception("Resend history could not be loaded")
+        return []
+    rows = []
+    for item in payload.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        recipients = item.get("to") or []
+        address = recipients[0] if isinstance(recipients, list) and recipients else ""
+        email_id = str(item.get("id") or "")
+        if not email_id or not address:
+            continue
+        rows.append({
+            "id": f"rs-{email_id}",
+            "created_at": _stamp(item.get("created_at")),
+            "kind": "resend",
+            "kind_label": "Déjà envoyé",
+            "to": str(address),
+            "subject": str(item.get("subject") or ""),
+            "status": str(item.get("last_event") or "sent"),
+        })
+    return rows
+
+
+def provider_message(email_id: str) -> dict[str, Any] | None:
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", email_id):
+        return None
+    try:
+        item = _resend_json(f"/emails/{email_id}")
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        log.exception("Resend message could not be loaded")
+        return None
+    if not item.get("id"):
+        return None
+    recipients = item.get("to") or []
+    address = recipients[0] if isinstance(recipients, list) and recipients else ""
+    return {
+        "id": f"rs-{item['id']}",
+        "created_at": _stamp(item.get("created_at")),
+        "kind": "resend",
+        "kind_label": "Déjà envoyé",
+        "to": str(address),
+        "name": "",
+        "subject": str(item.get("subject") or ""),
+        "text": str(item.get("text") or ""),
+        "html": str(item.get("html") or ""),
+        "status": str(item.get("last_event") or "sent"),
+    }
 
 
 def _dispatch(message: dict[str, Any]) -> None:

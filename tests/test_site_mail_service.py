@@ -2,8 +2,15 @@
 
 import time
 
+import pytest
+
 import database as db
 from app.domain import email_service, site_mail_service
+
+
+@pytest.fixture(autouse=True)
+def no_live_resend_history(monkeypatch):
+    monkeypatch.setattr(email_service, "list_provider_messages", lambda limit=50: [])
 
 
 def test_a_message_reaches_one_client_from_the_shop_address(mock_mongodb, site_customer, sent_emails):
@@ -89,3 +96,31 @@ def test_an_automatic_email_is_listed_and_a_stranger_row_stays_hidden(mock_mongo
     })
     assert site_mail_service.message_detail(9001) is None
     assert all(item["to"] != "stranger@example.com" for item in site_mail_service.mailbox()["messages"])
+
+
+def test_resend_history_is_listed_only_for_site_clients(mock_mongodb, site_customer, monkeypatch):
+    customer = site_customer()
+    monkeypatch.setattr(email_service, "list_provider_messages", lambda limit=50: [
+        {
+            "id": "rs-11111111-1111-1111-1111-111111111111",
+            "created_at": 1_700_000_000,
+            "kind": "resend",
+            "kind_label": "Déjà envoyé",
+            "to": customer["email"],
+            "subject": "Ancien accès",
+            "status": "delivered",
+        },
+        {
+            "id": "rs-22222222-2222-2222-2222-222222222222",
+            "created_at": 1_700_000_100,
+            "kind": "resend",
+            "kind_label": "Déjà envoyé",
+            "to": "stranger@example.com",
+            "subject": "Pas un client",
+            "status": "delivered",
+        },
+    ])
+
+    subjects = [item["subject"] for item in site_mail_service.mailbox()["messages"]]
+    assert "Ancien accès" in subjects
+    assert "Pas un client" not in subjects

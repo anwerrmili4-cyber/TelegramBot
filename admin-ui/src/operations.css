@@ -2,3 +2,17 @@
 @media(max-width:1100px){.operations-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.operation-list{grid-template-columns:1fr}}
 @media(max-width:600px){.operations-page{gap:14px}.operations-summary{gap:8px}.operations-summary article{min-height:84px;padding:14px}.operations-summary strong{font-size:20px}.operations-panel{border-radius:13px}.operation-list{padding:9px;gap:9px}.operation-card{padding:14px}.operation-card dl>div{grid-template-columns:1fr;gap:4px}.operation-card dd{text-align:left}.operation-card>footer{display:grid;grid-template-columns:1fr}.operation-card>footer .action-button{width:100%}.operation-amount{align-items:flex-start;flex-direction:column}.warranty-customer{align-items:flex-start;flex-direction:column}}
 @media(prefers-reduced-motion:reduce){.operation-card{transition:none}.operation-card:hover{transform:none}}
+.mail-page .operations-panel{overflow:visible}
+.mail-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:18px 18px 0}
+.mail-panel-head h2,.mail-compose h2{margin:0;font-size:18px}
+.mail-panel-head span{color:var(--muted);font-size:12px}
+.mail-list{grid-template-columns:1fr}
+.mail-list .operation-card.is-open{border-color:var(--accent-blue)}
+.mail-list .operation-card>p{margin:0;color:var(--muted);font-size:12px}
+.mail-reading{margin:0 14px 14px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.mail-reading h3{margin:0 0 6px;font-size:16px}
+.mail-reading p{margin:0 0 12px;color:var(--muted);font-size:12px}
+.mail-reading pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55}
+.mail-compose{display:grid;gap:14px;padding:18px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}
+.mail-from{margin:0;color:var(--muted);font-size:13px}
+.mail-compose .dialog-actions{justify-content:flex-start}
