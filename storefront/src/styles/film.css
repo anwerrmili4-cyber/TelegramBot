@@ -362,21 +362,31 @@
 }
 
 .fav-heart {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px 0 10px;
+  border: 0;
   border-radius: 999px;
-  background: rgba(7, 8, 11, 0.55);
-  color: #fff;
+  background: #fff;
+  color: #1a1a1e;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1;
   cursor: pointer;
 }
 
+.fav-heart svg {
+  flex: none;
+}
+
 .fav-heart.is-saved {
-  border-color: #ff4d6a;
-  background: #fff;
-  color: #ff4d6a;
+  background: #ff2d55;
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(255, 45, 85, 0.4);
 }
 
 .poster .fav-heart {

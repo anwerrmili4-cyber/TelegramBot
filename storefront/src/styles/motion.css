@@ -479,8 +479,17 @@
 /* ---------- Opt out ---------- */
 
 @media (prefers-reduced-motion: no-preference) {
-  .favorite-button.is-saved svg {
-    animation: favorite-pop 180ms var(--ease-spring);
+  .fav-heart {
+    transition: transform 160ms var(--ease-spring), background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .fav-heart:hover {
+    transform: translateY(-1px) scale(1.04);
+  }
+
+  .fav-heart.is-pop,
+  .favorite-button.is-saved svg.is-pop {
+    animation: fav-beat 460ms var(--ease-spring);
   }
 
   .notice-row.is-new {
@@ -488,9 +497,10 @@
   }
 }
 
-@keyframes favorite-pop {
-  from { transform: scale(0.86); }
-  to { transform: scale(1); }
+@keyframes fav-beat {
+  0% { transform: scale(0.72); }
+  45% { transform: scale(1.18); }
+  100% { transform: scale(1); }
 }
 
 @keyframes notice-fade {
@@ -529,7 +539,9 @@
   .messenger-thread li.is-new,
   .review-star,
   .review-list,
-  .favorite-button.is-saved svg,
+  .fav-heart,
+  .fav-heart.is-pop,
+  .favorite-button.is-saved svg.is-pop,
   .notice-row.is-new,
   .renew-button,
   .section-head,
@@ -548,6 +560,12 @@
 
   .cart-bar {
     transition: none;
+  }
+
+  .fav-heart,
+  .fav-heart:hover {
+    transition: none;
+    transform: none;
   }
 
   .access-date,

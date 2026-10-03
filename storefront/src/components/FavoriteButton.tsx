@@ -51,6 +51,7 @@ export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pop, setPop] = useState(false);
   const saved = Boolean(token && savedIds.get(token)?.has(offerId));
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps
     try {
       const result = await setFavorite(token, offerId, !saved);
       remember(token, offerId, result.saved);
+      setPop(result.saved);
       if (!compact) {
         setNote(
           result.emailed
@@ -93,19 +95,22 @@ export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps
   }
 
   const label = saved ? "Retirer des favoris" : "Ajouter aux favoris";
+  const heartClass = ["fav-heart", saved ? "is-saved" : "", pop ? "is-pop" : ""].filter(Boolean).join(" ");
 
   if (compact) {
     return (
       <button
         type="button"
-        className={saved ? "fav-heart is-saved" : "fav-heart"}
+        className={heartClass}
         aria-pressed={saved}
         aria-label={label}
         disabled={busy}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => void toggle(event)}
+        onAnimationEnd={() => setPop(false)}
       >
         <Heart size={16} aria-hidden="true" fill={saved ? "currentColor" : "none"} />
+        <span>{saved ? "Favori" : "J'aime"}</span>
       </button>
     );
   }
@@ -119,8 +124,8 @@ export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps
         disabled={busy}
         onClick={(event) => void toggle(event)}
       >
-        <Heart size={16} aria-hidden="true" fill={saved ? "currentColor" : "none"} />
-        {busy ? "Enregistrement…" : saved ? "Dans tes favoris" : "Ajouter aux favoris"}
+        <Heart className={pop ? "is-pop" : undefined} size={16} aria-hidden="true" fill={saved ? "currentColor" : "none"} />
+        {busy ? "Enregistrement…" : saved ? "Dans tes favoris" : "J'aime"}
       </button>
       {note ? <p className="favorite-note" role="status">{note}</p> : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}

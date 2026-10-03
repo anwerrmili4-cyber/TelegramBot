@@ -400,8 +400,9 @@
 }
 
 .favorite-button.is-saved {
-  color: var(--brand);
-  border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+  border-color: #ff2d55;
+  background: #ff2d55;
+  color: #fff;
 }
 
 .favorite-note {
