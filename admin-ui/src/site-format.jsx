@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Image as ImageIcon,
 } from "lucide-react";
@@ -65,4 +66,31 @@ export const refreshLists = () => window.dispatchEvent(new CustomEvent("admin:da
 export function CartStatus({ status }) {
   const [label, className] = SITE_CART_STATUS[status] || [status, ""];
   return <span className={`status ${className}`}>{label}</span>;
+}
+
+export function useSiteQuery() {
+  const read = () => Object.fromEntries(new URLSearchParams(window.location.search));
+  const [query, setQuery] = useState(read);
+  useEffect(() => {
+    const sync = () => setQuery(read());
+    window.addEventListener("popstate", sync);
+    window.addEventListener("admin:navigate", sync);
+    return () => {
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("admin:navigate", sync);
+    };
+  }, []);
+  const replace = (patch, { push = false } = {}) => {
+    const params = new URLSearchParams(window.location.search);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value == null || value === "") params.delete(key);
+      else params.set(key, String(value));
+    }
+    const search = params.toString();
+    const url = `${window.location.pathname}${search ? `?${search}` : ""}`;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (url !== current) window.history[push ? "pushState" : "replaceState"]({}, "", url);
+    setQuery(Object.fromEntries(params));
+  };
+  return [query, replace];
 }

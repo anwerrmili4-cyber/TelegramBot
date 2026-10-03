@@ -249,8 +249,47 @@ function SearchDialog({ data, onClose, onNavigate }) {
     const customers = (data.users || []).filter((item) => `${item.telegram_id || item.user_id || ""} ${item.username || ""} ${item.first_name || ""} ${item.last_name || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `customer-${item.telegram_id || item.user_id}`, title: item.username ? `@${item.username}` : `Client ${item.telegram_id || item.user_id}`, detail: [item.first_name, item.last_name].filter(Boolean).join(" ") || "Client Telegram", page: "customers", icon: Users }));
     const services = (data.services || []).filter((item) => `${item.name || ""} ${(item.offers || []).map((offer) => `${offer.name} ${offer.supplier_provider || ""}`).join(" ")}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `service-${item.id}`, title: item.name, detail: `${item.offer_count || 0} offre(s)`, page: "catalog", icon: ShoppingBag }));
     const tickets = (data.tickets || []).filter((item) => `${item.id} ${item.user_id} ${item.category || ""} ${item.message || ""}`.toLowerCase().includes(normalized)).slice(0, 3).map((item) => ({ id: `ticket-${item.id}`, entityId: item.id, title: item.category === "catalog_request" ? `Demande produit #${item.id}` : `Ticket #${item.id}`, detail: item.message || item.category || `Client ${item.user_id}`, page: item.category === "catalog_request" ? "product-requests" : "support", icon: item.category === "catalog_request" ? PackageSearch : Headphones }));
-    return [...orders, ...customers, ...services, ...tickets].slice(0, 10);
+    return [...orders, ...customers, ...services, ...tickets];
   }, [data, normalized]);
+  const [siteResults, setSiteResults] = useState([]);
+  const [sitePending, setSitePending] = useState(false);
+  useEffect(() => {
+    if (!normalized) {
+      setSiteResults([]);
+      setSitePending(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    setSitePending(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const q = encodeURIComponent(query.trim());
+        const load = async (path) => {
+          const response = await fetch(path, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+          return response.ok ? response.json() : { items: [] };
+        };
+        const [orders, customers, deposits] = await Promise.all([
+          load(`/admin/api/site-orders?search=${q}&status=all&per_page=4`),
+          load(`/admin/api/site-customers?search=${q}&per_page=4`),
+          load(`/admin/api/site-deposits?search=${q}&status=all&per_page=4`),
+        ]);
+        setSiteResults([
+          ...(orders.items || []).map((cart) => ({ id: `site-cart-${cart.reference}`, title: `Panier ${cart.reference}`, detail: [cart.customer_name, cart.customer_email].filter(Boolean).join(" · ") || "Commande du site", page: "site-orders", entityId: cart.reference, extra: { search: cart.reference, status: "all" }, icon: ClipboardList })),
+          ...(customers.items || []).map((customer) => ({ id: `site-customer-${customer.id}`, title: customer.name || customer.email || `Client ${customer.id}`, detail: customer.email || "Client du site", page: "site-customers", entityId: customer.id, extra: { search: customer.email || customer.name || "" }, icon: Users })),
+          ...(deposits.items || []).map((deposit) => ({ id: `site-deposit-${deposit.id}`, title: `Recharge #${deposit.id}`, detail: [deposit.customer_name, deposit.transaction_reference].filter(Boolean).join(" · ") || "Recharge du site", page: "site-deposits", entityId: deposit.id, extra: { search: deposit.customer_email || deposit.transaction_reference || "", status: "all" }, icon: WalletCards })),
+        ]);
+      } catch (error) {
+        if (error.name !== "AbortError") setSiteResults([]);
+      } finally {
+        if (!controller.signal.aborted) setSitePending(false);
+      }
+    }, 250);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [normalized, query]);
+  const visibleResults = [...results, ...siteResults].slice(0, 14);
 
   useEffect(() => {
     const closeOnEscape = (event) => event.key === "Escape" && onClose();
@@ -261,12 +300,12 @@ function SearchDialog({ data, onClose, onNavigate }) {
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
       <section className="search-dialog" role="dialog" aria-modal="true" aria-label="Recherche globale" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="search-dialog-input"><Search size={20} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, commande, TXID, produit, client ou ticket…" /><button onClick={onClose}><X size={18} /></button></div>
+        <div className="search-dialog-input"><Search size={20} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, commande, panier site, recharge, TXID, client ou ticket…" /><button onClick={onClose}><X size={18} /></button></div>
         <div className="search-results">
-          {!normalized && <div className="search-empty"><Search size={25} /><strong>Recherche globale</strong><span>Saisissez un nom, un identifiant, un TXID, un produit ou un ticket.</span></div>}
-          {normalized && results.length === 0 && <div className="search-empty"><strong>Aucun résultat</strong><span>Essayez un autre terme de recherche.</span></div>}
-          {results.map(({ id, entityId, title, detail, page, icon: Icon }) => (
-            <button key={id} onClick={() => { onNavigate(page, entityId); onClose(); }}><span><Icon size={17} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={16} /></button>
+          {!normalized && <div className="search-empty"><Search size={25} /><strong>Recherche globale</strong><span>Saisissez un nom, un panier du site, une recharge, un TXID, un produit ou un ticket.</span></div>}
+          {normalized && visibleResults.length === 0 && !sitePending && <div className="search-empty"><strong>Aucun résultat</strong><span>Essayez un autre terme de recherche.</span></div>}
+          {visibleResults.map(({ id, entityId, title, detail, page, extra, icon: Icon }) => (
+            <button key={id} onClick={() => { onNavigate(page, entityId, extra); onClose(); }}><span><Icon size={17} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={16} /></button>
           ))}
         </div>
         <footer><span>↵ ouvrir</span><span>Échap fermer</span></footer>
@@ -711,25 +750,33 @@ export default function App() {
     };
   }, [loadData]);
 
-  const navigate = (page, entityId = null) => {
+  const navigate = (page, entityId = null, extra = null) => {
     const updatePage = () => {
       setActivePage(page);
       setMobileOpen(false);
       const target = page === "overview" ? "/admin" : `/admin/${page}`;
-      const query = page === "orders" && entityId != null
-        ? `?order=${encodeURIComponent(entityId)}`
-        : (page === "support" || page === "site-support") && entityId != null
-          ? `?ticket=${encodeURIComponent(entityId)}`
-          : (page === "product-requests" || page === "site-product-requests") && entityId != null
-            ? `?request=${encodeURIComponent(entityId)}`
-          : page === "customers" && entityId != null
-            ? `?user=${encodeURIComponent(entityId)}`
-          : page === "withdrawals" && entityId != null
-            ? `?withdrawal=${encodeURIComponent(entityId)}`
-            : (page === "warranties" || page === "site-warranties") && entityId != null
-              ? `?warranty=${encodeURIComponent(entityId)}`
-          : "";
-      window.history.pushState({}, "", target + query);
+      const params = new URLSearchParams();
+      const put = (key, value) => { if (value != null && value !== "") params.set(key, String(value)); };
+      if (page === "orders" && entityId != null) put("order", entityId);
+      else if ((page === "support" || page === "site-support") && entityId != null) put("ticket", entityId);
+      else if ((page === "product-requests" || page === "site-product-requests") && entityId != null) put("request", entityId);
+      else if (page === "customers" && entityId != null) put("user", entityId);
+      else if (page === "withdrawals" && entityId != null) put("withdrawal", entityId);
+      else if ((page === "warranties" || page === "site-warranties") && entityId != null) put("warranty", entityId);
+      else if (page === "site-orders" && entityId != null) {
+        put("cart", entityId);
+        put("status", extra?.status || "all");
+        put("search", extra?.search ?? entityId);
+      } else if (page === "site-customers" && entityId != null) {
+        put("customer", entityId);
+        put("search", extra?.search || "");
+      } else if (page === "site-deposits" && entityId != null) {
+        put("deposit", entityId);
+        put("status", extra?.status || "all");
+        put("search", extra?.search || "");
+      }
+      const query = params.toString();
+      window.history.pushState({}, "", target + (query ? `?${query}` : ""));
       window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
     };
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

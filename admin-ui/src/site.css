@@ -1,38 +1,5 @@
-/* Site Tunisie workspace matches storefront v1.1: near-black, blue accent, pill controls. */
-html[data-workspace="site"] {
-  color-scheme: dark;
-  --bg: #050506;
-  --panel: #0c0c0e;
-  --panel-soft: #141416;
-  --sidebar: #050506;
-  --line: #2a2a2f;
-  --line-bright: #3a3a42;
-  --text: #f5f5f7;
-  --muted: #a1a1aa;
-  --accent: #1a73ff;
-  --accent-soft: rgba(26, 115, 255, 0.16);
-  --accent-contrast: #ffffff;
-  --green: #3ddc97;
-  --amber: #f0b429;
-  --red: #ff6b6b;
-  --mono-action: #1a73ff;
-  --mono-action-text: #ffffff;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 14px 40px rgba(0, 0, 0, 0.45);
-}
-
-html[data-workspace="site"] .app-shell { border-top: 3px solid #1a73ff; border-image: none; }
+/* Site Tunisie uses the same tokens, type and motion as the bot workspace. */
 html[data-workspace="site"] .brand-logo { width: 40px; height: 40px; border-radius: 12px; object-fit: cover; }
-html[data-workspace="site"] .workspace-switch { border-color: var(--line); background: var(--panel-soft); border-radius: 999px; }
-html[data-workspace="site"] .workspace-switch button { border-radius: 999px; }
-html[data-workspace="site"] .workspace-switch button[aria-selected="true"] { background: #1a73ff; color: #fff; }
-html[data-workspace="site"] .nav-item { border-radius: 999px; }
-html[data-workspace="site"] .nav-item.active { color: #fff; border-color: transparent; background: #1a73ff; box-shadow: none; }
-html[data-workspace="site"] .nav-item small { background: rgba(255, 255, 255, 0.18); color: #fff; }
-html[data-workspace="site"] .nav-item:not(.active) small { background: rgba(26, 115, 255, 0.2); color: #9ec1ff; }
-html[data-workspace="site"] .site-tabs button,
-html[data-workspace="site"] .action-button { border-radius: 999px; }
-html[data-workspace="site"] .site-tabs button[aria-selected="true"] { background: #1a73ff; color: #fff; border-color: transparent; box-shadow: none; }
 
 .site-done { position: sticky; top: 90px; z-index: 20; display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--green) 16%, var(--panel)); color: var(--text); font-size: 14px; line-height: 1.4; }
 .site-done[hidden] { display: none; }
@@ -52,7 +19,7 @@ a.sidebar-footer { color:inherit; text-decoration:none; }
 .site-panel > header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 .site-panel h3 { display:flex; align-items:center; gap:8px; margin:0; font-size:14px; }
 .site-panel > header small { color:var(--muted); font-size:11px; }
-.site-link { padding:0; border:0; background:none; color:var(--accent); font:inherit; font-size:12px; font-weight:600; cursor:pointer; text-align:left; }
+.site-link { display:inline-flex; align-items:center; gap:6px; padding:0; border:0; background:none; color:var(--accent); font:inherit; font-size:12px; font-weight:600; cursor:pointer; text-align:left; }
 .site-link:hover { text-decoration:underline; }
 
 .site-rank, .site-recent { display:grid; gap:2px; margin:0; padding:0; list-style:none; }
@@ -144,6 +111,31 @@ a.sidebar-footer { color:inherit; text-decoration:none; }
 .site-receipt span { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--muted); }
 .site-receipt:hover img { border-color:var(--text); }
 
+.site-performance-note { margin: 0; padding: 18px 21px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.site-back { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.site-back:hover { color: var(--text); }
+.site-record-page { display: grid; gap: 16px; animation: site-enter 180ms ease; }
+.site-record-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.site-record-page .site-record-head h2 { margin: 4px 0; font-size: clamp(28px, 3vw, 40px); letter-spacing: -1px; line-height: 1.1; }
+.site-record-panel .site-record-head h2 { margin: 4px 0; font-size: 22px; letter-spacing: -0.4px; line-height: 1.2; }
+.site-page .customer-profile-actions > a { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 9px; color: var(--accent-contrast); background: var(--mono-action); text-decoration: none; font-size: 11px; font-weight: 700; }
+.site-record-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.site-record-layout, .site-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 16px; align-items: start; }
+.site-record-panel { display: grid; align-content: start; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.site-record-panel h3 { margin: 0; font-size: 15px; }
+.site-facts { display: grid; gap: 12px; margin: 0; }
+.site-facts div { display: grid; gap: 3px; }
+.site-facts dt { color: var(--muted); font-size: 11px; }
+.site-facts dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.site-click-row { cursor: pointer; }
+.site-click-row.is-selected { background: var(--panel-soft); }
+.site-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@keyframes site-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
 @media (max-width: 900px) {
-  .site-overview-grid { grid-template-columns:1fr; }
+  .site-overview-grid, .site-record-layout, .site-split { grid-template-columns: 1fr; }
+  .site-record-head { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-record-page { animation: none; }
 }
