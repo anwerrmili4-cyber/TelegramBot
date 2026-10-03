@@ -25,6 +25,7 @@ import {
   KeyRound,
   LockKeyhole,
   LayoutDashboard,
+  Mail,
   Menu,
   MessageSquareText,
   Moon,
@@ -83,6 +84,7 @@ const SITE_NAV_GROUPS = [
     { id: "site-product-requests", label: "Demandes produits", icon: PackageSearch },
     { id: "site-warranties", label: "Garanties", icon: ShieldCheck },
     { id: "site-reviews", label: "Avis", icon: Star },
+    { id: "site-mail", label: "Courrier", icon: Mail },
   ] },
   { label: "Catalogue & finance", items: [
     { id: "site-catalog", label: "Mon catalogue", icon: ShoppingBag },
@@ -435,6 +437,7 @@ function describeAdminChange(params = {}) {
     duplicate_offer: ["Dupliquer ce produit", "Une nouvelle fiche sera créée à partir du produit sélectionné."],
     manual_deliver_order: ["Livrer cette commande", "Le contenu saisi sera envoyé au client et la commande sera mise à jour."],
     message_customer: ["Envoyer ce message", "Le client recevra le message saisi depuis le bot."],
+    site_mail_send: ["Envoyer ce message", "Il part aux clients choisis du site, depuis l’adresse déjà configurée. Une adresse inconnue ne peut pas être ajoutée."],
     run_external_connector: ["Exécuter cette requête", "La requête sera envoyée au connecteur externe sélectionné."],
     save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
     save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],

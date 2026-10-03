@@ -50,6 +50,7 @@ from app.domain import (
     reseller_service,
     site_admin_service,
     site_logo_service,
+    site_mail_service,
     site_orders_service,
     site_settings_service,
     storefront_auth_service,
@@ -936,7 +937,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1301,6 +1302,22 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
             self._reply(200, site_orders_service.list_carts(parse_qs(url.query)))
+            return
+
+        elif path == "/admin/api/site-mail":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            query = parse_qs(url.query)
+            message_id = query.get("id", [""])[0]
+            if message_id:
+                detail = site_mail_service.message_detail(message_id)
+                if not detail:
+                    self._reply(404, {"ok": False, "error": "Message introuvable."})
+                    return
+                self._reply(200, detail)
+                return
+            self._reply(200, site_mail_service.mailbox())
             return
 
         elif path == "/admin/api/site-reviews":
@@ -2439,6 +2456,10 @@ class handler(BaseHTTPRequestHandler):
                 if not support_service.unarchive_ticket(tid):
                     raise ValueError("Ce ticket n’est pas archivé ou n’existe plus.")
                 self._reply(200, {"ok": True, "message": f"Ticket #{tid} restauré."})
+                return
+
+            elif action == "site_mail_send":
+                self._reply(200, site_mail_service.send_message(form))
                 return
 
             elif action == "site_review_approve":

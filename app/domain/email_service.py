@@ -12,6 +12,7 @@ Outlook and Apple Mail all render the same way.
 from __future__ import annotations
 
 import base64
+import inspect
 import json
 import logging
 import os
@@ -24,6 +25,8 @@ from html import escape
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+import database as db
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_SENDER = "BLACKMARKET <noreply@ourblackmarket.com>"
@@ -51,6 +54,21 @@ _TONES = {
 def _api_key() -> str:
     key = os.environ.get("RESEND_API_KEY", "").strip()
     return "" if key == "re_xxxxxxxxx" else key
+
+
+def configured_sender() -> str:
+    """The From address clients see. Comes from the shop configuration."""
+    return _sender()
+
+
+def send_client_message(to: str, name: str, subject: str, message: str) -> None:
+    """One plain message from the shop to a site customer."""
+    body_text = str(message or "").strip()[:4000]
+    title = str(subject or "").strip()[:120]
+    html_body = escape(body_text).replace("\n", "<br>")
+    body = _paragraph(escape(_greeting(name))) + _paragraph(html_body)
+    text = f"{_greeting(name)}\n\n{body_text}\n"
+    send(to, title, _layout(title, body, badge="Message", preheader=body_text[:120]), text)
 
 
 def _sender() -> str:
@@ -87,6 +105,34 @@ def _dispatch(message: dict[str, Any]) -> None:
     threading.Thread(target=_post, args=(message,), daemon=True).start()
 
 
+def _logged_name(text: str) -> str:
+    first = str(text or "").split("\n", 1)[0].strip()
+    if first.startswith("Bonjour ") and first.endswith(","):
+        name = first[len("Bonjour "):-1].strip()
+        return name
+    return ""
+
+
+def _record_sent(message: dict[str, Any], kind: str) -> None:
+    """Keep a copy of what was handed to Resend. Status stays queued until an id exists."""
+    recipient = str((message.get("to") or [""])[0] or "").strip()
+    if not recipient:
+        return
+    conn = db.get_conn()
+    conn.storefront_mail_log.create_index("id", unique=True)
+    conn.storefront_mail_log.insert_one({
+        "id": db._next_id("storefront_mail_log"),
+        "created_at": int(time.time()),
+        "kind": kind,
+        "to": recipient,
+        "name": _logged_name(str(message.get("text") or "")),
+        "subject": str(message.get("subject") or ""),
+        "text": str(message.get("text") or ""),
+        "html": str(message.get("html") or ""),
+        "status": "queued",
+    })
+
+
 def send(
     to: str,
     subject: str,
@@ -102,6 +148,10 @@ def send(
             {"filename": filename, "content": base64.b64encode(content).decode()}
             for filename, content in attachments
         ]
+    caller = inspect.currentframe()
+    kind = caller.f_back.f_code.co_name if caller and caller.f_back else "send"
+    del caller
+    _record_sent(message, kind)
     _dispatch(message)
 
 
