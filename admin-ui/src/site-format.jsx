@@ -63,6 +63,18 @@ export function catalogStatus(row) {
 
 export const refreshLists = () => window.dispatchEvent(new CustomEvent("admin:data-synced"));
 
+export function formatDeliveryNote(fields = []) {
+  return fields
+    .map((field) => ({
+      label: String(field.label || "").trim().replace(/[:\n]/g, " ").replace(/\s+/g, " ").slice(0, 80),
+      value: String(field.value || "").trim().replace(/\s+/g, " ").slice(0, 500),
+    }))
+    .filter((field) => field.label && field.value)
+    .map((field) => `${field.label} : ${field.value}`)
+    .join("\n")
+    .slice(0, 4000);
+}
+
 export function CartStatus({ status }) {
   const [label, className] = SITE_CART_STATUS[status] || [status, ""];
   return <span className={`status ${className}`}>{label}</span>;

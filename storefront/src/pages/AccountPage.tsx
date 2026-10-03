@@ -515,6 +515,18 @@ function InvoiceButton({ reference, number }: { reference: string; number: strin
   );
 }
 
+function deliveryFields(content: string) {
+  const lines = content.split("\n").map((line) => line.trim()).filter(Boolean);
+  const fields = lines.map((line) => {
+    const split = line.indexOf(" : ");
+    if (split <= 0 || split > 80) return null;
+    const label = line.slice(0, split).trim();
+    const value = line.slice(split + 3).trim();
+    return label && value ? { label, value } : null;
+  });
+  return fields.length && fields.every((field) => field) ? fields as { label: string; value: string }[] : null;
+}
+
 function DeliveryBox({ content, deliveredAt, heading }: { content: string; deliveredAt: number | null; heading?: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -533,6 +545,7 @@ function DeliveryBox({ content, deliveredAt, heading }: { content: string; deliv
     }
   }
 
+  const fields = deliveryFields(content);
   return (
     <div className="delivery-box">
       <div className="delivery-head">
@@ -546,7 +559,7 @@ function DeliveryBox({ content, deliveredAt, heading }: { content: string; deliv
           {copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
         </button>
       </div>
-      <pre>{content}</pre>
+      {fields ? <dl className="delivery-fields">{fields.map((field, index) => <div key={`${field.label}-${index}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl> : <pre>{content}</pre>}
       <span className="account-live" aria-live="polite">{copied ? "Copié." : ""}</span>
     </div>
   );

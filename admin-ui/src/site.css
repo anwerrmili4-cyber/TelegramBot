@@ -131,6 +131,12 @@ a.sidebar-footer { color:inherit; text-decoration:none; }
 .site-click-row.is-selected { background: var(--panel-soft); }
 .site-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .site-catalog-table td.site-ops-cell { white-space: normal; min-width: 200px; }
+.site-delivery-fields { display: grid; gap: 8px; }
+.site-delivery-field { display: grid; grid-template-columns: minmax(110px, 170px) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.site-delivery-field input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.site-delivery-field button, .site-delivery-suggestions button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.site-delivery-suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 640px) { .site-delivery-field { grid-template-columns: 1fr; } }
 .site-page .kanban-order { display: grid; gap: 8px; width: 100%; margin: 0; padding: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
 .site-page .kanban-order > button { display: grid; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .site-page .mobile-order-cards > article { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }

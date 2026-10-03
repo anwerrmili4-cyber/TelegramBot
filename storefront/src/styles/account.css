@@ -948,6 +948,10 @@
   font-weight: 700;
 }
 
+.delivery-fields { display: grid; gap: 8px; margin: 0; }
+.delivery-fields div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); }
+.delivery-fields dt { color: var(--text-mute); font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.delivery-fields dd { margin: 0; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .delivery-box pre {
   margin: 0;
   color: var(--text);

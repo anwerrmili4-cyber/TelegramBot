@@ -14,7 +14,43 @@ import {
   Zap,
 } from "lucide-react";
 import { date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination, useRemoteList, OperationsSummary } from "../admin-kit.jsx";
-import { LINE_STATUS, Receipt, dinars, refreshLists, CartStatus, useSiteQuery } from "../site-format.jsx";
+import { LINE_STATUS, Receipt, dinars, refreshLists, CartStatus, formatDeliveryNote, useSiteQuery } from "../site-format.jsx";
+
+const DELIVERY_SUGGESTIONS = ["Adresse", "Mot de passe", "Email", "Lien"];
+
+function DeliveryForm({ cart, waiting, sending, onClose, onSubmit }) {
+  const [fields, setFields] = useState([{ label: "", value: "" }]);
+  const [error, setError] = useState("");
+  const update = (index, key, value) => setFields((current) => current.map((field, item) => item === index ? { ...field, [key]: value } : field));
+  const add = (label = "") => setFields((current) => [...current, { label, value: "" }]);
+  const remove = (index) => setFields((current) => current.length === 1 ? [{ label: "", value: "" }] : current.filter((_, item) => item !== index));
+  const submit = (event) => {
+    event.preventDefault();
+    const note = formatDeliveryNote(fields);
+    if (!note) {
+      setError("Donne un nom et une valeur à au moins un champ. Exemple : Adresse et Mot de passe.");
+      return;
+    }
+    setError("");
+    onSubmit(note);
+  };
+  return <form className="operation-form" onSubmit={submit}>
+    <p>Ces accès seront envoyés par email à <strong>{cart.customer_email || "le client"}</strong> et dans son espace, pour : {waiting.map((item) => `${item.quantity} × ${item.offer_name}`).join(", ") || "les lignes en attente"}.</p>
+    <div className="site-delivery-fields">
+      {fields.map((field, index) => <div className="site-delivery-field" key={index}>
+        <input aria-label="Nom du champ" value={field.label} placeholder="Ex. Adresse" maxLength={80} onChange={(event) => update(index, "label", event.target.value)} autoFocus={index === 0} />
+        <input aria-label="Valeur du champ" value={field.value} placeholder="À remplir pour le client" maxLength={500} onChange={(event) => update(index, "value", event.target.value)} />
+        <button type="button" onClick={() => remove(index)} aria-label="Retirer ce champ">Retirer</button>
+      </div>)}
+    </div>
+    <div className="site-delivery-suggestions">
+      {DELIVERY_SUGGESTIONS.map((label) => <button key={label} type="button" onClick={() => add(label)}>+ {label}</button>)}
+      <button type="button" onClick={() => add()}>Ajouter un champ</button>
+    </div>
+    {error && <p className="site-field-help" role="alert">{error}</p>}
+    <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={onClose}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck} disabled={sending}>Envoyer et marquer livré</ActionButton></div>
+  </form>;
+}
 
 function CartDetail({ reference, onAction, onBack, onNavigate }) {
   const [cart, setCart] = useState(null);
@@ -127,11 +163,7 @@ function CartDetail({ reference, onAction, onBack, onNavigate }) {
         {cart.payment_method === "wallet" && <p className="site-field-help"><Wallet size={14} /> Paiement déjà confirmé par le portefeuille.</p>}
       </aside>
     </div>
-    {editor === "deliver" && <Modal title={`Livrer le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_deliver", reference: cart.reference, note }); }}>
-      <p>Ces accès seront envoyés par email à <strong>{cart.customer_email || "le client"}</strong> pour : {waiting.map((item) => `${item.quantity} × ${item.offer_name}`).join(", ") || "les lignes en attente"}.</p>
-      <Field label="Accès à livrer au client" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={4000} rows={7} required placeholder={"Ex. Email : compte@exemple.com\nMot de passe : ••••••••"} autoFocus /></Field>
-      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck} disabled={sending}>Envoyer et marquer livré</ActionButton></div>
-    </form></Modal>}
+    {editor === "deliver" && <Modal title={`Livrer le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><DeliveryForm cart={cart} waiting={waiting} sending={sending} onClose={() => setEditor(null)} onSubmit={(note) => run({ action: "site_cart_deliver", reference: cart.reference, note })} /></Modal>}
     {editor === "cancel" && <Modal title={`Annuler le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_cancel", reference: cart.reference, reason: note }); }}>
       <p>{cart.status === "to_verify" ? "Le reçu est refusé et la commande retirée de la file. Rien n’est débité ni remboursé." : <>Les articles non livrés sont annulés et le stock remis en vente. <strong>{dinars(paidTotal)}</strong> seront remboursés sur le portefeuille du client.</>} Le client recevra ce motif par email.</p>
       <Field label="Motif" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={4} required autoFocus placeholder={cart.status === "to_verify" ? "Ex. Reçu illisible, montant incorrect…" : "Ex. Produit en rupture"} /></Field>
@@ -170,11 +202,7 @@ function CartActions({ cart, onAction, onOpen }) {
         <ActionButton icon={X} danger disabled={sending} onClick={() => { setEditor("cancel"); setNote(""); }}>Rembourser</ActionButton>
       </>}
     </div>
-    {editor === "deliver" && <Modal title={`Livrer le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_deliver", reference: cart.reference, note }); }}>
-      <p>Ces accès seront envoyés par email à <strong>{cart.customer_email || "le client"}</strong> pour : {waiting.map((item) => `${item.quantity} × ${item.offer_name}`).join(", ") || "les lignes en attente"}.</p>
-      <Field label="Accès à livrer au client" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={4000} rows={7} required autoFocus /></Field>
-      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck} disabled={sending}>Envoyer et marquer livré</ActionButton></div>
-    </form></Modal>}
+    {editor === "deliver" && <Modal title={`Livrer le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><DeliveryForm cart={cart} waiting={waiting} sending={sending} onClose={() => setEditor(null)} onSubmit={(note) => run({ action: "site_cart_deliver", reference: cart.reference, note })} /></Modal>}
     {editor === "cancel" && <Modal title={`Annuler le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_cancel", reference: cart.reference, reason: note }); }}>
       <p>{cart.status === "to_verify" ? "Le reçu est refusé. Rien n’est débité ni remboursé." : <><strong>{dinars(paidTotal)}</strong> seront remboursés sur le portefeuille.</>} Le client reçoit ce motif par email.</p>
       <Field label="Motif" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={4} required autoFocus /></Field>
@@ -187,7 +215,7 @@ export default function SiteOrdersPage({ onAction, onNavigate }) {
   const [query, replace] = useSiteQuery();
   const [viewMode, setViewMode] = useState(() => (window.matchMedia("(max-width: 640px)").matches ? "cards" : "kanban"));
   const search = query.search || "";
-  const status = query.status || (viewMode === "kanban" ? "all" : "to_verify");
+  const status = query.status || "all";
   const page = Number(query.page || 1);
   const [result, loading] = useRemoteList("/admin/api/site-orders", { search, status, page, per_page: viewMode === "kanban" ? 40 : 20 }, { refreshInterval: 15000 });
   const counts = result.counts || {};

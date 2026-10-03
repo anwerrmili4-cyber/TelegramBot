@@ -434,6 +434,35 @@ def send_payment_confirmed(
     )
 
 
+def _delivery_access(content: str) -> str:
+    """Render labeled access lines as rows. Free text stays in a single block."""
+    lines = [line.strip() for line in str(content or "").splitlines() if line.strip()]
+    fields = []
+    for line in lines:
+        label, separator, value = line.partition(" : ")
+        label, value = label.strip(), value.strip()
+        if not separator or not label or not value or len(label) > 80:
+            fields = []
+            break
+        fields.append((label, value))
+    if not fields:
+        return (
+            f'<pre style="margin:0 0 18px;padding:16px 18px;background:{_BG};border:1px solid {_LINE};'
+            "border-radius:14px;white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.6;"
+            f'color:{_TEXT};font-family:{_MONO}">{escape(content)}</pre>'
+        )
+    rows = "".join(
+        f'<tr><td style="padding:10px 14px;border-bottom:1px solid {_LINE}">'
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:{_MUTED}">{escape(label)}</div>'
+        f'<div style="margin-top:3px;font-size:15px;line-height:1.45;color:{_TEXT}">{escape(value)}</div></td></tr>'
+        for label, value in fields
+    )
+    return (
+        f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        f'style="margin:0 0 18px;background:{_BG};border:1px solid {_LINE};border-radius:14px;overflow:hidden">{rows}</table>'
+    )
+
+
 def send_order_delivered(
     to: str,
     name: str,
@@ -462,9 +491,7 @@ def send_order_delivered(
         + _paragraph(f"Ta commande {_strong(escape(reference))} est livrée :")
         + f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 14px">{lines}</table>'
         + f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TES ACCÈS</div>'
-        + f'<pre style="margin:0 0 18px;padding:16px 18px;background:{_BG};border:1px solid {_LINE};'
-        "border-radius:14px;white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.6;"
-        f'color:{_TEXT};font-family:{_MONO}">{escape(content)}</pre>'
+        + _delivery_access(content)
         + _note("Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client.")
         + (_note(escape(later), "pending") if later else "")
         + button
