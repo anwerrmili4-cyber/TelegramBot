@@ -902,6 +902,81 @@
   font-size: 12px;
 }
 
+.renew-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.access-date {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.renew-missing,
+.renew-alert,
+.renew-alert form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.renew-missing {
+  margin: 0;
+  color: var(--text-mute);
+  font-size: 13px;
+}
+
+.renew-missing a {
+  color: var(--link-bright);
+  font-weight: 700;
+}
+
+.renew-soldout {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.renew-alert input {
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-900);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.renew-alert input:focus {
+  border-color: var(--brand);
+  outline: 2px solid var(--brand-wash);
+  outline-offset: 1px;
+}
+
+.renew-full,
+.renew-noted,
+.renew-alert .form-error {
+  flex: 1 0 100%;
+  margin: 0;
+  font-size: 13px;
+}
+
+.renew-full {
+  color: var(--danger);
+}
+
+.renew-noted {
+  color: var(--success-text);
+  font-weight: 700;
+}
+
 .delivery-box {
   position: relative;
   display: grid;
@@ -1168,6 +1243,7 @@
   }
 
   .order-items > li > .button,
+  .renew-row .button,
   .order-invoice .button {
     width: 100%;
     max-width: 100%;

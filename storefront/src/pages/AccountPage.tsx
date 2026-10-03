@@ -18,12 +18,12 @@ import {
 } from "lucide-react";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, resendVerificationCode } from "@/lib/api";
-import { dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
+import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode } from "@/lib/api";
+import { accessLabel, clampQuantity, dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
-import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, AccountWarranty, CartStatus, Deposit, Wallet } from "@/types";
+import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, AccountWarranty, CartStatus, Deposit, Offer, Wallet } from "@/types";
 
 const TABS = [
   { id: "commandes", label: "Mes achats", short: "Achats", icon: Package },
@@ -80,7 +80,14 @@ function AccountSkeleton({ label }: { label: string }) {
   );
 }
 
-export function AccountPage() {
+type AccountRenewal = {
+  offers: Offer[];
+  catalogLoading: boolean;
+  maxLines: number;
+  place: (offer: Offer, quantity: number) => boolean;
+};
+
+export function AccountPage({ offers, catalogLoading, maxLines, place }: AccountRenewal) {
   const { customer, loading, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [panelFrom, setPanelFrom] = useState("0px");
@@ -190,7 +197,19 @@ export function AccountPage() {
         style={{ "--panel-from": panelFrom } as CSSProperties}
         key={tab}
       >
-        {tab === "commandes" ? <OrdersTab /> : tab === "portefeuille" ? <WalletTab /> : tab === "support" ? <RequestsTab kind="support" /> : tab === "garanties" ? <WarrantiesTab /> : tab === "demande" ? <RequestsTab kind="product" /> : <ProfileTab />}
+        {tab === "commandes" ? (
+          <OrdersTab offers={offers} catalogLoading={catalogLoading} maxLines={maxLines} place={place} />
+        ) : tab === "portefeuille" ? (
+          <WalletTab />
+        ) : tab === "support" ? (
+          <RequestsTab kind="support" />
+        ) : tab === "garanties" ? (
+          <WarrantiesTab />
+        ) : tab === "demande" ? (
+          <RequestsTab kind="product" />
+        ) : (
+          <ProfileTab />
+        )}
       </div>
     </section>
   );
@@ -198,7 +217,7 @@ export function AccountPage() {
 
 /* ---------- Purchases ---------- */
 
-function OrdersTab() {
+function OrdersTab({ offers, catalogLoading, maxLines, place }: AccountRenewal) {
   const { customer, token, handleError } = useAuth();
   const [data, setData] = useState<AccountOrders | null>(null);
   const [error, setError] = useState("");
@@ -253,7 +272,16 @@ function OrdersTab() {
       {data.orders.length ? (
         <ul className="order-list">
           {data.orders.map((order, index) => (
-            <OrderCard key={order.reference} order={order} defaultOpen={index === 0} onRefresh={() => setAttempt((value) => value + 1)} />
+            <OrderCard
+              key={order.reference}
+              order={order}
+              defaultOpen={index === 0}
+              onRefresh={() => setAttempt((value) => value + 1)}
+              offers={offers}
+              catalogLoading={catalogLoading}
+              maxLines={maxLines}
+              place={place}
+            />
           ))}
         </ul>
       ) : (
@@ -354,7 +382,19 @@ function receiptSteps(order: AccountOrder): { label: string; state: StepState }[
   ];
 }
 
-function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; defaultOpen: boolean; onRefresh: () => void }) {
+function OrderCard({
+  order,
+  defaultOpen,
+  onRefresh,
+  offers,
+  catalogLoading,
+  maxLines,
+  place,
+}: {
+  order: AccountOrder;
+  defaultOpen: boolean;
+  onRefresh: () => void;
+} & AccountRenewal) {
   const [open, setOpen] = useState(false);
   const foldRef = useRef<HTMLDivElement>(null);
   const [label, tone] = CART_STATUS[order.status] ?? CART_STATUS.mixed;
@@ -443,6 +483,13 @@ function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; def
                     </span>
                     <StatusChip label={itemLabel} tone={itemTone} />
                   </div>
+                  <RenewalRow
+                    item={item}
+                    offers={offers}
+                    catalogLoading={catalogLoading}
+                    maxLines={maxLines}
+                    place={place}
+                  />
                   {item.delivery ? <DeliveryBox content={item.delivery} deliveredAt={item.delivered_at} /> : null}
                   {item.replacement ? <DeliveryBox content={item.replacement} deliveredAt={null} heading="Remplacement sous garantie" /> : null}
                   {item.warranty_open ? <WarrantyButton item={item} onSent={onRefresh} /> : null}
@@ -483,6 +530,97 @@ function OrderCard({ order, defaultOpen, onRefresh }: { order: AccountOrder; def
         </div>
       </div>
     </li>
+  );
+}
+
+function RenewalRow({ item, offers, catalogLoading, maxLines, place }: { item: AccountOrderItem } & AccountRenewal) {
+  const [full, setFull] = useState(false);
+  const offer = item.offer_id == null ? undefined : offers.find((entry) => entry.id === item.offer_id);
+  const label = accessLabel(item.delivered_at, item.period_days);
+  if (item.status !== "delivered" || item.offer_id == null) return null;
+
+  function renew(target: Offer) {
+    if (clampQuantity(target, item.quantity) <= 0) return;
+    setFull(!place(target, item.quantity));
+  }
+
+  return (
+    <div className="renew-row">
+      {label ? <p className="access-date">{label}</p> : null}
+      {catalogLoading ? (
+        <button type="button" className="button button-primary renew-button" disabled>
+          Chargement du catalogue…
+        </button>
+      ) : !offer ? (
+        <p className="renew-missing">
+          Plus au catalogue
+          <Link to={ROUTES.shop}>Voir la boutique</Link>
+        </p>
+      ) : !offer.available ? (
+        <RenewAlert offerId={offer.id} />
+      ) : (
+        <>
+          <button type="button" className="button button-primary renew-button" onClick={() => renew(offer)}>
+            Renouveler · {money(offer.price_millimes)}
+          </button>
+          {full ? (
+            <p className="renew-full" role="alert">
+              Ton panier est plein ({maxLines} {plural(maxLines, "produit", "produits")}). Retire une ligne pour renouveler celle-ci.
+            </p>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function RenewAlert({ offerId }: { offerId: number }) {
+  const { customer, token } = useAuth();
+  const [email, setEmail] = useState(customer?.email ?? "");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await requestStockAlert(offerId, email.trim(), token || undefined);
+      setDone(true);
+    } catch (reason) {
+      setError(errorMessage(reason, "Alerte impossible"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="renew-alert">
+      <span className="renew-soldout">Épuisé</span>
+      {done ? (
+        <p className="renew-noted" role="status">
+          C'est noté
+        </p>
+      ) : (
+        <form onSubmit={(event) => void submit(event)}>
+          <input
+            required
+            type="email"
+            autoComplete="email"
+            inputMode="email"
+            aria-label="Email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <button type="submit" className="button button-primary" disabled={busy}>
+            {busy ? "Enregistrement…" : "Me prévenir"}
+          </button>
+        </form>
+      )}
+      {error ? <small className="form-error">{error}</small> : null}
+    </div>
   );
 }
 

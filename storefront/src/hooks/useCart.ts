@@ -32,6 +32,8 @@ export type Cart = {
   isFull: boolean;
   quantityOf: (offerId: number) => number;
   add: (offer: Offer, quantity?: number) => void;
+  /** Sets this offer to `quantity` (clamped). False when the cart is full and the id is new. */
+  place: (offer: Offer, quantity: number) => boolean;
   setQuantity: (offer: Offer, quantity: number) => void;
   remove: (offerId: number) => void;
   clear: () => void;
@@ -88,6 +90,21 @@ export function useCart(offers: Offer[], maxLines: number): Cart {
     [maxLines],
   );
 
+  const place = useCallback(
+    (offer: Offer, quantity: number) => {
+      const nextQuantity = clampQuantity(offer, quantity);
+      if (nextQuantity <= 0) return false;
+      const key = String(offer.id);
+      if (!(key in stored) && Object.keys(stored).length >= maxLines) return false;
+      setStored((current) => {
+        if (!(key in current) && Object.keys(current).length >= maxLines) return current;
+        return { ...current, [key]: nextQuantity };
+      });
+      return true;
+    },
+    [maxLines, stored],
+  );
+
   return {
     lines,
     count: lines.reduce((total, line) => total + line.quantity, 0),
@@ -98,6 +115,7 @@ export function useCart(offers: Offer[], maxLines: number): Cart {
     isFull: lines.length >= maxLines,
     quantityOf: (offerId) => lines.find((line) => line.offer.id === offerId)?.quantity ?? 0,
     add,
+    place,
     setQuantity,
     remove: (offerId) => update(offerId, 0),
     clear: () => setStored({}),

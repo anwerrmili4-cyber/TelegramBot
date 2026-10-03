@@ -323,6 +323,32 @@
   transition: scale 0.12s var(--ease);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .renew-button {
+    transition:
+      background 0.18s var(--ease),
+      border-color 0.18s var(--ease),
+      transform 0.18s var(--ease),
+      opacity 0.18s var(--ease),
+      scale var(--motion-press) var(--ease);
+  }
+
+  .renew-button:active:not(:disabled) {
+    scale: 0.98;
+  }
+
+  .order-card.open .access-date {
+    animation: access-date-in var(--motion-hover) var(--ease-out) both;
+  }
+}
+
+@keyframes access-date-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance));
+  }
+}
+
 /* ---------- Overlays ---------- */
 
 .overlay[data-state="open"] .overlay-backdrop {
@@ -461,6 +487,8 @@
   .cart-button > b,
   .overlay-panel,
   .overlay-backdrop,
+  .access-date,
+  .renew-button,
   .section-head,
   .catalog-toolbar,
   .steps-grid li,
@@ -477,6 +505,16 @@
 
   .cart-bar {
     transition: none;
+  }
+
+  .access-date {
+    opacity: 1;
+    transform: none;
+  }
+
+  .renew-button,
+  .renew-button:active {
+    scale: 1;
   }
 
   .tilt-media img {

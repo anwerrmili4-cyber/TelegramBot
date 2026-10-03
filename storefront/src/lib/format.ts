@@ -21,6 +21,28 @@ export function dateTime(seconds: number | null | undefined): string {
   return seconds ? dateTimes.format(new Date(seconds * 1000)) : "—";
 }
 
+const accessDates = new Intl.DateTimeFormat("fr-FR", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/**
+ * French label for a delivered access window.
+ * Empty when the line has no period or no delivery time.
+ * `deliveredAt` is Unix seconds; the end instant is that time plus `periodDays`.
+ */
+export function accessLabel(
+  deliveredAt: number | null | undefined,
+  periodDays: number,
+  now = Date.now(),
+): string {
+  if (!deliveredAt || periodDays <= 0) return "";
+  const end = deliveredAt * 1000 + periodDays * 86_400_000;
+  const date = accessDates.format(new Date(end));
+  return now < end ? `Accès jusqu'au ${date}` : `Accès terminé le ${date}`;
+}
+
 export function plural(count: number, one: string, many: string): string {
   return count > 1 ? many : one;
 }

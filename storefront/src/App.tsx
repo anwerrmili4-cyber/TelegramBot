@@ -40,7 +40,6 @@ const PAGES: Record<string, ComponentType | undefined> = {
   [ROUTES.verifyEmail]: VerifyEmailPage,
   [ROUTES.forgotPassword]: ForgotPasswordPage,
   [ROUTES.resetPassword]: ResetPasswordPage,
-  [ROUTES.account]: AccountPage,
   [ROUTES.news]: NewsPage,
   [ROUTES.help]: HelpPage,
   "/aide": HelpPage,
@@ -91,7 +90,18 @@ export default function App() {
       />
 
       <main key={path} className="page-enter">
-        {Page ? (
+        {path === ROUTES.account ? (
+          <AccountPage
+            offers={offers}
+            catalogLoading={loading}
+            maxLines={maxLines}
+            place={(offer, quantity) => {
+              if (!cart.place(offer, quantity)) return false;
+              setCheckoutOpen(true);
+              return true;
+            }}
+          />
+        ) : Page ? (
           <Page />
         ) : path === ROUTES.categories ? (
           <CategoriesPage categories={categories} offers={offers} />
