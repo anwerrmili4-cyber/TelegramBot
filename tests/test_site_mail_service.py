@@ -36,6 +36,7 @@ def test_a_message_reaches_one_client_from_the_shop_address(mock_mongodb, site_c
     assert logged["status"] == "queued"
     detail = site_mail_service.message_detail(logged["id"])
     assert detail["text"] == message["text"]
+    assert detail["html"] == message["html"]
     assert site_mail_service.mailbox()["from"] == "BLACKMARKET <noreply@ourblackmarket.com>"
 
 
@@ -160,7 +161,11 @@ def test_past_orders_and_deposits_rebuild_the_sent_mail(mock_mongodb, site_custo
     subjects = [item["subject"] for item in site_mail_service.mailbox()["messages"]]
     assert "Commande TN-HIST1 reçue" in subjects
     assert "Commande TN-HIST1 annulée" in subjects
-    assert "Recharge créditée #7" in subjects
+    assert "Portefeuille crédité de 10,000 DT" in subjects
     detail = site_mail_service.message_detail("db-cancelled-TN-HIST1")
     assert detail["to"] == customer["email"]
     assert "Reçu illisible" in detail["text"]
+    assert detail["html"].startswith("<!doctype html>")
+    assert "Reçu illisible" in detail["html"]
+    assert "preview" in site_mail_service.mailbox()["messages"][0]
+    assert "html" not in site_mail_service.mailbox()["messages"][0]

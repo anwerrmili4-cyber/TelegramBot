@@ -503,15 +503,14 @@ def send_password_reset(to: str, name: str, link: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def send_order_received(
-    to: str,
+def order_received_content(
     name: str,
     reference: str,
     items: Sequence[dict[str, Any]],
     total_millimes: int,
     method_label: str,
-) -> None:
-    """A transfer-paid cart: the receipt is waiting for an administrator."""
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the email a customer gets when a transfer order arrives."""
     button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
@@ -532,12 +531,22 @@ def send_order_received(
         "Dès qu'il est validé, tes accès arrivent par email et dans ton espace client."
         + link
     )
-    send(
-        to,
-        f"Commande {reference} reçue",
-        _layout("Commande reçue", body, badge=reference, tone="pending", preheader=f"Total {_money(total_millimes)}"),
-        text,
-    )
+    subject = f"Commande {reference} reçue"
+    html = _layout("Commande reçue", body, badge=reference, tone="pending", preheader=f"Total {_money(total_millimes)}")
+    return subject, html, text
+
+
+def send_order_received(
+    to: str,
+    name: str,
+    reference: str,
+    items: Sequence[dict[str, Any]],
+    total_millimes: int,
+    method_label: str,
+) -> None:
+    """A transfer-paid cart: the receipt is waiting for an administrator."""
+    subject, html, text = order_received_content(name, reference, items, total_millimes, method_label)
+    send(to, subject, html, text)
 
 
 def send_payment_confirmed(
@@ -597,16 +606,15 @@ def _delivery_access(content: str) -> str:
     )
 
 
-def send_order_delivered(
-    to: str,
+def order_delivered_content(
     name: str,
     reference: str,
     items: Sequence[dict[str, Any]],
     content: str,
     *,
     remaining: int = 0,
-) -> None:
-    """Email the access details; ``remaining`` counts lines still being prepared."""
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the delivery email, including the access the customer received."""
     lines = "".join(
         f'<tr><td style="padding:8px 0;font-size:14px;color:{_TEXT}">'
         f'<span style="color:#4ade80">✓</span>&nbsp;&nbsp;{int(item["quantity"])} × {escape(str(item["offer_name"]))}'
@@ -638,15 +646,29 @@ def send_order_delivered(
         + (f"\n\n{later}" if later else "")
         + link
     )
-    send(
-        to,
-        f"Ta commande {reference} est livrée",
-        _layout("Commande livrée", body, badge="Livrée", tone="success", preheader="Tes accès sont arrivés."),
-        text,
-    )
+    subject = f"Ta commande {reference} est livrée"
+    html = _layout("Commande livrée", body, badge="Livrée", tone="success", preheader="Tes accès sont arrivés.")
+    return subject, html, text
 
 
-def send_order_cancelled(to: str, name: str, reference: str, reason: str, refunded_millimes: int = 0) -> None:
+def send_order_delivered(
+    to: str,
+    name: str,
+    reference: str,
+    items: Sequence[dict[str, Any]],
+    content: str,
+    *,
+    remaining: int = 0,
+) -> None:
+    """Email the access details; ``remaining`` counts lines still being prepared."""
+    subject, html, text = order_delivered_content(name, reference, items, content, remaining=remaining)
+    send(to, subject, html, text)
+
+
+def order_cancelled_content(
+    name: str, reference: str, reason: str, refunded_millimes: int = 0
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the cancellation email."""
     refund = (
         f"{_money(refunded_millimes)} ont été remboursés sur ton portefeuille."
         if refunded_millimes
@@ -664,25 +686,26 @@ def send_order_cancelled(to: str, name: str, reference: str, reason: str, refund
         + (f"\nMotif : {reason}" if reason else "")
         + (f"\n\n{refund}" if refund else "")
     )
-    send(
-        to,
-        f"Commande {reference} annulée",
-        _layout("Commande annulée", body, badge=reference, tone="danger", preheader=reason or "Commande annulée"),
-        text,
-    )
+    subject = f"Commande {reference} annulée"
+    html = _layout("Commande annulée", body, badge=reference, tone="danger", preheader=reason or "Commande annulée")
+    return subject, html, text
 
 
-def send_invoice(
-    to: str,
+def send_order_cancelled(to: str, name: str, reference: str, reason: str, refunded_millimes: int = 0) -> None:
+    subject, html, text = order_cancelled_content(name, reference, reason, refunded_millimes)
+    send(to, subject, html, text)
+
+
+def invoice_content(
     name: str,
     invoice_number: str,
     reference: str,
     items: Sequence[dict[str, Any]],
     total_millimes: int,
     method_label: str,
-    pdf: bytes,
-) -> None:
-    """The paid invoice, as a summary in the body and a PDF attachment."""
+    issued_on: str = "",
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the invoice email. The PDF is attached only when sending."""
     button, link = _account_button("Mes commandes et factures", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
@@ -690,7 +713,7 @@ def send_invoice(
         + _details([
             ("Facture", escape(invoice_number)),
             ("Commande", escape(reference)),
-            ("Date", time.strftime("%d/%m/%Y")),
+            ("Date", issued_on or time.strftime("%d/%m/%Y")),
             ("Paiement", escape(method_label)),
         ])
         + _items_table(items, total_millimes, total_label="Total payé")
@@ -704,19 +727,30 @@ def send_invoice(
         f"La facture PDF {invoice_number}.pdf est jointe à cet email."
         + link
     )
-    send(
-        to,
-        f"Ta facture {invoice_number} — {reference}",
-        _layout(
-            f"Facture {invoice_number}",
-            body,
-            badge="Payée",
-            tone="success",
-            preheader=f"Total payé {_money(total_millimes)}",
-        ),
-        text,
-        attachments=[(f"{invoice_number}.pdf", pdf)],
+    subject = f"Ta facture {invoice_number} — {reference}"
+    html = _layout(
+        f"Facture {invoice_number}",
+        body,
+        badge="Payée",
+        tone="success",
+        preheader=f"Total payé {_money(total_millimes)}",
     )
+    return subject, html, text
+
+
+def send_invoice(
+    to: str,
+    name: str,
+    invoice_number: str,
+    reference: str,
+    items: Sequence[dict[str, Any]],
+    total_millimes: int,
+    method_label: str,
+    pdf: bytes,
+) -> None:
+    """The paid invoice, as a summary in the body and a PDF attachment."""
+    subject, html, text = invoice_content(name, invoice_number, reference, items, total_millimes, method_label)
+    send(to, subject, html, text, attachments=[(f"{invoice_number}.pdf", pdf)])
 
 
 # ---------------------------------------------------------------------------
@@ -724,7 +758,10 @@ def send_invoice(
 # ---------------------------------------------------------------------------
 
 
-def send_deposit_received(to: str, name: str, amount_millimes: int, method_label: str, reference: str) -> None:
+def deposit_received_content(
+    name: str, amount_millimes: int, method_label: str, reference: str
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the email sent when a top-up receipt arrives."""
     button, link = _account_button("Voir mon portefeuille", "portefeuille")
     body = (
         _paragraph(escape(_greeting(name)))
@@ -743,41 +780,57 @@ def send_deposit_received(to: str, name: str, amount_millimes: int, method_label
         "Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation."
         + link
     )
-    send(
-        to,
-        "Recharge en cours de vérification",
-        _layout("Recharge reçue", body, badge="En vérification", tone="pending", preheader=_money(amount_millimes)),
-        text,
-    )
+    subject = "Recharge en cours de vérification"
+    html = _layout("Recharge reçue", body, badge="En vérification", tone="pending", preheader=_money(amount_millimes))
+    return subject, html, text
 
 
-def send_deposit_approved(to: str, name: str, credited_millimes: int, balance_millimes: int) -> None:
+def send_deposit_received(to: str, name: str, amount_millimes: int, method_label: str, reference: str) -> None:
+    subject, html, text = deposit_received_content(name, amount_millimes, method_label, reference)
+    send(to, subject, html, text)
+
+
+def deposit_approved_content(
+    name: str, credited_millimes: int, balance_millimes: int | None
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the email sent when a top-up is credited."""
     button, link = _account_button("Voir mon portefeuille", "portefeuille")
+    balance = ""
+    balance_text = ""
+    if balance_millimes is not None:
+        balance = (
+            f'<div style="margin-top:6px;font-size:13px;color:{_MUTED}">Nouveau solde : '
+            f'<strong style="color:{_TEXT}">{_money(balance_millimes)}</strong></div>'
+        )
+        balance_text = f"\nNouveau solde : {_money(balance_millimes)}."
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph("Ta recharge est validée, ton portefeuille est crédité.")
         + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:6px 0 20px"><tr>'
         f'<td align="center" style="background:{_BG};border:1px solid {_LINE};border-radius:16px;padding:22px 10px">'
         f'<div style="font-size:30px;font-weight:800;color:#4ade80">+ {_money(credited_millimes)}</div>'
-        f'<div style="margin-top:6px;font-size:13px;color:{_MUTED}">Nouveau solde : '
-        f'<strong style="color:{_TEXT}">{_money(balance_millimes)}</strong></div>'
+        f"{balance}"
         "</td></tr></table>"
         + button
     )
     text = (
-        f"{_greeting(name)}\n\nTa recharge est validée : {_money(credited_millimes)} ont été crédités.\n"
-        f"Nouveau solde : {_money(balance_millimes)}."
+        f"{_greeting(name)}\n\nTa recharge est validée : {_money(credited_millimes)} ont été crédités."
+        f"{balance_text}"
         + link
     )
-    send(
-        to,
-        f"Portefeuille crédité de {_money(credited_millimes)}",
-        _layout("Recharge validée", body, badge="Créditée", tone="success", preheader=f"Nouveau solde {_money(balance_millimes)}"),
-        text,
-    )
+    shown = _money(balance_millimes) if balance_millimes is not None else _money(credited_millimes)
+    subject = f"Portefeuille crédité de {_money(credited_millimes)}"
+    html = _layout("Recharge validée", body, badge="Créditée", tone="success", preheader=f"Nouveau solde {shown}")
+    return subject, html, text
 
 
-def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str) -> None:
+def send_deposit_approved(to: str, name: str, credited_millimes: int, balance_millimes: int) -> None:
+    subject, html, text = deposit_approved_content(name, credited_millimes, balance_millimes)
+    send(to, subject, html, text)
+
+
+def deposit_rejected_content(name: str, amount_millimes: int, reason: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of the email sent when a top-up is refused."""
     button, link = _account_button("Refaire une demande", "portefeuille")
     body = (
         _paragraph(escape(_greeting(name)))
@@ -792,12 +845,14 @@ def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str)
         "Tu peux envoyer une nouvelle demande depuis ton espace client avec un reçu lisible."
         + link
     )
-    send(
-        to,
-        "Recharge refusée",
-        _layout("Recharge refusée", body, badge="Refusée", tone="danger", preheader=reason),
-        text,
-    )
+    subject = "Recharge refusée"
+    html = _layout("Recharge refusée", body, badge="Refusée", tone="danger", preheader=reason)
+    return subject, html, text
+
+
+def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str) -> None:
+    subject, html, text = deposit_rejected_content(name, amount_millimes, reason)
+    send(to, subject, html, text)
 
 
 def send_review_request(to: str, name: str, reference: str) -> None:

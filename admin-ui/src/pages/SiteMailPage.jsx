@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Mail, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Mail, PenLine, Search, Send } from "lucide-react";
 import { ActionButton, Empty, Field, PageHeader, useRemoteList } from "../admin-kit.jsx";
 
 const STATUS = {
@@ -10,16 +10,54 @@ const STATUS = {
   complained: "Signalé",
 };
 
-function when(value) {
-  if (!value) return "—";
+function stamp(value) {
   const date = new Date(Number(value) * 1000);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function when(value) {
+  const date = stamp(value);
+  if (!date) return "";
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return new Intl.DateTimeFormat("fr-FR", sameDay ? { timeStyle: "short" } : { day: "numeric", month: "short" }).format(date);
+}
+
+function fullWhen(value) {
+  const date = stamp(value);
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("fr-FR", { dateStyle: "full", timeStyle: "short" }).format(date);
+}
+
+function initial(item) {
+  const source = String(item.name || item.to || "?").trim();
+  return source.charAt(0).toUpperCase() || "?";
+}
+
+function MailFrame({ html }) {
+  const frame = useRef(null);
+
+  function fit() {
+    const doc = frame.current?.contentDocument;
+    const height = doc?.documentElement?.scrollHeight;
+    if (frame.current && height) frame.current.style.height = `${height}px`;
+  }
+
+  return (
+    <iframe
+      ref={frame}
+      className="mail-frame"
+      title="Contenu de l'email"
+      sandbox="allow-same-origin"
+      srcDoc={html}
+      onLoad={fit}
+    />
+  );
 }
 
 export default function SiteMailPage({ onAction }) {
   const [result, loading] = useRemoteList("/admin/api/site-mail", {}, { refreshInterval: 20000 });
+  const [folder, setFolder] = useState("sent");
+  const [query, setQuery] = useState("");
   const [audience, setAudience] = useState("one");
   const [customerId, setCustomerId] = useState("");
   const [subject, setSubject] = useState("");
@@ -28,10 +66,20 @@ export default function SiteMailPage({ onAction }) {
   const [listError, setListError] = useState("");
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [reading, setReading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const customers = result.customers || [];
   const messages = result.messages || [];
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return messages;
+    return messages.filter((item) =>
+      [item.subject, item.to, item.name, item.kind_label, item.preview].join(" ").toLowerCase().includes(needle)
+    );
+  }, [messages, query]);
 
   useEffect(() => {
     const onError = (event) => setListError(String(event.detail || "La liste n'a pas pu être actualisée."));
@@ -39,20 +87,42 @@ export default function SiteMailPage({ onAction }) {
     return () => window.removeEventListener("admin:read-error", onError);
   }, []);
 
-  async function openMessage(id) {
-    setDetail(null);
-    setDetailError("");
-    try {
-      const response = await fetch(`/admin/api/site-mail?id=${encodeURIComponent(id)}`, { credentials: "same-origin", cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok || payload.ok === false) {
-        setDetailError(payload.error || "Message introuvable.");
-        return;
-      }
-      setDetail(payload);
-    } catch {
-      setDetailError("Impossible de charger ce message.");
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(null);
+      return undefined;
     }
+    const controller = new AbortController();
+    setReading(true);
+    setDetailError("");
+    fetch(`/admin/api/site-mail?id=${encodeURIComponent(selectedId)}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || payload.ok === false) {
+          setDetail(null);
+          setDetailError(payload.error || "Message introuvable.");
+          return;
+        }
+        setDetail(payload);
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError") return;
+        setDetail(null);
+        setDetailError("Impossible de charger ce message.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setReading(false);
+      });
+    return () => controller.abort();
+  }, [selectedId]);
+
+  function openMessage(id) {
+    setFolder("sent");
+    setSelectedId(id);
   }
 
   async function submit(event) {
@@ -73,6 +143,7 @@ export default function SiteMailPage({ onAction }) {
         setDone(answer.message);
         setSubject("");
         setMessage("");
+        setFolder("sent");
         window.dispatchEvent(new CustomEvent("admin:data-synced"));
       }
     } catch (reason) {
@@ -82,91 +153,146 @@ export default function SiteMailPage({ onAction }) {
     }
   }
 
+  const recipient = detail?.name ? `${detail.name} <${detail.to}>` : detail?.to;
+  const layout = ["mail-app", folder === "sent" && selectedId ? "is-reading" : "", folder === "compose" ? "is-composing" : ""].filter(Boolean).join(" ");
+
   return (
     <div className="operations-page mail-page">
       <PageHeader
         title="Courrier"
-        description="L'historique est en haut : chaque message déjà parti par Resend, et ceux envoyés depuis ici."
+        description="Les emails déjà partis aux clients, ouverts comme dans une boîte mail."
       />
       {listError ? <p className="form-error" role="alert">{listError}</p> : null}
 
-      <section className="operations-panel" aria-labelledby="sent-mail-title" aria-busy={loading}>
-        <header className="mail-panel-head">
-          <h2 id="sent-mail-title">Déjà envoyés</h2>
-          <span>{loading ? "Chargement…" : `${messages.length} message${messages.length > 1 ? "s" : ""}`}</span>
-        </header>
-        {loading && !messages.length ? <div className="operation-loading"><Mail size={18} />Chargement de l'historique…</div> : null}
-        {!loading && !messages.length ? (
-          <Empty icon={Mail} title="Aucun message envoyé pour le moment." text="Les emails déjà partis par Resend, puis les prochains envois du site, s'affichent dans cette liste." />
-        ) : null}
-        {messages.length ? (
-          <div className="operation-list mail-list">
-            {messages.map((item) => (
-              <article key={item.id} className={detail?.id === item.id ? "operation-card is-open" : "operation-card"}>
-                <header>
-                  <span className="operation-icon"><Mail size={18} /></span>
-                  <div>
-                    <small>{item.kind_label || item.kind} · {when(item.created_at)}</small>
-                    <strong>{item.subject || "Sans sujet"}</strong>
-                  </div>
-                  <span className="status">{STATUS[item.status] || item.status}</span>
-                </header>
-                <p>{item.to}</p>
-                <footer>
-                  <ActionButton type="button" secondary icon={Mail} onClick={() => void openMessage(item.id)}>Voir le message</ActionButton>
-                </footer>
-              </article>
+      <div className={layout}>
+        <nav className="mail-folders" aria-label="Dossiers">
+          <button type="button" className={folder === "sent" ? "is-active" : ""} onClick={() => setFolder("sent")}>
+            <Mail size={16} />
+            <span>Envoyés</span>
+            <small>{messages.length}</small>
+          </button>
+          <button type="button" className={folder === "compose" ? "is-active" : ""} onClick={() => setFolder("compose")}>
+            <PenLine size={16} />
+            <span>Nouveau</span>
+          </button>
+        </nav>
+
+        <section className="mail-list-pane" aria-labelledby="sent-mail-title">
+          <header className="mail-list-head">
+            <h2 id="sent-mail-title">Envoyés</h2>
+            <label className="mail-search">
+              <Search size={14} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Rechercher"
+                aria-label="Rechercher un message"
+              />
+            </label>
+          </header>
+          {loading && !messages.length ? <p className="mail-empty-list">Chargement…</p> : null}
+          {!loading && !visible.length ? (
+            <Empty
+              icon={Mail}
+              title={query ? "Aucun message ne correspond." : "Aucun message envoyé pour le moment."}
+              text={query ? "Essaie un autre nom, une adresse ou un sujet." : "Les emails déjà partis aux clients s'affichent ici."}
+            />
+          ) : null}
+          <div className="mail-rows" role="listbox" aria-label="Messages envoyés">
+            {visible.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="option"
+                aria-selected={selectedId === item.id}
+                className={selectedId === item.id && folder === "sent" ? "mail-row is-selected" : "mail-row"}
+                onClick={() => openMessage(item.id)}
+              >
+                <span className="mail-avatar" aria-hidden="true">{initial(item)}</span>
+                <span className="mail-row-copy">
+                  <span className="mail-row-top">
+                    <strong>{item.name || item.to}</strong>
+                    <time dateTime={stamp(item.created_at)?.toISOString()}>{when(item.created_at)}</time>
+                  </span>
+                  <span className="mail-row-subject">{item.subject || "Sans sujet"}</span>
+                  <span className="mail-row-preview">{item.preview || item.kind_label}</span>
+                </span>
+              </button>
             ))}
           </div>
-        ) : null}
-        {detailError ? <p className="form-error" role="alert">{detailError}</p> : null}
-        {detail ? (
-          <article className="mail-reading">
-            <h3>{detail.subject}</h3>
-            <p>{detail.kind_label || detail.kind} · {detail.to}{detail.name ? ` · ${detail.name}` : ""} · {STATUS[detail.status] || detail.status}</p>
-            <pre>{detail.text || "Ce message n'a pas de texte."}</pre>
-          </article>
-        ) : null}
-      </section>
+        </section>
 
-      <section className="mail-compose" aria-labelledby="new-mail-title">
-        <h2 id="new-mail-title">Nouveau message</h2>
-        {result.from ? <p className="mail-from">De : <strong>{result.from}</strong></p> : null}
-        <form className="operation-form" onSubmit={(event) => void submit(event)}>
-          <div className="form-grid">
-            <Field label="Destinataire">
-              <select value={audience} onChange={(event) => setAudience(event.target.value)} aria-label="Destinataire">
-                <option value="one">Un client</option>
-                <option value="all">Tous les clients ({customers.length})</option>
-              </select>
-            </Field>
-            {audience === "one" ? (
-              <Field label="Client">
-                <select value={customerId} onChange={(event) => setCustomerId(event.target.value)} required aria-label="Client">
-                  <option value="">Choisir…</option>
-                  {customers.map((person) => (
-                    <option key={person.id} value={person.id}>{person.name} — {person.email}</option>
-                  ))}
+        <section className="mail-read-pane" aria-live="polite">
+          {folder === "compose" ? (
+            <form className="mail-compose" onSubmit={(event) => void submit(event)}>
+              <header className="mail-compose-head">
+                <h2>Nouveau message</h2>
+                <p>De : <strong>{result.from || "BLACKMARKET"}</strong></p>
+              </header>
+              <Field label="Destinataire">
+                <select value={audience} onChange={(event) => setAudience(event.target.value)} aria-label="Destinataire">
+                  <option value="one">Un client</option>
+                  <option value="all">Tous les clients ({customers.length})</option>
                 </select>
               </Field>
-            ) : <span />}
-          </div>
-          <Field label="Sujet" wide>
-            <input value={subject} onChange={(event) => setSubject(event.target.value)} required minLength={3} maxLength={120} />
-          </Field>
-          <Field label="Message" wide>
-            <textarea value={message} onChange={(event) => setMessage(event.target.value)} required minLength={8} maxLength={4000} rows={7} />
-          </Field>
-          {formError ? <p className="form-error" role="alert">{formError}</p> : null}
-          {done ? <p className="form-success" role="status">{done}</p> : null}
-          {!loading && !customers.length ? <p>Aucun client pour le moment.</p> : null}
-          <div className="dialog-actions">
-            <ActionButton icon={Send} type="submit" disabled={busy || !customers.length}>
-              {busy ? "Envoi…" : "Envoyer"}
-            </ActionButton>
-          </div>
-        </form>
-      </section>
+              {audience === "one" ? (
+                <Field label="Client">
+                  <select value={customerId} onChange={(event) => setCustomerId(event.target.value)} required aria-label="Client">
+                    <option value="">Choisir…</option>
+                    {customers.map((person) => (
+                      <option key={person.id} value={person.id}>{person.name} — {person.email}</option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              <Field label="Sujet">
+                <input value={subject} onChange={(event) => setSubject(event.target.value)} required minLength={3} maxLength={120} />
+              </Field>
+              <Field label="Message">
+                <textarea value={message} onChange={(event) => setMessage(event.target.value)} required minLength={8} maxLength={4000} rows={12} />
+              </Field>
+              {formError ? <p className="form-error" role="alert">{formError}</p> : null}
+              {done ? <p className="form-success" role="status">{done}</p> : null}
+              {!loading && !customers.length ? <p className="mail-empty-list">Aucun client pour le moment.</p> : null}
+              <div className="dialog-actions">
+                <ActionButton icon={Send} type="submit" disabled={busy || !customers.length}>
+                  {busy ? "Envoi…" : "Envoyer"}
+                </ActionButton>
+              </div>
+            </form>
+          ) : null}
+
+          {folder === "sent" && !selectedId ? (
+            <div className="mail-placeholder">
+              <Mail size={28} />
+              <p>Choisis un message pour lire exactement ce que le client a reçu.</p>
+            </div>
+          ) : null}
+
+          {folder === "sent" && selectedId ? (
+            <article className="mail-letter">
+              <button type="button" className="mail-back" onClick={() => setSelectedId(null)}>Retour aux messages</button>
+              {detailError ? <p className="form-error" role="alert">{detailError}</p> : null}
+              {reading && !detail ? <p className="mail-empty-list">Ouverture du message…</p> : null}
+              {detail ? (
+                <>
+                  <header className="mail-letter-head">
+                    <h2>{detail.subject || "Sans sujet"}</h2>
+                    <span className={`status ${detail.status || ""}`}>{STATUS[detail.status] || detail.status}</span>
+                    <dl>
+                      <div><dt>De</dt><dd>{result.from || "BLACKMARKET"}</dd></div>
+                      <div><dt>À</dt><dd>{recipient}</dd></div>
+                      <div><dt>Date</dt><dd>{fullWhen(detail.created_at)}</dd></div>
+                      <div><dt>Type</dt><dd>{detail.kind_label || detail.kind}</dd></div>
+                    </dl>
+                  </header>
+                  {detail.html ? <MailFrame html={detail.html} /> : <pre className="mail-plain">{detail.text || "Ce message n'a pas de contenu."}</pre>}
+                </>
+              ) : null}
+            </article>
+          ) : null}
+        </section>
+      </div>
     </div>
   );
 }
