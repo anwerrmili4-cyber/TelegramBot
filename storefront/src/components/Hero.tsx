@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
+import { FavoriteButton } from "@/components/FavoriteButton";
 import { FilmReel } from "@/components/FilmReel";
 import { HowItWorks } from "@/components/HowItWorks";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
@@ -153,6 +154,7 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
           </span>
         </span>
       </button>
+      <FavoriteButton compact offerId={offer.id} />
       {offer.available ? null : <TileNotify offerId={offer.id} />}
     </article>
   );

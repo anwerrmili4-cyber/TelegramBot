@@ -3,6 +3,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Layers, ShieldCheck, ShieldOff }
 import { assetUrl } from "@/lib/api";
 import { money } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
+import { FavoriteButton } from "@/components/FavoriteButton";
 import { Link, productPath } from "@/lib/router";
 import type { Offer } from "@/types";
 
@@ -184,6 +185,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 aria-hidden={active ? undefined : true}
                 tabIndex={active ? undefined : -1}
               >
+                <FavoriteButton compact offerId={offer.id} />
                 {picture ? <img className="poster-bg" src={assetUrl(picture)} alt="" aria-hidden="true" decoding="async" /> : null}
                 <div className="poster-body">
                   <div className="poster-meta">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Clock, Package, ShieldCheck, ShieldOff, ShoppingBag, X, Zap } from "lucide-react";
+import { FavoriteButton } from "@/components/FavoriteButton";
 import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
@@ -150,6 +151,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
 
           <aside className="order-card">
             <span className="label-caps">Ta commande</span>
+            <FavoriteButton offerId={shown.id} />
             <div className="oline">
               <span className="cat-mark">
                 {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" /> : shown.service_emoji}

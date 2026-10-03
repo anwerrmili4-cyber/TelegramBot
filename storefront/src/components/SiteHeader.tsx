@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
   Headset,
+  Heart,
   Home,
   LayoutGrid,
   LifeBuoy,
@@ -41,6 +42,15 @@ const BEFORE = [
 
 const AFTER = [{ to: ROUTES.deals, label: "Offres" }];
 
+function subscribeLocation(onChange: () => void) {
+  window.addEventListener("popstate", onChange);
+  window.addEventListener("storefront:navigate", onChange);
+  return () => {
+    window.removeEventListener("popstate", onChange);
+    window.removeEventListener("storefront:navigate", onChange);
+  };
+}
+
 const MORE = [
   { to: ROUTES.news, label: "Annonces", icon: Megaphone },
   { to: ROUTES.prices, label: "Liste des prix", icon: List },
@@ -55,6 +65,7 @@ const PHONE_SHOP = [
   { to: ROUTES.deals, label: "Offres", icon: Percent },
   { to: ROUTES.prices, label: "Liste des prix", icon: List },
   { to: ROUTES.news, label: "Annonces", icon: Megaphone },
+  { to: accountPath("favoris"), label: "Favoris", icon: Heart },
 ];
 
 const PHONE_HELP = [
@@ -71,11 +82,14 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
   const { customer, loading } = useAuth();
   const theme = useTheme();
   const path = usePathname();
+  const search = useSyncExternalStore(subscribeLocation, () => window.location.search);
+  const favoritesOn = path === ROUTES.account && new URLSearchParams(search).get("onglet") === "favoris";
   const firstName = customer?.name.split(" ")[0] ?? "";
   const moreCurrent = MORE.some((item) => item.to === path) || path === "/aide";
   const catsCurrent = path === ROUTES.categories;
 
-  function pillOn(kind: "home" | "shop" | "cats" | "deals" | "more") {
+  function pillOn(kind: "home" | "shop" | "cats" | "deals" | "fav" | "more") {
+    if (favoritesOn) return kind === "fav";
     if (catsOpen) return kind === "cats";
     if (moreOpen) return kind === "more";
     if (kind === "home") return path === ROUTES.home;
@@ -98,7 +112,7 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
       observer.observe(control);
     }
     return () => observer.disconnect();
-  }, [path, catsOpen, moreOpen]);
+  }, [path, catsOpen, moreOpen, favoritesOn]);
 
   function closeMenus() {
     setMenuOpen(false);
@@ -320,6 +334,14 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
             {item.label}
           </Link>
         ))}
+        <Link
+          to={accountPath("favoris")}
+          aria-current={favoritesOn ? "page" : undefined}
+          data-pill-target={pillOn("fav") ? "true" : undefined}
+          onClick={closeMenus}
+        >
+          Favoris
+        </Link>
         <div className={moreOpen ? "nav-more open" : "nav-more"}>
           <button
             type="button"

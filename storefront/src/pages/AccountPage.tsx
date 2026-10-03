@@ -18,6 +18,7 @@ import {
   UserRound,
   Wallet as WalletIcon,
 } from "lucide-react";
+import { noteFavorite } from "@/components/FavoriteButton";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
 import { assetUrl, createDeposit, downloadInvoice, errorMessage, fetchFavorites, fetchNotifications, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, markAllNotificationsRead, markNotificationRead, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, setFavorite, submitReview } from "@/lib/api";
@@ -347,6 +348,7 @@ function FavoritesTab() {
     setError("");
     try {
       await setFavorite(token, offerId, false);
+      noteFavorite(token, offerId, false);
       setFavorites((current) => (current || []).filter((item) => item.offer_id !== offerId));
     } catch (reason) {
       setError(errorMessage(reason, "Le favori n'a pas pu être retiré."));

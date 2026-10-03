@@ -361,6 +361,46 @@
   margin-bottom: 8px;
 }
 
+.fav-heart {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(7, 8, 11, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+
+.fav-heart.is-saved {
+  border-color: #ff4d6a;
+  background: #fff;
+  color: #ff4d6a;
+}
+
+.poster .fav-heart {
+  position: absolute;
+  z-index: 5;
+  top: 18px;
+  right: 18px;
+}
+
+.prod-tile {
+  position: relative;
+}
+
+.prod-tile .fav-heart {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: 10px;
+}
+
+.poster:not(.on) .fav-heart {
+  pointer-events: none;
+}
+
 .poster-play {
   position: absolute;
   z-index: 4;
