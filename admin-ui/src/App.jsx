@@ -74,18 +74,20 @@ const NAV_GROUPS = [
   ] },
 ];
 const SITE_NAV_GROUPS = [
-  { label: "Site Tunisie", items: [
-    { id: "site-overview", label: "Tableau de bord", icon: LayoutDashboard },
+  { label: "Espace de travail", items: [
+    { id: "site-overview", label: "Accueil", icon: LayoutDashboard },
     { id: "site-orders", label: "Commandes", icon: ClipboardList },
-    { id: "site-deposits", label: "Recharges", icon: WalletCards },
     { id: "site-customers", label: "Clients", icon: Users },
     { id: "site-support", label: "Support", icon: Headphones },
     { id: "site-product-requests", label: "Demandes produits", icon: PackageSearch },
     { id: "site-warranties", label: "Garanties", icon: ShieldCheck },
   ] },
-  { label: "Catalogue du site", items: [
-    { id: "site-catalog", label: "Catalogue du site", icon: ShoppingBag },
-    { id: "site-inventory", label: "Inventaire partagé", icon: Boxes },
+  { label: "Catalogue & finance", items: [
+    { id: "site-catalog", label: "Mon catalogue", icon: ShoppingBag },
+    { id: "site-inventory", label: "Inventaire", icon: Boxes },
+    { id: "site-deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
+  ] },
+  { label: "Administration", items: [
     { id: "site-settings", label: "Paramètres", icon: Settings },
   ] },
 ];
@@ -767,6 +769,8 @@ export default function App() {
         put("cart", entityId);
         put("status", extra?.status || "all");
         put("search", extra?.search ?? entityId);
+      } else if (page === "site-orders" && extra?.status) {
+        put("status", extra.status);
       } else if (page === "site-customers" && entityId != null) {
         put("customer", entityId);
         put("search", extra?.search || "");
@@ -774,6 +778,8 @@ export default function App() {
         put("deposit", entityId);
         put("status", extra?.status || "all");
         put("search", extra?.search || "");
+      } else if (page === "site-deposits" && extra?.status) {
+        put("status", extra.status);
       }
       const query = params.toString();
       window.history.pushState({}, "", target + (query ? `?${query}` : ""));
@@ -955,7 +961,7 @@ export default function App() {
       {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
       {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{(isSitePage(activePage)
-          ? [["site-overview", "Tableau", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-deposits", "Recharges", WalletCards], ["site-customers", "Clients", Users]]
+          ? [["site-overview", "Accueil", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-deposits", "Dépôts", CircleDollarSign], ["site-customers", "Clients", Users]]
           : [["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]]).map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
       <Toast toast={toast} onClose={() => setToast(null)} />
     </div>

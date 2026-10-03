@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Boxes,
   CheckCircle2,
+  ClipboardList,
   ExternalLink,
   Globe2,
   PackageCheck,
@@ -138,38 +140,109 @@ function CartDetail({ reference, onAction, onBack, onNavigate }) {
   </div>;
 }
 
+function CartActions({ cart, onAction, onOpen }) {
+  const [editor, setEditor] = useState(null);
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const waiting = cart.items.filter((item) => ["payment_confirmed", "paid"].includes(item.status));
+  const paidTotal = waiting.reduce((sum, item) => sum + item.total_millimes, 0);
+  const run = async (payload) => {
+    setSending(true);
+    try {
+      if (await onAction(payload)) {
+        setEditor(null);
+        setNote("");
+        refreshLists();
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+  return <>
+    <div className="site-actions" onClick={(event) => event.stopPropagation()}>
+      <ActionButton secondary onClick={onOpen}>Ouvrir</ActionButton>
+      {cart.status === "to_verify" && <>
+        <ActionButton icon={CheckCircle2} disabled={sending} onClick={() => run({ action: "site_cart_confirm", reference: cart.reference })}>Confirmer</ActionButton>
+        <ActionButton icon={X} danger disabled={sending} onClick={() => { setEditor("cancel"); setNote(""); }}>Refuser</ActionButton>
+      </>}
+      {["confirmed", "partial"].includes(cart.status) && <>
+        <ActionButton icon={PackageCheck} disabled={sending} onClick={() => { setEditor("deliver"); setNote(""); }}>Livrer</ActionButton>
+        <ActionButton icon={X} danger disabled={sending} onClick={() => { setEditor("cancel"); setNote(""); }}>Rembourser</ActionButton>
+      </>}
+    </div>
+    {editor === "deliver" && <Modal title={`Livrer le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_deliver", reference: cart.reference, note }); }}>
+      <p>Ces accès seront envoyés par email à <strong>{cart.customer_email || "le client"}</strong> pour : {waiting.map((item) => `${item.quantity} × ${item.offer_name}`).join(", ") || "les lignes en attente"}.</p>
+      <Field label="Accès à livrer au client" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={4000} rows={7} required autoFocus /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={PackageCheck} disabled={sending}>Envoyer et marquer livré</ActionButton></div>
+    </form></Modal>}
+    {editor === "cancel" && <Modal title={`Annuler le panier ${cart.reference}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_cart_cancel", reference: cart.reference, reason: note }); }}>
+      <p>{cart.status === "to_verify" ? "Le reçu est refusé. Rien n’est débité ni remboursé." : <><strong>{dinars(paidTotal)}</strong> seront remboursés sur le portefeuille.</>} Le client reçoit ce motif par email.</p>
+      <Field label="Motif" wide><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={4} required autoFocus /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X} disabled={sending}>{cart.status === "to_verify" ? "Refuser" : "Annuler et rembourser"}</ActionButton></div>
+    </form></Modal>}
+  </>;
+}
+
 export default function SiteOrdersPage({ onAction, onNavigate }) {
   const [query, replace] = useSiteQuery();
+  const [viewMode, setViewMode] = useState(() => (window.matchMedia("(max-width: 640px)").matches ? "cards" : "kanban"));
   const search = query.search || "";
-  const status = query.status || "to_verify";
+  const status = query.status || (viewMode === "kanban" ? "all" : "to_verify");
   const page = Number(query.page || 1);
-  const [result, loading] = useRemoteList("/admin/api/site-orders", { search, status, page, per_page: 20 }, { refreshInterval: 15000 });
+  const [result, loading] = useRemoteList("/admin/api/site-orders", { search, status, page, per_page: viewMode === "kanban" ? 40 : 20 }, { refreshInterval: 15000 });
   const counts = result.counts || {};
+  const openCart = (reference) => replace({ cart: reference }, { push: true });
+  const kanbanColumns = useMemo(() => [
+    { id: "waiting", label: "À vérifier", statuses: ["to_verify"], total: counts.to_verify || 0 },
+    { id: "confirmed", label: "À livrer", statuses: ["confirmed", "partial"], total: counts.confirmed || 0 },
+    { id: "completed", label: "Livrés", statuses: ["delivered"], total: counts.delivered || 0 },
+    { id: "delivery", label: "Annulés", statuses: ["cancelled"], total: counts.cancelled || 0 },
+  ].map((column) => ({
+    ...column,
+    items: (result.items || []).filter((item) => column.statuses.includes(item.status)),
+  })), [result.items, counts.to_verify, counts.confirmed, counts.delivered, counts.cancelled]);
   if (query.cart) return <CartDetail reference={query.cart} onAction={onAction} onBack={() => replace({ cart: "" })} onNavigate={onNavigate} />;
   return <div className="operations-page site-page">
     <PageHeader title="Commandes du site" description="Vérifiez le reçu joint par le client puis confirmez : les produits en stock sont livrés automatiquement, les autres attendent vos accès. Les paiements par portefeuille arrivent déjà confirmés." />
     <OperationsSummary items={[["À vérifier", counts.to_verify || 0, "warning"], ["À livrer", counts.confirmed || 0, "accent"], ["Livrés", counts.delivered || 0, "success"], ["Annulés", counts.cancelled || 0, "danger"]]} />
     <FilterBar search={search} setSearch={(value) => replace({ search: value, page: "", cart: "" })} placeholder="Référence TN-…, nom, email, réf. de transaction…" resultCount={result.total}>
-      <select value={status} onChange={(event) => replace({ status: event.target.value === "to_verify" ? "" : event.target.value, page: "", cart: "" })} aria-label="Statut du panier">
+      <select value={status} onChange={(event) => replace({ status: event.target.value, page: "", cart: "" })} aria-label="Statut du panier">
         <option value="to_verify">À vérifier</option>
         <option value="confirmed">À livrer</option>
         <option value="delivered">Livrés</option>
         <option value="cancelled">Annulés</option>
         <option value="all">Tous</option>
       </select>
+      <div className="order-view-switch" aria-label="Mode d’affichage">
+        <button className={viewMode === "cards" ? "active" : ""} type="button" onClick={() => setViewMode("cards")}><ClipboardList size={14} />Cartes</button>
+        <button className={viewMode === "table" ? "active" : ""} type="button" onClick={() => setViewMode("table")}><ClipboardList size={14} />Tableau</button>
+        <button className={viewMode === "kanban" ? "active" : ""} type="button" onClick={() => { setViewMode("kanban"); if (!query.status) replace({ status: "all" }); }}><Boxes size={14} />Kanban</button>
+      </div>
     </FilterBar>
     <section className="data-panel" aria-busy={loading}>
       {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des commandes du site…</div>
         : !result.items.length ? <Empty icon={Globe2} title="Aucune commande" text="Les paniers validés sur le site tunisien apparaîtront ici." />
+        : viewMode === "kanban" ? <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}>
+          <header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header>
+          <div className="kanban-cards">{column.items.map((cart) => <article className="kanban-order" key={cart.reference}>
+            <button type="button" onClick={() => openCart(cart.reference)}><div><strong>{cart.reference}</strong><CartStatus status={cart.status} /></div><h4>{cart.items[0] ? `${cart.items[0].quantity} × ${cart.items[0].offer_name}` : "Panier"}</h4><span className="order-customer-display"><strong>{cart.customer_name || "Client"}</strong><small>{cart.customer_email || "—"}</small></span><footer><b>{dinars(cart.total_millimes)}</b><small>{date(cart.created_at)}</small></footer></button>
+            <CartActions cart={cart} onAction={onAction} onOpen={() => openCart(cart.reference)} />
+          </article>)}</div>
+        </section>)}</div>
+        : viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((cart) => <article key={cart.reference}>
+          <button type="button" onClick={() => openCart(cart.reference)}><header><strong>{cart.reference}</strong><CartStatus status={cart.status} /></header><h3>{cart.customer_name || "Client"}</h3><footer><strong>{dinars(cart.total_millimes)}</strong><span>{date(cart.created_at)}</span></footer></button>
+          <CartActions cart={cart} onAction={onAction} onOpen={() => openCart(cart.reference)} />
+        </article>)}</div>
         : <div className="responsive-table"><table className="site-catalog-table">
-          <thead><tr><th>Commande</th><th>Client</th><th>Montant</th><th>Paiement</th><th>Statut</th><th>Date</th></tr></thead>
-          <tbody>{result.items.map((cart) => <tr key={cart.reference} className="site-click-row" onClick={() => replace({ cart: cart.reference }, { push: true })}>
+          <thead><tr><th>Commande</th><th>Client</th><th>Montant</th><th>Paiement</th><th>Statut</th><th>Date</th><th>Actions</th></tr></thead>
+          <tbody>{result.items.map((cart) => <tr key={cart.reference} className="site-click-row" onClick={() => openCart(cart.reference)}>
             <td><strong>{cart.reference}</strong><small>{cart.items.length} article(s)</small></td>
             <td><strong>{cart.customer_name || "Client"}</strong><small>{cart.customer_email || "—"}</small></td>
             <td><strong>{dinars(cart.total_millimes)}</strong></td>
             <td>{cart.payment_method === "wallet" ? <span className="site-chip"><Wallet size={11} />Portefeuille</span> : cart.payment_label}</td>
             <td><CartStatus status={cart.status} /></td>
             <td>{date(cart.created_at)}</td>
+            <td className="site-ops-cell"><CartActions cart={cart} onAction={onAction} onOpen={() => openCart(cart.reference)} /></td>
           </tr>)}</tbody>
         </table></div>}
       <Pagination value={result} onChange={(next) => replace({ page: next === 1 ? "" : next })} />

@@ -64,7 +64,7 @@ export default function SiteOverviewPage({ data, onNavigate }) {
         </div>
         {tab === "priorities" && <section className="workspace-inbox">
           <header><span>FILE DE TRAVAIL</span><small>{loading && !ready ? "Chargement…" : "Selon le dernier état synchronisé"}</small></header>
-          {queues.map(([page, Icon, title, text, value, tone]) => <button key={page} type="button" onClick={() => onNavigate(page)}>
+          {queues.map(([page, Icon, title, text, value, tone]) => <button key={page} type="button" onClick={() => onNavigate(page, null, page === "site-orders" ? { status: "to_verify" } : page === "site-deposits" ? { status: "pending" } : null)}>
             <span className={`workspace-task-icon ${tone}`}><Icon size={22} /></span>
             <span className="workspace-task-copy"><strong>{title}</strong><small>{text}</small></span>
             <b>{value}</b>
@@ -83,7 +83,7 @@ export default function SiteOverviewPage({ data, onNavigate }) {
             </li>)}</ol>}
         </section>}
         {tab === "recent" && <section className="workspace-inbox">
-          <header><span>COMMANDES RÉCENTES</span><button type="button" onClick={() => onNavigate("site-orders")}>Tout consulter →</button></header>
+          <header><span>COMMANDES RÉCENTES</span><button type="button" onClick={() => onNavigate("site-orders", null, { status: "all" })}>Tout consulter →</button></header>
           {!recent.length ? <Empty icon={Globe2} title="Aucune commande" text="Les paniers validés sur le site apparaîtront ici." />
             : recent.map((cart) => <button key={cart.reference} type="button" onClick={() => onNavigate("site-orders", cart.reference)}>
               <span className="workspace-task-icon"><ClipboardList size={20} /></span>

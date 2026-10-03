@@ -8,7 +8,7 @@ import {
 import { date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination, useRemoteList, OperationsSummary } from "../admin-kit.jsx";
 import { DEPOSIT_STATUS, Receipt, dinars, dinarInput, refreshLists, useSiteQuery } from "../site-format.jsx";
 
-function DepositDetail({ deposit, onAction, onDone }) {
+function DepositDetail({ deposit, onAction, onDone, compact = false }) {
   const [editor, setEditor] = useState(null);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
@@ -30,6 +30,23 @@ function DepositDetail({ deposit, onAction, onDone }) {
       setSending(false);
     }
   };
+  const actions = deposit.status === "pending" ? <div className="site-actions">
+    <ActionButton icon={CheckCircle2} disabled={sending} onClick={() => open("approve")}>Créditer</ActionButton>
+    <ActionButton icon={X} danger disabled={sending} onClick={() => open("reject")}>Refuser</ActionButton>
+  </div> : null;
+  const dialogs = <>
+    {editor === "approve" && <Modal title={`Créditer la recharge #${deposit.id}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_deposit_approve", deposit_id: deposit.id, amount: value }); }}>
+      <p>{deposit.customer_name} a déclaré <strong>{dinars(deposit.amount_millimes)}</strong> par {deposit.method_label} (réf. {deposit.transaction_reference || "—"}). Indiquez le montant réellement reçu.</p>
+      <Field label="Montant à créditer (DT)"><input value={value} onChange={(event) => setValue(event.target.value)} inputMode="decimal" required autoFocus /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={CheckCircle2} disabled={sending}>Créditer le portefeuille</ActionButton></div>
+    </form></Modal>}
+    {editor === "reject" && <Modal title={`Refuser la recharge #${deposit.id}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_deposit_reject", deposit_id: deposit.id, reason: value }); }}>
+      <p>Le client recevra ce motif par email et pourra envoyer une nouvelle demande.</p>
+      <Field label="Motif" wide><textarea value={value} onChange={(event) => setValue(event.target.value)} maxLength={500} rows={4} required autoFocus placeholder="Ex. Aucun virement reçu avec cette référence" /></Field>
+      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X} disabled={sending}>Refuser</ActionButton></div>
+    </form></Modal>}
+  </>;
+  if (compact) return <>{actions}{dialogs}</>;
   return <aside className="site-record-panel">
     <header className="site-record-head">
       <div>
@@ -51,20 +68,8 @@ function DepositDetail({ deposit, onAction, onDone }) {
       {deposit.reason ? <div><dt>Motif du refus</dt><dd>{deposit.reason}</dd></div> : null}
       <div><dt>Reçu</dt><dd><Receipt id={deposit.receipt_id} /></dd></div>
     </dl>
-    {deposit.status === "pending" && <div className="site-actions">
-      <ActionButton icon={CheckCircle2} disabled={sending} onClick={() => open("approve")}>Créditer</ActionButton>
-      <ActionButton icon={X} danger disabled={sending} onClick={() => open("reject")}>Refuser</ActionButton>
-    </div>}
-    {editor === "approve" && <Modal title={`Créditer la recharge #${deposit.id}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_deposit_approve", deposit_id: deposit.id, amount: value }); }}>
-      <p>{deposit.customer_name} a déclaré <strong>{dinars(deposit.amount_millimes)}</strong> par {deposit.method_label} (réf. {deposit.transaction_reference || "—"}). Indiquez le montant réellement reçu.</p>
-      <Field label="Montant à créditer (DT)"><input value={value} onChange={(event) => setValue(event.target.value)} inputMode="decimal" required autoFocus /></Field>
-      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" icon={CheckCircle2} disabled={sending}>Créditer le portefeuille</ActionButton></div>
-    </form></Modal>}
-    {editor === "reject" && <Modal title={`Refuser la recharge #${deposit.id}`} onClose={() => !sending && setEditor(null)}><form className="operation-form" onSubmit={(event) => { event.preventDefault(); run({ action: "site_deposit_reject", deposit_id: deposit.id, reason: value }); }}>
-      <p>Le client recevra ce motif par email et pourra envoyer une nouvelle demande.</p>
-      <Field label="Motif" wide><textarea value={value} onChange={(event) => setValue(event.target.value)} maxLength={500} rows={4} required autoFocus placeholder="Ex. Aucun virement reçu avec cette référence" /></Field>
-      <div className="dialog-actions"><ActionButton type="button" secondary disabled={sending} onClick={() => setEditor(null)}>Retour</ActionButton><ActionButton type="submit" danger icon={X} disabled={sending}>Refuser</ActionButton></div>
-    </form></Modal>}
+    {actions}
+    {dialogs}
   </aside>;
 }
 
@@ -92,7 +97,7 @@ export default function SiteDepositsPage({ onAction }) {
         {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des recharges…</div>
           : !result.items.length ? <Empty icon={Wallet} title="Aucune recharge" text="Les demandes de recharge envoyées depuis l’espace client apparaîtront ici." />
           : <div className="responsive-table"><table className="site-catalog-table">
-            <thead><tr><th>Recharge</th><th>Client</th><th>Montant</th><th>Référence</th><th>Statut</th><th>Date</th></tr></thead>
+            <thead><tr><th>Recharge</th><th>Client</th><th>Montant</th><th>Référence</th><th>Statut</th><th>Date</th><th>Actions</th></tr></thead>
             <tbody>{result.items.map((deposit) => {
               const [label, className] = DEPOSIT_STATUS[deposit.status] || [deposit.status, ""];
               return <tr key={deposit.id} className={`site-click-row${selected?.id === deposit.id ? " is-selected" : ""}`} onClick={() => replace({ deposit: deposit.id }, { push: true })}>
@@ -102,6 +107,11 @@ export default function SiteDepositsPage({ onAction }) {
                 <td>{deposit.transaction_reference || "—"}</td>
                 <td><span className={`status ${className}`}>{label}</span></td>
                 <td>{date(deposit.created_at)}</td>
+                <td className="site-ops-cell" onClick={(event) => event.stopPropagation()}>
+                  {deposit.status === "pending"
+                    ? <DepositDetail deposit={deposit} onAction={onAction} onDone={() => replace({ deposit: "" })} compact />
+                    : <ActionButton secondary onClick={() => replace({ deposit: deposit.id }, { push: true })}>Ouvrir</ActionButton>}
+                </td>
               </tr>;
             })}</tbody>
           </table></div>}
