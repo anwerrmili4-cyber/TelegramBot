@@ -351,6 +351,16 @@
   color: #fff;
 }
 
+.prod-tile .poster-warranty,
+.pdp-tags .poster-warranty {
+  flex: none;
+  margin-top: 0;
+}
+
+.prod-tile .poster-warranty {
+  margin-bottom: 8px;
+}
+
 .poster-play {
   position: absolute;
   z-index: 4;

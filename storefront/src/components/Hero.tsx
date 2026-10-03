@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { ArrowRight, ArrowUpRight, Search, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
 import { FilmReel } from "@/components/FilmReel";
 import { HowItWorks } from "@/components/HowItWorks";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
@@ -132,10 +132,13 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
       <button type="button" className="prod-tile-open" onClick={() => onOpen(offer)}>
         <span className="prod-tile-media">
           {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
-          <span className={warrantyBadgeClass("warranty-badge", warranty.tone)}>{warranty.label}</span>
           {offer.available ? null : <span className="sold-stamp">Épuisé</span>}
         </span>
         <span className="prod-tile-body">
+          <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+            {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+            {warranty.label}
+          </span>
           <em>{offer.service_name}</em>
           <strong>{offer.name}</strong>
           <small>

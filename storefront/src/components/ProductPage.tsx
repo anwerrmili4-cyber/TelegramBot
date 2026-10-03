@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, Check, Clock, Heart, List, Lock, Package, Share2, ShieldCheck, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
+import { ArrowLeft, Check, Clock, Heart, List, Lock, Package, Share2, ShieldCheck, ShieldOff, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
 import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { fetchFavorites, fetchReviews, requestStockAlert, setFavorite, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
-import { warrantyTagClass, warrantyView } from "@/lib/warranty";
+import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, navigate, productPath, ROUTES, withNext } from "@/lib/router";
 import type { Offer, PublicReview } from "@/types";
 
@@ -325,8 +325,9 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                 <Zap size={13} aria-hidden="true" /> Livraison immédiate
               </span>
             ) : null}
-            <span className={warrantyTagClass(warranty.tone)}>
-              {warranty.tone === "none" ? warranty.label : <><ShieldCheck size={13} aria-hidden="true" /> {warranty.label}</>}
+            <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+              {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+              {warranty.label}
             </span>
             {offer.badge ? <span className="tag">{offer.badge}</span> : null}
           </div>
