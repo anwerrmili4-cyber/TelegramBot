@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { ArrowRight, ShoppingCart } from "lucide-react";
 import { CartDrawer } from "@/components/CartDrawer";
 import { CatalogSection } from "@/components/CatalogSection";
@@ -12,27 +12,28 @@ import { MobileTabBar } from "@/components/MobileTabBar";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
+import { LoadMark } from "@/components/LoadMark";
 import { Link, navigate, productId, productPath, RouteProgress, ROUTES, usePathname } from "@/lib/router";
-import { AccountPage } from "@/pages/AccountPage";
-import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
-import { LoginPage } from "@/pages/LoginPage";
-import { RegisterPage } from "@/pages/RegisterPage";
-import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
-import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
-import {
-  CategoriesPage,
-  CommunityPage,
-  ContactPage,
-  DealsPage,
-  HelpPage,
-  MessengerPage,
-  NewsPage,
-  PricesPage,
-  PrivacyPage,
-  ReportPage,
-  TermsPage,
-} from "@/pages/StorePages";
 import type { Offer } from "@/types";
+
+const AccountPage = lazy(() => import("@/pages/AccountPage").then((mod) => ({ default: mod.AccountPage })));
+const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
+const RegisterPage = lazy(() => import("@/pages/RegisterPage").then((mod) => ({ default: mod.RegisterPage })));
+const VerifyEmailPage = lazy(() => import("@/pages/VerifyEmailPage").then((mod) => ({ default: mod.VerifyEmailPage })));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage").then((mod) => ({ default: mod.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage").then((mod) => ({ default: mod.ResetPasswordPage })));
+const storePages = () => import("@/pages/StorePages");
+const CategoriesPage = lazy(() => storePages().then((mod) => ({ default: mod.CategoriesPage })));
+const DealsPage = lazy(() => storePages().then((mod) => ({ default: mod.DealsPage })));
+const PricesPage = lazy(() => storePages().then((mod) => ({ default: mod.PricesPage })));
+const NewsPage = lazy(() => storePages().then((mod) => ({ default: mod.NewsPage })));
+const HelpPage = lazy(() => storePages().then((mod) => ({ default: mod.HelpPage })));
+const TermsPage = lazy(() => storePages().then((mod) => ({ default: mod.TermsPage })));
+const PrivacyPage = lazy(() => storePages().then((mod) => ({ default: mod.PrivacyPage })));
+const ContactPage = lazy(() => storePages().then((mod) => ({ default: mod.ContactPage })));
+const CommunityPage = lazy(() => storePages().then((mod) => ({ default: mod.CommunityPage })));
+const ReportPage = lazy(() => storePages().then((mod) => ({ default: mod.ReportPage })));
+const MessengerPage = lazy(() => storePages().then((mod) => ({ default: mod.MessengerPage })));
 
 const PAGES: Record<string, ComponentType | undefined> = {
   [ROUTES.login]: LoginPage,
@@ -90,6 +91,7 @@ export default function App() {
       />
 
       <main key={path} className="page-enter">
+        <Suspense fallback={<LoadMark />}>
         {path === ROUTES.account ? (
           <AccountPage
             offers={offers}
@@ -130,6 +132,7 @@ export default function App() {
             {path === ROUTES.home ? (
               <>
                 <Hero offers={offers} categories={categories} onOpenOffer={openProduct} />
+                {loading && !offers.length ? <LoadMark /> : null}
                 <PublicReviewList />
               </>
             ) : (
@@ -154,6 +157,7 @@ export default function App() {
             </header>
           </section>
         )}
+        </Suspense>
       </main>
 
       <SiteFooter />

@@ -3,7 +3,7 @@ import { Package, Receipt, RefreshCw, Send, Users } from "lucide-react";
 import { errorMessage, fetchTickets, openTicket, replyToTicket } from "@/lib/api";
 import { money } from "@/lib/format";
 import { Link, ROUTES, withNext } from "@/lib/router";
-import { accountPath } from "@/pages/AccountPage";
+import { accountPath } from "@/lib/accountPath";
 import { useAuth } from "@/hooks/useAuth";
 import type { AccountTicket, Category, Offer } from "@/types";
 

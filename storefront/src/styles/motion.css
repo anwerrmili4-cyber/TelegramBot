@@ -495,6 +495,10 @@
   .notice-row.is-new {
     animation: notice-fade 180ms ease;
   }
+
+  .load-mark i {
+    animation: load-spin 700ms linear infinite;
+  }
 }
 
 @keyframes fav-beat {
@@ -506,6 +510,10 @@
 @keyframes notice-fade {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes load-spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -543,6 +551,7 @@
   .fav-heart.is-pop,
   .favorite-button.is-saved svg.is-pop,
   .notice-row.is-new,
+  .load-mark i,
   .renew-button,
   .section-head,
   .catalog-toolbar,

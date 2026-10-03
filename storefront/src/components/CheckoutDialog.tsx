@@ -7,7 +7,7 @@ import { errorMessage, fetchWallet, submitCheckout } from "@/lib/api";
 import { money, plural } from "@/lib/format";
 import { stagger } from "@/lib/motion";
 import { navigate, ROUTES, withNext } from "@/lib/router";
-import { accountPath } from "@/pages/AccountPage";
+import { accountPath } from "@/lib/accountPath";
 import type { Cart } from "@/hooks/useCart";
 import type { CheckoutResult, PaymentMethod } from "@/types";
 

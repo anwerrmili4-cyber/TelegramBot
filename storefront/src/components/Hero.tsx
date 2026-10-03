@@ -132,7 +132,7 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
     <article ref={tileRef} className={classes} style={{ "--i": index } as CSSProperties}>
       <button type="button" className="prod-tile-open" onClick={() => onOpen(offer)}>
         <span className="prod-tile-media">
-          {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : <span className="prod-ph">{offer.service_emoji}</span>}
+          {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" loading="lazy" /> : <span className="prod-ph">{offer.service_emoji}</span>}
           {offer.available ? null : <span className="sold-stamp">Épuisé</span>}
         </span>
         <span className="prod-tile-body">

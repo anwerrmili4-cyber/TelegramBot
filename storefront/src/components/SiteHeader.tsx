@@ -25,7 +25,7 @@ import { money } from "@/lib/format";
 import { toggleTheme, useTheme } from "@/lib/theme";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
 import { placeSlidingPill } from "@/lib/slidingPill";
-import { accountPath } from "@/pages/AccountPage";
+import { accountPath } from "@/lib/accountPath";
 import { NotificationBell } from "@/components/NotificationBell";
 
 type SiteHeaderProps = {

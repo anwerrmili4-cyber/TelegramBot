@@ -79,13 +79,7 @@ export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps
       remember(token, offerId, result.saved);
       setPop(result.saved);
       if (!compact) {
-        setNote(
-          result.emailed
-            ? "La fiche complète est partie sur ton email."
-            : result.saved
-              ? "Déjà dans tes favoris."
-              : "Retiré de tes favoris.",
-        );
+        setNote(result.saved ? "Ajouté à tes favoris." : "Retiré de tes favoris.");
       }
     } catch (reason) {
       setError(errorMessage(reason, "Le favori n'a pas pu être enregistré."));

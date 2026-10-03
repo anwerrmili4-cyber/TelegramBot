@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Search, ServerCrash, SearchX } from "lucide-react";
+import { LoadMark } from "@/components/LoadMark";
 import { ProductTile } from "@/components/Hero";
 import { searchable } from "@/lib/format";
 import { prefersReducedMotion, stagger, withViewTransition } from "@/lib/motion";
@@ -117,6 +118,8 @@ export function CatalogSection({
       </div>
 
       {loading ? (
+        <div className="catalog-loading">
+        <LoadMark />
         <div className="tile-grid" aria-busy="true" aria-label="Chargement du catalogue">
           {[0, 1, 2, 3, 4, 5].map((key) => (
             <div className="offer-skeleton" key={key} style={stagger(key)}>
@@ -126,6 +129,7 @@ export function CatalogSection({
               <span />
             </div>
           ))}
+        </div>
         </div>
       ) : error ? (
         <div className="catalog-state">

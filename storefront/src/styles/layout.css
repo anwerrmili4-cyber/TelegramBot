@@ -3,6 +3,38 @@
   overflow-x: clip;
 }
 
+.load-mark {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 72px;
+  color: var(--text-mute);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.load-mark i {
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 3px solid color-mix(in srgb, var(--brand) 22%, transparent);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+}
+
+.catalog-loading {
+  position: relative;
+}
+
+.catalog-loading > .load-mark {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  min-height: 0;
+  pointer-events: none;
+}
+
 /* ---------- Header ---------- */
 
 .site-header {

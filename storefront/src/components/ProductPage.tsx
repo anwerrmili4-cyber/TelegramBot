@@ -6,6 +6,7 @@ import { fetchReviews, requestStockAlert, assetUrl, errorMessage } from "@/lib/a
 import { useAuth } from "@/hooks/useAuth";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
+import { LoadMark } from "@/components/LoadMark";
 import { Link, ROUTES } from "@/lib/router";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import type { Offer, PublicReview } from "@/types";
@@ -172,6 +173,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
     return (
       <section className="doc-page">
         <header className="page-intro">
+          {loading ? <LoadMark /> : null}
           <span className="kicker">BlackMarket</span>
           <h1>{loading ? "Chargement…" : "Produit introuvable"}</h1>
           <p>

@@ -1,8 +1,6 @@
 """Saved products for a Tunisian site customer.
 
-One row per account and product. The first time it is saved, the customer
-receives one email with the public product sheet. Saving it again does not
-send another email.
+One row per account and product. Saving a product does not send an email.
 """
 
 from __future__ import annotations
@@ -13,7 +11,7 @@ from typing import Any
 from pymongo.errors import DuplicateKeyError
 
 import database as db
-from app.domain import email_service, storefront_service
+from app.domain import storefront_service
 
 _MAX_FAVORITES = 40
 
@@ -34,47 +32,6 @@ def _catalog() -> dict[int, dict[str, Any]]:
         for offer in service["offers"]:
             found[int(offer["id"])] = offer
     return found
-
-
-def _months(days: int) -> str:
-    if days <= 0:
-        return ""
-    months = days // 30 if days % 30 == 0 else max(1, round(days / 30))
-    return f"{months} mois"
-
-
-def _stock_text(offer: dict[str, Any]) -> str:
-    if not offer.get("available"):
-        return "Indisponible"
-    stock = int(offer.get("stock") or 0)
-    if stock < 0:
-        return "Illimité"
-    return f"{stock} en stock"
-
-
-def _absolute(url: str) -> str:
-    raw = str(url or "").strip()
-    if not raw:
-        return ""
-    if raw.startswith("http://") or raw.startswith("https://"):
-        return raw
-    return f"{email_service.site_url()}{raw if raw.startswith('/') else '/' + raw}"
-
-
-def _sheet(offer: dict[str, Any]) -> dict[str, str]:
-    period = _months(int(offer.get("period_days") or 0)) or "—"
-    return {
-        "service": str(offer.get("service_name") or ""),
-        "name": str(offer.get("name") or "Produit"),
-        "price": email_service._money(int(offer.get("price_millimes") or 0)),
-        "period": period,
-        "warranty": str(offer.get("warranty") or "—"),
-        "stock": _stock_text(offer),
-        "delivery": str(offer.get("delivery_delay") or "") or "—",
-        "badge": str(offer.get("badge") or ""),
-        "description": str(offer.get("description") or "")[:1500],
-        "remark": str(offer.get("remark") or "")[:400],
-    }
 
 
 def _snapshot(offer: dict[str, Any]) -> dict[str, Any]:
@@ -168,16 +125,7 @@ def _add(customer: dict[str, Any], offer_id: int) -> dict[str, Any]:
     except DuplicateKeyError:
         existing = conn.storefront_favorites.find_one({"customer_id": customer_id, "offer_id": offer_id}) or row
         return {"ok": True, "saved": True, "emailed": False, "favorite": _public(existing, offer)}
-    link = f"{email_service.site_url()}/produit/{offer_id}"
-    logo = _absolute(str(offer.get("service_logo_url") or offer.get("image_url") or ""))
-    email_service.send_favorite(
-        str(customer.get("email") or ""),
-        str(customer.get("name") or ""),
-        _sheet(offer),
-        link,
-        logo,
-    )
-    return {"ok": True, "saved": True, "emailed": True, "favorite": _public(row, offer)}
+    return {"ok": True, "saved": True, "emailed": False, "favorite": _public(row, offer)}
 
 
 def _remove(customer_id: int, offer_id: int) -> dict[str, Any]:

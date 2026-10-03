@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { Heart, Home, ReceiptText, ShoppingBag, UserRound, Wallet } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, ROUTES, withNext } from "@/lib/router";
-import { accountPath } from "@/pages/AccountPage";
+import { accountPath } from "@/lib/accountPath";
 
 function subscribe(onChange: () => void) {
   window.addEventListener("popstate", onChange);

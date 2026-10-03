@@ -23,10 +23,13 @@ import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/Pa
 import { useAuth } from "@/hooks/useAuth";
 import { assetUrl, createDeposit, downloadInvoice, errorMessage, fetchFavorites, fetchNotifications, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, markAllNotificationsRead, markNotificationRead, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, setFavorite, submitReview } from "@/lib/api";
 import { accessLabel, clampQuantity, dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
+import { accountPath } from "@/lib/accountPath";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 import type { AccountOrder, AccountOrderItem, AccountOrders, AccountReview, AccountTicket, AccountWarranty, CartStatus, Deposit, Favorite, Offer, SiteNotification, Wallet } from "@/types";
+
+export { accountPath };
 
 const TABS = [
   { id: "commandes", label: "Mes achats", short: "Achats", icon: Package },
@@ -41,9 +44,6 @@ const TABS = [
 
 type Tab = (typeof TABS)[number]["id"];
 
-export function accountPath(tab: Tab = "commandes"): string {
-  return `${ROUTES.account}?onglet=${tab}`;
-}
 
 function initialTab(): Tab {
   const requested = new URLSearchParams(window.location.search).get("onglet");
@@ -363,7 +363,7 @@ function FavoritesTab() {
     <div className="favorites-tab">
       <header className="account-section-head">
         <h2>Favoris</h2>
-        <p>Chaque produit ajouté t'envoie sa fiche complète par email : prix, durée, garantie, stock et description.</p>
+        <p>Les produits que tu gardes de côté. Aucun email n'est envoyé.</p>
       </header>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       {!favorites.length ? (
