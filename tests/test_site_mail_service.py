@@ -124,3 +124,43 @@ def test_resend_history_is_listed_only_for_site_clients(mock_mongodb, site_custo
     subjects = [item["subject"] for item in site_mail_service.mailbox()["messages"]]
     assert "Ancien accès" in subjects
     assert "Pas un client" not in subjects
+
+
+def test_past_orders_and_deposits_rebuild_the_sent_mail(mock_mongodb, site_customer):
+    customer = site_customer()
+    db.get_conn().orders.insert_one({
+        "id": 50,
+        "sales_channel": "tn_site",
+        "cart_reference": "TN-HIST1",
+        "customer_id": customer["id"],
+        "customer_email": customer["email"],
+        "customer_name": customer["name"],
+        "offer_name": "ChatGPT",
+        "qty": 1,
+        "status": "cancelled",
+        "payment_method": "d17",
+        "cart_total_millimes": 25000,
+        "total_millimes": 25000,
+        "created_at": 100,
+        "cancelled_at": 200,
+        "admin_note": "Reçu illisible",
+    })
+    db.get_conn().storefront_deposits.insert_one({
+        "id": 7,
+        "customer_id": customer["id"],
+        "customer_email": customer["email"],
+        "customer_name": customer["name"],
+        "amount_millimes": 10000,
+        "credited_millimes": 10000,
+        "status": "approved",
+        "created_at": 300,
+        "reviewed_at": 400,
+    })
+
+    subjects = [item["subject"] for item in site_mail_service.mailbox()["messages"]]
+    assert "Commande TN-HIST1 reçue" in subjects
+    assert "Commande TN-HIST1 annulée" in subjects
+    assert "Recharge créditée #7" in subjects
+    detail = site_mail_service.message_detail("db-cancelled-TN-HIST1")
+    assert detail["to"] == customer["email"]
+    assert "Reçu illisible" in detail["text"]
