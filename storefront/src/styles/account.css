@@ -1428,3 +1428,53 @@
 .warranty-note small {
   color: var(--text-mute);
 }
+
+.review-form,
+.review-published,
+.review-wait {
+  flex: 1 0 100%;
+  margin: 8px 0 0;
+}
+
+.review-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.review-label,
+.review-published,
+.review-wait {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.review-form textarea {
+  flex: 1 0 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--ink-900);
+  color: var(--text);
+  font: inherit;
+}
+
+.review-stars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.review-star {
+  border: 0;
+  padding: 0 2px;
+  background: none;
+  color: var(--text-mute);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.review-star.is-on {
+  color: var(--gold);
+}

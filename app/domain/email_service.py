@@ -666,6 +666,55 @@ def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str)
     )
 
 
+def send_review_request(to: str, name: str, reference: str) -> None:
+    """Ask the customer to rate a delivered order. One message per cart."""
+    url = f"{site_url()}/mon-compte?onglet=commandes"
+    button = _button("Noter ma commande", url)
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"Ta commande {_strong(escape(reference))} est livrée. Dis-nous ce que tu en as pensé.")
+        + _note("Ta note et ton commentaire restent privés jusqu'à validation.")
+        + button
+    )
+    text = (
+        f"{_greeting(name)}\n\n"
+        f"Ta commande {reference} est livrée. Dis-nous ce que tu en as pensé.\n\n"
+        "Ta note et ton commentaire restent privés jusqu'à validation.\n\n"
+        f"Noter ma commande : {url}\n"
+    )
+    send(
+        to,
+        f"Ton avis sur {reference}",
+        _layout("Ton avis", body, badge="Avis", preheader=f"Note ta commande {reference}."),
+        text,
+    )
+
+
+def send_ticket_reply(to: str, name: str, ticket_id: int, message: str) -> None:
+    """Email a site customer when an admin replies in their messenger thread."""
+    url = f"{site_url()}/messagerie"
+    body_text = str(message or "").strip()[:2000]
+    button = _button("Ouvrir la messagerie", url)
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"Le support a répondu à ton {_strong(f'ticket #{int(ticket_id)}')}.")
+        + _panel(f'<p style="margin:0;font-size:15px;line-height:1.55;color:{_TEXT}">{escape(body_text)}</p>')
+        + button
+    )
+    text = (
+        f"{_greeting(name)}\n\n"
+        f"Le support a répondu à ton ticket #{int(ticket_id)}.\n\n"
+        f"{body_text}\n\n"
+        f"Ouvrir la messagerie : {url}\n"
+    )
+    send(
+        to,
+        f"Réponse du support — ticket #{int(ticket_id)}",
+        _layout("Réponse du support", body, badge=f"Ticket #{int(ticket_id)}", preheader=body_text[:120]),
+        text,
+    )
+
+
 def send_back_in_stock(to: str, name: str, product: str, link: str) -> None:
     """Tell someone who asked to be warned that a sold-out product is back."""
     button = _button("Voir le produit", link)

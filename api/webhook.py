@@ -55,6 +55,7 @@ from app.domain import (
     storefront_auth_service,
     storefront_invoice_service,
     storefront_receipt_service,
+    storefront_review_service,
     storefront_service,
     storefront_wallet_service,
     support_service,
@@ -264,6 +265,7 @@ STOREFRONT_AUTH_GET_PATHS = frozenset({
     "/api/storefront/auth/warranties",
     "/api/storefront/auth/warranty-proof",
     "/api/storefront/auth/wallet",
+    "/api/storefront/auth/reviews",
 })
 # Paths whose body carries a receipt screenshot.
 STOREFRONT_UPLOAD_PATHS = frozenset({"/api/storefront/orders", "/api/storefront/auth/deposits"})
@@ -283,6 +285,7 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/ticket-messages",
     "/api/storefront/auth/product-requests",
     "/api/storefront/auth/warranties",
+    "/api/storefront/auth/reviews",
     "/api/storefront/stock-alerts",
 })
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
@@ -477,6 +480,22 @@ def _application():
     return _app
 
 
+def _email_site_ticket_reply(ticket: dict, ticket_id: int, message: str) -> None:
+    """Email the storefront customer. Bot tickets stay on Telegram."""
+    if not _record_is_site(ticket):
+        return
+    customer_id = ticket.get("customer_id")
+    if customer_id is None:
+        return
+    customer = db.get_conn().storefront_customers.find_one({"id": int(customer_id)})
+    email = str((customer or {}).get("email") or "").strip()
+    if not email:
+        return
+    from app.domain import email_service
+
+    email_service.send_ticket_reply(email, str((customer or {}).get("name") or ""), ticket_id, message)
+
+
 def _deliver_ticket_reply(user_id: int, ticket_id: int, message: str) -> None:
     """Send the Telegram copy outside the dashboard request latency path."""
     def deliver() -> None:
@@ -633,6 +652,25 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 log.exception("Storefront catalog request failed")
                 self._reply(503, {"ok": False, "error": "Catalogue temporairement indisponible."}, headers={
+                    "Access-Control-Allow-Origin": "*",
+                })
+            return
+
+        if path == "/api/storefront/reviews":
+            offer_raw = parse_qs(url.query).get("offer_id", [""])[0]
+            try:
+                payload = (
+                    storefront_review_service.public_for_offer(int(offer_raw))
+                    if str(offer_raw).isdigit()
+                    else storefront_review_service.public_latest()
+                )
+                self._reply(200, payload, headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "public, max-age=30",
+                })
+            except Exception:
+                log.exception("Storefront reviews request failed")
+                self._reply(503, {"ok": False, "error": "Avis temporairement indisponibles."}, headers={
                     "Access-Control-Allow-Origin": "*",
                 })
             return
@@ -898,7 +936,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1265,6 +1303,13 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, site_orders_service.list_carts(parse_qs(url.query)))
             return
 
+        elif path == "/admin/api/site-reviews":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, storefront_review_service.admin_list())
+            return
+
         elif path == "/admin/api/site-deposits":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1509,6 +1554,9 @@ class handler(BaseHTTPRequestHandler):
                 return
             elif path == "/api/storefront/auth/warranties" and self.command == "GET":
                 result = storefront_auth_service.customer_warranties(self._bearer_token())
+            elif path == "/api/storefront/auth/reviews" and self.command == "GET":
+                customer = storefront_auth_service.customer_for_token(self._bearer_token())
+                result = storefront_review_service.for_customer(int(customer["id"]))
             elif path == "/api/storefront/auth/wallet":
                 result = storefront_auth_service.wallet(self._bearer_token())
             elif path == "/api/storefront/auth/logout":
@@ -1551,6 +1599,9 @@ class handler(BaseHTTPRequestHandler):
                     )
                 elif path == "/api/storefront/auth/warranties":
                     result = storefront_auth_service.open_warranty(self._bearer_token(), payload)
+                elif path == "/api/storefront/auth/reviews":
+                    customer = storefront_auth_service.customer_for_token(self._bearer_token())
+                    result = storefront_review_service.submit(customer, payload)
                 elif path == "/api/storefront/stock-alerts":
                     from app.domain import stock_alert_service
 
@@ -1558,6 +1609,8 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     result = storefront_auth_service.reset_password(payload)
             self._reply(200, result, headers=cors)
+        except storefront_review_service.ReviewError as exc:
+            self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=cors)
         except storefront_auth_service.AuthError as exc:
             headers = dict(cors)
             if exc.retry_after is not None:
@@ -2388,6 +2441,18 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200, {"ok": True, "message": f"Ticket #{tid} restauré."})
                 return
 
+            elif action == "site_review_approve":
+                self._reply(200, storefront_review_service.approve(int(form["review_id"])))
+                return
+
+            elif action == "site_review_reject":
+                self._reply(200, storefront_review_service.reject(int(form["review_id"]), form.get("admin_note", "")))
+                return
+
+            elif action == "site_review_backfill":
+                self._reply(200, storefront_review_service.backfill(send=form.get("confirm") == "1"))
+                return
+
             elif action == "reply_ticket":
                 tid = int(form["ticket_id"])
                 message = form.get("message", "").strip()
@@ -2397,7 +2462,9 @@ class handler(BaseHTTPRequestHandler):
                 _assert_workspace(ticket, form, "ticket")
                 if message:
                     message_record = support_service.add_message(tid, 0, message, sender_type="admin")
-                    if not _record_is_site(ticket):
+                    if _record_is_site(ticket):
+                        _email_site_ticket_reply(ticket, tid, message)
+                    else:
                         _deliver_ticket_reply(int(ticket["user_id"]), tid, message)
                     self._reply(200, {"ok": True, "message_record": message_record})
                     return

@@ -18,12 +18,12 @@ import {
 } from "lucide-react";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { createDeposit, downloadInvoice, errorMessage, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode } from "@/lib/api";
+import { createDeposit, downloadInvoice, errorMessage, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, submitReview } from "@/lib/api";
 import { accessLabel, clampQuantity, dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
-import type { AccountOrder, AccountOrderItem, AccountOrders, AccountTicket, AccountWarranty, CartStatus, Deposit, Offer, Wallet } from "@/types";
+import type { AccountOrder, AccountOrderItem, AccountOrders, AccountReview, AccountTicket, AccountWarranty, CartStatus, Deposit, Offer, Wallet } from "@/types";
 
 const TABS = [
   { id: "commandes", label: "Mes achats", short: "Achats", icon: Package },
@@ -83,11 +83,13 @@ function AccountSkeleton({ label }: { label: string }) {
 type AccountRenewal = {
   offers: Offer[];
   catalogLoading: boolean;
+  catalogError: string;
+  reloadCatalog: () => void;
   maxLines: number;
   place: (offer: Offer, quantity: number) => boolean;
 };
 
-export function AccountPage({ offers, catalogLoading, maxLines, place }: AccountRenewal) {
+export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalog, maxLines, place }: AccountRenewal) {
   const { customer, loading, logout } = useAuth();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [panelFrom, setPanelFrom] = useState("0px");
@@ -198,7 +200,14 @@ export function AccountPage({ offers, catalogLoading, maxLines, place }: Account
         key={tab}
       >
         {tab === "commandes" ? (
-          <OrdersTab offers={offers} catalogLoading={catalogLoading} maxLines={maxLines} place={place} />
+          <OrdersTab
+            offers={offers}
+            catalogLoading={catalogLoading}
+            catalogError={catalogError}
+            reloadCatalog={reloadCatalog}
+            maxLines={maxLines}
+            place={place}
+          />
         ) : tab === "portefeuille" ? (
           <WalletTab />
         ) : tab === "support" ? (
@@ -217,9 +226,11 @@ export function AccountPage({ offers, catalogLoading, maxLines, place }: Account
 
 /* ---------- Purchases ---------- */
 
-function OrdersTab({ offers, catalogLoading, maxLines, place }: AccountRenewal) {
+function OrdersTab({ offers, catalogLoading, catalogError, reloadCatalog, maxLines, place }: AccountRenewal) {
   const { customer, token, handleError } = useAuth();
   const [data, setData] = useState<AccountOrders | null>(null);
+  const [reviews, setReviews] = useState<AccountReview[] | null>(null);
+  const [reviewError, setReviewError] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
 
@@ -232,6 +243,13 @@ function OrdersTab({ offers, catalogLoading, maxLines, place }: AccountRenewal) 
         if (controller.signal.aborted) return;
         handleError(reason);
         setError(errorMessage(reason, "Impossible de charger tes achats."));
+      });
+    fetchMyReviews(token, controller.signal)
+      .then((result) => setReviews(result.reviews))
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setReviewError(errorMessage(reason, "Impossible de charger tes avis."));
+        setReviews([]);
       });
     return () => controller.abort();
   }, [token, attempt, handleError]);
@@ -279,8 +297,13 @@ function OrdersTab({ offers, catalogLoading, maxLines, place }: AccountRenewal) 
               onRefresh={() => setAttempt((value) => value + 1)}
               offers={offers}
               catalogLoading={catalogLoading}
+              catalogError={catalogError}
+              reloadCatalog={reloadCatalog}
               maxLines={maxLines}
               place={place}
+              reviews={reviews}
+              reviewError={reviewError}
+              onReview={() => setAttempt((value) => value + 1)}
             />
           ))}
         </ul>
@@ -388,12 +411,20 @@ function OrderCard({
   onRefresh,
   offers,
   catalogLoading,
+  catalogError,
+  reloadCatalog,
   maxLines,
   place,
+  reviews,
+  reviewError,
+  onReview,
 }: {
   order: AccountOrder;
   defaultOpen: boolean;
   onRefresh: () => void;
+  reviews: AccountReview[] | null;
+  reviewError: string;
+  onReview: () => void;
 } & AccountRenewal) {
   const [open, setOpen] = useState(false);
   const foldRef = useRef<HTMLDivElement>(null);
@@ -487,9 +518,20 @@ function OrderCard({
                     item={item}
                     offers={offers}
                     catalogLoading={catalogLoading}
+                    catalogError={catalogError}
+                    reloadCatalog={reloadCatalog}
                     maxLines={maxLines}
                     place={place}
                   />
+                  {item.status === "delivered" ? (
+                    <ReviewBox
+                      orderId={item.id}
+                      review={reviews?.find((entry) => entry.order_id === item.id) ?? null}
+                      loading={reviews === null}
+                      loadError={reviewError}
+                      onSent={onReview}
+                    />
+                  ) : null}
                   {item.delivery ? <DeliveryBox content={item.delivery} deliveredAt={item.delivered_at} /> : null}
                   {item.replacement ? <DeliveryBox content={item.replacement} deliveredAt={null} heading="Remplacement sous garantie" /> : null}
                   {item.warranty_open ? <WarrantyButton item={item} onSent={onRefresh} /> : null}
@@ -533,7 +575,105 @@ function OrderCard({
   );
 }
 
-function RenewalRow({ item, offers, catalogLoading, maxLines, place }: { item: AccountOrderItem } & AccountRenewal) {
+function ReviewBox({
+  orderId,
+  review,
+  loading,
+  loadError,
+  onSent,
+}: {
+  orderId: number;
+  review: AccountReview | null;
+  loading: boolean;
+  loadError: string;
+  onSent: () => void;
+}) {
+  const { token, handleError } = useAuth();
+  const [score, setScore] = useState(0);
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!token || busy) return;
+    if (score < 1) {
+      setError("Choisis une note de 1 à 5.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await submitReview(token, { order_id: orderId, score, comment: comment.trim() });
+      onSent();
+    } catch (reason) {
+      handleError(reason);
+      setError(errorMessage(reason, "L'avis n'a pas pu être envoyé."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return <p className="review-wait">Chargement de l'avis…</p>;
+  if (loadError && !review) return <p className="form-error">{loadError}</p>;
+  if (review?.status === "pending") return <p className="review-wait">En attente de publication</p>;
+  if (review?.status === "approved") {
+    return (
+      <p className="review-published">
+        <ReviewStars value={review.score} /> {review.comment}
+      </p>
+    );
+  }
+  if (review?.status === "rejected") return <p className="review-wait">Non publié</p>;
+
+  return (
+    <form className="review-form" onSubmit={(event) => void submit(event)}>
+      <span className="review-label">Noter ce service</span>
+      <span className="review-stars" role="radiogroup" aria-label="Note de 1 à 5">
+        {[1, 2, 3, 4, 5].map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={value <= score ? "review-star is-on" : "review-star"}
+            role="radio"
+            aria-checked={score === value}
+            aria-label={`${value} sur 5`}
+            onClick={() => setScore(value)}
+          >
+            ★
+          </button>
+        ))}
+      </span>
+      <textarea
+        value={comment}
+        onChange={(event) => setComment(event.target.value)}
+        minLength={8}
+        maxLength={600}
+        rows={3}
+        required
+        placeholder="Ton commentaire"
+      />
+      {error ? <small className="form-error">{error}</small> : null}
+      <button type="submit" className="button button-primary" disabled={busy}>
+        {busy ? "Envoi…" : "Envoyer l'avis"}
+      </button>
+    </form>
+  );
+}
+
+function ReviewStars({ value }: { value: number }) {
+  return (
+    <span className="review-stars" aria-label={`${value} sur 5`}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <span key={star} className={star <= value ? "review-star is-on" : "review-star"} aria-hidden="true">
+          ★
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function RenewalRow({ item, offers, catalogLoading, catalogError, reloadCatalog, maxLines, place }: { item: AccountOrderItem } & AccountRenewal) {
   const [full, setFull] = useState(false);
   const offer = item.offer_id == null ? undefined : offers.find((entry) => entry.id === item.offer_id);
   const label = accessLabel(item.delivered_at, item.period_days);
@@ -551,6 +691,13 @@ function RenewalRow({ item, offers, catalogLoading, maxLines, place }: { item: A
         <button type="button" className="button button-primary renew-button" disabled>
           Chargement du catalogue…
         </button>
+      ) : catalogError ? (
+        <div className="renew-catalog-error renew-missing" role="alert">
+          <span>Le catalogue est momentanément indisponible.</span>
+          <button type="button" className="button button-ghost" onClick={reloadCatalog}>
+            Réessayer
+          </button>
+        </div>
       ) : !offer ? (
         <p className="renew-missing">
           Plus au catalogue

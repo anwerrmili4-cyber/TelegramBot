@@ -307,6 +307,9 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
             "\n\n".join(_delivery_block(line, content) for line, content in delivered),
             remaining=len(waiting),
         )
+        from app.domain import storefront_review_service
+
+        storefront_review_service.notify_cart(reference)
     if waiting:
         email_service.send_payment_confirmed(email, name, reference, _email_items(waiting), _cart_total(lines))
     storefront_invoice_service.issue_quietly(reference)
@@ -374,6 +377,9 @@ def deliver_cart(reference: str, note: str = "") -> dict[str, Any]:
         email_service.send_order_delivered(
             first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(done), content
         )
+        from app.domain import storefront_review_service
+
+        storefront_review_service.notify_cart(reference)
     return {"reference": reference, "lines": len(done)}
 
 

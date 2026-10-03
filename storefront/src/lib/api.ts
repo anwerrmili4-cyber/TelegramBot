@@ -1,5 +1,6 @@
 import type {
   AccountOrders,
+  AccountReview,
   AccountTicket,
   AccountTickets,
   AccountWarranties,
@@ -9,6 +10,7 @@ import type {
   Customer,
   Deposit,
   VerificationRequired,
+  PublicReviews,
   Wallet,
 } from "@/types";
 
@@ -230,6 +232,19 @@ export function updateProfile(token: string, payload: { name: string; phone: str
 
 export function changePassword(token: string, payload: { current_password: string; new_password: string }) {
   return postJson<{ ok: boolean }>("/api/storefront/auth/password", payload, token);
+}
+
+export function fetchMyReviews(token: string, signal?: AbortSignal) {
+  return getAuthed<{ ok: boolean; reviews: AccountReview[] }>("/api/storefront/auth/reviews", token, signal);
+}
+
+export function submitReview(token: string, payload: { order_id: number; score: number; comment: string }) {
+  return postJson<{ ok: boolean; review: AccountReview }>("/api/storefront/auth/reviews", payload, token);
+}
+
+export function fetchReviews(offerId?: number, signal?: AbortSignal) {
+  const query = offerId ? `?offer_id=${offerId}` : "";
+  return request<PublicReviews>(`/api/storefront/reviews${query}`, { signal });
 }
 
 export function requestStockAlert(offerId: number, email: string, token?: string) {

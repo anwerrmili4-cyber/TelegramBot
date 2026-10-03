@@ -133,7 +133,9 @@ def test_confirm_delivers_inventory_lines_automatically(mock_mongodb, customer, 
     listed = site_orders_service.list_carts({"status": ["all"]})["items"][0]
     assert listed["status"] == "partial"
     assert [item["automatic"] for item in listed["items"]] == [True, False]
-    delivered, waiting, invoice = sent_emails
+    delivered = next(item for item in sent_emails if "netflix@mail.tn:secret" in item["text"])
+    waiting = next(item for item in sent_emails if item["subject"] == f"Paiement confirmé — {cart['reference']}")
+    invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
     assert "netflix@mail.tn:secret" in delivered["text"]
     assert waiting["subject"] == f"Paiement confirmé — {cart['reference']}"
     assert invoice["subject"].startswith("Ta facture FAC-")
@@ -212,13 +214,17 @@ def test_each_admin_step_emails_the_customer(mock_mongodb, customer, sent_emails
     site_orders_service.confirm_cart(reference)
     site_orders_service.deliver_cart(reference, "Email : compte@netflix.tn\nMot de passe : <secret>")
 
-    confirmed, invoice, delivered = sent_emails
+    confirmed = next(item for item in sent_emails if item["subject"] == f"Paiement confirmé — {reference}")
+    invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
+    delivered = next(item for item in sent_emails if item["subject"] == f"Ta commande {reference} est livrée")
+    assert sum(item["subject"] == f"Ton avis sur {reference}" for item in sent_emails) == 1
     assert confirmed["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
     assert confirmed["subject"] == f"Paiement confirmé — {reference}"
     assert "Total : 30,000 DT" in confirmed["text"]
     assert delivered["subject"] == f"Ta commande {reference} est livrée"
     assert "Mot de passe : <secret>" in delivered["text"]
-    assert "Mot de passe : &lt;secret&gt;" in delivered["html"]
+    assert "Mot de passe" in delivered["html"]
+    assert "&lt;secret&gt;" in delivered["html"]
 
     other = _cart(customer, (netflix, 1))["reference"]
     site_orders_service.cancel_cart(other, "Reçu illisible")

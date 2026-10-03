@@ -5,7 +5,7 @@ import { CatalogSection } from "@/components/CatalogSection";
 import { CheckoutDialog } from "@/components/CheckoutDialog";
 import { Hero } from "@/components/Hero";
 import { IntroSplash } from "@/components/IntroSplash";
-import { ProductPage } from "@/components/ProductPage";
+import { ProductPage, PublicReviewList } from "@/components/ProductPage";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
@@ -94,6 +94,8 @@ export default function App() {
           <AccountPage
             offers={offers}
             catalogLoading={loading}
+            catalogError={error}
+            reloadCatalog={reload}
             maxLines={maxLines}
             place={(offer, quantity) => {
               if (!cart.place(offer, quantity)) return false;
@@ -126,7 +128,10 @@ export default function App() {
         ) : path === ROUTES.home || path === ROUTES.shop ? (
           <>
             {path === ROUTES.home ? (
-              <Hero offers={offers} categories={categories} onOpenOffer={openProduct} />
+              <>
+                <Hero offers={offers} categories={categories} onOpenOffer={openProduct} />
+                <PublicReviewList />
+              </>
             ) : (
               <CatalogSection
                 offers={offers}

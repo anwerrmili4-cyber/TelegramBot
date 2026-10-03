@@ -186,6 +186,29 @@ export type AccountOrders = {
   orders: AccountOrder[];
 };
 
+export type AccountReview = {
+  order_id: number;
+  status: "pending" | "approved" | "rejected";
+  score: number;
+  comment: string;
+};
+
+/** Public review. Email, phone and postal address are never included. */
+export type PublicReview = {
+  name: string;
+  score: number;
+  comment: string;
+  offer_name: string;
+  created_at: number;
+};
+
+export type PublicReviews = {
+  ok: boolean;
+  reviews: PublicReview[];
+  average?: number;
+  count?: number;
+};
+
 export type WalletTransaction = {
   id: number;
   kind: "deposit" | "purchase" | "refund" | "adjustment";

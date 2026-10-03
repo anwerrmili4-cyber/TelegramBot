@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Package, Receipt, RefreshCw, Send, Users } from "lucide-react";
 import { errorMessage, fetchTickets, openTicket, replyToTicket } from "@/lib/api";
 import { money } from "@/lib/format";
@@ -373,28 +373,53 @@ function closed(status: string) {
 
 export function MessengerPage() {
   const { customer, token, handleError } = useAuth();
-  const [view, setView] = useState<"client" | "admin">("client");
   const [tickets, setTickets] = useState<AccountTicket[] | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [fresh, setFresh] = useState<Set<number>>(new Set());
+  const seen = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (!token) return;
-    const controller = new AbortController();
-    fetchTickets(token, controller.signal)
-      .then((result) => {
-        setTickets(result.tickets);
-        setActiveId((current) => current ?? result.tickets[0]?.id ?? null);
-      })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted) return;
-        handleError(reason);
-        setError(errorMessage(reason, "Impossible de charger la messagerie."));
-      });
-    return () => controller.abort();
+    let alive = true;
+    let current: AbortController | null = null;
+
+    const load = () => {
+      current?.abort();
+      const controller = new AbortController();
+      current = controller;
+      fetchTickets(token, controller.signal)
+        .then((result) => {
+          if (!alive) return;
+          const ids = result.tickets.flatMap((ticket) => ticket.messages.map((entry) => entry.id));
+          if (seen.current.size === 0) {
+            ids.forEach((id) => seen.current.add(id));
+            setFresh(new Set());
+          } else {
+            const arrived = ids.filter((id) => !seen.current.has(id));
+            arrived.forEach((id) => seen.current.add(id));
+            setFresh(new Set(arrived));
+          }
+          setTickets(result.tickets);
+          setActiveId((currentId) => currentId ?? result.tickets[0]?.id ?? null);
+        })
+        .catch((reason: unknown) => {
+          if (!alive || controller.signal.aborted) return;
+          handleError(reason);
+          setError(errorMessage(reason, "Impossible de charger la messagerie."));
+        });
+    };
+
+    load();
+    const timer = window.setInterval(load, 8000);
+    return () => {
+      alive = false;
+      current?.abort();
+      window.clearInterval(timer);
+    };
   }, [token, attempt, handleError]);
 
   const active = tickets?.find((ticket) => ticket.id === activeId) ?? null;
@@ -437,20 +462,9 @@ export function MessengerPage() {
   return (
     <section className="doc-page">
       <PageIntro kicker="Messages" title="Messagerie">
-        {view === "client"
-          ? "Tes échanges avec le support. Une réponse apparaît dans le fil."
-          : "Les réponses officielles partent de la console admin. Ici tu vois tes fils tels que le support les reçoit."}
+        Tes échanges avec le support. Une réponse apparaît dans le fil.
       </PageIntro>
-      <div className="messenger-switch" role="group" aria-label="Vue de la messagerie">
-        <button type="button" className={view === "client" ? "active" : ""} onClick={() => setView("client")}>
-          Vue client
-        </button>
-        <button type="button" className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>
-          Vue admin
-        </button>
-        <a href="/admin">Ouvrir la console</a>
-      </div>
-      <div className={`messenger${view === "admin" ? " messenger-admin" : ""}`}>
+      <div className="messenger">
         <ul className="messenger-list">
           {(tickets ?? []).map((ticket) => (
             <li key={ticket.id}>
@@ -465,8 +479,8 @@ export function MessengerPage() {
           {!tickets ? <p>Chargement…</p> : active ? (
             <ul>
               {active.messages.map((entry) => (
-                <li key={entry.id} className={entry.sender === "admin" ? "from-support" : "from-client"}>
-                  <small>{entry.sender === "admin" ? "Support" : view === "admin" ? customer.name : "Toi"}</small>
+                <li key={entry.id} className={`${entry.sender === "admin" ? "from-support" : "from-client"}${fresh.has(entry.id) ? " is-new" : ""}`}>
+                  <small>{entry.sender === "admin" ? "Support" : "Toi"}</small>
                   <p>{entry.content}</p>
                 </li>
               ))}
@@ -474,23 +488,17 @@ export function MessengerPage() {
           ) : (
             <p>Aucun ticket. Écris le premier message.</p>
           )}
-          {view === "client" ? (
-            <form onSubmit={(event) => void send(event)}>
-              <input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={active && !closed(active.status) ? "Répondre…" : "Nouveau message…"}
-                maxLength={2000}
-              />
-              <button type="submit" className="button button-primary" disabled={busy || !draft.trim()}>
-                Envoyer
-              </button>
-            </form>
-          ) : (
-            <a className="button button-primary" href="/admin">
-              Répondre dans la console
-            </a>
-          )}
+          <form onSubmit={(event) => void send(event)}>
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={active && !closed(active.status) ? "Répondre…" : "Nouveau message…"}
+              maxLength={2000}
+            />
+            <button type="submit" className="button button-primary" disabled={busy || !draft.trim()}>
+              Envoyer
+            </button>
+          </form>
           {error ? <small className="form-error">{error}</small> : null}
         </div>
       </div>

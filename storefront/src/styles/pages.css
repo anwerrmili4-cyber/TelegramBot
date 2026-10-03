@@ -384,30 +384,6 @@
   font: inherit;
 }
 
-.messenger-switch {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 18px;
-}
-
-.messenger-switch button,
-.messenger-switch a {
-  padding: 8px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--ink-800);
-  color: var(--text-soft);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.messenger-switch button.active {
-  border-color: transparent;
-  background: var(--brand);
-  color: #fff;
-}
-
 .messenger {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -467,16 +443,6 @@
 }
 
 .messenger-thread .from-client {
-  justify-self: end;
-  background: rgba(var(--brand-rgb), 0.2);
-}
-
-.messenger-admin .from-client {
-  justify-self: start;
-  background: var(--ink-700);
-}
-
-.messenger-admin .from-support {
   justify-self: end;
   background: rgba(var(--brand-rgb), 0.2);
 }

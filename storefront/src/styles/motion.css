@@ -337,7 +337,24 @@
     scale: 0.98;
   }
 
-  .order-card.open .access-date {
+  .order-card.open .access-date,
+  .order-card.open .renew-catalog-error {
+    animation: access-date-in var(--motion-hover) var(--ease-out) both;
+  }
+
+  .messenger-thread li.is-new {
+    animation: reveal-fade var(--motion-hover) var(--ease-out) both;
+  }
+
+  .review-star {
+    transition: scale var(--motion-press) var(--ease), color var(--motion-press) var(--ease);
+  }
+
+  .review-star:active {
+    scale: 0.98;
+  }
+
+  .review-list {
     animation: access-date-in var(--motion-hover) var(--ease-out) both;
   }
 }
@@ -488,6 +505,10 @@
   .overlay-panel,
   .overlay-backdrop,
   .access-date,
+  .renew-catalog-error,
+  .messenger-thread li.is-new,
+  .review-star,
+  .review-list,
   .renew-button,
   .section-head,
   .catalog-toolbar,
@@ -507,14 +528,22 @@
     transition: none;
   }
 
-  .access-date {
+  .access-date,
+  .renew-catalog-error {
     opacity: 1;
     transform: none;
   }
 
   .renew-button,
-  .renew-button:active {
+  .renew-button:active,
+  .review-star,
+  .review-star:active {
     scale: 1;
+  }
+
+  .review-list {
+    opacity: 1;
+    transform: none;
   }
 
   .tilt-media img {
