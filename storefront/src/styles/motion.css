@@ -478,6 +478,26 @@
 
 /* ---------- Opt out ---------- */
 
+@media (prefers-reduced-motion: no-preference) {
+  .favorite-button.is-saved svg {
+    animation: favorite-pop 180ms var(--ease-spring);
+  }
+
+  .notice-row.is-new {
+    animation: notice-fade 180ms ease;
+  }
+}
+
+@keyframes favorite-pop {
+  from { transform: scale(0.86); }
+  to { transform: scale(1); }
+}
+
+@keyframes notice-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hero::after {
     animation: none;
@@ -509,6 +529,8 @@
   .messenger-thread li.is-new,
   .review-star,
   .review-list,
+  .favorite-button.is-saved svg,
+  .notice-row.is-new,
   .renew-button,
   .section-head,
   .catalog-toolbar,

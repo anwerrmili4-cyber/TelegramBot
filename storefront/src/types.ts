@@ -202,6 +202,36 @@ export type PublicReview = {
   created_at: number;
 };
 
+export type SiteNotification = {
+  id: number;
+  kind: "novelty" | "admin" | "news";
+  kind_label: string;
+  title: string;
+  body: string;
+  created_at: number;
+  read: boolean;
+  href: string;
+};
+
+export type Favorite = {
+  offer_id: number;
+  saved_at: number;
+  in_catalog: boolean;
+  name: string;
+  service_name: string;
+  price_millimes: number;
+  stock: number;
+  available: boolean;
+  period_days: number;
+  warranty: string;
+  delivery_delay: string;
+  description: string;
+  remark: string;
+  badge: string;
+  service_logo_url: string;
+  image_url: string;
+};
+
 export type PublicReviews = {
   ok: boolean;
   reviews: PublicReview[];

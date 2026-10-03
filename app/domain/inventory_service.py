@@ -67,7 +67,7 @@ def clean_delivery_value(value: str) -> str:
         return remainder.strip()
     return value
 
-def sync_offer_stock(offer_id: int) -> int:
+def sync_offer_stock(offer_id: int, added: int | None = None) -> int:
     conn = db.get_conn()
     offer = conn.offers.find_one({"id": offer_id}) or {}
     if offer.get("unlimited_stock") or offer.get("manual_stock"):
@@ -80,7 +80,7 @@ def sync_offer_stock(offer_id: int) -> int:
     if available > 0:
         from app.domain import stock_alert_service
 
-        stock_alert_service.release(offer_id)
+        stock_alert_service.release(offer_id, added=added if added is not None else available)
     return available
 
 
@@ -117,7 +117,7 @@ def add_items(offer_id: int, items: list[str]) -> int:
         added += 1
 
     if added:
-        sync_offer_stock(offer_id)
+        sync_offer_stock(offer_id, added=added)
         db.audit_event("inventory.added", details={"offer_id": offer_id, "count": added})
         log.info("%d elements added to offer %d", added, offer_id)
 

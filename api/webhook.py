@@ -54,6 +54,8 @@ from app.domain import (
     site_orders_service,
     site_settings_service,
     storefront_auth_service,
+    storefront_favorite_service,
+    storefront_notification_service,
     storefront_invoice_service,
     storefront_receipt_service,
     storefront_review_service,
@@ -267,6 +269,8 @@ STOREFRONT_AUTH_GET_PATHS = frozenset({
     "/api/storefront/auth/warranty-proof",
     "/api/storefront/auth/wallet",
     "/api/storefront/auth/reviews",
+    "/api/storefront/auth/favorites",
+    "/api/storefront/auth/notifications",
 })
 # Paths whose body carries a receipt screenshot.
 STOREFRONT_UPLOAD_PATHS = frozenset({"/api/storefront/orders", "/api/storefront/auth/deposits"})
@@ -287,6 +291,8 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/product-requests",
     "/api/storefront/auth/warranties",
     "/api/storefront/auth/reviews",
+    "/api/storefront/auth/favorites",
+    "/api/storefront/auth/notifications",
     "/api/storefront/stock-alerts",
 })
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
@@ -937,7 +943,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-inventory", "catalog", "api-products", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1304,6 +1310,13 @@ class handler(BaseHTTPRequestHandler):
             self._reply(200, site_orders_service.list_carts(parse_qs(url.query)))
             return
 
+        elif path == "/admin/api/site-notifications":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, storefront_notification_service.admin_list())
+            return
+
         elif path == "/admin/api/site-mail":
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
@@ -1577,6 +1590,12 @@ class handler(BaseHTTPRequestHandler):
             elif path == "/api/storefront/auth/reviews" and self.command == "GET":
                 customer = storefront_auth_service.customer_for_token(self._bearer_token())
                 result = storefront_review_service.for_customer(int(customer["id"]))
+            elif path == "/api/storefront/auth/favorites" and self.command == "GET":
+                customer = storefront_auth_service.customer_for_token(self._bearer_token())
+                result = storefront_favorite_service.for_customer(int(customer["id"]))
+            elif path == "/api/storefront/auth/notifications" and self.command == "GET":
+                customer = storefront_auth_service.customer_for_token(self._bearer_token())
+                result = storefront_notification_service.for_customer(customer)
             elif path == "/api/storefront/auth/wallet":
                 result = storefront_auth_service.wallet(self._bearer_token())
             elif path == "/api/storefront/auth/logout":
@@ -1622,6 +1641,18 @@ class handler(BaseHTTPRequestHandler):
                 elif path == "/api/storefront/auth/reviews":
                     customer = storefront_auth_service.customer_for_token(self._bearer_token())
                     result = storefront_review_service.submit(customer, payload)
+                elif path == "/api/storefront/auth/favorites":
+                    customer = storefront_auth_service.customer_for_token(self._bearer_token())
+                    saved = payload.get("saved", True)
+                    if isinstance(saved, str):
+                        saved = saved.strip().lower() not in {"0", "false", "no"}
+                    result = storefront_favorite_service.set_saved(customer, payload.get("offer_id"), bool(saved))
+                elif path == "/api/storefront/auth/notifications":
+                    customer = storefront_auth_service.customer_for_token(self._bearer_token())
+                    if str(payload.get("all") or "") in {"1", "true"}:
+                        result = storefront_notification_service.mark_all_read(customer)
+                    else:
+                        result = storefront_notification_service.mark_read(customer, payload.get("id"))
                 elif path == "/api/storefront/stock-alerts":
                     from app.domain import stock_alert_service
 
@@ -1630,6 +1661,10 @@ class handler(BaseHTTPRequestHandler):
                     result = storefront_auth_service.reset_password(payload)
             self._reply(200, result, headers=cors)
         except storefront_review_service.ReviewError as exc:
+            self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=cors)
+        except storefront_favorite_service.FavoriteError as exc:
+            self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=cors)
+        except storefront_notification_service.NotificationError as exc:
             self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=cors)
         except storefront_auth_service.AuthError as exc:
             headers = dict(cors)
@@ -2463,6 +2498,10 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "site_mail_send":
                 self._reply(200, site_mail_service.send_message(form))
+                return
+
+            elif action == "site_notify_publish":
+                self._reply(200, storefront_notification_service.publish(form))
                 return
 
             elif action == "site_review_approve":

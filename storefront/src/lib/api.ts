@@ -9,6 +9,8 @@ import type {
   CheckoutResult,
   Customer,
   Deposit,
+  Favorite,
+  SiteNotification,
   VerificationRequired,
   PublicReviews,
   Wallet,
@@ -232,6 +234,42 @@ export function updateProfile(token: string, payload: { name: string; phone: str
 
 export function changePassword(token: string, payload: { current_password: string; new_password: string }) {
   return postJson<{ ok: boolean }>("/api/storefront/auth/password", payload, token);
+}
+
+export function fetchNotifications(token: string, signal?: AbortSignal) {
+  return getAuthed<{ ok: boolean; unread: number; items: SiteNotification[] }>(
+    "/api/storefront/auth/notifications",
+    token,
+    signal,
+  );
+}
+
+export function markNotificationRead(token: string, id: number) {
+  return postJson<{ ok: boolean; unread: number; items: SiteNotification[] }>(
+    "/api/storefront/auth/notifications",
+    { id },
+    token,
+  );
+}
+
+export function markAllNotificationsRead(token: string) {
+  return postJson<{ ok: boolean; unread: number; items: SiteNotification[] }>(
+    "/api/storefront/auth/notifications",
+    { all: 1 },
+    token,
+  );
+}
+
+export function fetchFavorites(token: string, signal?: AbortSignal) {
+  return getAuthed<{ ok: boolean; favorites: Favorite[] }>("/api/storefront/auth/favorites", token, signal);
+}
+
+export function setFavorite(token: string, offerId: number, saved: boolean) {
+  return postJson<{ ok: boolean; saved: boolean; emailed: boolean; favorite?: Favorite }>(
+    "/api/storefront/auth/favorites",
+    { offer_id: offerId, saved },
+    token,
+  );
 }
 
 export function fetchMyReviews(token: string, signal?: AbortSignal) {

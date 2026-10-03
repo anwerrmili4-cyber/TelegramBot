@@ -1388,7 +1388,13 @@ def update_offer(
         if "stock" in values or "unlimited_stock" in values:
             from app.domain import stock_alert_service
 
-            stock_alert_service.release(int(offer_id))
+            added = None
+            if not values.get("unlimited_stock") and "stock" in values:
+                previous = int(existing.get("stock") or 0)
+                current = int(values["stock"])
+                delta = current - previous
+                added = delta if delta > 0 else current
+            stock_alert_service.release(int(offer_id), added=added)
         if service_id is not None:
             get_conn().reseller_products.update_many(
                 {"local_offer_id": int(offer_id)},

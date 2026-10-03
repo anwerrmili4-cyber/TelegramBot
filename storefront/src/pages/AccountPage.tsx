@@ -6,7 +6,9 @@ import {
   ChevronDown,
   Copy,
   FileDown,
+  Bell,
   Headphones,
+  Heart,
   KeyRound,
   LogOut,
   Package,
@@ -18,15 +20,17 @@ import {
 } from "lucide-react";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { createDeposit, downloadInvoice, errorMessage, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, submitReview } from "@/lib/api";
+import { assetUrl, createDeposit, downloadInvoice, errorMessage, fetchFavorites, fetchNotifications, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, markAllNotificationsRead, markNotificationRead, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, setFavorite, submitReview } from "@/lib/api";
 import { accessLabel, clampQuantity, dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { Link, navigate, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
-import type { AccountOrder, AccountOrderItem, AccountOrders, AccountReview, AccountTicket, AccountWarranty, CartStatus, Deposit, Offer, Wallet } from "@/types";
+import type { AccountOrder, AccountOrderItem, AccountOrders, AccountReview, AccountTicket, AccountWarranty, CartStatus, Deposit, Favorite, Offer, SiteNotification, Wallet } from "@/types";
 
 const TABS = [
   { id: "commandes", label: "Mes achats", short: "Achats", icon: Package },
+  { id: "favoris", label: "Favoris", short: "Favoris", icon: Heart },
+  { id: "notifications", label: "Notifications", short: "Notifs", icon: Bell },
   { id: "portefeuille", label: "Portefeuille", short: "Solde", icon: WalletIcon },
   { id: "support", label: "Support", short: "Support", icon: Headphones },
   { id: "garanties", label: "Garanties", short: "Garanties", icon: ShieldCheck },
@@ -208,6 +212,10 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
             maxLines={maxLines}
             place={place}
           />
+        ) : tab === "favoris" ? (
+          <FavoritesTab />
+        ) : tab === "notifications" ? (
+          <NotificationsTab />
         ) : tab === "portefeuille" ? (
           <WalletTab />
         ) : tab === "support" ? (
@@ -225,6 +233,175 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
 }
 
 /* ---------- Purchases ---------- */
+
+function NotificationsTab() {
+  const { token } = useAuth();
+  const [items, setItems] = useState<SiteNotification[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const controller = new AbortController();
+    fetchNotifications(token, controller.signal)
+      .then((result) => setItems(result.items))
+      .catch((reason) => {
+        if (controller.signal.aborted) return;
+        setError(errorMessage(reason, "Impossible de charger tes notifications."));
+        setItems([]);
+      });
+    return () => controller.abort();
+  }, [token]);
+
+  async function openItem(item: SiteNotification) {
+    if (!token) return;
+    setError("");
+    try {
+      if (!item.read) {
+        const result = await markNotificationRead(token, item.id);
+        setItems(result.items);
+      }
+      if (item.href) navigate(item.href);
+    } catch (reason) {
+      setError(errorMessage(reason, "La notification n'a pas pu être ouverte."));
+    }
+  }
+
+  async function markAll() {
+    if (!token || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await markAllNotificationsRead(token);
+      setItems(result.items);
+    } catch (reason) {
+      setError(errorMessage(reason, "Les notifications n'ont pas pu être marquées comme lues."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!items) return <AccountSkeleton label="Chargement des notifications" />;
+  const unread = items.some((item) => !item.read);
+
+  return (
+    <div className="favorites-tab">
+      <header className="account-section-head">
+        <h2>Notifications</h2>
+        <p>Nouveautés, messages du shop et actualités.</p>
+        {unread ? (
+          <button type="button" className="button button-ghost" onClick={() => void markAll()} disabled={busy}>
+            {busy ? "En cours…" : "Tout marquer comme lu"}
+          </button>
+        ) : null}
+      </header>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {!items.length ? (
+        <div className="account-empty">
+          <Bell size={28} aria-hidden="true" />
+          <h3>Aucune notification pour le moment.</h3>
+        </div>
+      ) : (
+        <ul className="notice-list">
+          {items.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className={item.read ? "notice-row" : "notice-row is-new"}
+                onClick={() => void openItem(item)}
+              >
+                <small>{item.kind_label} · {dateTime(item.created_at)}</small>
+                <strong>{item.title}</strong>
+                <span>{item.body}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function FavoritesTab() {
+  const { token } = useAuth();
+  const [favorites, setFavorites] = useState<Favorite[] | null>(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(0);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const controller = new AbortController();
+    fetchFavorites(token, controller.signal)
+      .then((result) => setFavorites(result.favorites))
+      .catch((reason) => {
+        if (controller.signal.aborted) return;
+        setError(errorMessage(reason, "Impossible de charger tes favoris."));
+        setFavorites([]);
+      });
+    return () => controller.abort();
+  }, [token]);
+
+  async function remove(offerId: number) {
+    if (!token || busyId) return;
+    setBusyId(offerId);
+    setError("");
+    try {
+      await setFavorite(token, offerId, false);
+      setFavorites((current) => (current || []).filter((item) => item.offer_id !== offerId));
+    } catch (reason) {
+      setError(errorMessage(reason, "Le favori n'a pas pu être retiré."));
+    } finally {
+      setBusyId(0);
+    }
+  }
+
+  if (!favorites) return <AccountSkeleton label="Chargement des favoris" />;
+
+  return (
+    <div className="favorites-tab">
+      <header className="account-section-head">
+        <h2>Favoris</h2>
+        <p>Chaque produit ajouté t'envoie sa fiche complète par email : prix, durée, garantie, stock et description.</p>
+      </header>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {!favorites.length ? (
+        <div className="account-empty">
+          <Heart size={28} aria-hidden="true" />
+          <h3>Aucun favori pour le moment.</h3>
+          <p>Ouvre un produit et choisis « Ajouter aux favoris ».</p>
+          <Link className="button button-primary" to={ROUTES.shop}>Voir la boutique</Link>
+        </div>
+      ) : (
+        <ul className="favorite-list">
+          {favorites.map((item) => {
+            const picture = item.image_url || item.service_logo_url;
+            return (
+              <li key={item.offer_id} className="favorite-card">
+                <span className="favorite-mark">
+                  {picture ? <img src={assetUrl(picture)} alt="" /> : <Heart size={18} aria-hidden="true" />}
+                </span>
+                <div>
+                  <small>{item.service_name}</small>
+                  <strong>{item.name}</strong>
+                  <p>
+                    {money(item.price_millimes)}
+                    {item.in_catalog ? ` · ${item.available ? (item.stock < 0 ? "Illimité" : `${item.stock} en stock`) : "Indisponible"}` : " · Plus au catalogue"}
+                  </p>
+                </div>
+                <div className="favorite-actions">
+                  {item.in_catalog ? <Link to={`/produit/${item.offer_id}`}>Voir</Link> : null}
+                  <button type="button" onClick={() => void remove(item.offer_id)} disabled={busyId === item.offer_id}>
+                    {busyId === item.offer_id ? "Retrait…" : "Retirer"}
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function OrdersTab({ offers, catalogLoading, catalogError, reloadCatalog, maxLines, place }: AccountRenewal) {
   const { customer, token, handleError } = useAuth();

@@ -930,28 +930,150 @@ def send_ticket_reply(to: str, name: str, ticket_id: int, message: str) -> None:
     send(to, subject, html, text)
 
 
-def back_in_stock_content(name: str, product: str, link: str) -> tuple[str, str, str]:
-    """Subject, HTML and text of a back-in-stock alert."""
+def back_in_stock_content(
+    name: str,
+    product: str,
+    link: str,
+    *,
+    logo_url: str = "",
+    added: int = 0,
+    unlimited: bool = False,
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of a back-in-stock alert, with the service logo and the quantity added."""
     button = _button("Voir le produit", link)
+    if unlimited:
+        count, caption = "Illimité", "stock disponible"
+        plain_stock = "Stock illimité."
+    else:
+        quantity = max(0, int(added))
+        count = f"+ {quantity}"
+        caption = "ajouté au stock" if quantity == 1 else "ajoutés au stock"
+        plain_stock = f"{quantity} {caption}."
+    if logo_url:
+        mark = (
+            f'<img src="{escape(logo_url)}" width="56" height="56" alt="{escape(product)}" '
+            'style="display:block;width:56px;height:56px;border-radius:14px;border:0;object-fit:contain;background:#ffffff">'
+        )
+    else:
+        letter = escape((str(product or "?").strip()[:1] or "?").upper())
+        mark = (
+            f'<div style="width:56px;height:56px;line-height:56px;border-radius:14px;background:#ffffff;'
+            f'text-align:center;font-size:22px;font-weight:800;color:#111113">{letter}</div>'
+        )
+    card = (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:8px 0 18px">'
+        '<tr>'
+        f'<td width="72" valign="middle" style="width:72px;vertical-align:middle">{mark}</td>'
+        '<td valign="middle" style="padding-left:14px;vertical-align:middle">'
+        f'<div style="font-size:15px;font-weight:700;color:{_TEXT}">{escape(product)}</div>'
+        f'<div style="margin-top:6px;font-size:28px;font-weight:800;line-height:1;color:#4ade80">{escape(count)}</div>'
+        f'<div style="margin-top:4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:{_MUTED}">{escape(caption)}</div>'
+        "</td></tr></table>"
+    )
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"{_strong(escape(product))} est de nouveau disponible.")
+        + card
         + _note("Le stock part vite. Ouvre la fiche pour le commander tant qu'il est là.", "success")
         + button
     )
     text = (
-        f"{_greeting(name)}\n\n{product} est de nouveau disponible.\n\n"
+        f"{_greeting(name)}\n\n{product} est de nouveau disponible.\n"
+        f"{plain_stock}\n\n"
         "Le stock part vite. Ouvre la fiche pour le commander tant qu'il est là.\n\n"
         f"{link}\n"
     )
     subject = f"{product} est de nouveau disponible"
-    html = _layout("De nouveau disponible", body, badge="En stock", tone="success", preheader=product)
+    html = _layout("De nouveau disponible", body, badge="En stock", tone="success", preheader=f"{product} · {plain_stock}")
     return subject, html, text
 
 
-def send_back_in_stock(to: str, name: str, product: str, link: str) -> None:
+def favorite_content(name: str, product: dict[str, str], link: str, logo_url: str = "") -> tuple[str, str, str]:
+    """Subject, HTML and text of the product sheet sent when a customer saves a favorite."""
+    title = str(product.get("name") or "Produit")
+    rows = [
+        ("Service", escape(str(product.get("service") or "—"))),
+        ("Prix", escape(str(product.get("price") or "—"))),
+        ("Durée", escape(str(product.get("period") or "—"))),
+        ("Garantie", escape(str(product.get("warranty") or "—"))),
+        ("Stock", escape(str(product.get("stock") or "—"))),
+        ("Livraison", escape(str(product.get("delivery") or "—"))),
+    ]
+    if str(product.get("badge") or "").strip():
+        rows.append(("Badge", escape(str(product["badge"]))))
+    description = str(product.get("description") or "").strip()
+    remark = str(product.get("remark") or "").strip()
+    if logo_url:
+        mark = (
+            f'<img src="{escape(logo_url)}" width="56" height="56" alt="{escape(title)}" '
+            'style="display:block;width:56px;height:56px;border-radius:14px;border:0;object-fit:contain;background:#ffffff">'
+        )
+    else:
+        letter = escape((title[:1] or "?").upper())
+        mark = (
+            f'<div style="width:56px;height:56px;line-height:56px;border-radius:14px;background:#ffffff;'
+            f'text-align:center;font-size:22px;font-weight:800;color:#111113">{letter}</div>'
+        )
+    heading = (
+        '<table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 16px"><tr>'
+        f'<td width="72" valign="middle" style="width:72px;vertical-align:middle">{mark}</td>'
+        f'<td valign="middle" style="padding-left:14px;vertical-align:middle">'
+        f'<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:{_MUTED}">'
+        f'{escape(str(product.get("service") or "Produit"))}</div>'
+        f'<div style="margin-top:4px;font-size:18px;font-weight:800;color:{_TEXT}">{escape(title)}</div>'
+        "</td></tr></table>"
+    )
+    body = (
+        _paragraph(escape(_greeting(name)))
+        + _paragraph(f"Tu as ajouté {_strong(escape(title))} à tes favoris. Voici sa fiche.")
+        + heading
+        + _details(rows)
+        + (_paragraph(escape(description).replace("\n", "<br>")) if description else "")
+        + (_note(escape(remark)) if remark else "")
+        + _button("Voir le produit", link)
+        + _button("Mes favoris", f"{site_url()}/mon-compte?onglet=favoris")
+    )
+    text_rows = "\n".join(f"{label} : {value}" for label, value in (
+        ("Service", product.get("service") or "—"),
+        ("Prix", product.get("price") or "—"),
+        ("Durée", product.get("period") or "—"),
+        ("Garantie", product.get("warranty") or "—"),
+        ("Stock", product.get("stock") or "—"),
+        ("Livraison", product.get("delivery") or "—"),
+    ))
+    text = (
+        f"{_greeting(name)}\n\nTu as ajouté {title} à tes favoris. Voici sa fiche.\n\n"
+        f"{text_rows}\n"
+        + (f"\n{description}\n" if description else "")
+        + (f"\n{remark}\n" if remark else "")
+        + f"\nVoir le produit : {link}\n"
+        f"Mes favoris : {site_url()}/mon-compte?onglet=favoris\n"
+    )
+    subject = f"Ton favori : {title}"
+    html = _layout("Ajouté aux favoris", body, badge="Favori", preheader=f"{title} · {product.get('price') or ''}")
+    return subject, html, text
+
+
+def send_favorite(to: str, name: str, product: dict[str, str], link: str, logo_url: str = "") -> None:
+    """Email the public product sheet when a customer saves a favorite."""
+    subject, html, text = favorite_content(name, product, link, logo_url)
+    send(to, subject, html, text)
+
+
+def send_back_in_stock(
+    to: str,
+    name: str,
+    product: str,
+    link: str,
+    *,
+    logo_url: str = "",
+    added: int = 0,
+    unlimited: bool = False,
+) -> None:
     """Tell someone who asked to be warned that a sold-out product is back."""
-    subject, html, text = back_in_stock_content(name, product, link)
+    subject, html, text = back_in_stock_content(
+        name, product, link, logo_url=logo_url, added=added, unlimited=unlimited
+    )
     send(to, subject, html, text)
 
 
@@ -975,6 +1097,7 @@ STYLE_TONES = {
     "send_review_request": "brand",
     "send_ticket_reply": "brand",
     "send_client_message": "brand",
+    "send_favorite": "brand",
     "resend": "brand",
 }
 
@@ -982,6 +1105,34 @@ STYLE_TONES = {
 def tone_for(kind: str) -> str:
     """Color family for one automatic email: brand, success, pending or danger."""
     return STYLE_TONES.get(str(kind or ""), "brand")
+
+
+def _sample_service_logo(product: str) -> str:
+    """A public logo for the style preview. Falls back to the ChatGPT mark shipped with the shop."""
+    needle = str(product or "").casefold().split()[0]
+    site = site_url()
+    try:
+        from app.domain import storefront_service
+
+        services = storefront_service.catalog().get("services") or []
+    except Exception:
+        services = []
+    for service in services:
+        names = [str(service.get("name") or "")]
+        names.extend(str(offer.get("name") or "") for offer in service.get("offers") or [])
+        if not any(needle and needle in item.casefold() for item in names):
+            continue
+        raw = str(service.get("logo_url") or "")
+        if not raw:
+            for offer in service.get("offers") or []:
+                if offer.get("service_logo_url"):
+                    raw = str(offer["service_logo_url"])
+                    break
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw
+        if raw:
+            return f"{site}{raw if raw.startswith('/') else '/' + raw}"
+    return f"{site}/ads/logos/chatgpt.png"
 
 
 def style_catalog() -> list[dict[str, str]]:
@@ -1018,7 +1169,31 @@ def style_catalog() -> list[dict[str, str]]:
         ("send_ticket_reply", "Réponse du support", "Suivi", "Quand un admin répond dans la messagerie.",
          lambda: ticket_reply_content(name, 12, "Ton accès est prêt dans ton compte.")),
         ("send_back_in_stock", "Retour en stock", "Suivi", "Un produit demandé est de nouveau disponible.",
-         lambda: back_in_stock_content(name, "ChatGPT Plus", f"{site}/exemple")),
+         lambda: back_in_stock_content(
+             name,
+             "ChatGPT Plus",
+             f"{site}/exemple",
+             logo_url=_sample_service_logo("ChatGPT"),
+             added=12,
+         )),
+        ("send_favorite", "Favori", "Suivi", "Quand un client ajoute un produit à ses favoris.",
+         lambda: favorite_content(
+             name,
+             {
+                 "service": "ChatGPT",
+                 "name": "ChatGPT Plus",
+                 "price": "25,000 DT",
+                 "period": "1 mois",
+                 "warranty": "Garantie complète",
+                 "stock": "12 en stock",
+                 "delivery": "Instantané",
+                 "badge": "",
+                 "description": "Compte premium pour un mois.",
+                 "remark": "",
+             },
+             f"{site}/exemple",
+             _sample_service_logo("ChatGPT"),
+         )),
         ("send_client_message", "Message du shop", "Suivi", "Un message écrit depuis Nouveau, dans Courrier.",
          lambda: client_message_content(name, "Votre accès", "Ton accès est prêt dans ton compte.")),
     ]

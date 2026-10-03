@@ -226,6 +226,97 @@
   display: none;
 }
 
+.notice-bell {
+  position: relative;
+}
+
+.notice-toggle {
+  position: relative;
+}
+
+.notice-toggle > b {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.notice-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(420px, 70vh);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--ink-800);
+  box-shadow: var(--shadow-float);
+}
+
+.notice-panel ul,
+.notice-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice-row {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notice-row:hover,
+.notice-row.is-new {
+  background: var(--ink-700);
+}
+
+.notice-row small,
+.notice-row time {
+  color: var(--text-mute);
+  font-size: 11px;
+}
+
+.notice-row strong {
+  font-size: 14px;
+}
+
+.notice-row span {
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.notice-empty {
+  margin: 0;
+  padding: 16px 10px;
+  color: var(--text-mute);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* ---------- Hero ---------- */
 
 .hero {

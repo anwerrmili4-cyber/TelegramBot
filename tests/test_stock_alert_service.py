@@ -29,6 +29,8 @@ def test_a_waiting_address_is_emailed_once_when_stock_returns(mock_mongodb, sent
     assert sent_emails[0]["to"] == ["nina@example.com"]
     assert "ChatGPT Plus 1 mois" in sent_emails[0]["subject"]
     assert f"/produit/{offer_id}" in sent_emails[0]["text"]
+    assert "3 ajoutés au stock" in sent_emails[0]["text"]
+    assert "+ 3" in sent_emails[0]["html"]
     assert mock_mongodb.storefront_stock_alerts.count_documents({"notified_at": None}) == 0
 
 

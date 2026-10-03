@@ -63,8 +63,21 @@ def subscribe(payload: dict[str, Any], token: Any = "") -> dict[str, Any]:
     return {"ok": True}
 
 
-def release(offer_id: int) -> int:
-    """Send the waiting emails if this offer can be bought right now."""
+def _absolute_logo(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    return f"{email_service.site_url()}{raw if raw.startswith('/') else '/' + raw}"
+
+
+def release(offer_id: int, added: int | None = None) -> int:
+    """Send the waiting emails if this offer can be bought right now.
+
+    ``added`` is how many units were just put back. Without it, the email
+    shows the stock now available.
+    """
     conn = db.get_conn()
     pending = list(conn.storefront_stock_alerts.find({"offer_id": int(offer_id), "notified_at": None}))
     if not pending:
@@ -77,10 +90,24 @@ def release(offer_id: int) -> int:
         return 0
     link = f"{email_service.site_url()}/produit/{int(offer_id)}"
     name = str(listed.get("name") or offer.get("name") or "Ce produit")
+    unlimited = bool(offer.get("unlimited_stock"))
+    current = int(offer.get("stock") or 0)
+    quantity = current if added is None else max(0, int(added))
+    if quantity < 1 and not unlimited:
+        quantity = current
+    logo = _absolute_logo(str(listed.get("service_logo_url") or ""))
     now = int(time.time())
     sent = 0
     for alert in pending:
-        email_service.send_back_in_stock(str(alert.get("email") or ""), str(alert.get("name") or ""), name, link)
+        email_service.send_back_in_stock(
+            str(alert.get("email") or ""),
+            str(alert.get("name") or ""),
+            name,
+            link,
+            logo_url=logo,
+            added=quantity,
+            unlimited=unlimited and added is None,
+        )
         conn.storefront_stock_alerts.update_one({"_id": alert["_id"]}, {"$set": {"notified_at": now}})
         sent += 1
     return sent

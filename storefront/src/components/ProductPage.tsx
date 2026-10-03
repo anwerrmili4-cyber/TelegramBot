@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, Check, Clock, List, Lock, Package, Share2, ShieldCheck, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
+import { ArrowLeft, Check, Clock, Heart, List, Lock, Package, Share2, ShieldCheck, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
 import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
-import { fetchReviews, requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
+import { fetchFavorites, fetchReviews, requestStockAlert, setFavorite, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyTagClass, warrantyView } from "@/lib/warranty";
-import { Link, ROUTES } from "@/lib/router";
+import { Link, navigate, productPath, ROUTES, withNext } from "@/lib/router";
 import type { Offer, PublicReview } from "@/types";
 
 type ProductPageProps = {
@@ -27,6 +27,63 @@ const PAY_STEPS = [
 ];
 
 const URL_PATTERN = /https?:\/\/[^\s<]+/g;
+
+function FavoriteButton({ offerId }: { offerId: number }) {
+  const { customer, token } = useAuth();
+  const [saved, setSaved] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!token) {
+      setSaved(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    fetchFavorites(token, controller.signal)
+      .then((result) => setSaved(result.favorites.some((item) => item.offer_id === offerId)))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [token, offerId]);
+
+  async function toggle() {
+    if (!token || !customer) {
+      navigate(withNext(ROUTES.login, productPath(offerId)));
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const result = await setFavorite(token, offerId, !saved);
+      setSaved(result.saved);
+      setNote(result.emailed ? "La fiche complète est partie sur ton email." : result.saved ? "Déjà dans tes favoris." : "Retiré de tes favoris.");
+    } catch (reason) {
+      setError(errorMessage(reason, "Le favori n'a pas pu être enregistré."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="favorite-row">
+      <button
+        type="button"
+        className={saved ? "button button-ghost favorite-button is-saved" : "button button-ghost favorite-button"}
+        aria-pressed={saved}
+        disabled={busy}
+        onClick={() => void toggle()}
+      >
+        <Heart size={16} aria-hidden="true" fill={saved ? "currentColor" : "none"} />
+        {busy ? "Enregistrement…" : saved ? "Dans tes favoris" : "Ajouter aux favoris"}
+      </button>
+      {note ? <p className="favorite-note" role="status">{note}</p> : null}
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+    </div>
+  );
+}
 
 function StockAlert({ offerId }: { offerId: number }) {
   const { customer, token } = useAuth();
@@ -501,6 +558,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                 {lockedOut ? <small className="drawer-notice">Ton panier a atteint sa limite de produits.</small> : null}
               </>
             )}
+            <FavoriteButton offerId={offer.id} />
             <p className="order-secure">
               <Lock size={14} aria-hidden="true" /> Paiement sécurisé par <b>BlackMarket</b>
             </p>

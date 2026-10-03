@@ -25,6 +25,7 @@ import { toggleTheme, useTheme } from "@/lib/theme";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
 import { placeSlidingPill } from "@/lib/slidingPill";
 import { accountPath } from "@/pages/AccountPage";
+import { NotificationBell } from "@/components/NotificationBell";
 
 type SiteHeaderProps = {
   cartCount: number;
@@ -377,6 +378,8 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
             </Link>
           </>
         )}
+
+        <NotificationBell />
 
         <button
           type="button"

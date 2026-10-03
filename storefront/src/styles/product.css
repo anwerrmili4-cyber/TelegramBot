@@ -389,6 +389,28 @@
   margin-top: 18px;
 }
 
+.favorite-row {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.favorite-button {
+  width: 100%;
+}
+
+.favorite-button.is-saved {
+  color: var(--brand);
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+}
+
+.favorite-note {
+  margin: 0;
+  color: var(--text-mute);
+  font-size: 13px;
+  text-align: center;
+}
+
 .pdp-pay {
   width: 100%;
 }
