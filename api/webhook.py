@@ -1309,6 +1309,9 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
             query = parse_qs(url.query)
+            if query.get("styles", [""])[0] == "1":
+                self._reply(200, site_mail_service.style_catalog())
+                return
             message_id = query.get("id", [""])[0]
             if message_id:
                 detail = site_mail_service.message_detail(message_id)

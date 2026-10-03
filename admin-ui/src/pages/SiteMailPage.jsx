@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mail, PenLine, Search, Send } from "lucide-react";
+import { Mail, Palette, PenLine, Search, Send } from "lucide-react";
 import { ActionButton, Empty, Field, PageHeader, useRemoteList } from "../admin-kit.jsx";
 
 const STATUS = {
@@ -70,6 +70,11 @@ export default function SiteMailPage({ onAction }) {
   const [detail, setDetail] = useState(null);
   const [reading, setReading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [styles, setStyles] = useState([]);
+  const [stylesLoaded, setStylesLoaded] = useState(false);
+  const [stylesLoading, setStylesLoading] = useState(false);
+  const [stylesError, setStylesError] = useState("");
+  const [styleId, setStyleId] = useState("");
   const customers = result.customers || [];
   const messages = result.messages || [];
 
@@ -80,6 +85,14 @@ export default function SiteMailPage({ onAction }) {
       [item.subject, item.to, item.name, item.kind_label, item.preview].join(" ").toLowerCase().includes(needle)
     );
   }, [messages, query]);
+
+  const styleGroups = useMemo(() => {
+    const order = ["Compte", "Commandes", "Portefeuille", "Suivi"];
+    return order
+      .map((name) => ({ name, items: styles.filter((item) => item.group === name) }))
+      .filter((group) => group.items.length);
+  }, [styles]);
+  const selectedStyle = styles.find((item) => item.id === styleId) || null;
 
   useEffect(() => {
     const onError = (event) => setListError(String(event.detail || "La liste n'a pas pu être actualisée."));
@@ -120,6 +133,31 @@ export default function SiteMailPage({ onAction }) {
     return () => controller.abort();
   }, [selectedId]);
 
+  useEffect(() => {
+    if (folder !== "styles" || stylesLoaded) return undefined;
+    const controller = new AbortController();
+    setStylesLoading(true);
+    setStylesError("");
+    fetch("/admin/api/site-mail?styles=1", { credentials: "same-origin", cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || payload.ok === false) {
+          setStylesError(payload.error || "Les modèles n'ont pas pu être chargés.");
+          return;
+        }
+        setStyles(payload.styles || []);
+        setStylesLoaded(true);
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError") return;
+        setStylesError("Impossible de charger les modèles.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setStylesLoading(false);
+      });
+    return () => controller.abort();
+  }, [folder, stylesLoaded]);
+
   function openMessage(id) {
     setFolder("sent");
     setSelectedId(id);
@@ -154,7 +192,8 @@ export default function SiteMailPage({ onAction }) {
   }
 
   const recipient = detail?.name ? `${detail.name} <${detail.to}>` : detail?.to;
-  const layout = ["mail-app", folder === "sent" && selectedId ? "is-reading" : "", folder === "compose" ? "is-composing" : ""].filter(Boolean).join(" ");
+  const paneOpen = (folder === "sent" && selectedId) || (folder === "styles" && styleId);
+  const layout = ["mail-app", paneOpen ? "is-reading" : "", folder === "compose" ? "is-composing" : ""].filter(Boolean).join(" ");
 
   return (
     <div className="operations-page mail-page">
@@ -175,11 +214,16 @@ export default function SiteMailPage({ onAction }) {
             <PenLine size={16} />
             <span>Nouveau</span>
           </button>
+          <button type="button" className={folder === "styles" ? "is-active" : ""} onClick={() => setFolder("styles")}>
+            <Palette size={16} />
+            <span>Modèles</span>
+          </button>
         </nav>
 
         <section className="mail-list-pane" aria-labelledby="sent-mail-title">
           <header className="mail-list-head">
-            <h2 id="sent-mail-title">Envoyés</h2>
+            <h2 id="sent-mail-title">{folder === "styles" ? "Modèles" : "Envoyés"}</h2>
+            {folder === "styles" ? null : (
             <label className="mail-search">
               <Search size={14} />
               <input
@@ -189,15 +233,55 @@ export default function SiteMailPage({ onAction }) {
                 aria-label="Rechercher un message"
               />
             </label>
+            )}
           </header>
-          {loading && !messages.length ? <p className="mail-empty-list">Chargement…</p> : null}
-          {!loading && !visible.length ? (
+          {folder === "styles" ? (
+            <>
+              <p className="mail-legend" aria-label="Couleurs des modèles">
+                <span className="mail-kind mail-tone-success">Validé</span>
+                <span className="mail-kind mail-tone-pending">En attente</span>
+                <span className="mail-kind mail-tone-danger">Refus</span>
+                <span className="mail-kind mail-tone-brand">Information</span>
+              </p>
+              {stylesError ? <p className="form-error" role="alert">{stylesError}</p> : null}
+              {stylesLoading && !styles.length ? <p className="mail-empty-list">Chargement des modèles…</p> : null}
+              {styleGroups.map((group) => (
+                <div key={group.name}>
+                  <h3 className="mail-style-group">{group.name}</h3>
+                  <div className="mail-rows" role="listbox" aria-label={group.name}>
+                    {group.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="option"
+                        aria-selected={styleId === item.id}
+                        className={styleId === item.id ? `mail-row is-selected mail-tone-${item.tone}` : `mail-row mail-tone-${item.tone}`}
+                        onClick={() => setStyleId(item.id)}
+                      >
+                        <span className={`mail-avatar mail-tone-${item.tone}`} aria-hidden="true">{item.label.charAt(0)}</span>
+                        <span className="mail-row-copy">
+                          <span className="mail-row-top">
+                            <strong>{item.label}</strong>
+                          </span>
+                          <span className="mail-row-subject">{item.subject}</span>
+                          <span className="mail-row-preview">{item.when}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : null}
+          {folder !== "styles" && loading && !messages.length ? <p className="mail-empty-list">Chargement…</p> : null}
+          {folder !== "styles" && !loading && !visible.length ? (
             <Empty
               icon={Mail}
               title={query ? "Aucun message ne correspond." : "Aucun message envoyé pour le moment."}
               text={query ? "Essaie un autre nom, une adresse ou un sujet." : "Les emails déjà partis aux clients s'affichent ici."}
             />
           ) : null}
+          {folder !== "styles" ? (
           <div className="mail-rows" role="listbox" aria-label="Messages envoyés">
             {visible.map((item) => (
               <button
@@ -205,21 +289,23 @@ export default function SiteMailPage({ onAction }) {
                 type="button"
                 role="option"
                 aria-selected={selectedId === item.id}
-                className={selectedId === item.id && folder === "sent" ? "mail-row is-selected" : "mail-row"}
+                className={selectedId === item.id && folder === "sent" ? `mail-row is-selected mail-tone-${item.tone || "brand"}` : `mail-row mail-tone-${item.tone || "brand"}`}
                 onClick={() => openMessage(item.id)}
               >
-                <span className="mail-avatar" aria-hidden="true">{initial(item)}</span>
+                <span className={`mail-avatar mail-tone-${item.tone || "brand"}`} aria-hidden="true">{initial(item)}</span>
                 <span className="mail-row-copy">
                   <span className="mail-row-top">
                     <strong>{item.name || item.to}</strong>
                     <time dateTime={stamp(item.created_at)?.toISOString()}>{when(item.created_at)}</time>
                   </span>
                   <span className="mail-row-subject">{item.subject || "Sans sujet"}</span>
-                  <span className="mail-row-preview">{item.preview || item.kind_label}</span>
+                  <span className={`mail-kind mail-tone-${item.tone || "brand"}`}>{item.kind_label}</span>
+                  {item.preview ? <span className="mail-row-preview">{item.preview}</span> : null}
                 </span>
               </button>
             ))}
           </div>
+          ) : null}
         </section>
 
         <section className="mail-read-pane" aria-live="polite">
@@ -260,6 +346,29 @@ export default function SiteMailPage({ onAction }) {
                 </ActionButton>
               </div>
             </form>
+          ) : null}
+
+          {folder === "styles" && !selectedStyle ? (
+            <div className="mail-placeholder">
+              <Palette size={28} />
+              <p>Choisis un modèle pour voir le style de l'email automatique.</p>
+            </div>
+          ) : null}
+
+          {folder === "styles" && selectedStyle ? (
+            <article className="mail-letter">
+              <button type="button" className="mail-back" onClick={() => setStyleId("")}>Retour aux modèles</button>
+              <header className="mail-letter-head">
+                <h2>{selectedStyle.subject}</h2>
+                <span className={`mail-kind mail-tone-${selectedStyle.tone}`}>{selectedStyle.label}</span>
+                <dl>
+                  <div><dt>Quand</dt><dd>{selectedStyle.when}</dd></div>
+                  <div><dt>De</dt><dd>{result.from || "BLACKMARKET"}</dd></div>
+                  <div><dt>Aperçu</dt><dd>Exemple seulement. Aucun email n'est envoyé.</dd></div>
+                </dl>
+              </header>
+              <MailFrame key={selectedStyle.id} html={selectedStyle.html} />
+            </article>
           ) : null}
 
           {folder === "sent" && !selectedId ? (

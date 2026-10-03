@@ -5,7 +5,12 @@
 .mail-app{display:grid;grid-template-columns:188px minmax(260px,340px) minmax(0,1fr);height:calc(100vh - 220px);min-height:640px;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:var(--panel)}
 .mail-folders{display:flex;flex-direction:column;gap:4px;padding:12px;border-right:1px solid var(--line);background:var(--panel-soft)}
 .mail-folders button{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:0 10px;border:0;border-radius:10px;background:transparent;color:var(--text);font:inherit;font-size:13px;font-weight:600;text-align:left;cursor:pointer}
-.mail-folders button.is-active{background:var(--panel);box-shadow:var(--shadow-sm)}
+.mail-folders button svg{color:var(--accent)}
+.mail-folders button:nth-child(2) svg{color:var(--green)}
+.mail-folders button:nth-child(3) svg{color:var(--amber)}
+.mail-folders button.is-active{background:color-mix(in srgb,var(--accent) 12%,var(--panel));box-shadow:inset 3px 0 0 var(--accent)}
+.mail-folders button:nth-child(2).is-active{background:color-mix(in srgb,var(--green) 12%,var(--panel));box-shadow:inset 3px 0 0 var(--green)}
+.mail-folders button:nth-child(3).is-active{background:color-mix(in srgb,var(--amber) 14%,var(--panel));box-shadow:inset 3px 0 0 var(--amber)}
 .mail-folders small{margin-left:auto;color:var(--muted);font-size:11px;font-weight:600}
 .mail-list-pane,.mail-read-pane{min-width:0;min-height:0;overflow:auto}
 .mail-list-pane{border-right:1px solid var(--line)}
@@ -14,11 +19,18 @@
 .mail-search{display:flex;align-items:center;gap:8px;min-height:38px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--muted)}
 .mail-search input{width:100%;min-height:36px;padding:0;border:0;background:transparent;color:var(--text);font:inherit;font-size:13px;outline:0}
 .mail-rows{display:flex;flex-direction:column}
-.mail-row{display:flex;gap:10px;width:100%;padding:12px 14px;border:0;border-bottom:1px solid var(--line);background:transparent;color:inherit;text-align:left;cursor:pointer}
-.mail-row:hover{background:var(--panel-soft)}
-.mail-row.is-selected{background:var(--accent-soft)}
-.mail-avatar{display:grid;place-items:center;flex:0 0 auto;width:36px;height:36px;border-radius:999px;background:var(--panel-soft);color:var(--text);font-size:13px;font-weight:700}
-.mail-row.is-selected .mail-avatar{background:var(--panel)}
+.mail-tone-brand{--mail-tone:var(--accent)}
+.mail-tone-success{--mail-tone:var(--green)}
+.mail-tone-pending{--mail-tone:var(--amber)}
+.mail-tone-danger{--mail-tone:var(--red)}
+.mail-row{display:flex;gap:10px;width:100%;padding:12px 14px;border:0;border-bottom:1px solid var(--line);border-left:3px solid var(--mail-tone,transparent);background:transparent;color:inherit;text-align:left;cursor:pointer}
+.mail-row:hover{background:color-mix(in srgb,var(--mail-tone,var(--accent)) 7%,var(--panel))}
+.mail-row.is-selected{background:color-mix(in srgb,var(--mail-tone,var(--accent)) 14%,var(--panel))}
+.mail-avatar{display:grid;place-items:center;flex:0 0 auto;width:36px;height:36px;border-radius:999px;background:color-mix(in srgb,var(--mail-tone,var(--accent)) 16%,var(--panel));color:var(--mail-tone,var(--accent));font-size:13px;font-weight:700}
+.mail-kind{display:inline-flex;width:fit-content;max-width:100%;padding:2px 8px;border-radius:999px;color:var(--mail-tone,var(--accent));background:color-mix(in srgb,var(--mail-tone,var(--accent)) 14%,var(--panel));font-size:10px;font-weight:700;letter-spacing:.02em}
+.mail-legend{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:12px 14px 0}
+.mail-style-group{margin:0;padding:14px 14px 4px;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.mail-sample,.mail-letter-head .mail-kind{justify-self:end}
 .mail-row-copy{display:grid;gap:2px;min-width:0;flex:1}
 .mail-row-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .mail-row-top strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
@@ -33,21 +45,23 @@
 .mail-back{display:none;justify-self:start;min-height:36px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--text);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .mail-letter-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--line)}
 .mail-letter-head h2{grid-column:1}
-.mail-letter-head .status{grid-column:2;justify-self:end}
+.mail-letter-head .status,.mail-letter-head .mail-kind{grid-column:2;justify-self:end}
+.mail-letter-head .status.sent,.mail-letter-head .status.queued{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
+.mail-letter-head .status.bounced,.mail-letter-head .status.complained{color:var(--red);background:color-mix(in srgb,var(--red) 12%,var(--panel))}
 .mail-letter-head dl{grid-column:1 / -1}
 .mail-letter-head dl{display:grid;gap:6px;margin:0}
-.mail-letter-head dl>div{display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;align-items:baseline}
+.mail-letter-head dl>div{display:grid;grid-template-columns:68px minmax(0,1fr);gap:8px;align-items:baseline}
 .mail-letter-head dt{color:var(--muted);font-size:12px}
 .mail-letter-head dd{min-width:0;margin:0;overflow-wrap:anywhere;font-size:13px}
 .mail-frame{display:block;width:100%;min-height:560px;border:0;border-radius:12px;background:#0b0b0d}
 .mail-plain{margin:0;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel);white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px;line-height:1.6}
-.mail-compose{display:grid;align-content:start;gap:14px;min-height:100%;padding:18px 20px 28px;background:var(--panel)}
+.mail-compose{display:grid;align-content:start;gap:14px;min-height:100%;padding:18px 20px 28px;background:var(--panel);border-top:3px solid var(--green)}
 .mail-compose-head{display:grid;gap:4px}
 .mail-compose-head p{margin:0;color:var(--muted);font-size:13px}
 .mail-compose .dialog-actions{justify-content:flex-start}
 @media(max-width:980px){
   .mail-app{grid-template-columns:1fr;height:auto;min-height:0}
-  .mail-folders{flex-direction:row;border-right:0;border-bottom:1px solid var(--line)}
+  .mail-folders{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}
   .mail-folders button{width:auto}
   .mail-list-pane{max-height:70vh;border-right:0;border-bottom:1px solid var(--line)}
   .mail-app.is-reading .mail-folders,.mail-app.is-reading .mail-list-pane{display:none}

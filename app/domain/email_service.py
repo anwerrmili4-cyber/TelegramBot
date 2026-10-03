@@ -63,14 +63,20 @@ def configured_sender() -> str:
     return _sender()
 
 
-def send_client_message(to: str, name: str, subject: str, message: str) -> None:
-    """One plain message from the shop to a site customer."""
+def client_message_content(name: str, subject: str, message: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of a message written from Courrier."""
     body_text = str(message or "").strip()[:4000]
     title = str(subject or "").strip()[:120]
     html_body = escape(body_text).replace("\n", "<br>")
     body = _paragraph(escape(_greeting(name))) + _paragraph(html_body)
     text = f"{_greeting(name)}\n\n{body_text}\n"
-    send(to, title, _layout(title, body, badge="Message", preheader=body_text[:120]), text)
+    return title, _layout(title, body, badge="Message", preheader=body_text[:120]), text
+
+
+def send_client_message(to: str, name: str, subject: str, message: str) -> None:
+    """One plain message from the shop to a site customer."""
+    title, html, text = client_message_content(name, subject, message)
+    send(to, title, html, text)
 
 
 def _sender() -> str:
@@ -416,7 +422,8 @@ def _duration(minutes: int) -> str:
     return "1 minute" if int(minutes) == 1 else f"{int(minutes)} minutes"
 
 
-def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
+def verification_code_content(name: str, code: str, minutes: int) -> tuple[str, str, str]:
+    """Subject, HTML and text of the address-confirmation email."""
     delay = _duration(minutes)
     body = (
         _paragraph(escape(_greeting(name)))
@@ -436,15 +443,18 @@ def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
         f"Valable {delay}. Ne le partage avec personne.\n"
         "Si tu n'as rien demandé, ignore cet e-mail."
     )
-    send(
-        to,
-        f"{code} — code BlackMarket",
-        _layout("Confirme ton adresse", body, badge="Code", preheader=f"Ton code : {code}. Valable {delay}."),
-        text,
-    )
+    subject = f"{code} — code BlackMarket"
+    html = _layout("Confirme ton adresse", body, badge="Code", preheader=f"Ton code : {code}. Valable {delay}.")
+    return subject, html, text
 
 
-def send_welcome(to: str, name: str, site_url: str) -> None:
+def send_verification_code(to: str, name: str, code: str, minutes: int) -> None:
+    subject, html, text = verification_code_content(name, code, minutes)
+    send(to, subject, html, text)
+
+
+def welcome_content(name: str, site_url: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of the account-created email."""
     steps = "".join(
         '<tr>'
         f'<td style="padding:10px 12px 10px 0;vertical-align:top;width:30px">'
@@ -469,15 +479,18 @@ def send_welcome(to: str, name: str, site_url: str) -> None:
         "tes accès arrivent par email et restent disponibles dans ton espace client."
         + (f"\n\n{site_url}" if site_url else "")
     )
-    send(
-        to,
-        f"Bienvenue sur {BRAND}",
-        _layout("Bienvenue !", body, badge="Compte créé", tone="success", preheader="Ton compte est prêt."),
-        text,
-    )
+    subject = f"Bienvenue sur {BRAND}"
+    html = _layout("Bienvenue !", body, badge="Compte créé", tone="success", preheader="Ton compte est prêt.")
+    return subject, html, text
 
 
-def send_password_reset(to: str, name: str, link: str) -> None:
+def send_welcome(to: str, name: str, site_url: str) -> None:
+    subject, html, text = welcome_content(name, site_url)
+    send(to, subject, html, text)
+
+
+def password_reset_content(name: str, link: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of the password email."""
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph("Choisis un nouveau mot de passe avec le bouton ci-dessous.")
@@ -490,12 +503,14 @@ def send_password_reset(to: str, name: str, link: str) -> None:
         f"{link}\n\n"
         "Le lien est valable une heure. Si tu n'as rien demandé, ignore cet e-mail."
     )
-    send(
-        to,
-        "Nouveau mot de passe",
-        _layout("Nouveau mot de passe", body, badge="Sécurité", preheader="Le lien est valable une heure."),
-        text,
-    )
+    subject = "Nouveau mot de passe"
+    html = _layout("Nouveau mot de passe", body, badge="Sécurité", preheader="Le lien est valable une heure.")
+    return subject, html, text
+
+
+def send_password_reset(to: str, name: str, link: str) -> None:
+    subject, html, text = password_reset_content(name, link)
+    send(to, subject, html, text)
 
 
 # ---------------------------------------------------------------------------
@@ -549,9 +564,10 @@ def send_order_received(
     send(to, subject, html, text)
 
 
-def send_payment_confirmed(
-    to: str, name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
-) -> None:
+def payment_confirmed_content(
+    name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
+) -> tuple[str, str, str]:
+    """Subject, HTML and text of the email sent when payment is confirmed and delivery is still pending."""
     button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
@@ -569,12 +585,16 @@ def send_payment_confirmed(
         "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
         + link
     )
-    send(
-        to,
-        f"Paiement confirmé — {reference}",
-        _layout("Paiement confirmé", body, badge=reference, tone="success", preheader="Ta livraison est en préparation."),
-        text,
-    )
+    subject = f"Paiement confirmé — {reference}"
+    html = _layout("Paiement confirmé", body, badge=reference, tone="success", preheader="Ta livraison est en préparation.")
+    return subject, html, text
+
+
+def send_payment_confirmed(
+    to: str, name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
+) -> None:
+    subject, html, text = payment_confirmed_content(name, reference, items, total_millimes)
+    send(to, subject, html, text)
 
 
 def _delivery_access(content: str) -> str:
@@ -855,8 +875,8 @@ def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str)
     send(to, subject, html, text)
 
 
-def send_review_request(to: str, name: str, reference: str) -> None:
-    """Ask the customer to rate a delivered order. One message per cart."""
+def review_request_content(name: str, reference: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of the review request sent after a delivery."""
     url = f"{site_url()}/mon-compte?onglet=commandes"
     button = _button("Noter ma commande", url)
     body = (
@@ -871,16 +891,19 @@ def send_review_request(to: str, name: str, reference: str) -> None:
         "Ta note et ton commentaire restent privés jusqu'à validation.\n\n"
         f"Noter ma commande : {url}\n"
     )
-    send(
-        to,
-        f"Ton avis sur {reference}",
-        _layout("Ton avis", body, badge="Avis", preheader=f"Note ta commande {reference}."),
-        text,
-    )
+    subject = f"Ton avis sur {reference}"
+    html = _layout("Ton avis", body, badge="Avis", preheader=f"Note ta commande {reference}.")
+    return subject, html, text
 
 
-def send_ticket_reply(to: str, name: str, ticket_id: int, message: str) -> None:
-    """Email a site customer when an admin replies in their messenger thread."""
+def send_review_request(to: str, name: str, reference: str) -> None:
+    """Ask the customer to rate a delivered order. One message per cart."""
+    subject, html, text = review_request_content(name, reference)
+    send(to, subject, html, text)
+
+
+def ticket_reply_content(name: str, ticket_id: int, message: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of a support reply."""
     url = f"{site_url()}/messagerie"
     body_text = str(message or "").strip()[:2000]
     button = _button("Ouvrir la messagerie", url)
@@ -896,16 +919,19 @@ def send_ticket_reply(to: str, name: str, ticket_id: int, message: str) -> None:
         f"{body_text}\n\n"
         f"Ouvrir la messagerie : {url}\n"
     )
-    send(
-        to,
-        f"Réponse du support — ticket #{int(ticket_id)}",
-        _layout("Réponse du support", body, badge=f"Ticket #{int(ticket_id)}", preheader=body_text[:120]),
-        text,
-    )
+    subject = f"Réponse du support — ticket #{int(ticket_id)}"
+    html = _layout("Réponse du support", body, badge=f"Ticket #{int(ticket_id)}", preheader=body_text[:120])
+    return subject, html, text
 
 
-def send_back_in_stock(to: str, name: str, product: str, link: str) -> None:
-    """Tell someone who asked to be warned that a sold-out product is back."""
+def send_ticket_reply(to: str, name: str, ticket_id: int, message: str) -> None:
+    """Email a site customer when an admin replies in their messenger thread."""
+    subject, html, text = ticket_reply_content(name, ticket_id, message)
+    send(to, subject, html, text)
+
+
+def back_in_stock_content(name: str, product: str, link: str) -> tuple[str, str, str]:
+    """Subject, HTML and text of a back-in-stock alert."""
     button = _button("Voir le produit", link)
     body = (
         _paragraph(escape(_greeting(name)))
@@ -918,9 +944,94 @@ def send_back_in_stock(to: str, name: str, product: str, link: str) -> None:
         "Le stock part vite. Ouvre la fiche pour le commander tant qu'il est là.\n\n"
         f"{link}\n"
     )
-    send(
-        to,
-        f"{product} est de nouveau disponible",
-        _layout("De nouveau disponible", body, badge="En stock", tone="success", preheader=product),
-        text,
-    )
+    subject = f"{product} est de nouveau disponible"
+    html = _layout("De nouveau disponible", body, badge="En stock", tone="success", preheader=product)
+    return subject, html, text
+
+
+def send_back_in_stock(to: str, name: str, product: str, link: str) -> None:
+    """Tell someone who asked to be warned that a sold-out product is back."""
+    subject, html, text = back_in_stock_content(name, product, link)
+    send(to, subject, html, text)
+
+
+# ---------------------------------------------------------------------------
+# Style catalog shown in Courrier. Samples only: nothing is sent.
+# ---------------------------------------------------------------------------
+
+STYLE_TONES = {
+    "send_verification_code": "brand",
+    "send_welcome": "success",
+    "send_password_reset": "brand",
+    "send_order_received": "pending",
+    "send_payment_confirmed": "success",
+    "send_order_delivered": "success",
+    "send_order_cancelled": "danger",
+    "send_invoice": "success",
+    "send_deposit_received": "pending",
+    "send_deposit_approved": "success",
+    "send_deposit_rejected": "danger",
+    "send_back_in_stock": "success",
+    "send_review_request": "brand",
+    "send_ticket_reply": "brand",
+    "send_client_message": "brand",
+    "resend": "brand",
+}
+
+
+def tone_for(kind: str) -> str:
+    """Color family for one automatic email: brand, success, pending or danger."""
+    return STYLE_TONES.get(str(kind or ""), "brand")
+
+
+def style_catalog() -> list[dict[str, str]]:
+    """Each automatic email, rendered with example data so the admin can see its style."""
+    name = "Amine"
+    site = site_url()
+    items = [{"offer_name": "ChatGPT Plus", "quantity": 1, "total_millimes": 25000}]
+    access = "Email : exemple@client.tn\nMot de passe : exemple"
+    builders: list[tuple[str, str, str, str, Any]] = [
+        ("send_verification_code", "Code de vérification", "Compte", "Quand le client confirme son adresse.",
+         lambda: verification_code_content(name, "482913", 10)),
+        ("send_welcome", "Bienvenue", "Compte", "Juste après la création du compte.",
+         lambda: welcome_content(name, site)),
+        ("send_password_reset", "Mot de passe", "Compte", "Quand il demande un nouveau mot de passe.",
+         lambda: password_reset_content(name, f"{site}/exemple")),
+        ("send_order_received", "Commande reçue", "Commandes", "Commande payée par reçu, en attente de vérification.",
+         lambda: order_received_content(name, "TN-EXEMPLE", items, 25000, "D17")),
+        ("send_payment_confirmed", "Paiement confirmé", "Commandes", "Paiement validé, livraison encore en préparation.",
+         lambda: payment_confirmed_content(name, "TN-EXEMPLE", items, 25000)),
+        ("send_order_delivered", "Commande livrée", "Commandes", "Les accès partent au client.",
+         lambda: order_delivered_content(name, "TN-EXEMPLE", items, access)),
+        ("send_order_cancelled", "Commande annulée", "Commandes", "La commande est annulée, avec le motif.",
+         lambda: order_cancelled_content(name, "TN-EXEMPLE", "Reçu illisible", 0)),
+        ("send_invoice", "Facture", "Commandes", "La facture PDF est jointe après le paiement.",
+         lambda: invoice_content(name, "FAC-2026-00001", "TN-EXEMPLE", items, 25000, "D17", "03/10/2026")),
+        ("send_deposit_received", "Recharge reçue", "Portefeuille", "Le reçu de recharge est en vérification.",
+         lambda: deposit_received_content(name, 20000, "D17", "EXEMPLE")),
+        ("send_deposit_approved", "Recharge créditée", "Portefeuille", "Le portefeuille est crédité.",
+         lambda: deposit_approved_content(name, 20000, 45000)),
+        ("send_deposit_rejected", "Recharge refusée", "Portefeuille", "La recharge est refusée, avec le motif.",
+         lambda: deposit_rejected_content(name, 20000, "Reçu illisible")),
+        ("send_review_request", "Demande d'avis", "Suivi", "Après une livraison, pour noter la commande.",
+         lambda: review_request_content(name, "TN-EXEMPLE")),
+        ("send_ticket_reply", "Réponse du support", "Suivi", "Quand un admin répond dans la messagerie.",
+         lambda: ticket_reply_content(name, 12, "Ton accès est prêt dans ton compte.")),
+        ("send_back_in_stock", "Retour en stock", "Suivi", "Un produit demandé est de nouveau disponible.",
+         lambda: back_in_stock_content(name, "ChatGPT Plus", f"{site}/exemple")),
+        ("send_client_message", "Message du shop", "Suivi", "Un message écrit depuis Nouveau, dans Courrier.",
+         lambda: client_message_content(name, "Votre accès", "Ton accès est prêt dans ton compte.")),
+    ]
+    catalog = []
+    for kind, label, group, when, build in builders:
+        subject, html, _text = build()
+        catalog.append({
+            "id": kind,
+            "label": label,
+            "group": group,
+            "when": when,
+            "tone": tone_for(kind),
+            "subject": subject,
+            "html": html,
+        })
+    return catalog

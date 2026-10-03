@@ -69,6 +69,7 @@ def _summary(row: dict[str, Any]) -> dict[str, Any]:
         "subject": str(row.get("subject") or ""),
         "status": str(row.get("status") or "queued"),
         "preview": _preview(str(row.get("text") or row.get("preview") or "")),
+        "tone": email_service.tone_for(kind),
     }
 
 
@@ -362,6 +363,11 @@ def message_detail(message_id: Any) -> dict[str, Any] | None:
         "html": str(row.get("html") or ""),
         "status": str(row.get("status") or "queued"),
     }
+
+
+def style_catalog() -> dict[str, Any]:
+    """Example of every automatic email, so Courrier can show each style."""
+    return {"ok": True, "from": email_service.configured_sender(), "styles": email_service.style_catalog()}
 
 
 def mailbox() -> dict[str, Any]:

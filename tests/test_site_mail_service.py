@@ -167,5 +167,22 @@ def test_past_orders_and_deposits_rebuild_the_sent_mail(mock_mongodb, site_custo
     assert "Reçu illisible" in detail["text"]
     assert detail["html"].startswith("<!doctype html>")
     assert "Reçu illisible" in detail["html"]
-    assert "preview" in site_mail_service.mailbox()["messages"][0]
-    assert "html" not in site_mail_service.mailbox()["messages"][0]
+    cancelled = next(item for item in site_mail_service.mailbox()["messages"] if item["id"] == "db-cancelled-TN-HIST1")
+    assert cancelled["tone"] == "danger"
+    listed = site_mail_service.mailbox()["messages"][0]
+    assert "preview" in listed
+    assert "html" not in listed
+
+
+def test_style_catalog_previews_every_automatic_email_without_sending(sent_emails):
+    catalog = site_mail_service.style_catalog()
+    styles = catalog["styles"]
+    ids = [item["id"] for item in styles]
+    assert "send_order_delivered" in ids
+    assert "send_verification_code" in ids
+    assert "send_deposit_rejected" in ids
+    delivered = next(item for item in styles if item["id"] == "send_order_delivered")
+    assert delivered["tone"] == "success"
+    assert delivered["html"].startswith("<!doctype html>")
+    assert "exemple@client.tn" in delivered["html"]
+    assert sent_emails == []
