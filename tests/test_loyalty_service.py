@@ -6,13 +6,16 @@ import database as db
 from app.domain import loyalty_service, order_service
 
 
-def _paid_order(conn, order_id, user_id, amount):
+def _paid_order(conn, order_id, user_id, amount, paid_at=None):
+    paid_at = int(time.time()) if paid_at is None else int(paid_at)
     conn.orders.insert_one({
         "id": order_id,
         "user_id": user_id,
         "status": "delivered",
         "gross_total": amount,
         "total_price": amount,
+        "paid_at": paid_at,
+        "created_at": paid_at,
     })
 
 
@@ -33,20 +36,56 @@ def test_levels_match_spend_thresholds(mock_mongodb):
         assert benefit["expires_at"] <= int(time.time()) + 3 * 86400
 
 
-def test_existing_seven_day_level_is_capped_to_three_days(mock_mongodb):
+def test_level_reached_more_than_three_days_ago_has_no_discount(mock_mongodb):
     now = int(time.time())
+    _paid_order(mock_mongodb, 1, 77, 25, paid_at=now - 8 * 86400)
     mock_mongodb.loyalty.insert_one({
         "user_id": 77,
         "level": "bronze",
-        "discount_percent": 8,
-        "activated_at": now - 86400,
+        "discount_percent": 3,
+        "activated_at": now - 3600,
         "expires_at": now + 6 * 86400,
     })
 
     benefit = loyalty_service.active_benefit(77)
 
-    assert benefit["expires_at"] <= now + 2 * 86400
-    assert benefit["discount_percent"] == 3
+    assert benefit["discount_percent"] == 0
+    assert benefit["level"] is None
+
+
+def test_later_purchase_does_not_renew_an_expired_level(mock_mongodb):
+    now = int(time.time())
+    _paid_order(mock_mongodb, 1, 77, 25, paid_at=now - 8 * 86400)
+    _paid_order(mock_mongodb, 2, 77, 10, paid_at=now)
+
+    benefit = loyalty_service.record_purchase(77)
+
+    assert benefit["activated"] is False
+    assert benefit["discount_percent"] == 0
+    assert loyalty_service.discount_for_order(77, 100)["amount"] == 0
+    stored = mock_mongodb.loyalty.find_one({"user_id": 77})
+    assert stored["activated_at"] <= now - 8 * 86400 + 5
+    assert stored["discount_percent"] == 0
+
+
+def test_higher_level_starts_a_new_three_day_window(mock_mongodb):
+    now = int(time.time())
+    _paid_order(mock_mongodb, 1, 77, 25, paid_at=now - 10 * 86400)
+    _paid_order(mock_mongodb, 2, 77, 50, paid_at=now)
+    mock_mongodb.loyalty.insert_one({
+        "user_id": 77,
+        "level": "bronze",
+        "discount_percent": 0,
+        "activated_at": now - 10 * 86400,
+        "expires_at": now - 7 * 86400,
+    })
+
+    benefit = loyalty_service.record_purchase(77)
+
+    assert benefit["activated"] is True
+    assert benefit["level"] == "silver"
+    assert benefit["discount_percent"] == 6
+    assert benefit["expires_at"] > now + 2 * 86400
 
 def test_active_level_discount_is_applied_to_new_order(mock_mongodb):
     db.add_service("AI", "🤖")

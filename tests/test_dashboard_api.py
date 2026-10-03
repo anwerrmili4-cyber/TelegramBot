@@ -538,7 +538,13 @@ def test_customer_detail_builds_complete_crm_profile(mock_mongodb):
     mock_mongodb.affiliate_rewards.insert_one({
         "referrer_id": 42, "milestone": 1, "amount_cents": 200, "created_at": now - 20,
     })
-    mock_mongodb.loyalty.insert_one({"user_id": 42, "level": "Gold", "discount_percent": 8})
+    mock_mongodb.loyalty.insert_one({
+        "user_id": 42,
+        "level": "Gold",
+        "discount_percent": 8,
+        "activated_at": now,
+        "expires_at": now + 30 * 86400,
+    })
     mock_mongodb.buyer_api_purchases.insert_one({
         "user_id": 42, "idempotency_key": "api-1", "created_at": now - 10,
         "response": {"success": True, "amount": 3},
@@ -559,7 +565,9 @@ def test_customer_detail_builds_complete_crm_profile(mock_mongodb):
     assert customer["deposit_total"] == 20
     assert customer["withdrawal_total"] == 5
     assert customer["affiliate_earned"] == 2
-    assert customer["loyalty"]["level"] == "Gold"
+    assert customer["loyalty"]["level"] is None
+    assert customer["loyalty"]["discount_percent"] == 0
+    assert customer["loyalty"]["total_spend"] == 12.0
     assert customer["referrals"][0]["customer"]["username"] == "friend"
     assert customer["wallet_adjustments"][0]["details"]["amount"] == 1
     assert customer["interaction_total"] == 1

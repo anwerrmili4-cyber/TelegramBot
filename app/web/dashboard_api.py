@@ -12,6 +12,7 @@ from typing import Any
 from pymongo import DESCENDING
 
 import database as db
+from app.domain import loyalty_service
 
 
 def _admin_order(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -786,7 +787,7 @@ def customer_detail(user_id: int) -> dict[str, Any] | None:
         "referral_count": len(referrals),
         "affiliate_rewards": rewards,
         "affiliate_earned": round(sum(float(row.get("amount") or 0) for row in rewards), 2),
-        "loyalty": db._public(conn.loyalty.find_one({"user_id": user_id})) or {},
+        "loyalty": loyalty_service.status(user_id),
         "api_purchases": api_purchases,
         "wallet_adjustments": wallet_adjustments,
         "interactions": interactions,

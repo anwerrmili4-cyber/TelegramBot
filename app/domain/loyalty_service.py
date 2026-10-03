@@ -1,7 +1,8 @@
-"""Three-day customer levels based on cumulative confirmed purchases."""
+"""Customer levels last three days from the purchase that first reaches them."""
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Any
 
 import database as db
@@ -16,15 +17,53 @@ LEVELS = (
 LEVEL_DURATION_SECONDS = 3 * 24 * 60 * 60
 
 
-def total_spend(user_id: int) -> float:
-    rows = db.get_conn().orders.find(
+def _level_rank(name: Any) -> int:
+    normalized = str(name or "").strip().lower()
+    for index, (level_name, _threshold, _discount) in enumerate(LEVELS):
+        if level_name == normalized:
+            return index
+    return -1
+
+
+def _order_spend(row: dict[str, Any]) -> float:
+    raw = row.get("gross_total", row.get("total_price", 0))
+    try:
+        return float(raw or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _paid_timestamp(row: dict[str, Any]) -> int:
+    for key in ("paid_at", "delivered_at", "updated_at", "created_at"):
+        value = row.get(key)
+        if isinstance(value, datetime):
+            return int(value.timestamp())
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return 0
+
+
+def _paid_orders(user_id: int) -> list[dict[str, Any]]:
+    rows = list(db.get_conn().orders.find(
         {
             "user_id": int(user_id),
             "status": {"$in": [str(status) for status in PAID_STATUSES]},
         },
-        {"gross_total": 1, "total_price": 1, "_id": 0},
-    )
-    return round(sum(float(row.get("gross_total", row.get("total_price", 0))) for row in rows), 2)
+        {
+            "gross_total": 1,
+            "total_price": 1,
+            "paid_at": 1,
+            "delivered_at": 1,
+            "updated_at": 1,
+            "created_at": 1,
+            "id": 1,
+            "_id": 0,
+        },
+    ))
+    rows.sort(key=lambda row: (_paid_timestamp(row), int(row.get("id") or 0)))
+    return rows
 
 
 def level_for_spend(spend: float) -> tuple[str, float, int] | None:
@@ -35,68 +74,94 @@ def level_for_spend(spend: float) -> tuple[str, float, int] | None:
     return current
 
 
-def record_purchase(user_id: int) -> dict[str, Any]:
-    """Activate or upgrade a level for seven days when a threshold is reached."""
-    conn = db.get_conn()
-    spend = total_spend(user_id)
+def status(user_id: int) -> dict[str, Any]:
+    """Return the live discount. It ends three days after the level is reached."""
+    spend = 0.0
+    reached_at: dict[str, int] = {}
+    for row in _paid_orders(user_id):
+        spend += _order_spend(row)
+        paid_at = _paid_timestamp(row)
+        for name, threshold, _discount in LEVELS:
+            if name not in reached_at and spend >= threshold and paid_at:
+                reached_at[name] = paid_at
+    spend = round(spend, 2)
     level = level_for_spend(spend)
     if not level:
         return {
-            "level": None, "discount_percent": 0, "total_spend": spend,
-            "expires_at": None, "activated": False,
+            "level": None,
+            "reached_level": None,
+            "discount_percent": 0,
+            "total_spend": spend,
+            "activated_at": None,
+            "expires_at": None,
+            "active": False,
         }
-    name, threshold, discount = level
-    existing = conn.loyalty.find_one({"user_id": user_id}) or {}
-    now = int(time.time())
-    existing_expires_at = int(existing.get("expires_at", 0) or 0)
-    if existing.get("activated_at"):
-        existing_expires_at = min(
-            existing_expires_at,
-            int(existing["activated_at"]) + LEVEL_DURATION_SECONDS,
-        )
-    if existing.get("level") != name or existing_expires_at <= now:
-        activated = True
-        expires_at = now + LEVEL_DURATION_SECONDS
-        conn.loyalty.update_one(
-            {"user_id": user_id},
-            {"$set": {
-                "level": name,
-                "threshold": threshold,
-                "discount_percent": discount,
-                "activated_at": now,
-                "expires_at": expires_at,
-                "total_spend": spend,
-            }},
-            upsert=True,
-        )
-    else:
-        activated = False
-        expires_at = existing_expires_at
-        conn.loyalty.update_one({"user_id": user_id}, {"$set": {"total_spend": spend}})
+    name, _threshold, discount = level
+    activated_at = int(reached_at.get(name) or 0)
+    expires_at = activated_at + LEVEL_DURATION_SECONDS if activated_at else 0
+    active = expires_at > int(time.time())
     return {
-        "level": name,
-        "discount_percent": discount,
+        "level": name if active else None,
+        "reached_level": name,
+        "discount_percent": discount if active else 0,
         "total_spend": spend,
-        "expires_at": expires_at,
+        "activated_at": activated_at or None,
+        "expires_at": expires_at or None,
+        "active": active,
+    }
+
+
+def total_spend(user_id: int) -> float:
+    return status(user_id)["total_spend"]
+
+
+def record_purchase(user_id: int) -> dict[str, Any]:
+    """Open a three-day window when a higher level is reached, without renewing it."""
+    conn = db.get_conn()
+    existing = conn.loyalty.find_one({"user_id": int(user_id)}) or {}
+    current = status(user_id)
+    reached = current["reached_level"]
+    if not reached:
+        return {
+            "level": None,
+            "discount_percent": 0,
+            "total_spend": current["total_spend"],
+            "expires_at": None,
+            "activated": False,
+        }
+    _name, threshold, _discount = level_for_spend(current["total_spend"])
+    activated = bool(
+        current["active"] and _level_rank(reached) > _level_rank(existing.get("level"))
+    )
+    conn.loyalty.update_one(
+        {"user_id": int(user_id)},
+        {"$set": {
+            "level": reached,
+            "threshold": threshold,
+            "discount_percent": current["discount_percent"],
+            "activated_at": current["activated_at"],
+            "expires_at": current["expires_at"],
+            "total_spend": current["total_spend"],
+        }},
+        upsert=True,
+    )
+    return {
+        "level": current["level"],
+        "discount_percent": current["discount_percent"],
+        "total_spend": current["total_spend"],
+        "expires_at": current["expires_at"] if current["active"] else None,
         "activated": activated,
     }
 
 
 def active_benefit(user_id: int) -> dict[str, Any]:
-    row = db.get_conn().loyalty.find_one({"user_id": user_id}) or {}
-    expires_at = int(row.get("expires_at", 0) or 0)
-    if row.get("activated_at"):
-        expires_at = min(expires_at, int(row["activated_at"]) + LEVEL_DURATION_SECONDS)
-    if expires_at <= int(time.time()):
+    current = status(user_id)
+    if not current["active"]:
         return {"level": None, "discount_percent": 0, "expires_at": None}
-    configured_discount = next(
-        (discount for name, _threshold, discount in LEVELS if name == row.get("level")),
-        0,
-    )
     return {
-        "level": row.get("level"),
-        "discount_percent": configured_discount,
-        "expires_at": expires_at,
+        "level": current["level"],
+        "discount_percent": current["discount_percent"],
+        "expires_at": current["expires_at"],
     }
 
 
