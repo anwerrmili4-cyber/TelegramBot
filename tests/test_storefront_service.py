@@ -218,7 +218,8 @@ def test_wallet_payment_is_debited_and_delivered_from_inventory(mock_mongodb, cu
     assert not any(item["subject"].startswith("Ta facture") for item in sent_emails)
     assert not any(item["subject"] == f"Ton avis sur {result['reference']}" for item in sent_emails)
     assert message["attachments"]
-    assert 'name="comment"' in message["html"] and "Envoyer" in message["html"]
+    assert "score=5" in message["html"] and "Envoyer" in message["html"]
+    assert "send=1" not in message["html"]
     assert "user1@mail.tn:pass1" in message["text"]
     (cart,) = storefront_service.customer_carts(customer["id"])
     assert cart["status"] == "delivered"

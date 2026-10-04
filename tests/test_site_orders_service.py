@@ -143,14 +143,15 @@ def test_confirm_delivers_inventory_lines_automatically(mock_mongodb, customer, 
     assert not any(item["subject"].startswith("Ton avis") for item in sent_emails)
     assert "netflix@mail.tn:secret" in delivered["text"]
     assert delivered["attachments"][0]["filename"].endswith(".pdf")
-    assert 'name="comment"' in delivered["html"]
+    assert "score=5" in delivered["html"]
+    assert "send=1" not in delivered["html"]
     assert "Envoyer" in delivered["html"]
 
     site_orders_service.deliver_cart(cart["reference"], "spotify@mail.tn:autre")
     later = next(item for item in sent_emails if "spotify@mail.tn:autre" in item["text"])
     assert later["subject"] == f"Ta commande {cart['reference']} est livrée"
     assert "attachments" not in later
-    assert 'name="comment"' not in later["html"]
+    assert "score=1" not in later["html"]
     assert sum(1 for message in sent_emails if message.get("attachments")) == 1
     assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
     (history,) = storefront_service.customer_carts(customer["id"])
@@ -236,7 +237,8 @@ def test_each_admin_step_emails_the_customer(mock_mongodb, customer, sent_emails
     assert "Total : 30,000 DT" in preparing["text"]
     assert not any(item["subject"].startswith("Paiement confirmé") for item in sent_emails)
     assert delivered["attachments"][0]["filename"].endswith(".pdf")
-    assert 'name="score"' in delivered["html"]
+    assert "score=5" in delivered["html"]
+    assert "send=1" not in delivered["html"]
     assert "Mot de passe : <secret>" in delivered["text"]
     assert "Mot de passe" in delivered["html"]
     assert "&lt;secret&gt;" in delivered["html"]

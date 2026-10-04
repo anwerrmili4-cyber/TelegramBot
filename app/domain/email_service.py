@@ -785,42 +785,59 @@ def review_stars_static(score: int) -> str:
     )
 
 
-def review_form_parts(token: str) -> tuple[str, str]:
-    """Play Store stars, a white comment field, and a button that posts the review.
+def review_star_links(token: str) -> str:
+    """Five tappable stars. Mail apps do not press a hidden radio, so each star is a link.
 
-    Star taps only select a score. The mail app must not be given a link for each
-    star: those links left the email before Envoyer and opened an empty page.
+    The link only opens the review page with that score. It does not carry ``send=1``,
+    so the review is still stored only when Envoyer is used.
+    """
+    token = str(token or "").strip()
+    cells = []
+    for score in range(1, 6):
+        href = escape(f"{site_url()}{REVIEW_EMAIL_PATH}?token={token}&score={score}")
+        cells.append(
+            '<td style="padding:0 2px;">'
+            f'<a href="{href}" aria-label="{score} sur 5" '
+            'style="display:block;min-width:44px;padding:8px 4px;font-size:40px;line-height:1;'
+            'text-align:center;text-decoration:none;color:#9aa0a6;">'
+            '<span style="color:#9aa0a6;text-decoration:none;">\u2606</span></a></td>'
+        )
+    return (
+        '<table role="presentation" cellspacing="0" cellpadding="0" aria-label="Note de 1 à 5"><tr>'
+        + "".join(cells)
+        + "</tr></table>"
+    )
+
+
+def review_form_parts(token: str) -> tuple[str, str]:
+    """Stars a mail app can tap, then the white comment field and Envoyer on the page they open.
+
+    Gmail leaves a clipped radio untouchable, so the stars in the message are links.
+    Opening one shows the note already chosen and does not save it.
     """
     token = str(token or "").strip()
     if not token:
         return "", ""
     action = f"{site_url()}{REVIEW_EMAIL_PATH}?token={token}"
-    safe_action = escape(action)
-    safe_token = escape(token)
     html = (
-        '<form action="' + safe_action + '" method="post" style="margin:8px 0 0">'
-        f'<input type="hidden" name="token" value="{safe_token}">'
-        '<input type="hidden" name="send" value="1">'
+        '<div style="margin:8px 0 0">'
         f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TON AVIS</div>'
-        "<p style=\"margin:0 0 12px\">Choisis tes étoiles, écris ton commentaire, puis appuie sur Envoyer. "
+        "<p style=\"margin:0 0 12px\">Appuie sur une étoile pour choisir ta note. "
+        "La page s'ouvre avec cette note : écris ton commentaire, puis appuie sur Envoyer. "
         "Rien n'est envoyé avant ce bouton.</p>"
-        f'<div style="margin:0 0 14px">{review_stars_html()}</div>'
-        '<textarea class="bm-comment" name="comment" required minlength="8" maxlength="600" rows="4" '
-        'placeholder="Ton commentaire" '
-        'style="display:block;width:100%;max-width:100%;box-sizing:border-box;margin:0 0 14px;'
-        "padding:12px 14px;border-radius:12px;border:1px solid #dadce0;background-color:#ffffff;"
-        "color:#1f1f1f;color-scheme:light;-webkit-appearance:none;appearance:none;"
-        f'font-size:15px;line-height:1.5;font-family:{_FONT}"></textarea>'
-        f'<button type="submit" style="display:inline-block;padding:14px 26px;border:0;border-radius:12px;'
-        f'background:{_BRAND};color:#ffffff;font-size:15px;font-weight:700;font-family:{_FONT};cursor:pointer">'
-        "Envoyer</button>"
-        "</form>"
+        f'<div style="margin:0 0 14px">{review_star_links(token)}</div>'
+        "</div>"
         + _note("Ton avis reste privé jusqu'à validation.")
+    )
+    lines = "\n".join(
+        f"{score} sur 5 : {site_url()}{REVIEW_EMAIL_PATH}?token={token}&score={score}"
+        for score in range(1, 6)
     )
     text = (
         "\n\nTon avis\n"
-        "Choisis une note de 1 à 5, écris ton commentaire (8 caractères minimum), "
-        "puis appuie sur Envoyer. Rien n'est envoyé avant ce bouton.\n"
+        "Appuie sur une étoile pour choisir ta note. La page s'ouvre avec cette note : "
+        "écris ton commentaire, puis appuie sur Envoyer. Rien n'est envoyé avant ce bouton.\n"
+        f"{lines}\n"
         f"Formulaire : {action}\n"
         "Ton avis reste privé jusqu'à validation.\n"
     )
