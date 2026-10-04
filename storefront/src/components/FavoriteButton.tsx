@@ -6,6 +6,8 @@ import { navigate, productPath, ROUTES, withNext } from "@/lib/router";
 
 const savedIds = new Map<string, Set<number>>();
 const inflight = new Map<string, Promise<void>>();
+/** Latest tap, kept until the server agrees, so a slow reply cannot undo it. */
+const pending = new Map<string, Map<number, boolean>>();
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -13,11 +15,16 @@ function notify() {
 }
 
 function loadFavorites(token: string) {
-  const pending = inflight.get(token);
-  if (pending) return pending;
+  const current = inflight.get(token);
+  if (current) return current;
   const request = fetchFavorites(token)
     .then((result) => {
-      savedIds.set(token, new Set(result.favorites.map((item) => item.offer_id)));
+      const ids = new Set(result.favorites.map((item) => item.offer_id));
+      for (const [offerId, saved] of pending.get(token) ?? []) {
+        if (saved) ids.add(offerId);
+        else ids.delete(offerId);
+      }
+      savedIds.set(token, ids);
       notify();
     })
     .catch(() => undefined)
@@ -52,7 +59,6 @@ export function FavoriteButton({ offerId, compact = false, icon = false }: Favor
   const [, refresh] = useState(0);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [pop, setPop] = useState(false);
   const saved = Boolean(token && savedIds.get(token)?.has(offerId));
 
@@ -72,21 +78,29 @@ export function FavoriteButton({ offerId, compact = false, icon = false }: Favor
       navigate(withNext(ROUTES.login, productPath(offerId)));
       return;
     }
-    if (busy) return;
-    setBusy(true);
+    const next = !saved;
+    const taps = pending.get(token) ?? new Map<number, boolean>();
+    taps.set(offerId, next);
+    pending.set(token, taps);
+    remember(token, offerId, next);
+    setPop(next);
     setError("");
     setNote("");
+    if (!compact) {
+      setNote(next ? "Ajouté à tes favoris." : "Retiré de tes favoris.");
+    }
     try {
-      const result = await setFavorite(token, offerId, !saved);
+      const result = await setFavorite(token, offerId, next);
+      if (taps.get(offerId) !== next) return;
+      taps.delete(offerId);
       remember(token, offerId, result.saved);
-      setPop(result.saved);
-      if (!compact) {
-        setNote(result.saved ? "Ajouté à tes favoris." : "Retiré de tes favoris.");
-      }
     } catch (reason) {
+      if (taps.get(offerId) !== next) return;
+      taps.delete(offerId);
+      remember(token, offerId, !next);
+      setPop(false);
+      setNote("");
       setError(errorMessage(reason, "Le favori n'a pas pu être enregistré."));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -100,7 +114,6 @@ export function FavoriteButton({ offerId, compact = false, icon = false }: Favor
         className={heartClass}
         aria-pressed={saved}
         aria-label={label}
-        disabled={busy}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => void toggle(event)}
         onAnimationEnd={() => setPop(false)}
@@ -117,11 +130,10 @@ export function FavoriteButton({ offerId, compact = false, icon = false }: Favor
         type="button"
         className={saved ? "button button-ghost favorite-button is-saved" : "button button-ghost favorite-button"}
         aria-pressed={saved}
-        disabled={busy}
         onClick={(event) => void toggle(event)}
       >
         <Heart className={pop ? "is-pop" : undefined} size={16} aria-hidden="true" fill={saved ? "currentColor" : "none"} />
-        {busy ? "Enregistrement…" : saved ? "Dans tes favoris" : "J'aime"}
+        {saved ? "Dans tes favoris" : "J'aime"}
       </button>
       {note ? <p className="favorite-note" role="status">{note}</p> : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}

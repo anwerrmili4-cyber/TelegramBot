@@ -97,10 +97,9 @@ def _add(customer: dict[str, Any], offer_id: int) -> dict[str, Any]:
     _ensure(conn)
     customer_id = int(customer["id"])
     existing = conn.storefront_favorites.find_one({"customer_id": customer_id, "offer_id": offer_id})
-    live = _catalog()
+    offer = storefront_service.public_offer(offer_id)
     if existing:
-        return {"ok": True, "saved": True, "emailed": False, "favorite": _public(existing, live.get(offer_id))}
-    offer = live.get(offer_id)
+        return {"ok": True, "saved": True, "emailed": False, "favorite": _public(existing, offer)}
     if not offer:
         raise FavoriteError("Ce produit est introuvable.", status=404)
     if not str(offer.get("description") or "").strip():

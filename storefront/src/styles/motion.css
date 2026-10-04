@@ -496,7 +496,8 @@
     animation: notice-fade 180ms ease;
   }
 
-  .load-mark i {
+  .load-mark i,
+  .loading-page i {
     animation: load-spin 700ms linear infinite;
   }
 }
@@ -552,6 +553,7 @@
   .favorite-button.is-saved svg.is-pop,
   .notice-row.is-new,
   .load-mark i,
+  .loading-page i,
   .renew-button,
   .section-head,
   .catalog-toolbar,

@@ -388,6 +388,32 @@ def catalog() -> dict[str, Any]:
     }
 
 
+def public_offer(offer_id: int) -> dict[str, Any] | None:
+    """One customer-safe product, without building the whole catalog."""
+    try:
+        offer_id = int(offer_id)
+    except (TypeError, ValueError):
+        return None
+    offer = db.get_offer(offer_id)
+    if not offer:
+        return None
+    service = db.get_service(int(offer.get("service_id") or 0))
+    if not service or not _site_visible(service) or not _offer_on_sale(offer):
+        return None
+    public = _public_offer(service, offer)
+    if not db.is_official_subscriptions_service(service):
+        return public
+    public["service_name"] = _product_category_label(offer)
+    public["service_emoji"] = str(offer.get("emoji") or public["service_emoji"] or "✦").strip()[:8]
+    category_logo = site_logo_service.category_logo_url(
+        offer.get("site_category_logo_id"),
+        offer.get("site_category_logo_version"),
+    )
+    if category_logo:
+        public["service_logo_url"] = category_logo
+    return public
+
+
 def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int, str]]:
     """Normalise a cart payload into merged ``(offer_id, quantity, info)`` rows.
 

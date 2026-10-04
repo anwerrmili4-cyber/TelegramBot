@@ -11,13 +11,8 @@ export function LoadMark() {
 /** Full-screen wait. Covers the shop until the first catalog arrives, and while a page chunk loads. */
 export function LoadingPage() {
   return (
-    <div className="loading-page" role="status" aria-live="polite">
-      <div className="loading-page-card">
-        <img src="/logo.png" alt="" width="88" height="88" />
-        <LoadMark />
-        <strong>BLACKMARKET</strong>
-        <span>Tunisie</span>
-      </div>
+    <div className="loading-page" role="status" aria-live="polite" aria-label="Chargement">
+      <i aria-hidden="true" />
     </div>
   );
 }
