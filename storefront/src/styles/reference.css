@@ -171,6 +171,14 @@
     var(--ink-800);
 }
 
+.hero-avis-title {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
 .hero-avis-viewport {
   min-width: 0;
 }

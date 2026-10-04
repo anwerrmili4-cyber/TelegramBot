@@ -159,7 +159,8 @@ export function HeroReviewReel() {
   const filming = reviews.length > 1 && !reduced;
 
   return (
-    <section className={filming ? "hero-avis is-filming" : "hero-avis"} aria-label="Avis">
+    <section className={filming ? "hero-avis is-filming" : "hero-avis"} aria-labelledby="hero-avis-title">
+      <h2 id="hero-avis-title" className="hero-avis-title">Avis</h2>
       <div className="hero-avis-viewport">
         <article className="hero-avis-frame" key={`${review.created_at}-${review.name}-${index}`}>
           <div className="hero-avis-copy">
@@ -192,7 +193,7 @@ export function PublicReviewList() {
   const { reviews, error, retry } = usePublicReviews(undefined, true);
   return (
     <section className="offer-reviews home-reviews" aria-labelledby="site-reviews-title">
-      <h2 id="site-reviews-title">Avis des clients</h2>
+      <h2 id="site-reviews-title">Avis</h2>
       {reviews === null ? <p className="review-wait">Chargement des avis…</p> : null}
       {error ? (
         <p className="form-error">
