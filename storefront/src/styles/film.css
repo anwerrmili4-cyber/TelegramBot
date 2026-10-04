@@ -367,7 +367,13 @@
 }
 
 .prod-tile .poster-warranty {
+  align-self: flex-start;
+  height: auto;
+  min-height: 28px;
   margin-bottom: 8px;
+  padding: 6px 8px;
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .fav-heart {

@@ -138,12 +138,14 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
         </span>
       </button>
       <div className="prod-tile-body">
+        <button type="button" className="prod-tile-copy" onClick={() => onOpen(offer)}>
+          <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+            {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+            {warranty.label}
+          </span>
+        </button>
         <div className="prod-tile-line">
           <button type="button" className="prod-tile-copy" onClick={() => onOpen(offer)}>
-            <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
-              {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
-              {warranty.label}
-            </span>
             <em>{offer.service_name}</em>
             <strong>{offer.name}</strong>
             <small>
