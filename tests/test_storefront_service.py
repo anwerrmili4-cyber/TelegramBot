@@ -4,7 +4,7 @@ import pytest
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import inventory_service, storefront_service, storefront_wallet_service
+from app.domain import inventory_service, storefront_invoice_service, storefront_service, storefront_wallet_service
 from tests.conftest import RECEIPT
 
 TRANSFER = {"payment_method": "d17", "transaction_reference": "D17-778899", "receipt": RECEIPT}
@@ -181,9 +181,14 @@ def test_wallet_payment_without_inventory_waits_for_the_admin(mock_mongodb, cust
     assert result["status"] == "confirmed"
     assert result["balance_millimes"] == 0
     assert db.get_order(result["order_ids"][0])["status"] == OrderStatus.PAYMENT_CONFIRMED
-    confirmed, invoice = sent_emails
-    assert confirmed["subject"] == f"Paiement confirmé — {result['reference']}"
-    assert invoice["subject"].startswith("Ta facture FAC-")
+    (preparing,) = sent_emails
+    assert preparing["subject"] == f"Nous préparons ta commande {result['reference']}"
+    assert "Nous préparons ton produit" in preparing["text"]
+    assert "Tu le recevras dès que possible. Merci de patienter." in preparing["text"]
+    assert "Paiement" not in preparing["subject"]
+    assert not any(message["subject"].startswith("Ta facture") for message in sent_emails)
+    invoice = storefront_invoice_service.find(result["reference"])
+    assert invoice["email_pending"] is True
 
 
 def test_wallet_payment_with_insufficient_balance_creates_nothing(mock_mongodb, customer):
