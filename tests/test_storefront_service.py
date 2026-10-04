@@ -85,6 +85,19 @@ def test_catalog_does_not_invent_a_dinar_group_price_from_the_bot(mock_mongodb):
     assert offer["bulk_unit_millimes"] == 0
 
 
+def test_catalog_loads_every_service_in_one_offer_query(mock_mongodb, monkeypatch):
+    _catalog_offer()
+    _catalog_offer(name="Premium", service="Netflix")
+
+    def per_service(*_args, **_kwargs):
+        raise AssertionError("the public catalog must not query offers once per service")
+
+    monkeypatch.setattr(db, "list_offers", per_service)
+    names = [service["name"] for service in storefront_service.catalog()["services"]]
+    assert "ChatGPT" in names
+    assert "Netflix" in names
+
+
 def test_catalog_does_not_refetch_each_offer_and_keeps_prices_live(mock_mongodb, monkeypatch):
     from unittest.mock import Mock
 

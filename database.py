@@ -1075,7 +1075,7 @@ def list_offers(service_id, active_only=True):
     return offers
 
 
-def list_offers_for_services(services, active_only=False, include_archived=True):
+def list_offers_for_services(services, active_only=False, include_archived=True, projection=None):
     """Return each service's offers from a single query.
 
     The site catalog used to call :func:`list_offers` once per service, which
@@ -1101,7 +1101,8 @@ def list_offers_for_services(services, active_only=False, include_archived=True)
     if not include_archived:
         query["archived"] = {"$ne": 1}
     otp_values = _otp_offer_values()
-    for row in conn.offers.find(query).sort("id", ASCENDING):
+    cursor = conn.offers.find(query, projection) if projection else conn.offers.find(query)
+    for row in cursor.sort("id", ASCENDING):
         offer = _resolve_flash_sale(_public(row))
         service_id = int(offer.get("service_id") or 0)
         if service_id in otp_ids:

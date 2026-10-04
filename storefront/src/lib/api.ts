@@ -127,9 +127,33 @@ export function resetPassword(token: string, password: string) {
   return postJson<{ ok: boolean }>("/api/storefront/auth/reset-password", { token, password });
 }
 
-export function fetchCatalog(signal?: AbortSignal): Promise<Catalog> {
-  return request<Catalog>("/api/storefront/catalog", { signal });
+let catalogFlight: Promise<Catalog> | null = null;
+
+/** Starts as soon as this module loads, so the catalog is already in flight while React boots. */
+export function prefetchCatalog(): Promise<Catalog> {
+  if (!catalogFlight) {
+    catalogFlight = request<Catalog>("/api/storefront/catalog", { priority: "high" }).catch((error: unknown) => {
+      catalogFlight = null;
+      throw error;
+    });
+  }
+  return catalogFlight;
 }
+
+export function fetchCatalog(): Promise<Catalog> {
+  return prefetchCatalog();
+}
+
+/** A manual retry. Does not reuse a response that already failed or went stale. */
+export function fetchCatalogFresh(signal?: AbortSignal): Promise<Catalog> {
+  catalogFlight = request<Catalog>("/api/storefront/catalog", { signal, priority: "high" }).catch((error: unknown) => {
+    catalogFlight = null;
+    throw error;
+  });
+  return catalogFlight;
+}
+
+if (typeof window !== "undefined") void prefetchCatalog();
 
 export type CheckoutPayload = {
   /** `wallet`, or a transfer method id such as `d17`. */

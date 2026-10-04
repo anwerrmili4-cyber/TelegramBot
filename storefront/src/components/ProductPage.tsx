@@ -2,14 +2,15 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Check, Clock, List, Lock, Package, Share2, ShieldCheck, ShieldOff, ShoppingBag, TriangleAlert, Zap } from "lucide-react";
 import { ProductTile } from "@/components/Hero";
 import { QuantityStepper } from "@/components/QuantityStepper";
-import { fetchReviews, requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
+import { OfferReviews } from "@/components/PublicReviews";
+import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { LoadMark } from "@/components/LoadMark";
 import { Link, ROUTES } from "@/lib/router";
 import { FavoriteButton } from "@/components/FavoriteButton";
-import type { Offer, PublicReview } from "@/types";
+import type { Offer } from "@/types";
 
 type ProductPageProps = {
   offer: Offer | null;
@@ -532,105 +533,3 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   );
 }
 
-function StarRow({ value }: { value: number }) {
-  return (
-    <span className="review-stars" aria-label={`${value} sur 5`}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <span key={star} className={star <= value ? "review-star is-on" : "review-star"} aria-hidden="true">
-          ★
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function ReviewCards({ reviews }: { reviews: PublicReview[] }) {
-  if (!reviews.length) return <p className="review-empty">Aucun avis publié pour le moment.</p>;
-  return (
-    <ul className="review-list">
-      {reviews.map((review) => (
-        <li key={`${review.created_at}-${review.name}-${review.offer_name}`}>
-          <strong>{review.name}</strong>
-          <StarRow value={review.score} />
-          <p>{review.comment}</p>
-          {review.offer_name ? <small>{review.offer_name}</small> : null}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function usePublicReviews(offerId?: number) {
-  const [reviews, setReviews] = useState<PublicReview[] | null>(null);
-  const [average, setAverage] = useState(0);
-  const [count, setCount] = useState(0);
-  const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setReviews(null);
-    setError("");
-    fetchReviews(offerId, controller.signal)
-      .then((result) => {
-        setReviews(result.reviews);
-        setAverage(result.average ?? 0);
-        setCount(result.count ?? result.reviews.length);
-      })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(errorMessage(reason, "Impossible de charger les avis."));
-        setReviews([]);
-      });
-    return () => controller.abort();
-  }, [offerId, attempt]);
-
-  return { reviews, average, count, error, retry: () => setAttempt((value) => value + 1) };
-}
-
-function OfferReviews({ offerId }: { offerId: number }) {
-  const { reviews, average, count, error, retry } = usePublicReviews(offerId);
-  return (
-    <section className="offer-reviews" aria-labelledby="offer-reviews-title">
-      <h2 id="offer-reviews-title">Avis</h2>
-      {reviews === null ? <p className="review-wait">Chargement des avis…</p> : null}
-      {error ? (
-        <p className="form-error">
-          {error}{" "}
-          <button type="button" className="auth-inline-link" onClick={retry}>
-            Réessayer
-          </button>
-        </p>
-      ) : null}
-      {reviews && !error ? (
-        <>
-          {count > 0 ? (
-            <p className="review-summary">
-              {average.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} / 5 · {count} avis
-            </p>
-          ) : null}
-          <ReviewCards reviews={reviews} />
-        </>
-      ) : null}
-    </section>
-  );
-}
-
-export function PublicReviewList() {
-  const { reviews, error, retry } = usePublicReviews();
-  return (
-    <section className="offer-reviews home-reviews" aria-labelledby="site-reviews-title">
-      <h2 id="site-reviews-title">Avis des clients</h2>
-      {reviews === null ? <p className="review-wait">Chargement des avis…</p> : null}
-      {error ? (
-        <p className="form-error">
-          {error}{" "}
-          <button type="button" className="auth-inline-link" onClick={retry}>
-            Réessayer
-          </button>
-        </p>
-      ) : null}
-      {reviews && !error ? <ReviewCards reviews={reviews} /> : null}
-    </section>
-  );
-}

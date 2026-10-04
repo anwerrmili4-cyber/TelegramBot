@@ -404,6 +404,11 @@
   }
 }
 
+.catalog .prod-tile {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 340px;
+}
+
 .prod-tile {
   display: flex;
   flex-direction: column;

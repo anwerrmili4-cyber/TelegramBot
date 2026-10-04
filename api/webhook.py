@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import csv
+import gzip
 import hashlib
 import hmac
 import html
@@ -578,12 +579,17 @@ def _notify_onchain_topup(topup: dict, approved: bool) -> bool:
 
 
 class handler(BaseHTTPRequestHandler):
-    def _reply(self, status: int, payload: dict, headers: dict[str, str] | None = None):
+    def _reply(self, status: int, payload: dict, headers: dict[str, str] | None = None, compress: bool = False):
         body = json.dumps(payload, default=self._json_default).encode("utf-8")
+        extra = dict(headers or {})
+        if compress and len(body) >= 800 and "gzip" in (self.headers.get("Accept-Encoding") or "").lower():
+            body = gzip.compress(body, compresslevel=5)
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = "Accept-Encoding"
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        for name, value in (headers or {}).items():
+        for name, value in extra.items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
@@ -652,7 +658,7 @@ class handler(BaseHTTPRequestHandler):
 
         if path == "/api/storefront/catalog":
             try:
-                self._reply(200, storefront_service.catalog(), headers={
+                self._reply(200, storefront_service.catalog(), compress=True, headers={
                     "Access-Control-Allow-Origin": "*",
                     "Cache-Control": "public, max-age=60",
                 })

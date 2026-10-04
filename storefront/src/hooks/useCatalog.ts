@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { errorMessage, fetchCatalog } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { errorMessage, fetchCatalog, fetchCatalogFresh } from "@/lib/api";
 import type { Catalog, Offer } from "@/types";
 
 type CatalogState = {
@@ -10,29 +10,67 @@ type CatalogState = {
   reload: () => void;
 };
 
+const CACHE_KEY = "bm-catalog-v1";
+
+function readCachedCatalog(): Catalog | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Catalog;
+    if (!parsed || !Array.isArray(parsed.services)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedCatalog(catalog: Catalog) {
+  try {
+    const raw = JSON.stringify(catalog);
+    if (raw.length > 1_500_000) return;
+    sessionStorage.setItem(CACHE_KEY, raw);
+  } catch {
+    // Private mode or a full quota: the next visit waits for the network.
+  }
+}
+
 export function useCatalog(): CatalogState {
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [catalog, setCatalog] = useState<Catalog | null>(readCachedCatalog);
+  const [loading, setLoading] = useState(!catalog);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const catalogRef = useRef(catalog);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    fetchCatalog(controller.signal)
+    let ignore = false;
+    if (!catalogRef.current) {
+      setLoading(true);
+      setError("");
+    }
+    const request = attempt === 0 ? fetchCatalog() : fetchCatalogFresh(controller.signal);
+    request
       .then((body) => {
+        if (ignore) return;
         if (!Array.isArray(body.services)) throw new Error("Réponse du catalogue invalide.");
+        catalogRef.current = body;
         setCatalog(body);
+        setError("");
+        writeCachedCatalog(body);
       })
       .catch((reason: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(errorMessage(reason, "Le catalogue est momentanément indisponible."));
+        if (ignore || controller.signal.aborted) return;
+        if (!catalogRef.current) {
+          setError(errorMessage(reason, "Le catalogue est momentanément indisponible."));
+        }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!ignore) setLoading(false);
       });
-    return () => controller.abort();
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
   }, [attempt]);
 
   // Featured offers first, then available ones: a sold-out product should never

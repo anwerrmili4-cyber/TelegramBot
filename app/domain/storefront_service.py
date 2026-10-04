@@ -266,22 +266,74 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
     }
 
 
+# Fields the public catalog actually reads. Leaving the rest on the server
+# avoids shipping bot notes, Arabic copy, and supplier data over the network.
+_CATALOG_OFFER_FIELDS = {
+    "id": 1,
+    "service_id": 1,
+    "archived": 1,
+    "active": 1,
+    "site_enabled": 1,
+    "name": 1,
+    "site_name": 1,
+    "emoji": 1,
+    "package_number": 1,
+    "price": 1,
+    "tn_price_millimes": 1,
+    "stock": 1,
+    "unlimited_stock": 1,
+    "min_quantity": 1,
+    "max_quantity": 1,
+    "period_days": 1,
+    "site_period_days": 1,
+    "site_period_value": 1,
+    "site_warranty_days": 1,
+    "site_warranty_value": 1,
+    "site_note": 1,
+    "site_delivery_delay": 1,
+    "site_featured": 1,
+    "site_badge": 1,
+    "site_image_url": 1,
+    "site_video_url": 1,
+    "site_description_fr": 1,
+    "site_category": 1,
+    "site_category_name": 1,
+    "site_category_logo_id": 1,
+    "site_category_logo_version": 1,
+    "site_remark": 1,
+    "site_requires_info": 1,
+    "flash_sale_active": 1,
+    "flash_sale_ends_at": 1,
+    "flash_sale_original_price": 1,
+    "flash_sale_price": 1,
+}
+
+
 def catalog() -> dict[str, Any]:
     """Project the bot's live MongoDB catalog into a customer-safe response."""
     services: list[dict[str, Any]] = []
     used_categories: set[str] = set()
     flat_groups: dict[str, dict[str, Any]] = {}
-    for service in db.sort_for_site(db.list_services(active_only=False)):
-        if not _site_visible(service):
-            continue
+    visible = [
+        service
+        for service in db.sort_for_site(db.list_services(active_only=False))
+        if _site_visible(service)
+    ]
+    # One offer query for the whole shop. A query per category made the first
+    # page wait on a round trip for every service.
+    offers_by_service = db.list_offers_for_services(
+        visible,
+        active_only=False,
+        include_archived=True,
+        projection=_CATALOG_OFFER_FIELDS,
+    )
+    for service in visible:
         # Official subscriptions is only a bot folder. On the site each product
         # is its own category, named like the product (ChatGPT, Google AI Pro).
         flat = db.is_official_subscriptions_service(service)
         offers = []
-        # list_offers already resolves expired sales and the OTP price rules.
-        # Re-reading each offer adds two database round trips per product.
         # Bot ``active`` is ignored: the site sells whatever it has switched on.
-        for offer in db.list_offers(int(service["id"]), active_only=False):
+        for offer in offers_by_service.get(int(service["id"]), []):
             if not _offer_on_sale(offer):
                 continue
             public = _public_offer(service, offer)

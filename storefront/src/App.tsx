@@ -5,17 +5,18 @@ import { CatalogSection } from "@/components/CatalogSection";
 import { CheckoutDialog } from "@/components/CheckoutDialog";
 import { Hero } from "@/components/Hero";
 import { IntroSplash } from "@/components/IntroSplash";
-import { ProductPage, PublicReviewList } from "@/components/ProductPage";
+import { PublicReviewList } from "@/components/PublicReviews";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
-import { LoadMark } from "@/components/LoadMark";
+import { LoadingPage } from "@/components/LoadMark";
 import { Link, navigate, productId, productPath, RouteProgress, ROUTES, usePathname } from "@/lib/router";
 import type { Offer } from "@/types";
 
+const ProductPage = lazy(() => import("@/components/ProductPage").then((mod) => ({ default: mod.ProductPage })));
 const AccountPage = lazy(() => import("@/pages/AccountPage").then((mod) => ({ default: mod.AccountPage })));
 const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
 const RegisterPage = lazy(() => import("@/pages/RegisterPage").then((mod) => ({ default: mod.RegisterPage })));
@@ -76,10 +77,25 @@ export default function App() {
     }
   }, [cart.lines.length]);
 
+  // The product page is its own file. Warm it after the first paint so opening
+  // a product does not wait on a download, without blocking the home screen.
+  useEffect(() => {
+    const warm = () => {
+      void import("@/components/ProductPage");
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(warm, { timeout: 2500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const timer = window.setTimeout(warm, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <div className="page" id="top">
       <RouteProgress />
       <IntroSplash />
+      {loading && !offers.length && !error ? <LoadingPage /> : null}
       <SiteHeader
         cartCount={cart.count}
         cartTotalMillimes={cart.totalMillimes}
@@ -91,7 +107,7 @@ export default function App() {
       />
 
       <main key={path} className="page-enter">
-        <Suspense fallback={<LoadMark />}>
+        <Suspense fallback={<LoadingPage />}>
         {path === ROUTES.account ? (
           <AccountPage
             offers={offers}
@@ -132,7 +148,6 @@ export default function App() {
             {path === ROUTES.home ? (
               <>
                 <Hero offers={offers} categories={categories} onOpenOffer={openProduct} />
-                {loading && !offers.length ? <LoadMark /> : null}
                 <PublicReviewList />
               </>
             ) : (

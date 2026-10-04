@@ -172,6 +172,11 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
             const classes = ["poster", picture ? "" : "no-img", deal ? "is-bulk" : "", active ? "on" : "", leaving === slideIndex ? "leaving" : ""]
               .filter(Boolean)
               .join(" ");
+            const nearby =
+              active ||
+              leaving === slideIndex ||
+              slideIndex === (current + 1) % count ||
+              slideIndex === (current + count - 1) % count;
             const kicker = deal ? `Offre groupe · dès ${offer.bulk_quantity}+` : offer.badge || "Sélection";
             const promo = !deal && kicker.trim().toUpperCase() === "PROMO";
             return (
@@ -186,7 +191,17 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 tabIndex={active ? undefined : -1}
               >
                 <FavoriteButton compact offerId={offer.id} />
-                {picture ? <img className="poster-bg" src={assetUrl(picture)} alt="" aria-hidden="true" decoding="async" /> : null}
+                {picture && nearby ? (
+                  <img
+                    className="poster-bg"
+                    src={assetUrl(picture)}
+                    alt=""
+                    aria-hidden="true"
+                    decoding="async"
+                    loading={active ? "eager" : "lazy"}
+                    fetchPriority={active ? "high" : "low"}
+                  />
+                ) : null}
                 <div className="poster-body">
                   <div className="poster-meta">
                     <span className={promo ? "poster-kicker is-promo" : "poster-kicker"}>
@@ -221,9 +236,17 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 <div className={offer.image_url ? "poster-art" : "poster-art brandpic"}>
                   <div className="poster-shot">
                     <span className="poster-still">
-                      {picture ? (
-                        <img src={assetUrl(picture)} alt="" decoding="async" width={400} height={400} />
-                      ) : (
+                      {picture && nearby ? (
+                        <img
+                          src={assetUrl(picture)}
+                          alt=""
+                          decoding="async"
+                          width={400}
+                          height={400}
+                          loading={active ? "eager" : "lazy"}
+                          fetchPriority={active ? "high" : "low"}
+                        />
+                      ) : picture ? null : (
                         <span className="poster-emoji" aria-hidden="true">
                           {offer.service_emoji}
                         </span>
