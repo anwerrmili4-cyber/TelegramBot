@@ -423,8 +423,13 @@ def email_review_page(
     done: str = "",
 ) -> str:
     """Small page opened by the email form. It is not the shop."""
+    try:
+        selected = int(score)
+    except (TypeError, ValueError):
+        selected = 0
     if done:
-        return _review_page("Avis envoyé", f"<p>{escape(done)}</p>")
+        stars = email_service.review_stars_static(selected)
+        return _review_page("Avis envoyé", f"{stars}<p>{escape(done)}</p>")
     if error and not str(token or "").strip():
         return _review_page("Avis", f'<p class="error">{escape(error)}</p>')
     try:
@@ -436,28 +441,26 @@ def email_review_page(
     existing = db.get_conn().storefront_reviews.find_one({"order_id": order_id})
     if existing and not error:
         return _review_page("Avis déjà envoyé", "<p>Tu as déjà envoyé un avis pour cette commande.</p>")
-    try:
-        selected = int(score)
-    except (TypeError, ValueError):
-        selected = 0
-    stars = "".join(
-        f'<label class="star"><input type="radio" name="score" value="{value}" required'
-        f'{" checked" if value == selected else ""}>{"★" * value}</label>'
-        for value in range(1, 6)
-    )
     alert = f'<p class="error">{escape(error)}</p>' if error else ""
-    action = escape(f"{email_service.site_url()}{email_service.REVIEW_EMAIL_PATH}")
+    action = escape(f"{email_service.site_url()}{email_service.REVIEW_EMAIL_PATH}?token={token}")
     form = (
         f"{alert}"
         f'<form method="post" action="{action}">'
         f'<input type="hidden" name="token" value="{escape(token)}">'
-        f'<div class="stars">{stars}</div>'
-        f'<textarea name="comment" required minlength="8" maxlength="600" rows="5" '
-        f'placeholder="Ton commentaire">{escape(comment)}</textarea>'
+        '<input type="hidden" name="send" value="1">'
+        f'<div class="bm-rate">{email_service.review_stars_html(selected)}</div>'
+        f'<textarea class="bm-comment" name="comment" required minlength="8" maxlength="600" rows="5" '
+        'placeholder="Ton commentaire" '
+        'style="background-color:#ffffff;color:#1f1f1f;color-scheme:light;border:1px solid #dadce0">'
+        f"{escape(comment)}</textarea>"
         '<button type="submit">Envoyer</button>'
         "</form>"
     )
-    return _review_page("Ton avis", "<p>Choisis tes étoiles, écris ton commentaire, puis envoie.</p>" + form)
+    return _review_page(
+        "Ton avis",
+        "<p>Choisis tes étoiles, écris ton commentaire, puis appuie sur Envoyer. "
+        "Rien n'est envoyé avant ce bouton.</p>" + form,
+    )
 
 
 def _review_page(title: str, inner: str) -> str:
@@ -465,6 +468,7 @@ def _review_page(title: str, inner: str) -> str:
         "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         f"<title>{escape(title)}</title>"
+        f"{email_service.review_stars_css()}"
         "<style>"
         "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
         "background:#0b0b0d;color:#f4f4f5;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif}"
@@ -472,11 +476,11 @@ def _review_page(title: str, inner: str) -> str:
         "p{margin:0 0 16px;line-height:1.55;color:#c4c4cc}"
         ".error{color:#f87171}"
         "form{display:flex;flex-direction:column;gap:12px}"
-        ".stars{display:flex;flex-direction:column;gap:8px}"
-        ".star{display:flex;align-items:center;gap:10px;color:#fbbf24;font-size:20px}"
-        "textarea{width:100%;box-sizing:border-box;border-radius:12px;border:1px solid #25252b;"
-        "background:#0b0b0d;color:#f4f4f5;padding:12px 14px;font:inherit}"
-        "button{border:0;border-radius:12px;background:#e03a30;color:#fff;font-weight:700;font-size:15px;padding:14px 18px}"
+        ".bm-rate{margin:0 0 4px}"
+        "textarea{width:100%;box-sizing:border-box;border-radius:12px;border:1px solid #dadce0;"
+        "background:#ffffff;color:#1f1f1f;color-scheme:light;padding:12px 14px;font:inherit}"
+        "button{border:0;border-radius:12px;background:#e03a30;color:#fff;font-weight:700;font-size:15px;"
+        "padding:14px 18px;cursor:pointer}"
         "small{display:block;margin-top:18px;color:#8b8b95}"
         "</style></head><body><main>"
         f"<h1 style=\"margin:0 0 12px;font-size:24px\">{escape(title)}</h1>"

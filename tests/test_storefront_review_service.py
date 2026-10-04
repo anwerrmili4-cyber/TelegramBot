@@ -116,6 +116,11 @@ def test_email_form_saves_a_pending_review_and_admin_sees_the_client(mock_mongod
     page = storefront_review_service.email_review_page(token=token, score=4)
     assert "<textarea" in page
     assert 'value="4"' in page
+    assert "checked" in page
+    assert "background-color:#ffffff" in page
+    assert 'class="bm-stars"' in page
+    assert "<a " not in page
+    assert 'type="submit"' in page
 
     first = storefront_review_service.submit_from_email(token, 5, "Livraison rapide et accès correct.")
     assert first["already"] is False
@@ -170,8 +175,56 @@ def test_storefront_port_accepts_the_review_posted_from_the_email(mock_mongodb, 
         payload = response.read()
         connection.close()
     assert response.status == 200
+    assert response.getheader("Location") is None
     assert "envoyé".encode() in payload
     row = db.get_conn().storefront_reviews.find_one({"order_id": order_id})
     assert row["status"] == "pending"
     assert row["phone"] == customer["phone"]
     assert row["source"] == "email"
+
+
+def test_opening_the_review_link_waits_for_the_button(mock_mongodb, site_customer):
+    customer = site_customer()
+    _, offer_id = _catalog_offer()
+    order_id = _delivered(customer, offer_id)
+    token = storefront_review_service.issue_token(order_id)
+    with running_surface(railway_server.StorefrontHandler) as port:
+        opened = _review_request(port, "GET", f"/api/storefront/reviews/email?token={token}&score=4")
+        untouched = _review_request(port, "GET", "/api/storefront/reviews/email")
+        saved = _review_request(
+            port,
+            "GET",
+            "/api/storefront/reviews/email?" + urlencode({
+                "token": token,
+                "score": "5",
+                "comment": "Livraison rapide et accès correct.",
+                "send": "1",
+            }),
+        )
+    assert opened.status == 200 and opened.getheader("Location") is None
+    assert b"Envoyer" in opened.body
+    assert b"plus valable" not in opened.body
+    assert untouched.status == 200
+    assert b"plus valable" in untouched.body
+    assert saved.status == 200 and saved.getheader("Location") is None
+    assert "envoyé".encode() in saved.body
+    assert db.get_conn().storefront_reviews.find_one({"order_id": order_id})["score"] == 5
+
+
+def _review_request(port: int, method: str, path: str):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    connection.request(method, path)
+    response = connection.getresponse()
+    payload = response.read()
+    status = response.status
+    location = response.getheader("Location")
+    connection.close()
+
+    class _Answer:
+        pass
+
+    answer = _Answer()
+    answer.status = status
+    answer.body = payload
+    answer.getheader = lambda name: location if name == "Location" else None
+    return answer

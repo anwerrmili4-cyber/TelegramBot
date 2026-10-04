@@ -1725,11 +1725,16 @@ class handler(BaseHTTPRequestHandler):
         self._reply(404, {"ok": False, "error": "not_found"})
 
     def _handle_email_review(self) -> None:
-        """Review posted from the delivery email. The answer is a page, not the shop."""
-        query = parse_qs(urlsplit(self.path).query)
+        """Review posted from the delivery email. The answer is a page, not the shop.
+
+        Star taps stay in the form. The review is stored only when Envoyer is used:
+        a real POST, or a mail app that rewrote that click as a GET carrying ``send=1``.
+        Opening the address alone redisplays the form and does not redirect further.
+        """
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
         token = query.get("token", [""])[0]
         score = query.get("score", [""])[0]
-        comment = ""
+        comment = query.get("comment", [""])[0]
         if self.command == "POST":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -1742,20 +1747,30 @@ class handler(BaseHTTPRequestHandler):
             form = {key: values[0] for key, values in parse_qs(raw, keep_blank_values=True).items()}
             token = form.get("token") or token
             score = form.get("score") or score
-            comment = form.get("comment") or ""
-            try:
-                result = storefront_review_service.submit_from_email(token, score, comment)
-            except storefront_review_service.ReviewError as exc:
-                self._reply_html(
-                    exc.status,
-                    storefront_review_service.email_review_page(
-                        token=token, score=score, comment=comment, error=str(exc),
-                    ),
-                )
-                return
-            self._reply_html(200, storefront_review_service.email_review_page(done=result["message"]))
+            comment = form.get("comment") if "comment" in form else ""
+            self._save_email_review(token, score, comment)
             return
-        self._reply_html(200, storefront_review_service.email_review_page(token=token, score=score))
+        if query.get("send", [""])[0] == "1":
+            self._save_email_review(token, score, comment)
+            return
+        self._reply_html(
+            200,
+            storefront_review_service.email_review_page(token=token, score=score, comment=comment),
+        )
+
+    def _save_email_review(self, token: str, score: str, comment: str) -> None:
+        try:
+            result = storefront_review_service.submit_from_email(token, score, comment)
+        except storefront_review_service.ReviewError as exc:
+            self._reply_html(
+                exc.status,
+                storefront_review_service.email_review_page(
+                    token=token, score=score, comment=comment, error=str(exc),
+                ),
+            )
+            return
+        shown = "" if result.get("already") else score
+        self._reply_html(200, storefront_review_service.email_review_page(done=result["message"], score=shown))
 
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/")

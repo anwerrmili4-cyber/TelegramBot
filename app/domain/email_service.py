@@ -301,7 +301,15 @@ def site_url() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _layout(title: str, body: str, *, badge: str = "", tone: str = "brand", preheader: str = "") -> str:
+def _layout(
+    title: str,
+    body: str,
+    *,
+    badge: str = "",
+    tone: str = "brand",
+    preheader: str = "",
+    extra_head: str = "",
+) -> str:
     site = site_url()
     color, wash = _TONES.get(tone, _TONES["brand"])
     badge_html = (
@@ -321,7 +329,7 @@ def _layout(title: str, body: str, *, badge: str = "", tone: str = "brand", preh
         '<!doctype html><html lang="fr"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="color-scheme" content="dark light"><meta name="supported-color-schemes" content="dark light">'
-        f"<title>{escape(title)}</title></head>"
+        f"<title>{escape(title)}</title>{extra_head}</head>"
         f'<body style="margin:0;padding:0;background:{_BG};font-family:{_FONT};color:{_TEXT}">'
         f"{hidden}"
         f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="{_BG}" style="background:{_BG}">'
@@ -706,54 +714,114 @@ def _delivery_access(content: str) -> str:
     )
 
 
+def review_stars_css() -> str:
+    """Head CSS for a Play Store rating bar: tapping star N fills stars 1 through N."""
+    return (
+        "<style>"
+        ".bm-stars{position:relative;display:inline-block;direction:rtl;font-size:0;line-height:0}"
+        ".bm-stars input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;"
+        "clip:rect(0,0,0,0);border:0;opacity:0}"
+        ".bm-stars label{display:inline-block;padding:0 4px;font-size:40px;line-height:1;cursor:pointer;"
+        "color:#9aa0a6}"
+        ".bm-stars .bm-on{display:none;color:#fbbc04}"
+        ".bm-stars .bm-off{display:inline;color:#9aa0a6}"
+        ".bm-stars input:checked ~ label .bm-on{display:inline !important;color:#fbbc04}"
+        ".bm-stars input:checked ~ label .bm-off{display:none !important}"
+        ".bm-comment{background-color:#ffffff !important;color:#1f1f1f !important;color-scheme:light;"
+        "border:1px solid #dadce0 !important;-webkit-appearance:none;appearance:none}"
+        ".bm-comment::placeholder{color:#80868b;opacity:1}"
+        ".bm-done-stars{margin:0 0 12px;font-size:32px;letter-spacing:4px;line-height:1}"
+        ".bm-done-stars .bm-on{color:#fbbc04}"
+        ".bm-done-stars .bm-off{color:#9aa0a6}"
+        "</style>"
+    )
+
+
+def review_stars_html(selected: int = 0) -> str:
+    """Five stars, left to right. The chosen star and every star before it light up.
+
+    The markup is reversed on purpose: email clients have no script, so the fill
+    uses ``input:checked ~ label`` while ``direction:rtl`` keeps star 1 on the left.
+    Stars are not links. Nothing is sent until the Envoyer button.
+    """
+    try:
+        selected = int(selected)
+    except (TypeError, ValueError):
+        selected = 0
+    controls = []
+    for score in range(5, 0, -1):
+        checked = " checked" if score == selected else ""
+        controls.append(
+            f'<input id="bm-star-{score}" type="radio" name="score" value="{score}"{checked} required '
+            f'aria-label="{score} sur 5" '
+            'style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;'
+            'clip:rect(0,0,0,0);border:0;opacity:0">'
+            f'<label for="bm-star-{score}" title="{score} sur 5" '
+            'style="display:inline-block;padding:0 4px;font-size:40px;line-height:1;cursor:pointer;color:#9aa0a6">'
+            '<span class="bm-off">\u2606</span><span class="bm-on">\u2605</span></label>'
+        )
+    return (
+        '<div class="bm-stars" role="radiogroup" aria-label="Note de 1 à 5" '
+        'style="position:relative;display:inline-block;direction:rtl;font-size:0;line-height:0">'
+        + "".join(controls)
+        + "</div>"
+    )
+
+
+def review_stars_static(score: int) -> str:
+    """Filled stars for the confirmation, after the button has been used."""
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        score = 0
+    score = min(5, max(0, score))
+    if not score:
+        return ""
+    return (
+        f'<p class="bm-done-stars" aria-label="{score} sur 5" '
+        'style="margin:0 0 12px;font-size:32px;letter-spacing:4px;line-height:1">'
+        f'<span class="bm-on" style="color:#fbbc04">{"★" * score}</span>'
+        f'<span class="bm-off" style="color:#9aa0a6">{"☆" * (5 - score)}</span></p>'
+    )
+
+
 def review_form_parts(token: str) -> tuple[str, str]:
-    """Clickable stars, a comment field and a send button that post from the email."""
+    """Play Store stars, a white comment field, and a button that posts the review.
+
+    Star taps only select a score. The mail app must not be given a link for each
+    star: those links left the email before Envoyer and opened an empty page.
+    """
     token = str(token or "").strip()
     if not token:
         return "", ""
-    action = f"{site_url()}{REVIEW_EMAIL_PATH}"
+    action = f"{site_url()}{REVIEW_EMAIL_PATH}?token={token}"
     safe_action = escape(action)
     safe_token = escape(token)
-    stars = "".join(
-        "<td align=\"center\" style=\"padding:0 4px\">"
-        f'<label style="display:inline-block;min-width:46px;text-align:center;color:#fbbf24;font-size:28px;line-height:1">'
-        f'<input type="radio" name="score" value="{score}" required '
-        'style="display:block;margin:0 auto 6px">'
-        f'★<span style="display:block;margin-top:4px;font-size:11px;font-weight:700;color:{_MUTED}">{score}</span>'
-        "</label></td>"
-        for score in range(1, 6)
-    )
-    fallback = " · ".join(
-        f'<a href="{safe_action}?token={safe_token}&amp;score={score}" '
-        f'style="color:#fbbf24;text-decoration:none;font-size:20px;font-weight:700">{"★" * score}</a>'
-        for score in range(1, 6)
-    )
     html = (
         '<form action="' + safe_action + '" method="post" style="margin:8px 0 0">'
         f'<input type="hidden" name="token" value="{safe_token}">'
+        '<input type="hidden" name="send" value="1">'
         f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TON AVIS</div>'
-        "<p style=\"margin:0 0 12px\">Choisis tes étoiles, écris ton commentaire, puis envoie. "
-        "Ton message part depuis cet email.</p>"
-        '<table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 14px"><tr>'
-        f"{stars}</tr></table>"
-        '<textarea name="comment" required minlength="8" maxlength="600" rows="4" '
+        "<p style=\"margin:0 0 12px\">Choisis tes étoiles, écris ton commentaire, puis appuie sur Envoyer. "
+        "Rien n'est envoyé avant ce bouton.</p>"
+        f'<div style="margin:0 0 14px">{review_stars_html()}</div>'
+        '<textarea class="bm-comment" name="comment" required minlength="8" maxlength="600" rows="4" '
         'placeholder="Ton commentaire" '
-        f'style="display:block;width:100%;max-width:100%;box-sizing:border-box;margin:0 0 14px;'
-        f"padding:12px 14px;border-radius:12px;border:1px solid {_LINE};background:{_BG};"
-        f'color:{_TEXT};font-size:15px;line-height:1.5;font-family:{_FONT}"></textarea>'
+        'style="display:block;width:100%;max-width:100%;box-sizing:border-box;margin:0 0 14px;'
+        "padding:12px 14px;border-radius:12px;border:1px solid #dadce0;background-color:#ffffff;"
+        "color:#1f1f1f;color-scheme:light;-webkit-appearance:none;appearance:none;"
+        f'font-size:15px;line-height:1.5;font-family:{_FONT}"></textarea>'
         f'<button type="submit" style="display:inline-block;padding:14px 26px;border:0;border-radius:12px;'
         f'background:{_BRAND};color:#ffffff;font-size:15px;font-weight:700;font-family:{_FONT};cursor:pointer">'
         "Envoyer</button>"
-        f'<p style="margin:14px 0 0;font-size:12px;line-height:1.6;color:{_MUTED}">'
-        f"Si ton application retire le formulaire, choisis une note ici : {fallback}</p>"
         "</form>"
         + _note("Ton avis reste privé jusqu'à validation.")
     )
     text = (
         "\n\nTon avis\n"
-        "Choisis une note de 1 à 5, écris ton commentaire (8 caractères minimum) "
-        "et envoie le formulaire de cet email.\n"
-        f"Formulaire : {action}?token={token}\n"
+        "Choisis une note de 1 à 5, écris ton commentaire (8 caractères minimum), "
+        "puis appuie sur Envoyer. Rien n'est envoyé avant ce bouton.\n"
+        f"Formulaire : {action}\n"
         "Ton avis reste privé jusqu'à validation.\n"
     )
     return html, text
@@ -812,7 +880,14 @@ def order_delivered_content(
         + link
     )
     subject = f"Ta commande {reference} est livrée"
-    html = _layout("Commande livrée", body, badge="Livrée", tone="success", preheader="Tes accès sont arrivés.")
+    html = _layout(
+        "Commande livrée",
+        body,
+        badge="Livrée",
+        tone="success",
+        preheader="Tes accès sont arrivés.",
+        extra_head=review_stars_css() if review_html else "",
+    )
     return subject, html, text
 
 
@@ -1045,7 +1120,13 @@ def review_request_content(name: str, reference: str, token: str = "") -> tuple[
         + review_text
     )
     subject = f"Ton avis sur {reference}"
-    html = _layout("Ton avis", body, badge="Avis", preheader=f"Note ta commande {reference}.")
+    html = _layout(
+        "Ton avis",
+        body,
+        badge="Avis",
+        preheader=f"Note ta commande {reference}.",
+        extra_head=review_stars_css() if review_html else "",
+    )
     return subject, html, text
 
 
