@@ -116,6 +116,7 @@ class StorefrontHandler(webhook.handler):
         "/api/storefront/category-logo",
         "/api/storefront/offer-image",
         "/api/storefront/offer-video",
+        "/api/storefront/reviews",
         "/api/storefront/reviews/email",
         *webhook.STOREFRONT_AUTH_GET_PATHS,
     )

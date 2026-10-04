@@ -9,7 +9,7 @@ import database as db
 import railway_server
 from app.domain import inventory_service, storefront_review_service, storefront_service, storefront_wallet_service
 from app.web import dashboard_api
-from tests.test_railway_server import running_surface
+from tests.test_railway_server import _get, running_surface
 from tests.test_storefront_service import _catalog_offer
 
 
@@ -181,6 +181,28 @@ def test_storefront_port_accepts_the_review_posted_from_the_email(mock_mongodb, 
     assert row["status"] == "pending"
     assert row["phone"] == customer["phone"]
     assert row["source"] == "email"
+
+
+def test_published_reviews_are_served_on_the_storefront(mock_mongodb, site_customer):
+    customer = site_customer()
+    _, offer_id = _catalog_offer()
+    order_id = _delivered(customer, offer_id)
+    storefront_review_service.submit(
+        customer,
+        {"order_id": order_id, "score": 5, "comment": "Livraison rapide et accès correct."},
+    )
+    with running_surface(railway_server.StorefrontHandler) as port:
+        hidden, hidden_body = _get(port, "/api/storefront/reviews")
+        review_id = db.get_conn().storefront_reviews.find_one({"order_id": order_id})["id"]
+        storefront_review_service.approve(review_id)
+        listed, listed_body = _get(port, "/api/storefront/reviews")
+        offered, offered_body = _get(port, f"/api/storefront/reviews?offer_id={offer_id}")
+    assert hidden.status == 200
+    assert b'"reviews": []' in hidden_body or b'"reviews":[]' in hidden_body
+    assert listed.status == 200 and b"NOT_FOUND" not in listed_body
+    assert b"Livraison rapide" in listed_body
+    assert offered.status == 200
+    assert b"Livraison rapide" in offered_body
 
 
 def test_opening_the_review_link_waits_for_the_button(mock_mongodb, site_customer):
