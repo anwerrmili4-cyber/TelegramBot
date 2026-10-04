@@ -130,31 +130,37 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
   const classes = [offer.available ? "prod-tile" : "prod-tile sold-out", shown ? "is-in" : ""].filter(Boolean).join(" ");
   return (
     <article ref={tileRef} className={classes} style={{ "--i": index } as CSSProperties}>
-      <button type="button" className="prod-tile-open" onClick={() => onOpen(offer)}>
+      <button type="button" className="prod-tile-open" aria-label={offer.name} onClick={() => onOpen(offer)}>
         <span className="prod-tile-media">
           {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" loading="lazy" /> : <span className="prod-ph">{offer.service_emoji}</span>}
           {offer.available ? null : <span className="sold-stamp">Épuisé</span>}
         </span>
-        <span className="prod-tile-body">
-          <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
-            {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
-            {warranty.label}
-          </span>
-          <em>{offer.service_name}</em>
-          <strong>{offer.name}</strong>
-          <small>
-            {stock}
-            {warranty.duration ? ` · ${warranty.duration}` : ""}
-          </small>
+      </button>
+      <div className="prod-tile-body">
+        <div className="prod-tile-line">
+          <button type="button" className="prod-tile-copy" onClick={() => onOpen(offer)}>
+            <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+              {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+              {warranty.label}
+            </span>
+            <em>{offer.service_name}</em>
+            <strong>{offer.name}</strong>
+            <small>
+              {stock}
+              {warranty.duration ? ` · ${warranty.duration}` : ""}
+            </small>
+          </button>
+          <FavoriteButton compact icon offerId={offer.id} />
+        </div>
+        <button type="button" className="prod-tile-copy is-rest" onClick={() => onOpen(offer)}>
           <span className="prod-tile-foot">
             <b>{money(offer.price_millimes)}</b>
             <span className="go" aria-hidden="true">
               <ArrowUpRight size={16} />
             </span>
           </span>
-        </span>
-      </button>
-      <FavoriteButton compact offerId={offer.id} />
+        </button>
+      </div>
       {offer.available ? null : <TileNotify offerId={offer.id} />}
     </article>
   );

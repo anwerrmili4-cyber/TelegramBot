@@ -43,9 +43,11 @@ function remember(token: string, offerId: number, saved: boolean) {
 type FavoriteButtonProps = {
   offerId: number;
   compact?: boolean;
+  /** Heart only. The accessible name stays on the button. */
+  icon?: boolean;
 };
 
-export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps) {
+export function FavoriteButton({ offerId, compact = false, icon = false }: FavoriteButtonProps) {
   const { customer, token } = useAuth();
   const [, refresh] = useState(0);
   const [note, setNote] = useState("");
@@ -104,7 +106,7 @@ export function FavoriteButton({ offerId, compact = false }: FavoriteButtonProps
         onAnimationEnd={() => setPop(false)}
       >
         <Heart size={16} aria-hidden="true" fill={saved ? "currentColor" : "none"} />
-        <span>{saved ? "Favori" : "J'aime"}</span>
+        {icon ? null : <span>{saved ? "Favori" : "J'aime"}</span>}
       </button>
     );
   }

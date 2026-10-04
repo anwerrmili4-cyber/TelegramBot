@@ -698,9 +698,9 @@
   letter-spacing: -0.02em;
 }
 
-.prod-tile-open {
+.prod-tile-open,
+.prod-tile-copy {
   display: flex;
-  flex: 1;
   flex-direction: column;
   width: 100%;
   min-width: 0;
@@ -711,6 +711,14 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.prod-tile-copy.is-rest {
+  flex: 1;
+}
+
+.prod-tile-copy.is-rest .prod-tile-foot {
+  margin-top: auto;
 }
 
 .prod-tile.sold-out .prod-tile-body {
