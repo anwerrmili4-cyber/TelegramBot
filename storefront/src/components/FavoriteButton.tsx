@@ -39,6 +39,18 @@ export function noteFavorite(token: string, offerId: number, saved: boolean) {
   remember(token, offerId, saved);
 }
 
+/** `null` until this session has loaded the saved products. */
+export function isFavoriteSaved(token: string, offerId: number): boolean | null {
+  const ids = savedIds.get(token);
+  if (!ids) return null;
+  return ids.has(offerId);
+}
+
+export function watchFavorites(onChange: () => void): () => void {
+  listeners.add(onChange);
+  return () => listeners.delete(onChange);
+}
+
 function remember(token: string, offerId: number, saved: boolean) {
   const ids = new Set(savedIds.get(token) ?? []);
   if (saved) ids.add(offerId);

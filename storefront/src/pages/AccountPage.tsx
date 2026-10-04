@@ -18,13 +18,14 @@ import {
   UserRound,
   Wallet as WalletIcon,
 } from "lucide-react";
-import { noteFavorite } from "@/components/FavoriteButton";
+import { isFavoriteSaved, watchFavorites } from "@/components/FavoriteButton";
+import { ProductTile } from "@/components/Hero";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
-import { assetUrl, createDeposit, downloadInvoice, errorMessage, fetchFavorites, fetchNotifications, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, markAllNotificationsRead, markNotificationRead, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, setFavorite, submitReview } from "@/lib/api";
+import { createDeposit, downloadInvoice, errorMessage, fetchFavorites, fetchNotifications, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, markAllNotificationsRead, markNotificationRead, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, submitReview } from "@/lib/api";
 import { accessLabel, clampQuantity, dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { accountPath } from "@/lib/accountPath";
-import { Link, navigate, ROUTES, withNext } from "@/lib/router";
+import { Link, navigate, productPath, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
 import type { AccountOrder, AccountOrderItem, AccountOrders, AccountReview, AccountTicket, AccountWarranty, CartStatus, Deposit, Favorite, Offer, SiteNotification, Wallet } from "@/types";
@@ -33,7 +34,6 @@ export { accountPath };
 
 const TABS = [
   { id: "commandes", label: "Mes achats", short: "Achats", icon: Package },
-  { id: "favoris", label: "Favoris", short: "Favoris", icon: Heart },
   { id: "notifications", label: "Notifications", short: "Notifs", icon: Bell },
   { id: "portefeuille", label: "Portefeuille", short: "Solde", icon: WalletIcon },
   { id: "support", label: "Support", short: "Support", icon: Headphones },
@@ -42,11 +42,12 @@ const TABS = [
   { id: "profil", label: "Profil & sécurité", short: "Profil", icon: UserRound },
 ] as const;
 
-type Tab = (typeof TABS)[number]["id"];
+type Tab = (typeof TABS)[number]["id"] | "favoris";
 
 
 function initialTab(): Tab {
   const requested = new URLSearchParams(window.location.search).get("onglet");
+  if (requested === "favoris") return "favoris";
   return TABS.find((tab) => tab.id === requested)?.id ?? "commandes";
 }
 
@@ -114,7 +115,10 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
     };
     const place = () => {
       const active = list.querySelector<HTMLButtonElement>('[aria-selected="true"]');
-      if (!active) return;
+      if (!active) {
+        list.dataset.pill = "";
+        return;
+      }
       list.style.setProperty("--pill-x", `${active.offsetLeft}px`);
       list.style.setProperty("--pill-w", `${active.offsetWidth}px`);
       const nextTab = active.nextElementSibling;
@@ -198,8 +202,9 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
 
       <div
         id="account-panel"
-        role="tabpanel"
-        aria-labelledby={`account-tab-${tab}`}
+        role={tab === "favoris" ? undefined : "tabpanel"}
+        aria-labelledby={tab === "favoris" ? undefined : `account-tab-${tab}`}
+        aria-label={tab === "favoris" ? "Favoris" : undefined}
         className="account-panel"
         style={{ "--panel-from": panelFrom } as CSSProperties}
         key={tab}
@@ -214,7 +219,7 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
             place={place}
           />
         ) : tab === "favoris" ? (
-          <FavoritesTab />
+          <FavoritesTab offers={offers} />
         ) : tab === "notifications" ? (
           <NotificationsTab />
         ) : tab === "portefeuille" ? (
@@ -323,11 +328,43 @@ function NotificationsTab() {
   );
 }
 
-function FavoritesTab() {
+function postedOffer(item: Favorite, offers: Offer[]): Offer {
+  const live = offers.find((offer) => offer.id === item.offer_id);
+  if (live) return live;
+  return {
+    id: item.offer_id,
+    package_number: "",
+    name: item.name,
+    description: item.description,
+    price_millimes: item.price_millimes,
+    currency: "TND",
+    available: item.available && item.in_catalog,
+    stock: item.in_catalog ? item.stock : 0,
+    min_quantity: 1,
+    max_quantity: 1,
+    delivery_delay: item.delivery_delay,
+    period_days: item.period_days,
+    warranty: item.warranty,
+    featured: false,
+    badge: item.badge,
+    image_url: item.image_url,
+    category: "",
+    category_label: "",
+    service_id: 0,
+    service_name: item.service_name,
+    service_emoji: "",
+    service_logo_url: item.service_logo_url,
+    remark: item.remark,
+  };
+}
+
+function FavoritesTab({ offers }: { offers: Offer[] }) {
   const { token } = useAuth();
   const [favorites, setFavorites] = useState<Favorite[] | null>(null);
   const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState(0);
+  const [, refresh] = useState(0);
+
+  useEffect(() => watchFavorites(() => refresh((value) => value + 1)), []);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -342,22 +379,9 @@ function FavoritesTab() {
     return () => controller.abort();
   }, [token]);
 
-  async function remove(offerId: number) {
-    if (!token || busyId) return;
-    setBusyId(offerId);
-    setError("");
-    try {
-      await setFavorite(token, offerId, false);
-      noteFavorite(token, offerId, false);
-      setFavorites((current) => (current || []).filter((item) => item.offer_id !== offerId));
-    } catch (reason) {
-      setError(errorMessage(reason, "Le favori n'a pas pu être retiré."));
-    } finally {
-      setBusyId(0);
-    }
-  }
-
   if (!favorites) return <AccountSkeleton label="Chargement des favoris" />;
+
+  const cards = favorites.filter((item) => !token || isFavoriteSaved(token, item.offer_id) !== false);
 
   return (
     <div className="favorites-tab">
@@ -366,7 +390,7 @@ function FavoritesTab() {
         <p>Les produits que tu gardes de côté. Aucun email n'est envoyé.</p>
       </header>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {!favorites.length ? (
+      {!cards.length ? (
         <div className="account-empty">
           <Heart size={28} aria-hidden="true" />
           <h3>Aucun favori pour le moment.</h3>
@@ -374,32 +398,12 @@ function FavoritesTab() {
           <Link className="button button-primary" to={ROUTES.shop}>Voir la boutique</Link>
         </div>
       ) : (
-        <ul className="favorite-list">
-          {favorites.map((item) => {
-            const picture = item.image_url || item.service_logo_url;
-            return (
-              <li key={item.offer_id} className="favorite-card">
-                <span className="favorite-mark">
-                  {picture ? <img src={assetUrl(picture)} alt="" /> : <Heart size={18} aria-hidden="true" />}
-                </span>
-                <div>
-                  <small>{item.service_name}</small>
-                  <strong>{item.name}</strong>
-                  <p>
-                    {money(item.price_millimes)}
-                    {item.in_catalog ? ` · ${item.available ? (item.stock < 0 ? "Illimité" : `${item.stock} en stock`) : "Indisponible"}` : " · Plus au catalogue"}
-                  </p>
-                </div>
-                <div className="favorite-actions">
-                  {item.in_catalog ? <Link to={`/produit/${item.offer_id}`}>Voir</Link> : null}
-                  <button type="button" onClick={() => void remove(item.offer_id)} disabled={busyId === item.offer_id}>
-                    {busyId === item.offer_id ? "Retrait…" : "Retirer"}
-                  </button>
-                </div>
-              </li>
-            );
+        <div className="tile-grid">
+          {cards.map((item, index) => {
+            const offer = postedOffer(item, offers);
+            return <ProductTile key={offer.id} offer={offer} index={index} onOpen={(opened) => navigate(productPath(opened.id))} />;
           })}
-        </ul>
+        </div>
       )}
     </div>
   );

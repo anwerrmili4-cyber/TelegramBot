@@ -558,21 +558,25 @@
   .hero-picks .prod-tile.sold-out:hover,
   .home-trends .prod-tile.sold-out:hover,
   .home-fresh .prod-tile.sold-out:hover,
-  .catalog .prod-tile.sold-out:hover {
+  .catalog .prod-tile.sold-out:hover,
+  .favorites-tab .prod-tile.sold-out:hover {
     transform: none;
     border-color: var(--line);
   }
 
-  .catalog .prod-tile:hover {
+  .catalog .prod-tile:hover,
+  .favorites-tab .prod-tile:hover {
     transform: translateY(calc(var(--motion-lift) * -1));
     border-color: rgba(var(--brand-rgb), 0.45);
   }
 
-  .catalog .prod-tile:hover .go {
+  .catalog .prod-tile:hover .go,
+  .favorites-tab .prod-tile:hover .go {
     transform: translateX(3px);
   }
 
   .catalog .prod-tile:hover .prod-tile-media img,
+  .favorites-tab .prod-tile:hover .prod-tile-media img,
   .offer:hover .offer-media img {
     transform: scale(1.02);
   }
