@@ -1,7 +1,7 @@
 """Verified site clients see nouveautés, admin messages, and news. Read state stays private."""
 
 import database as db
-from app.domain import storefront_notification_service
+from app.domain import storefront_notification_service, storefront_wallet_service
 
 
 def _offer():
@@ -98,6 +98,37 @@ def test_a_client_does_not_see_a_notification_from_before_the_account(mock_mongo
     late["created_at"] = 9_999_999_999
     mock_mongodb.storefront_customers.update_one({"id": late["id"]}, {"$set": {"created_at": late["created_at"]}})
     assert storefront_notification_service.for_customer(late)["items"] == []
+
+
+def test_stock_price_and_balance_reach_the_right_customer(mock_mongodb, site_customer, sent_emails):
+    owner = site_customer()
+    other = site_customer(name="Sana", email="sana@example.com")
+    offer_id = _offer()
+    sent_emails.clear()
+
+    storefront_notification_service.announce_price(offer_id, 20000, 25000)
+    storefront_notification_service.announce_stock(offer_id, 4, 1)
+    storefront_wallet_service.credit(owner["id"], 15000, kind="deposit", note="Recharge")
+
+    feed = storefront_notification_service.for_customer(owner)
+    titles = [item["title"] for item in feed["items"]]
+    assert titles == ["Solde crédité", "Plus qu'un seul", "Prix mis à jour"]
+    balance = feed["items"][0]
+    assert balance["kind"] == "balance"
+    assert balance["href"] == "/mon-compte?onglet=portefeuille"
+    assert "15,000 DT" in balance["body"]
+    last = next(item for item in feed["items"] if item["title"] == "Plus qu'un seul")
+    assert last["href"] == f"/produit/{offer_id}"
+    assert "un exemplaire" in last["body"]
+    price = next(item for item in feed["items"] if item["kind"] == "price")
+    assert "25,000 DT" in price["body"]
+
+    other_titles = [item["title"] for item in storefront_notification_service.for_customer(other)["items"]]
+    assert other_titles == ["Plus qu'un seul", "Prix mis à jour"]
+    assert sent_emails == []
+
+    storefront_notification_service.announce_stock(offer_id, 1, 1)
+    assert [item["title"] for item in storefront_notification_service.for_customer(owner)["items"]] == titles
 
 
 def test_an_unknown_notification_cannot_be_marked_read(mock_mongodb, site_customer):

@@ -1810,13 +1810,18 @@ def mark_order_paid(order_id, verify_method):
     offer = db.offers.find_one({"id": order.get("offer_id")}) if order.get("offer_id") else None
     stock_decremented = False
     if offer and not offer.get("unlimited_stock") and not order.get("is_preorder"):
+        before_stock = int(offer.get("stock") or 0)
+        qty = int(order.get("qty") or 1)
         stock = db.offers.update_one(
-            {"id": order["offer_id"], "stock": {"$gte": order["qty"]}},
-            {"$inc": {"stock": -order["qty"]}},
+            {"id": order["offer_id"], "stock": {"$gte": qty}},
+            {"$inc": {"stock": -qty}},
         )
         if stock.modified_count != 1:
             return False
         stock_decremented = True
+        from app.domain import storefront_notification_service
+
+        storefront_notification_service.announce_stock(int(order["offer_id"]), before_stock, max(0, before_stock - qty))
     paid = db.orders.update_one(
         {"id": order_id, "status": order["status"]},
         {

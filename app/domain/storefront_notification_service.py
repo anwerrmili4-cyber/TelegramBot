@@ -6,17 +6,23 @@ is emailed: Courrier remains the only mail tool.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 import database as db
 from app.domain import email_service, storefront_service
 
+log = logging.getLogger(__name__)
+
 _MAX_AUDIENCE = 100
 _KINDS = {
     "novelty": "Nouveauté",
     "admin": "Message",
     "news": "Actualité",
+    "stock": "Stock",
+    "price": "Prix",
+    "balance": "Solde",
 }
 
 
@@ -58,8 +64,12 @@ def _visible(conn: Any, customer: dict[str, Any]) -> list[dict[str, Any]]:
     if customer.get("email_verified") is False:
         return []
     since = int(customer.get("created_at") or 0)
+    customer_id = int(customer["id"])
     return list(
-        conn.storefront_notifications.find({"created_at": {"$gte": since}})
+        conn.storefront_notifications.find({
+            "created_at": {"$gte": since},
+            "customer_id": {"$in": [None, 0, customer_id]},
+        })
         .sort([("created_at", -1), ("id", -1)])
         .limit(50)
     )
@@ -68,7 +78,12 @@ def _visible(conn: Any, customer: dict[str, Any]) -> list[dict[str, Any]]:
 def _item(row: dict[str, Any], read_ids: set[int], catalog_ids: set[int]) -> dict[str, Any]:
     kind = str(row.get("kind") or "")
     offer_id = int(row.get("offer_id") or 0)
-    href = f"/produit/{offer_id}" if kind == "novelty" and offer_id in catalog_ids else ""
+    if kind == "balance":
+        href = "/mon-compte?onglet=portefeuille"
+    elif kind in {"novelty", "stock", "price"} and offer_id in catalog_ids:
+        href = f"/produit/{offer_id}"
+    else:
+        href = ""
     return {
         "id": int(row["id"]),
         "kind": kind,
@@ -92,7 +107,7 @@ def for_customer(customer: dict[str, Any]) -> dict[str, Any]:
             {"notification_id": 1},
         )
     }
-    catalog_ids = _catalog_ids() if any(row.get("kind") == "novelty" for row in rows) else set()
+    catalog_ids = _catalog_ids() if any(row.get("kind") in {"novelty", "stock", "price"} for row in rows) else set()
     items = [_item(row, read_ids, catalog_ids) for row in rows]
     return {"ok": True, "unread": sum(1 for item in items if not item["read"]), "items": items}
 
@@ -139,6 +154,108 @@ def mark_all_read(customer: dict[str, Any]) -> dict[str, Any]:
             upsert=True,
         )
     return for_customer(customer)
+
+
+def _money(millimes: int) -> str:
+    return f"{int(millimes) / 1000:.3f}".replace(".", ",") + " DT"
+
+
+def _offer_on_site(offer_id: int) -> dict[str, Any] | None:
+    offer = db.get_offer(int(offer_id))
+    if not offer or not storefront_service._site_visible(offer):
+        return None
+    service = db.get_service(int(offer.get("service_id") or 0))
+    if service and not storefront_service._site_visible(service):
+        return None
+    return offer
+
+
+def _store(*, kind: str, title: str, body: str, offer_id: int = 0, customer_id: int = 0) -> None:
+    conn = db.get_conn()
+    _ensure(conn)
+    conn.storefront_notifications.insert_one({
+        "id": db._next_id("storefront_notifications"),
+        "kind": kind,
+        "title": title,
+        "body": body,
+        "created_at": int(time.time()),
+        "audience": "customer" if customer_id else "verified",
+        "audience_count": 1 if customer_id else 0,
+        "offer_id": int(offer_id or 0),
+        "customer_id": int(customer_id or 0),
+    })
+
+
+def announce_stock(offer_id: int, before: int, after: int) -> None:
+    """Tell shoppers when a site product's stock changes, including the last unit."""
+    try:
+        before = int(before)
+        after = int(after)
+        offer = _offer_on_site(int(offer_id))
+    except (TypeError, ValueError):
+        return
+    except Exception:
+        log.exception("Storefront stock notification failed")
+        return
+    if not offer or before == after or after < 0:
+        return
+    name = str(offer.get("site_name") or offer.get("name") or "Ce produit")
+    if after == 1:
+        title, body = "Plus qu'un seul", f"Il ne reste qu'un exemplaire de {name}."
+    elif after == 0:
+        title, body = "Rupture de stock", f"{name} n'est plus en stock."
+    elif before <= 0:
+        title, body = "Retour en stock", f"{name} est de nouveau disponible : {after} en stock."
+    else:
+        title, body = "Stock mis à jour", f"{name} : {after} en stock."
+    try:
+        _store(kind="stock", title=title, body=body, offer_id=int(offer["id"]))
+    except Exception:
+        log.exception("Storefront stock notification failed")
+
+
+def announce_price(offer_id: int, before: int, after: int) -> None:
+    """Tell shoppers when the dinar price of a site product changes."""
+    try:
+        before = int(before or 0)
+        after = int(after or 0)
+        offer = _offer_on_site(int(offer_id))
+    except (TypeError, ValueError):
+        return
+    except Exception:
+        log.exception("Storefront price notification failed")
+        return
+    if not offer or before == after or after <= 0:
+        return
+    name = str(offer.get("site_name") or offer.get("name") or "Ce produit")
+    shown = _money(after)
+    body = f"{name} passe à {shown}." if before > 0 else f"{name} est proposé à {shown}."
+    try:
+        _store(kind="price", title="Prix mis à jour", body=body, offer_id=int(offer["id"]))
+    except Exception:
+        log.exception("Storefront price notification failed")
+
+
+def announce_balance(customer_id: int, delta: int, balance_after: int) -> None:
+    """Tell one customer that their wallet balance moved. No email is sent."""
+    try:
+        customer_id = int(customer_id)
+        delta = int(delta)
+        balance_after = int(balance_after)
+    except (TypeError, ValueError):
+        return
+    if not customer_id or not delta:
+        return
+    if delta > 0:
+        title = "Solde crédité"
+        body = f"{_money(delta)} ont été ajoutés. Nouveau solde : {_money(balance_after)}."
+    else:
+        title = "Solde débité"
+        body = f"{_money(abs(delta))} ont été retirés. Nouveau solde : {_money(balance_after)}."
+    try:
+        _store(kind="balance", title=title, body=body, customer_id=customer_id)
+    except Exception:
+        log.exception("Storefront balance notification failed")
 
 
 def publish(form: dict[str, Any]) -> dict[str, Any]:

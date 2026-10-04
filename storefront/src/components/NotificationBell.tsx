@@ -22,13 +22,21 @@ export function NotificationBell() {
       return undefined;
     }
     const controller = new AbortController();
-    fetchNotifications(token, controller.signal)
-      .then((result) => {
-        setItems(result.items);
-        setUnread(result.unread);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
+    const load = () => {
+      fetchNotifications(token, controller.signal)
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          setItems(result.items);
+          setUnread(result.unread);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => {
+      controller.abort();
+      window.removeEventListener("focus", load);
+    };
   }, [token]);
 
   useEffect(() => {
@@ -105,6 +113,7 @@ export function NotificationBell() {
                 >
                   <small>{item.kind_label}</small>
                   <strong>{item.title}</strong>
+                  {item.body ? <span>{item.body}</span> : null}
                   <time dateTime={new Date(item.created_at * 1000).toISOString()}>{dateTime(item.created_at)}</time>
                 </button>
               </li>

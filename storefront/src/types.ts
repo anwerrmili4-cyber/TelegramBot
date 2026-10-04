@@ -207,7 +207,7 @@ export type PublicReview = {
 
 export type SiteNotification = {
   id: number;
-  kind: "novelty" | "admin" | "news";
+  kind: "novelty" | "admin" | "news" | "stock" | "price" | "balance";
   kind_label: string;
   title: string;
   body: string;

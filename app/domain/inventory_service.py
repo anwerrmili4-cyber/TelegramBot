@@ -72,11 +72,15 @@ def sync_offer_stock(offer_id: int, added: int | None = None) -> int:
     offer = conn.offers.find_one({"id": offer_id}) or {}
     if offer.get("unlimited_stock") or offer.get("manual_stock"):
         return int(offer.get("stock") or 0)
+    before = int(offer.get("stock") or 0)
     available = conn.inventory.count_documents({
         "offer_id": offer_id,
         "status": InventoryStatus.AVAILABLE,
     })
     conn.offers.update_one({"id": offer_id}, {"$set": {"stock": available}})
+    from app.domain import storefront_notification_service
+
+    storefront_notification_service.announce_stock(offer_id, before, available)
     if available > 0:
         from app.domain import stock_alert_service
 

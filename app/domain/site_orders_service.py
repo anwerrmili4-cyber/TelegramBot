@@ -248,10 +248,14 @@ def _cart_total(lines: list[dict[str, Any]]) -> int:
 def _restock(conn: Any, line: dict[str, Any]) -> None:
     if not line.get("offer_id") or line.get("is_preorder"):
         return
-    offer = conn.offers.find_one({"id": line["offer_id"]}, {"unlimited_stock": 1}) or {}
+    offer = conn.offers.find_one({"id": line["offer_id"]}, {"unlimited_stock": 1, "stock": 1}) or {}
     if not offer.get("unlimited_stock"):
         qty = int(line.get("qty") or 1)
+        before_stock = int(offer.get("stock") or 0)
         conn.offers.update_one({"id": line["offer_id"]}, {"$inc": {"stock": qty}})
+        from app.domain import storefront_notification_service
+
+        storefront_notification_service.announce_stock(int(line["offer_id"]), before_stock, before_stock + qty)
         from app.domain import stock_alert_service
 
         stock_alert_service.release(int(line["offer_id"]), added=qty)

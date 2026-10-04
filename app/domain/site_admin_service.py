@@ -337,7 +337,10 @@ def update_offer(form: dict[str, Any]) -> dict[str, Any]:
         offer_id = int(form.get("offer_id"))
     except (TypeError, ValueError) as exc:
         raise SiteAdminError("Offre invalide.") from exc
-    offer = db.get_conn().offers.find_one({"id": offer_id}, {"name": 1})
+    offer = db.get_conn().offers.find_one(
+        {"id": offer_id},
+        {"name": 1, "tn_price_millimes": 1, "site_enabled": 1, "archived": 1, "active": 1, "service_id": 1},
+    )
     if not offer:
         raise SiteAdminError("Offre introuvable.")
 
@@ -358,6 +361,10 @@ def update_offer(form: dict[str, Any]) -> dict[str, Any]:
     else:
         changes["tn_price_millimes"] = price
     db.get_conn().offers.update_one({"id": offer_id}, update)
+    if price is not None:
+        from app.domain import storefront_notification_service
+
+        storefront_notification_service.announce_price(offer_id, int(offer.get("tn_price_millimes") or 0), price)
     db.audit_event("site_catalog.offer_updated", details={"offer_id": offer_id, "tn_price_millimes": price, **changes})
     return {"offer_id": offer_id, "name": offer.get("name", ""), "tn_price_millimes": price}
 
@@ -812,6 +819,12 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         if unset:
             update["$unset"] = unset
         conn.offers.update_one({"id": offer_id}, update)
+        if tn_price is not None:
+            from app.domain import storefront_notification_service
+
+            storefront_notification_service.announce_price(
+                offer_id, int(previous.get("tn_price_millimes") or 0), tn_price,
+            )
         if not externally_stocked and previous.get("unlimited_stock") and not unlimited:
             inventory_service.sync_offer_stock(offer_id)
         created = False

@@ -289,7 +289,7 @@ function NotificationsTab() {
     <div className="favorites-tab">
       <header className="account-section-head">
         <h2>Notifications</h2>
-        <p>Nouveautés, messages du shop et actualités.</p>
+        <p>Stock, prix, solde, et les messages du shop.</p>
         {unread ? (
           <button type="button" className="button button-ghost" onClick={() => void markAll()} disabled={busy}>
             {busy ? "En cours…" : "Tout marquer comme lu"}

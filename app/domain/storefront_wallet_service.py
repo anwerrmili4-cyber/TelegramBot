@@ -82,6 +82,9 @@ def credit(customer_id: int, amount: int, *, kind: str, reference: str = "", not
     )
     after = int(wallet["balance_millimes"])
     _ledger(customer_id, kind, amount, after, reference, note)
+    from app.domain import storefront_notification_service
+
+    storefront_notification_service.announce_balance(int(customer_id), int(amount), after)
     return after
 
 
@@ -98,6 +101,9 @@ def debit(customer_id: int, amount: int, *, kind: str, reference: str = "", note
         return None
     after = int(wallet["balance_millimes"])
     _ledger(customer_id, kind, -amount, after, reference, note)
+    from app.domain import storefront_notification_service
+
+    storefront_notification_service.announce_balance(int(customer_id), -int(amount), after)
     return after
 
 
