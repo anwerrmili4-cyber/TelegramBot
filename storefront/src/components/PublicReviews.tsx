@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchReviews, errorMessage } from "@/lib/api";
+import { assetUrl, fetchReviews, errorMessage } from "@/lib/api";
 import type { PublicReview } from "@/types";
+
+const AVIS_DWELL_MS = 5200;
 
 function StarRow({ value }: { value: number }) {
   return (
@@ -14,16 +16,34 @@ function StarRow({ value }: { value: number }) {
   );
 }
 
+function ServiceMark({ review, className }: { review: PublicReview; className: string }) {
+  const logo = review.service_logo_url ? assetUrl(review.service_logo_url) : "";
+  const label = review.service_name || review.offer_name || "";
+  return (
+    <span className={className} aria-hidden="true">
+      {logo ? <img src={logo} alt="" /> : label.slice(0, 1) || "✦"}
+    </span>
+  );
+}
+
 function ReviewCards({ reviews }: { reviews: PublicReview[] }) {
   if (!reviews.length) return <p className="review-empty">Aucun avis publié pour le moment.</p>;
   return (
     <ul className="review-list">
       {reviews.map((review) => (
         <li key={`${review.created_at}-${review.name}-${review.offer_name}`}>
-          <strong>{review.name}</strong>
+          <span className="review-who">
+            <strong>{review.name}</strong>
+            {review.email ? <span className="review-mail">{review.email}</span> : null}
+          </span>
+          {review.offer_name ? (
+            <span className="review-buy">
+              <ServiceMark review={review} className="review-mark" />
+              <small>{review.offer_name}</small>
+            </span>
+          ) : null}
           <StarRow value={review.score} />
           <p>{review.comment}</p>
-          {review.offer_name ? <small>{review.offer_name}</small> : null}
         </li>
       ))}
     </ul>
@@ -101,6 +121,67 @@ export function OfferReviews({ offerId }: { offerId: number }) {
           ) : null}
           <ReviewCards reviews={reviews} />
         </>
+      ) : null}
+    </section>
+  );
+}
+
+/** One published review at a time, in the slot under the hero search. Hidden when none exist. */
+export function HeroReviewReel() {
+  const { reviews } = usePublicReviews();
+  const [index, setIndex] = useState(0);
+  const [reduced, setReduced] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const count = reviews?.length ?? 0;
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => setReduced(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    const onHide = () => setHidden(document.hidden);
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []);
+
+  useEffect(() => {
+    if (count < 2 || reduced || hidden) return;
+    const timer = window.setTimeout(() => setIndex((current) => (current + 1) % count), AVIS_DWELL_MS);
+    return () => window.clearTimeout(timer);
+  }, [count, index, reduced, hidden]);
+
+  if (!reviews?.length) return null;
+  const review = reviews[index % reviews.length];
+  const filming = reviews.length > 1 && !reduced;
+
+  return (
+    <section className={filming ? "hero-avis is-filming" : "hero-avis"} aria-label="Avis">
+      <div className="hero-avis-viewport">
+        <article className="hero-avis-frame" key={`${review.created_at}-${review.name}-${index}`}>
+          <div className="hero-avis-copy">
+            <span className="hero-avis-who">
+              <strong>{review.name}</strong>
+              {review.email ? <span className="hero-avis-mail">{review.email}</span> : null}
+            </span>
+            {review.offer_name ? (
+              <span className="hero-avis-buy">
+                <ServiceMark review={review} className="hero-avis-mark" />
+                <small>{review.offer_name}</small>
+              </span>
+            ) : null}
+            <StarRow value={review.score} />
+            <p>{review.comment}</p>
+          </div>
+        </article>
+      </div>
+      {filming ? (
+        <span className="hero-avis-bar" aria-hidden="true">
+          <i key={index} style={{ animationDuration: `${AVIS_DWELL_MS}ms` }} />
+        </span>
       ) : null}
     </section>
   );

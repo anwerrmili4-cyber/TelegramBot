@@ -193,12 +193,15 @@ export type AccountReview = {
   comment: string;
 };
 
-/** Public review. Email, phone and postal address are never included. */
+/** Public review. Phone and postal address are never included. */
 export type PublicReview = {
   name: string;
+  email?: string;
   score: number;
   comment: string;
   offer_name: string;
+  service_name?: string;
+  service_logo_url?: string;
   created_at: number;
 };
 

@@ -39,9 +39,15 @@ def test_submit_once_stays_hidden_until_approved(mock_mongodb, site_customer):
     published = storefront_review_service.public_for_offer(offer_id)
     item = published["reviews"][0]
     assert item["name"] == "Amine Ben Salah"
+    assert item["email"] == "amine@example.com"
+    assert item["service_name"] == "ChatGPT"
+    assert item["service_logo_url"] == ""
     assert item["comment"] == "Livraison rapide et accès correct."
-    assert set(item) == {"name", "score", "comment", "offer_name", "created_at"}
-    assert "email" not in item
+    assert set(item) == {
+        "name", "email", "score", "comment", "offer_name",
+        "service_name", "service_logo_url", "created_at",
+    }
+    assert "phone" not in item
     assert published["count"] == 1
 
 

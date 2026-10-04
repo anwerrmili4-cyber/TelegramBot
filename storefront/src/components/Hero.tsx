@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent }
 import { ArrowRight, ArrowUpRight, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { FilmReel } from "@/components/FilmReel";
+import { HeroReviewReel } from "@/components/PublicReviews";
 import { HowItWorks } from "@/components/HowItWorks";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -257,20 +258,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             </Link>
           </aside>
         ) : null}
-        <ul className="hero-stats">
-          <li>
-            <strong>{offers.length}</strong>
-            <span>produits</span>
-          </li>
-          <li>
-            <strong>{available.length}</strong>
-            <span>en stock</span>
-          </li>
-          <li>
-            <strong>{categories.length}</strong>
-            <span>catégories</span>
-          </li>
-        </ul>
+        <HeroReviewReel />
         {highlighted.length ? (
           <div className="hero-picks">
             {highlighted.slice(0, 2).map((offer, index) => (

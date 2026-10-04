@@ -531,33 +531,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.hero-stats {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.hero-stats li {
-  padding: 16px 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink-800);
-}
-
-.hero-stats strong {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 22px;
-  letter-spacing: -0.03em;
-}
-
-.hero-stats span {
-  color: var(--text-mute);
-  font-size: 12px;
-}
-
 /* ---------- How it works ---------- */
 
 .steps {
@@ -673,14 +646,9 @@
 
 @media (max-width: 900px) {
   .hero,
-  .hero-stats,
   .steps-grid,
   .site-footer {
     grid-template-columns: 1fr;
-  }
-
-  .hero-stats {
-    grid-template-columns: 1fr 1fr;
   }
 }
 

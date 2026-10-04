@@ -1,8 +1,8 @@
 """Customer reviews for delivered Tunisian site orders.
 
 A review stays pending until an admin publishes it. Public responses expose
-the account name, the score and the comment. They never include email, phone
-or a postal address.
+the account name, the email, the score, the comment and the service mark.
+They never include a phone number or a postal address.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
-from app.domain import email_service
+from app.domain import email_service, site_logo_service
 
 _PENDING = "pending"
 _APPROVED = "approved"
@@ -33,12 +33,41 @@ def _ensure(conn: Any) -> None:
     conn.storefront_review_requests.create_index("cart_reference", unique=True)
 
 
+def _service_mark(offer_id: Any) -> dict[str, str]:
+    """Small service identity for a published review. Empty when the offer is gone."""
+    try:
+        offer = db.get_offer(int(offer_id or 0))
+    except (TypeError, ValueError):
+        offer = None
+    if not offer:
+        return {"service_name": "", "service_logo_url": ""}
+    service = db.get_service(int(offer.get("service_id") or 0))
+    if not service:
+        return {"service_name": "", "service_logo_url": ""}
+    logo = ""
+    if db.is_official_subscriptions_service(service):
+        logo = site_logo_service.category_logo_url(
+            offer.get("site_category_logo_id"),
+            offer.get("site_category_logo_version"),
+        ) or ""
+    if not logo:
+        logo = site_logo_service.logo_url(service)
+    return {
+        "service_name": str(service.get("name") or ""),
+        "service_logo_url": logo,
+    }
+
+
 def _public(row: dict[str, Any]) -> dict[str, Any]:
+    mark = _service_mark(row.get("offer_id"))
     return {
         "name": str(row.get("name") or ""),
+        "email": str(row.get("email") or ""),
         "score": int(row.get("score") or 0),
         "comment": str(row.get("comment") or ""),
         "offer_name": str(row.get("offer_name") or ""),
+        "service_name": mark["service_name"],
+        "service_logo_url": mark["service_logo_url"],
         "created_at": int(row.get("created_at") or 0),
     }
 
