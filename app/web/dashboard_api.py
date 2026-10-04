@@ -1033,6 +1033,21 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             created_at=warranty.get("updated_at") or warranty.get("created_at"),
         )
 
+    pending_site_reviews = list(conn.storefront_reviews.find(
+        {"status": "pending"},
+    ).sort("created_at", DESCENDING).limit(0 if complete else 30))
+    for review in pending_site_reviews:
+        review_id = review.get("id")
+        add(
+            f"site-review:{review_id}:pending",
+            category="review", severity="warning", title="Avis à valider",
+            message=(
+                f"{review.get('name') or 'Client'} · {int(review.get('score') or 0)}/5 · "
+                f"{review.get('offer_name') or 'commande'}"
+            ),
+            page="site-reviews", entity_id=review_id, created_at=review.get("created_at"),
+        )
+
     from config import LOW_STOCK_THRESHOLD
     for offer in conn.offers.find({
         "active": 1,

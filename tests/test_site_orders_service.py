@@ -135,20 +135,23 @@ def test_confirm_delivers_inventory_lines_automatically(mock_mongodb, customer, 
     assert [item["automatic"] for item in listed["items"]] == [True, False]
     preparing = next(item for item in sent_emails if item["subject"] == f"Nous préparons ta commande {cart['reference']}")
     delivered = next(item for item in sent_emails if "netflix@mail.tn:secret" in item["text"])
-    invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
     assert "Nous préparons ton produit" in preparing["text"]
     assert "Tu le recevras dès que possible. Merci de patienter." in preparing["text"]
     assert "Paiement" not in preparing["subject"]
     assert not any(item["subject"].startswith("Paiement confirmé") for item in sent_emails)
+    assert not any(item["subject"].startswith("Ta facture") for item in sent_emails)
+    assert not any(item["subject"].startswith("Ton avis") for item in sent_emails)
     assert "netflix@mail.tn:secret" in delivered["text"]
-    assert invoice["subject"].startswith("Ta facture FAC-")
+    assert delivered["attachments"][0]["filename"].endswith(".pdf")
+    assert 'name="comment"' in delivered["html"]
+    assert "Envoyer" in delivered["html"]
 
     site_orders_service.deliver_cart(cart["reference"], "spotify@mail.tn:autre")
-    assert any(
-        item["subject"] == f"Ta commande {cart['reference']} est livrée" and "spotify@mail.tn:autre" in item["text"]
-        for item in sent_emails
-    )
-    assert sum(message["subject"].startswith("Ta facture") for message in sent_emails) == 1
+    later = next(item for item in sent_emails if "spotify@mail.tn:autre" in item["text"])
+    assert later["subject"] == f"Ta commande {cart['reference']} est livrée"
+    assert "attachments" not in later
+    assert 'name="comment"' not in later["html"]
+    assert sum(1 for message in sent_emails if message.get("attachments")) == 1
     assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
     (history,) = storefront_service.customer_carts(customer["id"])
     assert [item["delivery"] for item in history["items"]] == ["netflix@mail.tn:secret", "spotify@mail.tn:autre"]
@@ -223,17 +226,17 @@ def test_each_admin_step_emails_the_customer(mock_mongodb, customer, sent_emails
     site_orders_service.deliver_cart(reference, "Email : compte@netflix.tn\nMot de passe : <secret>")
 
     preparing = next(item for item in sent_emails if item["subject"] == f"Nous préparons ta commande {reference}")
-    invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
     delivered = next(item for item in sent_emails if item["subject"] == f"Ta commande {reference} est livrée")
-    assert sum(item["subject"] == f"Ton avis sur {reference}" for item in sent_emails) == 1
-    assert preparing["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
+    assert not any(item["subject"].startswith("Ta facture") for item in sent_emails)
+    assert not any(item["subject"] == f"Ton avis sur {reference}" for item in sent_emails)
+    assert preparing["to"] == delivered["to"] == ["amine@example.com"]
     assert "Nous préparons tes produits" in preparing["text"]
     assert "Tu les recevras dès que possible. Merci de patienter." in preparing["text"]
     assert "Paiement" not in preparing["subject"]
     assert "Total : 30,000 DT" in preparing["text"]
     assert not any(item["subject"].startswith("Paiement confirmé") for item in sent_emails)
-    assert delivered["subject"] == f"Ta commande {reference} est livrée"
-    assert invoice["subject"].startswith("Ta facture FAC-")
+    assert delivered["attachments"][0]["filename"].endswith(".pdf")
+    assert 'name="score"' in delivered["html"]
     assert "Mot de passe : <secret>" in delivered["text"]
     assert "Mot de passe" in delivered["html"]
     assert "&lt;secret&gt;" in delivered["html"]
@@ -271,7 +274,9 @@ def test_payment_issues_one_invoice_with_its_pdf_attached(mock_mongodb, customer
     assert invoice["number"].startswith("FAC-") and invoice["total_millimes"] == 35000
     assert [(item["offer_name"], item["quantity"]) for item in invoice["items"]] == [("Netflix", 2), ("Spotify", 1)]
 
-    (mail,) = [message for message in sent_emails if message["subject"].startswith("Ta facture")]
+    assert not any(message["subject"].startswith("Ta facture") for message in sent_emails)
+    (mail,) = [message for message in sent_emails if message.get("attachments")]
+    assert mail["subject"] == f"Ta commande {reference} est livrée"
     (attachment,) = mail["attachments"]
     assert attachment["filename"] == f"{invoice['number']}.pdf"
     assert base64.b64decode(attachment["content"]).startswith(b"%PDF")

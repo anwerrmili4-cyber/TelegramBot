@@ -166,6 +166,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const siteTickets = data?.summary?.site_open_tickets || 0;
   const siteRequests = data?.summary?.site_product_requests || 0;
   const siteWarranties = data?.summary?.site_warranties || 0;
+  const siteReviews = data?.summary?.site_reviews_pending || 0;
   const [collapsedGroups, setCollapsedGroups] = useState(readCollapsedGroups);
   const updateCollapsed = (update) => setCollapsedGroups((current) => {
     const next = new Set(current);
@@ -197,12 +198,12 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
 
         <div className="workspace-switch" role="tablist" aria-label="Espace d’administration">
           <button type="button" role="tab" aria-selected={!siteMode} onClick={() => siteMode && onNavigate("overview")}><Bot size={15} />Bot Telegram</button>
-          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties > 0 && <small>{siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties}</small>}</button>
+          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties + siteReviews > 0 && <small>{siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties + siteReviews}</small>}</button>
         </div>
 
         <nav className="nav-list" aria-label="Navigation principale">
           {groups.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
-            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "site-deposits" ? siteDeposits : id === "support" ? openTickets : id === "product-requests" ? productRequests : id === "site-support" ? siteTickets : id === "site-product-requests" ? siteRequests : id === "site-warranties" ? siteWarranties : 0;
+            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "site-deposits" ? siteDeposits : id === "support" ? openTickets : id === "product-requests" ? productRequests : id === "site-support" ? siteTickets : id === "site-product-requests" ? siteRequests : id === "site-warranties" ? siteWarranties : id === "site-reviews" ? siteReviews : 0;
             return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
           })}</div>)}
         </nav>
@@ -426,7 +427,7 @@ function ErrorState({ message, onRetry }) {
 }
 
 const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|add_inventory$|site_(cart_deliver|cart_cancel|offer_update|offer_save|service_save|service_visibility|settings_save|deposit_approve|deposit_reject|wallet_adjust)$)/;
-const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog", "site_reorder_catalog", "site_review_approve", "site_review_reject", "site_review_backfill"]);
+const IMMEDIATE_ACTIONS = new Set(["reply_ticket", "reorder_catalog", "site_reorder_catalog", "site_review_approve", "site_review_reject", "site_review_backfill", "site_review_delete"]);
 
 function describeAdminChange(params = {}) {
   const action = String(params.action || "change");

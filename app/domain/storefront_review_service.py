@@ -7,7 +7,12 @@ They never include a phone number or a postal address.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
 import time
+from datetime import datetime
+from html import escape
 from typing import Any
 
 from pymongo.errors import DuplicateKeyError
@@ -25,6 +30,54 @@ class ReviewError(ValueError):
     def __init__(self, message: str, *, status: int = 400):
         super().__init__(message)
         self.status = status
+
+
+_TOKEN_TTL_SECONDS = 180 * 24 * 3600
+_TOKEN_INVALID = "Ce lien d'avis n'est plus valable."
+
+
+def _secret() -> bytes:
+    for name in ("HP_WEBHOOK_SECRET", "HP_INVENTORY_KEY", "CRON_SECRET"):
+        value = os.environ.get(name, "").strip()
+        if value and value.upper() not in {"[SENSITIVE]", "SENSITIVE"}:
+            return value.encode()
+    return b"blackmarket-review-dev"
+
+
+def issue_token(order_id: int, *, expires_at: int | None = None) -> str:
+    """Signed token that lets the delivery email post one review for this order."""
+    exp = int(expires_at if expires_at is not None else time.time() + _TOKEN_TTL_SECONDS)
+    payload = f"{int(order_id)}.{exp}"
+    signature = hmac.new(_secret(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{payload}.{signature}"
+
+
+def order_id_from_token(token: str) -> int:
+    parts = str(token or "").split(".")
+    if len(parts) != 3:
+        raise ReviewError(_TOKEN_INVALID)
+    order_raw, exp_raw, signature = parts
+    if not order_raw.isdigit() or not exp_raw.isdigit() or len(signature) != 32:
+        raise ReviewError(_TOKEN_INVALID)
+    try:
+        bytes.fromhex(signature)
+    except ValueError as exc:
+        raise ReviewError(_TOKEN_INVALID) from exc
+    if int(exp_raw) < int(time.time()):
+        raise ReviewError(_TOKEN_INVALID)
+    expected = hmac.new(_secret(), f"{order_raw}.{exp_raw}".encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(expected, signature):
+        raise ReviewError(_TOKEN_INVALID)
+    return int(order_raw)
+
+
+def _stamp(value: Any) -> int:
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _ensure(conn: Any) -> None:
@@ -100,6 +153,44 @@ def _comment(value: Any) -> str:
     return text
 
 
+def _store(order: dict[str, Any], score: int, comment: str, *, source: str) -> dict[str, Any]:
+    order_id = int(order["id"])
+    conn = db.get_conn()
+    _ensure(conn)
+    existing = conn.storefront_reviews.find_one({"order_id": order_id})
+    if existing:
+        return {"ok": True, "already": True, "review": _own(existing)}
+    customer_id = int(order.get("customer_id") or 0)
+    customer = conn.storefront_customers.find_one({"id": customer_id}) or {}
+    now = int(time.time())
+    document = {
+        "id": db._next_id("storefront_reviews"),
+        "order_id": order_id,
+        "cart_reference": str(order.get("cart_reference") or ""),
+        "offer_id": int(order.get("offer_id") or 0),
+        "offer_name": str(order.get("offer_name") or ""),
+        "customer_id": customer_id,
+        "name": str(customer.get("name") or order.get("customer_name") or ""),
+        "email": str(customer.get("email") or order.get("customer_email") or ""),
+        "phone": str(customer.get("phone") or order.get("customer_phone") or ""),
+        "score": score,
+        "comment": comment,
+        "source": source,
+        "status": _PENDING,
+        "admin_note": "",
+        "created_at": now,
+        "published_at": None,
+    }
+    try:
+        conn.storefront_reviews.insert_one(document)
+    except DuplicateKeyError:
+        existing = conn.storefront_reviews.find_one({"order_id": order_id})
+        if existing:
+            return {"ok": True, "already": True, "review": _own(existing)}
+        raise
+    return {"ok": True, "already": False, "review": _own(document)}
+
+
 def submit(customer: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     try:
         order_id = int(payload.get("order_id"))
@@ -115,35 +206,28 @@ def submit(customer: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     })
     if not order:
         raise ReviewError("Commande introuvable.", status=404)
-    conn = db.get_conn()
-    _ensure(conn)
-    existing = conn.storefront_reviews.find_one({"order_id": order_id})
-    if existing:
-        return {"ok": True, "review": _own(existing)}
-    now = int(time.time())
-    document = {
-        "id": db._next_id("storefront_reviews"),
-        "order_id": order_id,
-        "offer_id": int(order.get("offer_id") or 0),
-        "offer_name": str(order.get("offer_name") or ""),
-        "customer_id": int(customer["id"]),
-        "name": str(customer.get("name") or ""),
-        "email": str(customer.get("email") or ""),
-        "score": score,
-        "comment": comment,
-        "status": _PENDING,
-        "admin_note": "",
-        "created_at": now,
-        "published_at": None,
-    }
-    try:
-        conn.storefront_reviews.insert_one(document)
-    except DuplicateKeyError:
-        existing = conn.storefront_reviews.find_one({"order_id": order_id})
-        if existing:
-            return {"ok": True, "review": _own(existing)}
-        raise
-    return {"ok": True, "review": _own(document)}
+    stored = _store(order, score, comment, source="account")
+    return {"ok": True, "review": stored["review"]}
+
+
+def submit_from_email(token: str, score: Any, comment: Any) -> dict[str, Any]:
+    """Save a review posted from the delivery email. No shop login."""
+    order_id = order_id_from_token(token)
+    score = _score(score)
+    comment = _comment(comment)
+    order = db.get_conn().orders.find_one({
+        "id": order_id,
+        "sales_channel": "tn_site",
+        "status": OrderStatus.DELIVERED,
+    })
+    if not order:
+        raise ReviewError(_TOKEN_INVALID)
+    stored = _store(order, score, comment, source="email")
+    if stored["already"]:
+        message = "Tu as déjà envoyé un avis pour cette commande."
+    else:
+        message = "Merci, ton avis a été envoyé. Il sera publié après validation."
+    return {"ok": True, "already": stored["already"], "message": message}
 
 
 def for_customer(customer_id: int) -> dict[str, Any]:
@@ -176,22 +260,51 @@ def public_latest() -> dict[str, Any]:
     return {"ok": True, "reviews": [_public(row) for row in rows]}
 
 
+def _client_dossier(row: dict[str, Any]) -> dict[str, Any]:
+    """Everything the admin needs about the person who wrote the review."""
+    conn = db.get_conn()
+    customer_id = int(row.get("customer_id") or 0)
+    customer = conn.storefront_customers.find_one({"id": customer_id}) or {}
+    order = conn.orders.find_one({"id": int(row.get("order_id") or 0)}) or {}
+    from app.domain import site_orders_service
+
+    method = str(order.get("payment_method") or "")
+    return {
+        "customer_id": customer_id,
+        "name": str(row.get("name") or customer.get("name") or order.get("customer_name") or ""),
+        "email": str(row.get("email") or customer.get("email") or order.get("customer_email") or ""),
+        "phone": str(row.get("phone") or customer.get("phone") or order.get("customer_phone") or ""),
+        "email_verified": bool(customer.get("email_verified")),
+        "customer_created_at": _stamp(customer.get("created_at")),
+        "cart_reference": str(row.get("cart_reference") or order.get("cart_reference") or ""),
+        "offer_id": int(row.get("offer_id") or order.get("offer_id") or 0),
+        "offer_name": str(row.get("offer_name") or order.get("offer_name") or ""),
+        "service_name": str(order.get("service_name") or ""),
+        "payment_method": method,
+        "payment_label": site_orders_service.method_label(method) if method else "",
+        "line_total_millimes": int(order.get("total_millimes") or 0),
+        "cart_total_millimes": int(order.get("cart_total_millimes") or order.get("total_millimes") or 0),
+        "delivered_at": _stamp(order.get("delivered_at")),
+        "source": str(row.get("source") or "account"),
+    }
+
+
 def admin_list() -> dict[str, Any]:
     conn = db.get_conn()
     _ensure(conn)
     items = []
     for row in conn.storefront_reviews.find().sort("created_at", -1).limit(100):
+        dossier = _client_dossier(row)
         items.append({
             "id": int(row["id"]),
             "order_id": int(row["order_id"]),
-            "offer_name": str(row.get("offer_name") or ""),
-            "name": str(row.get("name") or ""),
-            "email": str(row.get("email") or ""),
             "score": int(row.get("score") or 0),
             "comment": str(row.get("comment") or ""),
             "status": str(row.get("status") or _PENDING),
             "admin_note": str(row.get("admin_note") or ""),
-            "created_at": int(row.get("created_at") or 0),
+            "created_at": _stamp(row.get("created_at")),
+            "published_at": _stamp(row.get("published_at")),
+            **dossier,
         })
     return {"ok": True, "items": items}
 
@@ -231,35 +344,144 @@ def reject(review_id: int, note: str) -> dict[str, Any]:
     return {"ok": True, "id": int(row["id"]), "status": _REJECTED}
 
 
-def notify_cart(reference: str) -> bool:
-    """Email one review request for this cart. A second call does not send again."""
+def delete(review_id: int) -> dict[str, Any]:
+    """Remove a review in any status. The public page stops showing it."""
+    try:
+        review_id = int(review_id)
+    except (TypeError, ValueError) as exc:
+        raise ReviewError("Avis introuvable.", status=404) from exc
+    row = db.get_conn().storefront_reviews.find_one({"id": review_id})
+    if not row:
+        raise ReviewError("Avis introuvable.", status=404)
+    db.get_conn().storefront_reviews.delete_one({"id": review_id})
+    return {"ok": True, "id": review_id, "deleted": True}
+
+
+def claim_delivery_review(reference: str) -> str:
+    """Reserve the single review form of this cart and return its token.
+
+    An empty string means the form was already reserved, or nothing delivered
+    can be reviewed yet.
+    """
     reference = str(reference or "").strip()
     if not reference:
-        return False
+        return ""
     conn = db.get_conn()
     _ensure(conn)
     if conn.storefront_review_requests.find_one({"cart_reference": reference}):
-        return False
+        return ""
     line = conn.orders.find_one({
         "cart_reference": reference,
         "sales_channel": "tn_site",
         "status": OrderStatus.DELIVERED,
     })
     if not line:
-        return False
+        return ""
     email = str(line.get("customer_email") or "").strip()
     if not email:
-        return False
+        return ""
     try:
         conn.storefront_review_requests.insert_one({
             "cart_reference": reference,
             "email": email,
+            "order_id": int(line["id"]),
             "sent_at": int(time.time()),
         })
     except DuplicateKeyError:
+        return ""
+    return issue_token(int(line["id"]))
+
+
+def notify_cart(reference: str) -> bool:
+    """Email one standalone review form. A second call does not send again."""
+    reference = str(reference or "").strip()
+    token = claim_delivery_review(reference)
+    if not token:
         return False
-    email_service.send_review_request(email, str(line.get("customer_name") or ""), reference)
+    line = db.get_conn().orders.find_one({
+        "cart_reference": reference,
+        "sales_channel": "tn_site",
+        "status": OrderStatus.DELIVERED,
+    })
+    if not line:
+        return False
+    email_service.send_review_request(
+        str(line.get("customer_email") or ""),
+        str(line.get("customer_name") or ""),
+        reference,
+        token,
+    )
     return True
+
+
+def email_review_page(
+    *,
+    token: str = "",
+    score: Any = "",
+    comment: str = "",
+    error: str = "",
+    done: str = "",
+) -> str:
+    """Small page opened by the email form. It is not the shop."""
+    if done:
+        return _review_page("Avis envoyé", f"<p>{escape(done)}</p>")
+    if error and not str(token or "").strip():
+        return _review_page("Avis", f'<p class="error">{escape(error)}</p>')
+    try:
+        order_id = order_id_from_token(token) if token else None
+    except ReviewError as exc:
+        return _review_page("Avis", f"<p>{escape(str(exc))}</p>")
+    if order_id is None:
+        return _review_page("Avis", f"<p>{escape(_TOKEN_INVALID)}</p>")
+    existing = db.get_conn().storefront_reviews.find_one({"order_id": order_id})
+    if existing and not error:
+        return _review_page("Avis déjà envoyé", "<p>Tu as déjà envoyé un avis pour cette commande.</p>")
+    try:
+        selected = int(score)
+    except (TypeError, ValueError):
+        selected = 0
+    stars = "".join(
+        f'<label class="star"><input type="radio" name="score" value="{value}" required'
+        f'{" checked" if value == selected else ""}>{"★" * value}</label>'
+        for value in range(1, 6)
+    )
+    alert = f'<p class="error">{escape(error)}</p>' if error else ""
+    action = escape(f"{email_service.site_url()}{email_service.REVIEW_EMAIL_PATH}")
+    form = (
+        f"{alert}"
+        f'<form method="post" action="{action}">'
+        f'<input type="hidden" name="token" value="{escape(token)}">'
+        f'<div class="stars">{stars}</div>'
+        f'<textarea name="comment" required minlength="8" maxlength="600" rows="5" '
+        f'placeholder="Ton commentaire">{escape(comment)}</textarea>'
+        '<button type="submit">Envoyer</button>'
+        "</form>"
+    )
+    return _review_page("Ton avis", "<p>Choisis tes étoiles, écris ton commentaire, puis envoie.</p>" + form)
+
+
+def _review_page(title: str, inner: str) -> str:
+    return (
+        "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        f"<title>{escape(title)}</title>"
+        "<style>"
+        "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
+        "background:#0b0b0d;color:#f4f4f5;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif}"
+        "main{width:min(440px,calc(100% - 32px));background:#131316;border:1px solid #25252b;border-radius:20px;padding:28px}"
+        "p{margin:0 0 16px;line-height:1.55;color:#c4c4cc}"
+        ".error{color:#f87171}"
+        "form{display:flex;flex-direction:column;gap:12px}"
+        ".stars{display:flex;flex-direction:column;gap:8px}"
+        ".star{display:flex;align-items:center;gap:10px;color:#fbbf24;font-size:20px}"
+        "textarea{width:100%;box-sizing:border-box;border-radius:12px;border:1px solid #25252b;"
+        "background:#0b0b0d;color:#f4f4f5;padding:12px 14px;font:inherit}"
+        "button{border:0;border-radius:12px;background:#e03a30;color:#fff;font-weight:700;font-size:15px;padding:14px 18px}"
+        "small{display:block;margin-top:18px;color:#8b8b95}"
+        "</style></head><body><main>"
+        f"<h1 style=\"margin:0 0 12px;font-size:24px\">{escape(title)}</h1>"
+        f"{inner}<small>BLACKMARKET Tunisie</small></main></body></html>"
+    )
 
 
 def backfill(*, send: bool = False) -> dict[str, Any]:

@@ -215,10 +215,10 @@ def test_wallet_payment_is_debited_and_delivered_from_inventory(mock_mongodb, cu
     assert result["status"] == "delivered"
     assert result["balance_millimes"] == 10000
     message = next(item for item in sent_emails if item["subject"] == f"Ta commande {result['reference']} est livrée")
-    invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
-    assert sum(item["subject"] == f"Ton avis sur {result['reference']}" for item in sent_emails) == 1
-    assert message["subject"] == f"Ta commande {result['reference']} est livrée"
-    assert invoice["subject"].endswith(result["reference"]) and invoice["attachments"]
+    assert not any(item["subject"].startswith("Ta facture") for item in sent_emails)
+    assert not any(item["subject"] == f"Ton avis sur {result['reference']}" for item in sent_emails)
+    assert message["attachments"]
+    assert 'name="comment"' in message["html"] and "Envoyer" in message["html"]
     assert "user1@mail.tn:pass1" in message["text"]
     (cart,) = storefront_service.customer_carts(customer["id"])
     assert cart["status"] == "delivered"

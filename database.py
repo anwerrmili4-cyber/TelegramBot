@@ -2766,6 +2766,7 @@ def dashboard_data(include_history=True):
         "channel": "tn_site",
         "status": {"$in": ["pending_admin_check", "accepted", "replacement_pending"]},
     })
+    site_reviews_pending = db.storefront_reviews.count_documents({"status": "pending"})
 
     # --- Inventory & stock ---
     available_inventory = db.inventory.count_documents({"status": "available"})
@@ -2918,6 +2919,7 @@ def dashboard_data(include_history=True):
         "site_open_tickets": site_open_tickets,
         "site_product_requests": site_product_requests,
         "site_warranties": site_warranties,
+        "site_reviews_pending": site_reviews_pending,
         "low_stock_offers": len(low_stock_offers),
         "available_inventory": available_inventory,
         "failed_payments": failed_payments,

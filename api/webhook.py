@@ -594,6 +594,17 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _reply_html(self, status: int, body: str) -> None:
+        encoded = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(encoded)
+
     def _reply_bytes(
         self,
         status: int,
@@ -686,6 +697,10 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(503, {"ok": False, "error": "Avis temporairement indisponibles."}, headers={
                     "Access-Control-Allow-Origin": "*",
                 })
+            return
+
+        if path == "/api/storefront/reviews/email":
+            self._handle_email_review()
             return
 
         if path in {site_logo_service.PUBLIC_PATH, site_logo_service.CATEGORY_LOGO_PATH, site_logo_service.OFFER_IMAGE_PATH, site_logo_service.OFFER_VIDEO_PATH}:
@@ -1709,8 +1724,44 @@ class handler(BaseHTTPRequestHandler):
             return
         self._reply(404, {"ok": False, "error": "not_found"})
 
+    def _handle_email_review(self) -> None:
+        """Review posted from the delivery email. The answer is a page, not the shop."""
+        query = parse_qs(urlsplit(self.path).query)
+        token = query.get("token", [""])[0]
+        score = query.get("score", [""])[0]
+        comment = ""
+        if self.command == "POST":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = -1
+            if length < 0 or length > 8_000:
+                self._reply_html(400, storefront_review_service.email_review_page(error="Formulaire trop long."))
+                return
+            raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+            form = {key: values[0] for key, values in parse_qs(raw, keep_blank_values=True).items()}
+            token = form.get("token") or token
+            score = form.get("score") or score
+            comment = form.get("comment") or ""
+            try:
+                result = storefront_review_service.submit_from_email(token, score, comment)
+            except storefront_review_service.ReviewError as exc:
+                self._reply_html(
+                    exc.status,
+                    storefront_review_service.email_review_page(
+                        token=token, score=score, comment=comment, error=str(exc),
+                    ),
+                )
+                return
+            self._reply_html(200, storefront_review_service.email_review_page(done=result["message"]))
+            return
+        self._reply_html(200, storefront_review_service.email_review_page(token=token, score=score))
+
     def do_POST(self):
         path = urlsplit(self.path).path.rstrip("/")
+        if path == "/api/storefront/reviews/email":
+            self._handle_email_review()
+            return
         if path in STOREFRONT_AUTH_POST_PATHS:
             self._handle_storefront_auth(path)
             return
@@ -2520,6 +2571,10 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "site_review_backfill":
                 self._reply(200, storefront_review_service.backfill(send=form.get("confirm") == "1"))
+                return
+
+            elif action == "site_review_delete":
+                self._reply(200, storefront_review_service.delete(int(form["review_id"])))
                 return
 
             elif action == "reply_ticket":

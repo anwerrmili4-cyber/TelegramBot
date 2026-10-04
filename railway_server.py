@@ -116,9 +116,14 @@ class StorefrontHandler(webhook.handler):
         "/api/storefront/category-logo",
         "/api/storefront/offer-image",
         "/api/storefront/offer-video",
+        "/api/storefront/reviews/email",
         *webhook.STOREFRONT_AUTH_GET_PATHS,
     )
-    _ALLOWED_POST = frozenset({"/api/storefront/orders", *webhook.STOREFRONT_AUTH_POST_PATHS})
+    _ALLOWED_POST = frozenset({
+        "/api/storefront/orders",
+        "/api/storefront/reviews/email",
+        *webhook.STOREFRONT_AUTH_POST_PATHS,
+    })
 
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")

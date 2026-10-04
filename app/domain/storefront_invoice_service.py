@@ -2,11 +2,11 @@
 
 An invoice is issued once per cart, the moment its payment is confirmed (from
 the wallet or after the admin checks the transfer receipt). The customer is
-not emailed then: the facture goes out with the product email, the first time
-a line of that cart is delivered. It snapshots the customer, the paid lines
-and the payment, so later edits to an offer or an account never change a
-document the customer already received. The PDF is rebuilt from that snapshot
-whenever it is downloaded.
+not emailed then: the facture PDF is attached to the product email, the first
+time a line of that cart is delivered. There is no separate facture message.
+It snapshots the customer, the paid lines and the payment, so later edits to
+an offer or an account never change a document the customer already received.
+The PDF is rebuilt from that snapshot whenever it is downloaded.
 
 Seller details printed on the invoice come from ``INVOICE_SELLER_NAME``,
 ``INVOICE_SELLER_ADDRESS`` and ``INVOICE_SELLER_TAX_ID``.
@@ -74,8 +74,9 @@ def _method_label(method: str) -> str:
 def issue(reference: str, *, notify: bool = False) -> dict[str, Any] | None:
     """Create the invoice of a paid cart; ``None`` if it already has one.
 
-    The facture is not a payment receipt. Pass ``notify`` to email it now;
-    delivery calls :func:`email_issued` instead.
+    The facture is not a payment receipt and it is not its own email.
+    ``notify`` is kept for older callers and does not send a message: delivery
+    attaches the PDF with :func:`delivery_attachment`.
     """
     conn = db.get_conn()
     if conn.storefront_invoices.find_one({"cart_reference": reference}, {"_id": 1}):
@@ -128,40 +129,26 @@ def issue(reference: str, *, notify: bool = False) -> dict[str, Any] | None:
         return None
     db.audit_event("storefront.invoice_issued", details={"number": invoice["number"], "cart_reference": reference})
     if notify:
-        _queue_invoice_email(invoice)
+        log.info("Invoice %s is attached to the delivery email, not sent on its own", invoice["number"])
     return invoice
 
 
-def _queue_invoice_email(invoice: dict[str, Any]) -> None:
-    """Send the facture once. Invoices issued before this flag existed stay silent."""
-    if not invoice.get("email_pending") or not invoice.get("customer_email"):
-        return
-    now = int(time.time())
-    email_service.send_invoice(
-        invoice["customer_email"],
-        invoice["customer_name"],
-        invoice["number"],
-        invoice["cart_reference"],
-        invoice["items"],
-        invoice["total_millimes"],
-        invoice["payment_label"],
-        render_pdf(invoice),
-    )
-    invoice["email_pending"] = False
-    invoice["emailed_at"] = now
-    db.get_conn().storefront_invoices.update_one(
-        {"id": invoice["id"]},
-        {"$set": {"email_pending": False, "emailed_at": now}},
-    )
-
-
-def email_issued(reference: str) -> None:
-    """Email the cart's invoice once a product has been delivered."""
+def delivery_attachment(reference: str) -> tuple[str, bytes] | None:
+    """The facture PDF, once. ``None`` when it was already attached or cannot be sent."""
     invoice = find(reference)
     if invoice is None:
-        issue(reference, notify=True)
-        return
-    _queue_invoice_email(invoice)
+        invoice = issue(reference)
+    if not invoice or not invoice.get("email_pending") or not invoice.get("customer_email"):
+        return None
+    pdf = render_pdf(invoice)
+    now = int(time.time())
+    updated = db.get_conn().storefront_invoices.update_one(
+        {"id": invoice["id"], "email_pending": True},
+        {"$set": {"email_pending": False, "emailed_at": now}},
+    )
+    if getattr(updated, "modified_count", 0) != 1:
+        return None
+    return f"{invoice['number']}.pdf", pdf
 
 
 def issue_quietly(reference: str) -> None:
@@ -170,14 +157,6 @@ def issue_quietly(reference: str) -> None:
         issue(reference)
     except Exception:
         log.exception("Invoice for cart %s could not be issued", reference)
-
-
-def email_quietly(reference: str) -> None:
-    """Email a delivered cart's invoice without failing the delivery."""
-    try:
-        email_issued(reference)
-    except Exception:
-        log.exception("Invoice for cart %s could not be emailed", reference)
 
 
 def record_refund(reference: str, refunded_millimes: int) -> None:

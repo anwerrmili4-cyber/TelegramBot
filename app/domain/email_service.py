@@ -439,6 +439,7 @@ def _greeting(name: str) -> str:
 
 
 ACCOUNT_PATH = "/mon-compte"
+REVIEW_EMAIL_PATH = "/api/storefront/reviews/email"
 
 
 def _account_url(section: str = "") -> str:
@@ -705,6 +706,59 @@ def _delivery_access(content: str) -> str:
     )
 
 
+def review_form_parts(token: str) -> tuple[str, str]:
+    """Clickable stars, a comment field and a send button that post from the email."""
+    token = str(token or "").strip()
+    if not token:
+        return "", ""
+    action = f"{site_url()}{REVIEW_EMAIL_PATH}"
+    safe_action = escape(action)
+    safe_token = escape(token)
+    stars = "".join(
+        "<td align=\"center\" style=\"padding:0 4px\">"
+        f'<label style="display:inline-block;min-width:46px;text-align:center;color:#fbbf24;font-size:28px;line-height:1">'
+        f'<input type="radio" name="score" value="{score}" required '
+        'style="display:block;margin:0 auto 6px">'
+        f'★<span style="display:block;margin-top:4px;font-size:11px;font-weight:700;color:{_MUTED}">{score}</span>'
+        "</label></td>"
+        for score in range(1, 6)
+    )
+    fallback = " · ".join(
+        f'<a href="{safe_action}?token={safe_token}&amp;score={score}" '
+        f'style="color:#fbbf24;text-decoration:none;font-size:20px;font-weight:700">{"★" * score}</a>'
+        for score in range(1, 6)
+    )
+    html = (
+        '<form action="' + safe_action + '" method="post" style="margin:8px 0 0">'
+        f'<input type="hidden" name="token" value="{safe_token}">'
+        f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TON AVIS</div>'
+        "<p style=\"margin:0 0 12px\">Choisis tes étoiles, écris ton commentaire, puis envoie. "
+        "Ton message part depuis cet email.</p>"
+        '<table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 14px"><tr>'
+        f"{stars}</tr></table>"
+        '<textarea name="comment" required minlength="8" maxlength="600" rows="4" '
+        'placeholder="Ton commentaire" '
+        f'style="display:block;width:100%;max-width:100%;box-sizing:border-box;margin:0 0 14px;'
+        f"padding:12px 14px;border-radius:12px;border:1px solid {_LINE};background:{_BG};"
+        f'color:{_TEXT};font-size:15px;line-height:1.5;font-family:{_FONT}"></textarea>'
+        f'<button type="submit" style="display:inline-block;padding:14px 26px;border:0;border-radius:12px;'
+        f'background:{_BRAND};color:#ffffff;font-size:15px;font-weight:700;font-family:{_FONT};cursor:pointer">'
+        "Envoyer</button>"
+        f'<p style="margin:14px 0 0;font-size:12px;line-height:1.6;color:{_MUTED}">'
+        f"Si ton application retire le formulaire, choisis une note ici : {fallback}</p>"
+        "</form>"
+        + _note("Ton avis reste privé jusqu'à validation.")
+    )
+    text = (
+        "\n\nTon avis\n"
+        "Choisis une note de 1 à 5, écris ton commentaire (8 caractères minimum) "
+        "et envoie le formulaire de cet email.\n"
+        f"Formulaire : {action}?token={token}\n"
+        "Ton avis reste privé jusqu'à validation.\n"
+    )
+    return html, text
+
+
 def order_delivered_content(
     name: str,
     reference: str,
@@ -712,6 +766,8 @@ def order_delivered_content(
     content: str,
     *,
     remaining: int = 0,
+    review_token: str = "",
+    invoice_filename: str = "",
 ) -> tuple[str, str, str]:
     """Subject, HTML and text of the delivery email, including the access the customer received."""
     lines = "".join(
@@ -727,6 +783,12 @@ def order_delivered_content(
         if remaining
         else ""
     )
+    review_html, review_text = review_form_parts(review_token)
+    invoice_html = ""
+    invoice_text = ""
+    if invoice_filename:
+        invoice_html = _note(f"Ta facture <strong>{escape(invoice_filename)}</strong> est jointe à cet email.")
+        invoice_text = f"\n\nTa facture {invoice_filename} est jointe à cet email."
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Ta commande {_strong(escape(reference))} est livrée :")
@@ -734,7 +796,9 @@ def order_delivered_content(
         + f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TES ACCÈS</div>'
         + _delivery_access(content)
         + _note("Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client.")
+        + invoice_html
         + (_note(escape(later), "pending") if later else "")
+        + review_html
         + button
     )
     items_text = "\n".join(f"- {int(item['quantity'])} x {item['offer_name']}" for item in items)
@@ -742,7 +806,9 @@ def order_delivered_content(
         f"{_greeting(name)}\n\nTa commande {reference} est livrée :\n{items_text}\n\n"
         f"Tes accès :\n{content}\n\n"
         "Garde cet email en lieu sûr. Tes accès restent aussi disponibles dans ton espace client."
+        + invoice_text
         + (f"\n\n{later}" if later else "")
+        + review_text
         + link
     )
     subject = f"Ta commande {reference} est livrée"
@@ -758,10 +824,21 @@ def send_order_delivered(
     content: str,
     *,
     remaining: int = 0,
+    attachments: Sequence[tuple[str, bytes]] = (),
+    review_token: str = "",
+    invoice_filename: str = "",
 ) -> None:
-    """Email the access details; ``remaining`` counts lines still being prepared."""
-    subject, html, text = order_delivered_content(name, reference, items, content, remaining=remaining)
-    send(to, subject, html, text)
+    """Email the access details; the facture PDF and the review form ride along the first time."""
+    subject, html, text = order_delivered_content(
+        name,
+        reference,
+        items,
+        content,
+        remaining=remaining,
+        review_token=review_token,
+        invoice_filename=invoice_filename,
+    )
+    send(to, subject, html, text, attachments=attachments)
 
 
 def order_cancelled_content(
@@ -954,30 +1031,27 @@ def send_deposit_rejected(to: str, name: str, amount_millimes: int, reason: str)
     send(to, subject, html, text)
 
 
-def review_request_content(name: str, reference: str) -> tuple[str, str, str]:
-    """Subject, HTML and text of the review request sent after a delivery."""
-    url = f"{site_url()}/mon-compte?onglet=commandes"
-    button = _button("Noter ma commande", url)
+def review_request_content(name: str, reference: str, token: str = "") -> tuple[str, str, str]:
+    """Subject, HTML and text of a review form sent on its own, for a cart delivered earlier."""
+    review_html, review_text = review_form_parts(token)
     body = (
         _paragraph(escape(_greeting(name)))
         + _paragraph(f"Ta commande {_strong(escape(reference))} est livrée. Dis-nous ce que tu en as pensé.")
-        + _note("Ta note et ton commentaire restent privés jusqu'à validation.")
-        + button
+        + review_html
     )
     text = (
         f"{_greeting(name)}\n\n"
-        f"Ta commande {reference} est livrée. Dis-nous ce que tu en as pensé.\n\n"
-        "Ta note et ton commentaire restent privés jusqu'à validation.\n\n"
-        f"Noter ma commande : {url}\n"
+        f"Ta commande {reference} est livrée. Dis-nous ce que tu en as pensé."
+        + review_text
     )
     subject = f"Ton avis sur {reference}"
     html = _layout("Ton avis", body, badge="Avis", preheader=f"Note ta commande {reference}.")
     return subject, html, text
 
 
-def send_review_request(to: str, name: str, reference: str) -> None:
-    """Ask the customer to rate a delivered order. One message per cart."""
-    subject, html, text = review_request_content(name, reference)
+def send_review_request(to: str, name: str, reference: str, token: str = "") -> None:
+    """Ask for a review from the email itself. One message per cart, only when delivery had no form."""
+    subject, html, text = review_request_content(name, reference, token)
     send(to, subject, html, text)
 
 
@@ -1160,11 +1234,15 @@ def style_catalog() -> list[dict[str, str]]:
          lambda: order_received_content(name, "TN-EXEMPLE", items, 25000, "D17")),
         ("send_order_preparing", "Commande en préparation", "Commandes", "Produits payés, encore en préparation.",
          lambda: order_preparing_content(name, "TN-EXEMPLE", items, 25000)),
-        ("send_order_delivered", "Commande livrée", "Commandes", "Les accès partent au client.",
-         lambda: order_delivered_content(name, "TN-EXEMPLE", items, access)),
+        ("send_order_delivered", "Commande livrée", "Commandes",
+         "Les accès, la facture PDF et le formulaire d'avis partent dans le même email.",
+         lambda: order_delivered_content(
+             name, "TN-EXEMPLE", items, access, review_token="apercu", invoice_filename="FAC-2026-00001.pdf",
+         )),
         ("send_order_cancelled", "Commande annulée", "Commandes", "La commande est annulée, avec le motif.",
          lambda: order_cancelled_content(name, "TN-EXEMPLE", "Reçu illisible", 0)),
-        ("send_invoice", "Facture", "Commandes", "La facture PDF part avec le produit, après la livraison.",
+        ("send_invoice", "Facture", "Commandes",
+         "Ancien email séparé. Le PDF est maintenant joint à la commande livrée.",
          lambda: invoice_content(name, "FAC-2026-00001", "TN-EXEMPLE", items, 25000, "D17", "03/10/2026")),
         ("send_deposit_received", "Recharge reçue", "Portefeuille", "Le reçu de recharge est en vérification.",
          lambda: deposit_received_content(name, 20000, "D17", "EXEMPLE")),
@@ -1172,8 +1250,9 @@ def style_catalog() -> list[dict[str, str]]:
          lambda: deposit_approved_content(name, 20000, 45000)),
         ("send_deposit_rejected", "Recharge refusée", "Portefeuille", "La recharge est refusée, avec le motif.",
          lambda: deposit_rejected_content(name, 20000, "Reçu illisible")),
-        ("send_review_request", "Demande d'avis", "Suivi", "Après une livraison, pour noter la commande.",
-         lambda: review_request_content(name, "TN-EXEMPLE")),
+        ("send_review_request", "Demande d'avis", "Suivi",
+         "Relance pour une commande déjà livrée : le formulaire est dans l'email.",
+         lambda: review_request_content(name, "TN-EXEMPLE", "apercu")),
         ("send_ticket_reply", "Réponse du support", "Suivi", "Quand un admin répond dans la messagerie.",
          lambda: ticket_reply_content(name, 12, "Ton accès est prêt dans ton compte.")),
         ("send_back_in_stock", "Retour en stock", "Suivi", "Un produit demandé est de nouveau disponible.",

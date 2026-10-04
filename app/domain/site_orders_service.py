@@ -13,6 +13,7 @@ their account. Cancelling a paid line refunds it to the customer's wallet.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Any
@@ -27,6 +28,8 @@ from app.domain import (
     storefront_invoice_service,
     storefront_wallet_service,
 )
+
+log = logging.getLogger(__name__)
 
 SALES_CHANNEL = "tn_site"
 AUTOMATIC_DELIVERY = "[encrypted automatic delivery]"
@@ -275,8 +278,8 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
 
     A line without inventory (manual stock, or none left) stays confirmed for
     the admin to deliver by hand. The customer hears that those products are
-    being prepared — never that a payment was confirmed. The facture is emailed
-    with the product, the first time a line of the cart is actually delivered.
+    being prepared — never that a payment was confirmed. The first real
+    delivery is one email: the accesses, the facture PDF and the review form.
     """
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
@@ -310,8 +313,9 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
             waiting_items,
             sum(int(item["total_millimes"]) for item in waiting_items),
         )
+    storefront_invoice_service.issue_quietly(reference)
     if delivered:
-        email_service.send_order_delivered(
+        _send_delivered(
             email,
             name,
             reference,
@@ -319,12 +323,6 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
             "\n\n".join(_delivery_block(line, content) for line, content in delivered),
             remaining=len(waiting),
         )
-        from app.domain import storefront_review_service
-
-        storefront_review_service.notify_cart(reference)
-    storefront_invoice_service.issue_quietly(reference)
-    if delivered:
-        storefront_invoice_service.email_quietly(reference)
     return {"reference": reference, "delivered": len(delivered), "waiting": len(waiting)}
 
 
@@ -386,14 +384,57 @@ def deliver_cart(reference: str, note: str = "") -> dict[str, Any]:
     db.audit_event("site_cart.delivered", details={"cart_reference": reference, "lines": len(done)})
     if done:
         first = lines[0]
-        email_service.send_order_delivered(
-            first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(done), content
+        storefront_invoice_service.issue_quietly(reference)
+        _send_delivered(
+            first.get("customer_email", ""),
+            first.get("customer_name", ""),
+            reference,
+            _email_items(done),
+            content,
         )
+    return {"reference": reference, "lines": len(done)}
+
+
+def _send_delivered(
+    email: str,
+    name: str,
+    reference: str,
+    items: list[dict[str, Any]],
+    content: str,
+    *,
+    remaining: int = 0,
+) -> None:
+    """One delivery email: accesses, the facture PDF the first time, and the review form once."""
+    if not str(email or "").strip():
+        return
+    attachments: list[tuple[str, bytes]] = []
+    invoice_filename = ""
+    try:
+        attached = storefront_invoice_service.delivery_attachment(reference)
+    except Exception:
+        log.exception("Invoice for cart %s could not be attached", reference)
+        attached = None
+    if attached:
+        invoice_filename, pdf = attached
+        attachments.append((invoice_filename, pdf))
+    review_token = ""
+    try:
         from app.domain import storefront_review_service
 
-        storefront_review_service.notify_cart(reference)
-        storefront_invoice_service.email_quietly(reference)
-    return {"reference": reference, "lines": len(done)}
+        review_token = storefront_review_service.claim_delivery_review(reference)
+    except Exception:
+        log.exception("Review form for cart %s could not be prepared", reference)
+    email_service.send_order_delivered(
+        email,
+        name,
+        reference,
+        items,
+        content,
+        remaining=remaining,
+        attachments=attachments,
+        review_token=review_token,
+        invoice_filename=invoice_filename,
+    )
 
 
 def cancel_cart(reference: str, reason: str = "") -> dict[str, Any]:
