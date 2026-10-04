@@ -26,6 +26,7 @@ _KIND_LABELS = {
     "send_password_reset": "Mot de passe",
     "send_order_received": "Commande reçue",
     "send_payment_confirmed": "Paiement confirmé",
+    "send_order_preparing": "Commande en préparation",
     "send_order_delivered": "Commande livrée",
     "send_order_cancelled": "Commande annulée",
     "send_invoice": "Facture",

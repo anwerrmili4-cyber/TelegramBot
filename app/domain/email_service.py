@@ -629,36 +629,50 @@ def send_order_received(
     send(to, subject, html, text)
 
 
-def payment_confirmed_content(
+def order_preparing_content(
     name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
 ) -> tuple[str, str, str]:
-    """Subject, HTML and text of the email sent when payment is confirmed and delivery is still pending."""
+    """Subject, HTML and text when paid products are still being prepared. No payment receipt."""
+    quantity = sum(int(item["quantity"]) for item in items)
+    several = quantity > 1
+    product = "tes produits" if several else "ton produit"
+    pronoun = "les" if several else "le"
+    promise = (
+        f"Nous préparons {product} pour la commande {_strong(escape(reference))}. "
+        f"Tu {pronoun} recevras dès que possible. Merci de patienter."
+    )
     button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ton paiement pour la commande {_strong(escape(reference))} est confirmé.")
+        + _paragraph(promise)
         + _items_table(items, total_millimes)
-        + _note(
-            "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts.",
-            "success",
-        )
+        + _note("Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts.", "pending")
         + button
     )
     text = (
-        f"{_greeting(name)}\n\nTon paiement pour la commande {reference} est confirmé.\n\n"
+        f"{_greeting(name)}\n\n"
+        f"Nous préparons {product} pour la commande {reference}. "
+        f"Tu {pronoun} recevras dès que possible. Merci de patienter.\n\n"
         f"{_items_text(items, total_millimes)}\n\n"
-        "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
+        "Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
         + link
     )
-    subject = f"Paiement confirmé — {reference}"
-    html = _layout("Paiement confirmé", body, badge=reference, tone="success", preheader="Ta livraison est en préparation.")
+    subject = f"Nous préparons ta commande {reference}"
+    html = _layout(
+        "Commande en préparation",
+        body,
+        badge=reference,
+        tone="pending",
+        preheader="Tu recevras tes produits dès que possible. Merci de patienter.",
+    )
     return subject, html, text
 
 
-def send_payment_confirmed(
+def send_order_preparing(
     to: str, name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
 ) -> None:
-    subject, html, text = payment_confirmed_content(name, reference, items, total_millimes)
+    """Tell the customer their paid products are being prepared. No payment receipt."""
+    subject, html, text = order_preparing_content(name, reference, items, total_millimes)
     send(to, subject, html, text)
 
 
@@ -1080,6 +1094,7 @@ STYLE_TONES = {
     "send_password_reset": "brand",
     "send_order_received": "pending",
     "send_payment_confirmed": "success",
+    "send_order_preparing": "pending",
     "send_order_delivered": "success",
     "send_order_cancelled": "danger",
     "send_invoice": "success",
@@ -1143,13 +1158,13 @@ def style_catalog() -> list[dict[str, str]]:
          lambda: password_reset_content(name, f"{site}/exemple")),
         ("send_order_received", "Commande reçue", "Commandes", "Commande payée par reçu, en attente de vérification.",
          lambda: order_received_content(name, "TN-EXEMPLE", items, 25000, "D17")),
-        ("send_payment_confirmed", "Paiement confirmé", "Commandes", "Paiement validé, livraison encore en préparation.",
-         lambda: payment_confirmed_content(name, "TN-EXEMPLE", items, 25000)),
+        ("send_order_preparing", "Commande en préparation", "Commandes", "Produits payés, encore en préparation.",
+         lambda: order_preparing_content(name, "TN-EXEMPLE", items, 25000)),
         ("send_order_delivered", "Commande livrée", "Commandes", "Les accès partent au client.",
          lambda: order_delivered_content(name, "TN-EXEMPLE", items, access)),
         ("send_order_cancelled", "Commande annulée", "Commandes", "La commande est annulée, avec le motif.",
          lambda: order_cancelled_content(name, "TN-EXEMPLE", "Reçu illisible", 0)),
-        ("send_invoice", "Facture", "Commandes", "La facture PDF est jointe après le paiement.",
+        ("send_invoice", "Facture", "Commandes", "La facture PDF part avec le produit, après la livraison.",
          lambda: invoice_content(name, "FAC-2026-00001", "TN-EXEMPLE", items, 25000, "D17", "03/10/2026")),
         ("send_deposit_received", "Recharge reçue", "Portefeuille", "Le reçu de recharge est en vérification.",
          lambda: deposit_received_content(name, 20000, "D17", "EXEMPLE")),

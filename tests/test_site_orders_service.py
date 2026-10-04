@@ -133,14 +133,22 @@ def test_confirm_delivers_inventory_lines_automatically(mock_mongodb, customer, 
     listed = site_orders_service.list_carts({"status": ["all"]})["items"][0]
     assert listed["status"] == "partial"
     assert [item["automatic"] for item in listed["items"]] == [True, False]
+    preparing = next(item for item in sent_emails if item["subject"] == f"Nous préparons ta commande {cart['reference']}")
     delivered = next(item for item in sent_emails if "netflix@mail.tn:secret" in item["text"])
-    waiting = next(item for item in sent_emails if item["subject"] == f"Paiement confirmé — {cart['reference']}")
     invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
+    assert "Nous préparons ton produit" in preparing["text"]
+    assert "Tu le recevras dès que possible. Merci de patienter." in preparing["text"]
+    assert "Paiement" not in preparing["subject"]
+    assert not any(item["subject"].startswith("Paiement confirmé") for item in sent_emails)
     assert "netflix@mail.tn:secret" in delivered["text"]
-    assert waiting["subject"] == f"Paiement confirmé — {cart['reference']}"
     assert invoice["subject"].startswith("Ta facture FAC-")
 
     site_orders_service.deliver_cart(cart["reference"], "spotify@mail.tn:autre")
+    assert any(
+        item["subject"] == f"Ta commande {cart['reference']} est livrée" and "spotify@mail.tn:autre" in item["text"]
+        for item in sent_emails
+    )
+    assert sum(message["subject"].startswith("Ta facture") for message in sent_emails) == 1
     assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
     (history,) = storefront_service.customer_carts(customer["id"])
     assert [item["delivery"] for item in history["items"]] == ["netflix@mail.tn:secret", "spotify@mail.tn:autre"]
@@ -214,14 +222,18 @@ def test_each_admin_step_emails_the_customer(mock_mongodb, customer, sent_emails
     site_orders_service.confirm_cart(reference)
     site_orders_service.deliver_cart(reference, "Email : compte@netflix.tn\nMot de passe : <secret>")
 
-    confirmed = next(item for item in sent_emails if item["subject"] == f"Paiement confirmé — {reference}")
+    preparing = next(item for item in sent_emails if item["subject"] == f"Nous préparons ta commande {reference}")
     invoice = next(item for item in sent_emails if item["subject"].startswith("Ta facture"))
     delivered = next(item for item in sent_emails if item["subject"] == f"Ta commande {reference} est livrée")
     assert sum(item["subject"] == f"Ton avis sur {reference}" for item in sent_emails) == 1
-    assert confirmed["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
-    assert confirmed["subject"] == f"Paiement confirmé — {reference}"
-    assert "Total : 30,000 DT" in confirmed["text"]
+    assert preparing["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
+    assert "Nous préparons tes produits" in preparing["text"]
+    assert "Tu les recevras dès que possible. Merci de patienter." in preparing["text"]
+    assert "Paiement" not in preparing["subject"]
+    assert "Total : 30,000 DT" in preparing["text"]
+    assert not any(item["subject"].startswith("Paiement confirmé") for item in sent_emails)
     assert delivered["subject"] == f"Ta commande {reference} est livrée"
+    assert invoice["subject"].startswith("Ta facture FAC-")
     assert "Mot de passe : <secret>" in delivered["text"]
     assert "Mot de passe" in delivered["html"]
     assert "&lt;secret&gt;" in delivered["html"]
