@@ -338,6 +338,11 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
                 Référence de la transaction
                 <input
                   required
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   name="transaction_reference"
                   value={reference}
                   maxLength={64}

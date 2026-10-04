@@ -179,6 +179,7 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
         </button>
       </header>
 
+      {tab === "favoris" ? null : (
       <div className="account-tabs" role="tablist" aria-label="Sections du compte" ref={tabsRef}>
         <span className="account-tab-pill" aria-hidden="true" />
         {TABS.map(({ id, label, short, icon: Icon }) => (
@@ -199,6 +200,7 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
           </button>
         ))}
       </div>
+      )}
 
       <div
         id="account-panel"
@@ -1459,6 +1461,12 @@ function DepositForm({ wallet, onCreated }: { wallet: Wallet; onCreated: () => v
           Référence de la transaction
           <input
             required
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            name="transaction_reference"
             value={reference}
             maxLength={64}
             onChange={(event) => setReference(event.target.value)}

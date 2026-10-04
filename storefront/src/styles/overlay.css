@@ -34,9 +34,12 @@
 .overlay-dialog .overlay-panel {
   inset: 0;
   width: min(520px, calc(100% - 24px));
+  max-width: calc(100vw - 24px);
+  min-width: 0;
   height: max-content;
   max-height: calc(100dvh - 32px);
   margin: auto;
+  overflow: hidden;
   border-radius: var(--radius-lg);
 }
 
@@ -177,7 +180,10 @@
 .checkout-success {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
   padding: 18px 20px 22px;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -252,6 +258,8 @@
 .checkout-form label {
   display: grid;
   gap: 7px;
+  min-width: 0;
+  max-width: 100%;
   color: var(--text-soft);
   font-size: 12px;
   font-weight: 700;
@@ -274,6 +282,8 @@
 .checkout-form input,
 .checkout-form textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 46px;
   padding: 12px 14px;
   border: 1px solid var(--line);

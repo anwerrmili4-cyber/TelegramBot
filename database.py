@@ -2458,10 +2458,15 @@ def _capture_admin_notifications():
 
 
 def _capture_admin_notifications_now():
-    from app.web.notification_service import _auth_version, capture_feed
-    if get_conn().admin_push_devices.find_one({"auth_version": _auth_version()}, {"_id": 1}) is None:
-        return
-    capture_feed()
+    """Snapshot admin alerts. A failure here must not undo the customer's payment."""
+    try:
+        from app.web.notification_service import _auth_version, capture_feed
+        if get_conn().admin_push_devices.find_one({"auth_version": _auth_version()}, {"_id": 1}) is None:
+            return
+        capture_feed()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Admin notification snapshot failed")
 
 
 @contextlib.contextmanager
