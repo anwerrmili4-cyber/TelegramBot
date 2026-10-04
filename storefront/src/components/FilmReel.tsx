@@ -229,7 +229,6 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 aria-hidden={active ? undefined : true}
                 tabIndex={active ? undefined : -1}
               >
-                <FavoriteButton compact offerId={offer.id} />
                 {picture && nearby ? (
                   <img
                     className="poster-bg"
@@ -251,6 +250,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                       {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
                       {warranty.label}
                     </span>
+                    <FavoriteButton compact offerId={offer.id} />
                   </div>
                   {deal ? (
                     <div className="poster-off">

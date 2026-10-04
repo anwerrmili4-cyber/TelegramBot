@@ -89,7 +89,6 @@
 .poster.no-img:nth-child(3n) { background: #0b2531; }
 
 .poster-body {
-  position: relative;
   min-width: 0;
 }
 
@@ -591,10 +590,14 @@
   .poster-meta {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 8px;
     order: 1;
     width: 100%;
+  }
+
+  .poster-meta .poster-kicker {
+    margin-right: auto;
   }
 
   .poster-kicker {
@@ -614,6 +617,11 @@
     flex: none;
     margin-top: 0;
     margin-inline: 0;
+  }
+
+  .poster .fav-heart {
+    position: static;
+    flex: none;
   }
 
   .poster-art {
