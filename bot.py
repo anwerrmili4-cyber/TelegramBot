@@ -2150,7 +2150,6 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "adm_bot_package_link",
         "manual_order_reply",
         "await_quantity",
-        "await_preorder_quantity",
         "catalog_request",
         "adm_setprice",
         "adm_flash_start",
@@ -2698,33 +2697,10 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await show_reseller_api(update, context, revealed_key=issued["key"])
         return
-    if data == "preorder_catalog":
-        await show_callback_screen(
-            q,
-            t(lang, "preorder_catalog_title"),
-            reply_markup=kb.preorder_services_keyboard(lang),
-        )
-        return
-    if data.startswith("preorder_svc:"):
-        sid = int(data.split(":", 1)[1])
-        service = db.get_service(sid)
-        if not service:
-            await show_callback_screen(
-                q,
-                t(lang, "preorder_catalog_title"),
-                reply_markup=kb.preorder_services_keyboard(lang),
-            )
-            return
-        await show_callback_screen(
-            q,
-            t(
-                lang,
-                "preorder_service_title",
-                emoji=service.get("emoji") or "📦",
-                name=service.get("name") or f"Service #{sid}",
-            ),
-            reply_markup=kb.preorder_offers_keyboard(lang, sid),
-        )
+    if data == "preorder_catalog" or data.startswith((
+        "preorder:", "preorder_svc:", "preorder_start:", "preorder_page:", "preorderq:",
+    )):
+        await q.message.reply_text(t(lang, "out_of_stock"))
         return
     if data == "catalog_request":
         PENDING[uid] = ("catalog_request", 0)
@@ -3023,24 +2999,11 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await handle_quantity_selection(update, context, lang)
         return
-    if data.startswith("preorder:"):
-        await show_callback_screen(
-            q,
-            t(lang, "preorder_catalog_title"),
-            reply_markup=kb.preorder_services_keyboard(lang),
-        )
-        return
-    if data.startswith(("preorder_start:", "preorder_page:")):
-        await handle_preorder_quantity_selection(update, context, lang)
-        return
     if data.startswith("qty_page:"):
         await handle_quantity_selection(update, context, lang)
         return
     if data.startswith("buyq:"):
         await handle_buy_confirmation(update, context, lang)
-        return
-    if data.startswith("preorderq:"):
-        await handle_buy_confirmation(update, context, lang, preorder=True)
         return
     if data.startswith((
         "confirm_buy:", "pay_wallet:", "pay_binance:", "pay_bybit:", "pay_bsc:", "pay_polygon:",
@@ -3160,14 +3123,14 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text(t(lang, "payment_order_unavailable"))
             return
         order_service.cancel_order(order_id, reason="Customer changed payment method")
-        await send_buy_confirmation(
+        if not await send_buy_confirmation(
             q.edit_message_text,
             uid,
             int(order["offer_id"]),
             int(order.get("qty") or 1),
             lang,
-            preorder=bool(order.get("is_preorder")),
-        )
+        ):
+            await q.message.reply_text(t(lang, "out_of_stock"))
         return
     if data.startswith("delivery_ok:"):
         order_id = int(data.split(":")[1])
@@ -3286,53 +3249,17 @@ async def handle_quantity_selection(update, context, lang):
     )
 
 
-async def handle_preorder_quantity_selection(update, context, lang):
-    """Select a quantity for an empty offer at the pre-order price."""
-    q = update.callback_query
-    parts = q.data.split(":")
-    offer_id = int(parts[1])
-    page = int(parts[2]) if q.data.startswith("preorder_page:") and len(parts) > 2 else 0
-    offer = db.get_offer(offer_id)
-
-    if not offer or offer.get("price") is None:
-        await q.answer(t(lang, "out_of_stock"), show_alert=True)
-        return
-    if db.offer_has_stock(offer):
-        await q.answer(t(lang, "btn_buy"), show_alert=True)
-        return
-
-    max_qty = 100
-    PENDING[q.from_user.id] = ("await_preorder_quantity", offer_id)
-    send_quantity_prompt = q.message.reply_text if (q.message and q.message.photo) else q.edit_message_text
-    await send_quantity_prompt(
-        t(
-            lang,
-            "choose_preorder_quantity",
-            offer=offer["name"],
-            price=f"{order_service.preorder_unit_price(offer['price']):.2f}",
-            cur=CURRENCY,
-            max_qty=max_qty,
-        ),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb.preorder_quantity_keyboard(lang, offer_id, page=page, max_qty=max_qty),
-    )
-
-
-async def send_buy_confirmation(send, uid, offer_id, qty, lang, preorder=False):
+async def send_buy_confirmation(send, uid, offer_id, qty, lang):
     """Validate a quantity and display the purchase summary."""
     offer = db.get_offer(offer_id)
     if not offer or offer.get("price") is None:
         return False
     if _is_single_unit_offer(offer):
         qty = 1
-        preorder = False
-    if preorder:
-        if db.offer_has_stock(offer) or qty < 1 or qty > 100:
-            return False
-    elif not db.offer_has_stock(offer, qty):
+    if not db.offer_has_stock(offer, qty):
         return False
     svc = db.get_service(offer["service_id"])
-    unit_price = order_service.unit_price_for_quantity(offer, qty, preorder=preorder)
+    unit_price = order_service.unit_price_for_quantity(offer, qty)
     gross_total = round(unit_price * qty, 2)
     referral_discount = loyalty_service.discount_for_order(uid, gross_total)
     discount_line = ""
@@ -3350,14 +3277,14 @@ async def send_buy_confirmation(send, uid, offer_id, qty, lang, preorder=False):
           offer=offer["name"],
           price=f"{unit_price:.2f}", cur=CURRENCY, qty=qty,
           total=f"{gross_total - referral_discount['amount']:.2f}",
-          discount_line=t(lang, "preorder_line") + discount_line if preorder else discount_line),
+          discount_line=discount_line),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb.confirm_buy_keyboard(lang, offer_id, qty, preorder=preorder),
+        reply_markup=kb.confirm_buy_keyboard(lang, offer_id, qty),
     )
     return True
 
 
-async def handle_buy_confirmation(update, context, lang, preorder=False):
+async def handle_buy_confirmation(update, context, lang):
     """Affiche un résumé avant de créer la commande."""
     q = update.callback_query
     uid = q.from_user.id
@@ -3371,7 +3298,7 @@ async def handle_buy_confirmation(update, context, lang, preorder=False):
         q.message.reply_text if q.message and q.message.photo else q.edit_message_text
     )
     if not await send_buy_confirmation(
-        send_confirmation, uid, offer_id, qty, lang, preorder=preorder,
+        send_confirmation, uid, offer_id, qty, lang,
     ):
         await q.message.reply_text(t(lang, "out_of_stock"))
 
@@ -3410,21 +3337,20 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
     parts = q.data.split(":")
     offer_id = int(parts[1])
     qty = int(parts[2]) if len(parts) > 2 else 1
-    preorder = len(parts) > 3 and parts[3] == "preorder"
+    if len(parts) > 3 and parts[3] == "preorder":
+        await q.message.reply_text(t(lang, "out_of_stock"))
+        return
     offer = db.get_offer(offer_id)
     if _is_single_unit_offer(offer):
         qty = 1
-        preorder = False
 
-    if not offer or offer["price"] is None or (
-        not preorder and not db.offer_has_stock(offer, qty)
-    ) or (preorder and (db.offer_has_stock(offer) or qty < 1 or qty > 100)):
+    if not offer or offer["price"] is None or not db.offer_has_stock(offer, qty):
         await q.message.reply_text(t(lang, "out_of_stock"))
         return
 
     try:
         order = order_service.create_order(
-            uid, offer, qty=qty, payment_method=payment_method, preorder=preorder,
+            uid, offer, qty=qty, payment_method=payment_method,
         )
         order_service.cancel_incomplete_orders(uid, exclude_order_id=order["id"])
     except ValueError as exc:
@@ -3518,24 +3444,6 @@ async def handle_pending_input(update, context, lang):
             return
         PENDING.pop(uid, None)
         await send_buy_confirmation(update.message.reply_text, uid, int(ref_id), qty, lang)
-        return
-
-    if kind == "await_preorder_quantity":
-        offer = db.get_offer(int(ref))
-        try:
-            qty = int(text)
-        except ValueError:
-            qty = 0
-        if not offer or db.offer_has_stock(offer) or qty < 1 or qty > 100:
-            await update.message.reply_text(
-                t(lang, "preorder_quantity_invalid", max_qty=100),
-                parse_mode=ParseMode.MARKDOWN,
-            )
-            return
-        PENDING.pop(uid, None)
-        await send_buy_confirmation(
-            update.message.reply_text, uid, int(ref), qty, lang, preorder=True,
-        )
         return
 
     if kind == "catalog_request":

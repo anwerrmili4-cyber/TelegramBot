@@ -1929,8 +1929,8 @@ def test_catalog_button_opens_the_services_catalog(monkeypatch):
     assert {"catalog", "home"} <= callbacks
 
 
-def test_preorder_catalog_opens_red_out_of_stock_services(monkeypatch):
-    message = SimpleNamespace(text="Catalog")
+def test_retired_preorder_callbacks_say_out_of_stock(monkeypatch):
+    message = SimpleNamespace(text="Catalog", reply_text=AsyncMock())
     query = SimpleNamespace(
         data="preorder_catalog",
         from_user=SimpleNamespace(id=42),
@@ -1938,43 +1938,13 @@ def test_preorder_catalog_opens_red_out_of_stock_services(monkeypatch):
         answer=AsyncMock(),
         edit_message_text=AsyncMock(),
     )
-    keyboard = Mock()
     monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
-    monkeypatch.setattr("bot.kb.preorder_services_keyboard", lambda _lang: keyboard)
 
     asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
 
-    query.edit_message_text.assert_awaited_once()
-    call = query.edit_message_text.await_args
-    assert "PRE-ORDER" in call.args[0]
-    assert "2 hours maximum" in call.args[0]
-    assert call.kwargs["reply_markup"] is keyboard
-
-
-def test_preorder_service_opens_only_its_empty_offers(monkeypatch):
-    message = SimpleNamespace(text="Pre-order")
-    query = SimpleNamespace(
-        data="preorder_svc:7",
-        from_user=SimpleNamespace(id=42),
-        message=message,
-        answer=AsyncMock(),
-        edit_message_text=AsyncMock(),
-    )
-    keyboard = Mock()
-    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
-    monkeypatch.setattr(
-        "bot.db.get_service",
-        lambda _sid: {"id": 7, "name": "ChatGPT", "emoji": "🤖"},
-    )
-    monkeypatch.setattr("bot.kb.preorder_offers_keyboard", lambda _lang, _sid: keyboard)
-
-    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
-
-    query.edit_message_text.assert_awaited_once()
-    call = query.edit_message_text.await_args
-    assert "Pre-order ChatGPT" in call.args[0]
-    assert "2 hours maximum" in call.args[0]
-    assert call.kwargs["reply_markup"] is keyboard
+    message.reply_text.assert_awaited_once()
+    assert "Out of stock" in message.reply_text.await_args.args[0]
+    query.edit_message_text.assert_not_awaited()
 
 
 def test_catalog_from_photo_caption_sends_a_new_text_screen(monkeypatch):
