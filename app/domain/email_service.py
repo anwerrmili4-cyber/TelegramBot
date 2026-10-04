@@ -399,30 +399,44 @@ def send_order_received(
     )
 
 
-def send_payment_confirmed(
+def send_order_preparing(
     to: str, name: str, reference: str, items: Sequence[dict[str, Any]], total_millimes: int
 ) -> None:
+    """Tell the customer their paid products are being prepared. No payment receipt."""
+    quantity = sum(int(item["quantity"]) for item in items)
+    several = quantity > 1
+    product = "tes produits" if several else "ton produit"
+    pronoun = "les" if several else "le"
+    promise = (
+        f"Nous préparons {product} pour la commande {_strong(escape(reference))}. "
+        f"Tu {pronoun} recevras dès que possible. Merci de patienter."
+    )
     button, link = _account_button("Suivre ma commande", "commandes")
     body = (
         _paragraph(escape(_greeting(name)))
-        + _paragraph(f"Ton paiement pour la commande {_strong(escape(reference))} est confirmé.")
+        + _paragraph(promise)
         + _items_table(items, total_millimes)
-        + _note(
-            "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts.",
-            "success",
-        )
+        + _note("Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts.", "pending")
         + button
     )
     text = (
-        f"{_greeting(name)}\n\nTon paiement pour la commande {reference} est confirmé.\n\n"
+        f"{_greeting(name)}\n\n"
+        f"Nous préparons {product} pour la commande {reference}. "
+        f"Tu {pronoun} recevras dès que possible. Merci de patienter.\n\n"
         f"{_items_text(items, total_millimes)}\n\n"
-        "Nous préparons ta livraison. Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
+        "Tes accès arriveront par email et dans ton espace client dès qu'ils sont prêts."
         + link
     )
     send(
         to,
-        f"Paiement confirmé — {reference}",
-        _layout("Paiement confirmé", body, badge=reference, tone="success", preheader="Ta livraison est en préparation."),
+        f"Nous préparons ta commande {reference}",
+        _layout(
+            "Commande en préparation",
+            body,
+            badge=reference,
+            tone="pending",
+            preheader="Tu recevras tes produits dès que possible. Merci de patienter.",
+        ),
         text,
     )
 

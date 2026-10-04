@@ -133,12 +133,17 @@ def test_confirm_delivers_inventory_lines_automatically(mock_mongodb, customer, 
     listed = site_orders_service.list_carts({"status": ["all"]})["items"][0]
     assert listed["status"] == "partial"
     assert [item["automatic"] for item in listed["items"]] == [True, False]
-    delivered, waiting, invoice = sent_emails
+    preparing, delivered, invoice = sent_emails
+    assert preparing["subject"] == f"Nous préparons ta commande {cart['reference']}"
+    assert "Nous préparons ton produit" in preparing["text"]
+    assert "Tu le recevras dès que possible. Merci de patienter." in preparing["text"]
+    assert "Paiement" not in preparing["subject"]
     assert "netflix@mail.tn:secret" in delivered["text"]
-    assert waiting["subject"] == f"Paiement confirmé — {cart['reference']}"
     assert invoice["subject"].startswith("Ta facture FAC-")
 
     site_orders_service.deliver_cart(cart["reference"], "spotify@mail.tn:autre")
+    assert sent_emails[-1]["subject"] == f"Ta commande {cart['reference']} est livrée"
+    assert sum(message["subject"].startswith("Ta facture") for message in sent_emails) == 1
     assert _statuses(cart["reference"]) == {str(OrderStatus.DELIVERED)}
     (history,) = storefront_service.customer_carts(customer["id"])
     assert [item["delivery"] for item in history["items"]] == ["netflix@mail.tn:secret", "spotify@mail.tn:autre"]
@@ -212,11 +217,15 @@ def test_each_admin_step_emails_the_customer(mock_mongodb, customer, sent_emails
     site_orders_service.confirm_cart(reference)
     site_orders_service.deliver_cart(reference, "Email : compte@netflix.tn\nMot de passe : <secret>")
 
-    confirmed, invoice, delivered = sent_emails
-    assert confirmed["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
-    assert confirmed["subject"] == f"Paiement confirmé — {reference}"
-    assert "Total : 30,000 DT" in confirmed["text"]
+    preparing, delivered, invoice = sent_emails
+    assert preparing["to"] == invoice["to"] == delivered["to"] == ["amine@example.com"]
+    assert preparing["subject"] == f"Nous préparons ta commande {reference}"
+    assert "Nous préparons tes produits" in preparing["text"]
+    assert "Tu les recevras dès que possible. Merci de patienter." in preparing["text"]
+    assert "Paiement" not in preparing["subject"]
+    assert "Total : 30,000 DT" in preparing["text"]
     assert delivered["subject"] == f"Ta commande {reference} est livrée"
+    assert invoice["subject"].startswith("Ta facture FAC-")
     assert "Mot de passe : <secret>" in delivered["text"]
     assert "Mot de passe : &lt;secret&gt;" in delivered["html"]
 

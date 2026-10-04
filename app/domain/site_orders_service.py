@@ -239,10 +239,6 @@ def _email_items(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _cart_total(lines: list[dict[str, Any]]) -> int:
-    return int(lines[0].get("cart_total_millimes") or 0) or sum(int(line.get("total_millimes") or 0) for line in lines)
-
-
 def _restock(conn: Any, line: dict[str, Any]) -> None:
     if not line.get("offer_id") or line.get("is_preorder"):
         return
@@ -268,7 +264,9 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
     """Deliver every paid line that has inventory, then email the customer.
 
     A line without inventory (manual stock, or none left) stays confirmed for
-    the admin to deliver by hand.
+    the admin to deliver by hand. The customer hears that those products are
+    being prepared — never that a payment was confirmed. The facture is emailed
+    with the product, the first time a line of the cart is actually delivered.
     """
     lines = _cart_lines(reference)
     reference = lines[0]["cart_reference"]
@@ -293,6 +291,15 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
         line for line in lines
         if str(line.get("status")) in _CONFIRMED and all(line is not done for done, _ in delivered)
     ]
+    if waiting:
+        waiting_items = _email_items(waiting)
+        email_service.send_order_preparing(
+            email,
+            name,
+            reference,
+            waiting_items,
+            sum(int(item["total_millimes"]) for item in waiting_items),
+        )
     if delivered:
         email_service.send_order_delivered(
             email,
@@ -302,9 +309,9 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
             "\n\n".join(_delivery_block(line, content) for line, content in delivered),
             remaining=len(waiting),
         )
-    if waiting:
-        email_service.send_payment_confirmed(email, name, reference, _email_items(waiting), _cart_total(lines))
     storefront_invoice_service.issue_quietly(reference)
+    if delivered:
+        storefront_invoice_service.email_quietly(reference)
     return {"reference": reference, "delivered": len(delivered), "waiting": len(waiting)}
 
 
@@ -369,6 +376,7 @@ def deliver_cart(reference: str, note: str = "") -> dict[str, Any]:
         email_service.send_order_delivered(
             first.get("customer_email", ""), first.get("customer_name", ""), reference, _email_items(done), content
         )
+        storefront_invoice_service.email_quietly(reference)
     return {"reference": reference, "lines": len(done)}
 
 
