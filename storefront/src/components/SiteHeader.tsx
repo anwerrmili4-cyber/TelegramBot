@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, typ
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
+  FileText,
+  Flag,
   Headset,
   Heart,
   Home,
@@ -9,15 +11,18 @@ import {
   LifeBuoy,
   List,
   LogIn,
+  Mail,
   Megaphone,
   Menu,
   MessageCircle,
   Moon,
   Percent,
   Search,
+  Shield,
   ShoppingBag,
   ShoppingCart,
   Sun,
+  Users,
   X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -71,6 +76,14 @@ const PHONE_SHOP = [
 const PHONE_HELP = [
   { to: ROUTES.help, label: "Support", icon: Headset },
   { to: ROUTES.messenger, label: "Messagerie", icon: MessageCircle },
+];
+
+const PHONE_INFO = [
+  { to: ROUTES.contact, label: "Contact", icon: Mail },
+  { to: ROUTES.community, label: "Communauté", icon: Users },
+  { to: ROUTES.report, label: "Signaler", icon: Flag },
+  { to: ROUTES.terms, label: "Conditions", icon: FileText },
+  { to: ROUTES.privacy, label: "Confidentialité", icon: Shield },
 ];
 
 export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCart }: SiteHeaderProps) {
@@ -244,6 +257,23 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
                   {theme === "dark" ? <Sun size={18} aria-hidden="true" /> : <Moon size={18} aria-hidden="true" />}
                   {theme === "dark" ? "Thème clair" : "Thème sombre"}
                 </button>
+              </nav>
+              <p>Infos</p>
+              <nav aria-label="Infos">
+                {PHONE_INFO.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      aria-current={path === item.to ? "page" : undefined}
+                      onClick={closeMenus}
+                    >
+                      <Icon size={18} aria-hidden="true" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
               </nav>
             </div>
 

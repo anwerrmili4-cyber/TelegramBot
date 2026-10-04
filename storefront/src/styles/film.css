@@ -286,6 +286,16 @@
   height: 100%;
 }
 
+/* Wide wordmarks (Notion, and the same shape) stay whole inside the square. */
+.poster-shot.is-logo .poster-still {
+  inset: 11%;
+}
+
+.poster-shot.is-logo .poster-still img {
+  object-fit: contain;
+  object-position: center;
+}
+
 .poster.leaving .poster-shot,
 .poster.on:hover .poster-shot {
   opacity: 1;
@@ -631,7 +641,8 @@
     background: #fff;
   }
 
-  .poster-still {
+  .poster-still,
+  .poster-shot.is-logo .poster-still {
     position: relative;
     inset: auto;
     flex: 1 1 auto;

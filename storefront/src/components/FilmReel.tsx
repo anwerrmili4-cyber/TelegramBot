@@ -37,6 +37,45 @@ export function filmOffers(offers: Offer[], limit = 6): Offer[] {
   return frames;
 }
 
+/** Wordmarks are wider than the square frame. Cover would clip the name. */
+function isWideMark(img: HTMLImageElement): boolean {
+  if (!img.naturalWidth || !img.naturalHeight) return false;
+  return img.naturalWidth / img.naturalHeight > 1.25;
+}
+
+function PosterArt({ src, brand }: { src: string; brand: boolean }) {
+  const [logo, setLogo] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  function measure(img: HTMLImageElement) {
+    const wide = isWideMark(img);
+    setLogo((current) => (current === wide ? current : wide));
+  }
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete) measure(img);
+  }, [src]);
+
+  return (
+    <div className={brand ? "poster-art brandpic" : "poster-art"}>
+      <div className={logo ? "poster-shot is-logo" : "poster-shot"}>
+        <span className="poster-still">
+          <img
+            ref={imgRef}
+            src={src}
+            alt=""
+            decoding="async"
+            width={400}
+            height={400}
+            onLoad={(event) => measure(event.currentTarget)}
+          />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
@@ -233,27 +272,21 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                     <ArrowRight size={16} aria-hidden="true" />
                   </span>
                 </div>
-                <div className={offer.image_url ? "poster-art" : "poster-art brandpic"}>
-                  <div className="poster-shot">
-                    <span className="poster-still">
-                      {picture && nearby ? (
-                        <img
-                          src={assetUrl(picture)}
-                          alt=""
-                          decoding="async"
-                          width={400}
-                          height={400}
-                          loading={active ? "eager" : "lazy"}
-                          fetchPriority={active ? "high" : "low"}
-                        />
-                      ) : picture ? null : (
+                {picture && nearby ? (
+                  <PosterArt src={assetUrl(picture)} brand={!offer.image_url} />
+                ) : picture ? (
+                  <div className={offer.image_url ? "poster-art" : "poster-art brandpic"} />
+                ) : (
+                  <div className="poster-art brandpic">
+                    <div className="poster-shot">
+                      <span className="poster-still">
                         <span className="poster-emoji" aria-hidden="true">
                           {offer.service_emoji}
                         </span>
-                      )}
-                    </span>
+                      </span>
+                    </div>
                   </div>
-                </div>
+                )}
               </Link>
             );
           })}
