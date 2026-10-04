@@ -306,47 +306,103 @@
   right: 0;
   z-index: 40;
   display: grid;
-  width: min(360px, calc(100vw - 24px));
-  max-height: min(420px, 70vh);
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(480px, 70vh);
   overflow: auto;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--ink-800);
+  border-radius: 18px;
+  background: var(--ink-900);
   box-shadow: var(--shadow-float);
+}
+
+.notice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px 10px;
+}
+
+.notice-head strong {
+  font-size: 15px;
+}
+
+.notice-head span {
+  color: var(--brand-hot);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .notice-panel ul,
 .notice-list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .notice-row {
+  --notice: var(--brand);
   display: grid;
-  gap: 3px;
+  grid-template-columns: 4px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
   width: 100%;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--ink-800);
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.notice-row:hover,
+.notice-mark {
+  grid-row: 1 / -1;
+  align-self: stretch;
+  width: 4px;
+  border-radius: 99px;
+  background: var(--notice);
+}
+
+.notice-row small,
+.notice-row strong,
+.notice-row span,
+.notice-row time {
+  grid-column: 2;
+}
+
+.notice-row.is-stock { --notice: var(--info-text); }
+.notice-row.is-price { --notice: var(--gold); }
+.notice-row.is-credit { --notice: var(--mint); }
+.notice-row.is-debit { --notice: var(--danger); }
+.notice-row.is-novelty { --notice: var(--brand-hot); }
+.notice-row.is-admin { --notice: #c084fc; }
+.notice-row.is-news { --notice: #38bdf8; }
+
+.notice-row:hover {
+  border-color: color-mix(in srgb, var(--notice) 55%, var(--line));
+  background: color-mix(in srgb, var(--notice) 10%, var(--ink-800));
+}
+
 .notice-row.is-new {
-  background: var(--ink-700);
+  border-color: color-mix(in srgb, var(--notice) 45%, transparent);
+  background: color-mix(in srgb, var(--notice) 16%, var(--ink-800));
 }
 
 .notice-row small,
 .notice-row time {
   color: var(--text-mute);
   font-size: 11px;
+}
+
+.notice-row small {
+  color: var(--notice);
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .notice-row strong {

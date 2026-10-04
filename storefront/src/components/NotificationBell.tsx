@@ -6,6 +6,13 @@ import { dateTime } from "@/lib/format";
 import { navigate, ROUTES, usePathname, withNext } from "@/lib/router";
 import type { SiteNotification } from "@/types";
 
+export function noticeClass(item: SiteNotification): string {
+  const tone = item.kind === "balance"
+    ? (item.title.toLocaleLowerCase("fr").includes("crédit") ? "credit" : "debit")
+    : item.kind;
+  return ["notice-row", item.read ? "" : "is-new", `is-${tone}`].filter(Boolean).join(" ");
+}
+
 export function NotificationBell() {
   const { customer, token, loading } = useAuth();
   const path = usePathname();
@@ -101,6 +108,10 @@ export function NotificationBell() {
       </button>
       {open ? (
         <div className="notice-panel" role="dialog" aria-label="Notifications">
+          <header className="notice-head">
+            <strong>Notifications</strong>
+            {unread ? <span>{unread} nouvelles</span> : <span>À jour</span>}
+          </header>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           {!items.length ? <p className="notice-empty">Aucune notification pour le moment.</p> : null}
           <ul>
@@ -108,9 +119,10 @@ export function NotificationBell() {
               <li key={item.id}>
                 <button
                   type="button"
-                  className={item.read ? "notice-row" : "notice-row is-new"}
+                  className={noticeClass(item)}
                   onClick={() => void openItem(item)}
                 >
+                  <i className="notice-mark" aria-hidden="true" />
                   <small>{item.kind_label}</small>
                   <strong>{item.title}</strong>
                   {item.body ? <span>{item.body}</span> : null}

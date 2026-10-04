@@ -19,6 +19,7 @@ import {
   Wallet as WalletIcon,
 } from "lucide-react";
 import { isFavoriteSaved, watchFavorites } from "@/components/FavoriteButton";
+import { noticeClass } from "@/components/NotificationBell";
 import { ProductTile } from "@/components/Hero";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
@@ -166,8 +167,11 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
     );
   }
 
+  const favoris = tab === "favoris";
+
   return (
-    <section className="account-page" aria-labelledby="account-title">
+    <section className="account-page" aria-labelledby={favoris ? undefined : "account-title"} aria-label={favoris ? "Favoris" : undefined}>
+      {favoris ? null : (
       <header className="account-head">
         <div>
           <span className="kicker">Mon espace</span>
@@ -178,6 +182,7 @@ export function AccountPage({ offers, catalogLoading, catalogError, reloadCatalo
           <LogOut size={16} aria-hidden="true" /> Se déconnecter
         </button>
       </header>
+      )}
 
       {tab === "favoris" ? null : (
       <div className="account-tabs" role="tablist" aria-label="Sections du compte" ref={tabsRef}>
@@ -315,12 +320,14 @@ function NotificationsTab() {
             <li key={item.id}>
               <button
                 type="button"
-                className={item.read ? "notice-row" : "notice-row is-new"}
+                className={noticeClass(item)}
                 onClick={() => void openItem(item)}
               >
-                <small>{item.kind_label} · {dateTime(item.created_at)}</small>
+                <i className="notice-mark" aria-hidden="true" />
+                <small>{item.kind_label}</small>
                 <strong>{item.title}</strong>
                 <span>{item.body}</span>
+                <time dateTime={new Date(item.created_at * 1000).toISOString()}>{dateTime(item.created_at)}</time>
               </button>
             </li>
           ))}
