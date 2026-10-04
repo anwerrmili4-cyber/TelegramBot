@@ -32,6 +32,7 @@ def test_parse_amount_rejects_invalid_input(value):
 def test_credit_and_debit_keep_a_ledger_and_never_go_negative(mock_mongodb, customer):
     assert wallet.credit(customer["id"], 10000, kind="deposit") == 10000
     assert wallet.debit(customer["id"], 4000, kind="purchase", reference="TN-ABC") == 6000
+    assert wallet.debit(customer["id"], 4000, kind="purchase", reference="TN-ABC") == 6000
     assert wallet.debit(customer["id"], 7000, kind="purchase") is None
     assert wallet.balance(customer["id"]) == 6000
 

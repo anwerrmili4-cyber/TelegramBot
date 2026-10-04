@@ -130,6 +130,28 @@ def provider_bot_username(provider: str) -> str:
     return PROVIDER_BOT_USERNAMES.get(str(provider or "").strip().lower(), "")
 
 
+def supplier_customer_label(order: dict[str, Any]) -> str:
+    """A buyer label the supplier can store.
+
+    Bot orders carry a Telegram id. A site order does not: ``user_id`` is null.
+    Reading it with ``int`` crashed the wallet payment after the money was taken,
+    and the shop answered « Service momentanément indisponible ».
+    """
+    user_id = order.get("user_id")
+    if user_id not in (None, ""):
+        try:
+            return f"telegram_user_{int(user_id)}"
+        except (TypeError, ValueError):
+            pass
+    customer_id = order.get("customer_id")
+    if customer_id not in (None, ""):
+        try:
+            return f"site_customer_{int(customer_id)}"
+        except (TypeError, ValueError):
+            pass
+    return f"order_{int(order.get('id') or 0)}"
+
+
 def get_nastele_vnd_rate() -> float:
     """Return VND per USDT exchange rate from DB settings or config."""
     setting = db.get_setting("nastele_vnd_per_usdt")
@@ -1712,7 +1734,15 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             cipher.decrypt(value.encode()).decode()
             for value in existing.get("encrypted_items", [])
         ]
-    if existing:
+    # A row left on "purchasing" never got an answer from the supplier. The site
+    # wallet used to die on that row (no Telegram id) and take the money anyway.
+    # Continuing uses the same supplier idempotency key, so a retry cannot buy twice.
+    resumable = bool(
+        existing
+        and existing.get("status") == "purchasing"
+        and not existing.get("supplier_requested")
+    )
+    if existing and not resumable:
         raise ResellerApiError(
             "Cette commande fournisseur existe déjà et nécessite une vérification "
             "avant toute nouvelle tentative. Aucun second achat API n’a été envoyé."
@@ -1720,9 +1750,12 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
     if order.get("status") not in {"paid", "payment_confirmed"}:
         return None
 
-    supplier_idempotency_key = (
-        str(uuid.uuid4()) if provider == CGPT_ACTIVE_PROVIDER else external_order_id
-    )
+    if existing:
+        supplier_idempotency_key = str(existing.get("idempotency_key") or external_order_id)
+    else:
+        supplier_idempotency_key = (
+            str(uuid.uuid4()) if provider == CGPT_ACTIVE_PROVIDER else external_order_id
+        )
     quantity = max(1, int(order.get("qty") or 1))
     product_config = conn.reseller_products.find_one({
         "provider": provider,
@@ -1737,22 +1770,39 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             "purchase_cost_currency": str(product_config.get("currency") or "USDT")[:12],
             "purchase_cost_source": "catalog_snapshot",
         })
-    try:
-        conn.reseller_fulfillments.insert_one({
+    if not existing:
+        try:
+            conn.reseller_fulfillments.insert_one({
+                "provider": provider,
+                "external_order_id": external_order_id,
+                "order_id": int(order_id),
+                "supplier_product_id": str(offer["supplier_product_id"]),
+                "idempotency_key": supplier_idempotency_key,
+                "status": "purchasing",
+                **purchase_cost,
+                "created_at": int(time.time()),
+                "updated_at": int(time.time()),
+            })
+        except DuplicateKeyError as exc:
+            raise ResellerApiError(
+                "Une commande fournisseur existe déjà. Aucun second achat API n’a été envoyé."
+            ) from exc
+
+    buyer = supplier_customer_label(order)
+    claimed = conn.reseller_fulfillments.update_one(
+        {
             "provider": provider,
             "external_order_id": external_order_id,
-            "order_id": int(order_id),
-            "supplier_product_id": str(offer["supplier_product_id"]),
-            "idempotency_key": supplier_idempotency_key,
             "status": "purchasing",
-            **purchase_cost,
-            "created_at": int(time.time()),
-            "updated_at": int(time.time()),
-        })
-    except DuplicateKeyError as exc:
+            "supplier_requested": {"$ne": True},
+        },
+        {"$set": {"supplier_requested": True, "updated_at": int(time.time())}},
+    )
+    if claimed.modified_count != 1:
         raise ResellerApiError(
-            "Une commande fournisseur existe déjà. Aucun second achat API n’a été envoyé."
-        ) from exc
+            "Cette commande fournisseur existe déjà et nécessite une vérification "
+            "avant toute nouvelle tentative. Aucun second achat API n’a été envoyé."
+        )
 
     try:
         if provider == SHAMEKH_PROVIDER:
@@ -1819,7 +1869,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                 body={
                     "product_id": int(str(offer["supplier_product_id"])),
                     "quantity": int(order.get("qty") or 1),
-                    "customer_name": f"telegram_user_{int(order['user_id'])}",
+                    "customer_name": buyer,
                     "idempotency_key": external_order_id,
                 },
             )
@@ -1849,7 +1899,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                 body={
                     "product_id": int(str(offer["supplier_product_id"])),
                     "quantity": int(order.get("qty") or 1),
-                    "customer_reference": f"telegram_user_{int(order['user_id'])}",
+                    "customer_reference": buyer,
                     "idempotency_key": external_order_id,
                 },
             )
@@ -1890,6 +1940,15 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             {"$set": {"status": "review_required", "updated_at": int(time.time())}},
         )
         raise
+    except Exception as exc:
+        conn.reseller_fulfillments.update_one(
+            {"provider": provider, "external_order_id": external_order_id},
+            {"$set": {"status": "review_required", "updated_at": int(time.time())}},
+        )
+        log.exception("Supplier purchase failed for order %s", order_id)
+        raise ResellerApiError(
+            "Le fournisseur n'a pas répondu. La commande reste payée et part en vérification."
+        ) from exc
     order_payload = response.get("order")
     data_payload = response.get("data") if isinstance(response.get("data"), dict) else {}
     supplier_order_id = (

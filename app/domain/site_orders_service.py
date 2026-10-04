@@ -33,6 +33,8 @@ log = logging.getLogger(__name__)
 
 SALES_CHANNEL = "tn_site"
 AUTOMATIC_DELIVERY = "[encrypted automatic delivery]"
+RESELLER_DELIVERY = "[encrypted reseller delivery]"
+_ENCRYPTED_DELIVERY = {AUTOMATIC_DELIVERY, RESELLER_DELIVERY}
 WALLET_METHOD = "wallet"
 
 _TO_VERIFY = str(OrderStatus.MANUAL_REVIEW)
@@ -90,7 +92,7 @@ def deliveries_for(lines: list[dict[str, Any]], *, audit: bool = False) -> dict[
             continue
         order_id = int(line["id"])
         text = str(line.get("delivery_text") or "")
-        if text == AUTOMATIC_DELIVERY:
+        if text in _ENCRYPTED_DELIVERY:
             automatic.append(order_id)
         else:
             result[order_id] = text
@@ -116,9 +118,9 @@ def _cart_summary(reference: str, lines: list[dict[str, Any]]) -> dict[str, Any]
             "status": str(line.get("status") or ""),
             "customer_info": str(line.get("customer_info") or ""),
             "site_remark": str(line.get("site_remark") or ""),
-            "automatic": line.get("delivery_text") == AUTOMATIC_DELIVERY,
+            "automatic": line.get("delivery_text") in _ENCRYPTED_DELIVERY,
             "delivery_note": ""
-            if line.get("delivery_text") == AUTOMATIC_DELIVERY
+            if line.get("delivery_text") in _ENCRYPTED_DELIVERY
             else str(line.get("delivery_text") or ""),
         }
         for line in lines
@@ -288,13 +290,18 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
         if str(line.get("status")) not in _CONFIRMED:
             continue
         offer = db.get_offer(int(line.get("offer_id") or 0)) or {}
-        if offer.get("supplier_provider"):
-            try:
+        try:
+            if offer.get("supplier_provider"):
                 values = reseller_service.fulfill_paid_order(int(line["id"]))
-            except reseller_service.ResellerApiError:
-                values = None
-        else:
-            values = inventory_service.deliver_for_order(int(line["id"]))
+            else:
+                values = inventory_service.deliver_for_order(int(line["id"]))
+        except reseller_service.ResellerApiError:
+            values = None
+        except Exception:
+            # The wallet is already debited. A delivery failure must stay on the
+            # order for the admin, not come back to the customer as a payment error.
+            log.exception("Delivery failed for paid site order %s", line.get("id"))
+            values = None
         if values:
             delivered.append((line, "\n".join(values)))
 
@@ -306,23 +313,29 @@ def fulfill_cart(reference: str) -> dict[str, Any]:
     ]
     if waiting:
         waiting_items = _email_items(waiting)
-        email_service.send_order_preparing(
-            email,
-            name,
-            reference,
-            waiting_items,
-            sum(int(item["total_millimes"]) for item in waiting_items),
-        )
+        try:
+            email_service.send_order_preparing(
+                email,
+                name,
+                reference,
+                waiting_items,
+                sum(int(item["total_millimes"]) for item in waiting_items),
+            )
+        except Exception:
+            log.exception("Preparation email failed for cart %s", reference)
     storefront_invoice_service.issue_quietly(reference)
     if delivered:
-        _send_delivered(
-            email,
-            name,
-            reference,
-            _email_items([line for line, _ in delivered]),
-            "\n\n".join(_delivery_block(line, content) for line, content in delivered),
-            remaining=len(waiting),
-        )
+        try:
+            _send_delivered(
+                email,
+                name,
+                reference,
+                _email_items([line for line, _ in delivered]),
+                "\n\n".join(_delivery_block(line, content) for line, content in delivered),
+                remaining=len(waiting),
+            )
+        except Exception:
+            log.exception("Delivery email failed for cart %s", reference)
     return {"reference": reference, "delivered": len(delivered), "waiting": len(waiting)}
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, BadgeCheck, Clock3, LogIn, PackageCheck, Wallet as WalletIcon, X } from "lucide-react";
 import { Overlay } from "@/components/Overlay";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
@@ -60,10 +60,16 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CheckoutResult | null>(null);
+  const checkoutKey = useRef("");
 
   const total = cart.totalMillimes;
   const walletEnough = balance !== null && balance >= total;
   const chosenMethod = paymentMethods.find((option) => option.id === method) ?? paymentMethods[0];
+
+  useEffect(() => {
+    if (!open) return;
+    checkoutKey.current = globalThis.crypto?.randomUUID?.() ?? `pay-${Date.now()}`;
+  }, [open]);
 
   useEffect(() => {
     if (!open || !token) return;
@@ -131,6 +137,7 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
     try {
       const created = await submitCheckout(token, {
         payment_method: payWith === "wallet" ? "wallet" : chosenMethod?.id ?? "",
+        idempotency_key: checkoutKey.current,
         transaction_reference: payWith === "transfer" ? reference.trim() : undefined,
         receipt: payWith === "transfer" ? receipt : undefined,
         items: cart.lines.map((line) => ({

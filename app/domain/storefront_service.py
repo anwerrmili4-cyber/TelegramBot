@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import logging
 import re
 import secrets
 import time
@@ -57,6 +58,11 @@ MAX_CART_LINES = 12
 # Ambiguous glyphs are excluded so a customer can read the reference out loud.
 _REFERENCE_ALPHABET = "ACDEFGHJKLMNPQRSTUVWXYZ2345679"
 _REFERENCE_PATTERN = re.compile(r"^TN-[A-Z0-9]{6}$")
+_CHECKOUT_KEY = re.compile(r"^[A-Za-z0-9_-]{8,80}$")
+# A wallet click that already took the money is finished, not charged again.
+_WALLET_RESUME_SECONDS = 7 * 24 * 3600
+
+log = logging.getLogger(__name__)
 
 
 class StorefrontError(ValueError):
@@ -559,6 +565,137 @@ def _transfer_reference(method: str, value: Any) -> str:
     return reference
 
 
+def _checkout_key(value: Any) -> str:
+    key = str(value or "").strip()
+    return key if _CHECKOUT_KEY.fullmatch(key) else ""
+
+
+def _line_signature(lines: list[dict[str, Any]]) -> tuple[tuple[int, int], ...]:
+    return tuple(sorted(
+        (int(line.get("offer_id") or 0), int(line.get("quantity") or line.get("qty") or 1))
+        for line in lines
+    ))
+
+
+def _cart_rows(reference: str) -> list[dict[str, Any]]:
+    rows = list(db.get_conn().orders.find({"sales_channel": "tn_site", "cart_reference": reference}))
+    rows.sort(key=lambda row: int(row.get("cart_position") or 0))
+    return rows
+
+
+def _existing_checkout(customer_id: int, checkout_key: str) -> str:
+    if not checkout_key:
+        return ""
+    row = db.get_conn().orders.find_one({
+        "sales_channel": "tn_site",
+        "customer_id": int(customer_id),
+        "checkout_key": checkout_key,
+        "cart_position": 1,
+    })
+    return str(row["cart_reference"]) if row else ""
+
+
+def _supplier_charge_never_sent(row: dict[str, Any]) -> bool:
+    """A paid supplier line whose purchase never left this server."""
+    if str(row.get("status") or "") in {str(OrderStatus.DELIVERED), str(OrderStatus.CANCELLED)}:
+        return False
+    offer = db.get_offer(int(row.get("offer_id") or 0)) or {}
+    if not offer.get("supplier_provider"):
+        return False
+    fulfillment = db.get_conn().reseller_fulfillments.find_one({"order_id": int(row["id"])})
+    if not fulfillment:
+        return str(row.get("status") or "") in {
+            str(OrderStatus.PAYMENT_CONFIRMED),
+            str(OrderStatus.PAID),
+            str(OrderStatus.MANUAL_REVIEW),
+        }
+    return fulfillment.get("status") == "purchasing" and not fulfillment.get("supplier_requested")
+
+
+def _open_wallet_carts(customer_id: int, signature: tuple[tuple[int, int], ...]) -> list[str]:
+    """Wallet carts of these items, already paid, whose supplier was never called."""
+    since = int(time.time()) - _WALLET_RESUME_SECONDS
+    rows = list(db.get_conn().orders.find({
+        "sales_channel": "tn_site",
+        "customer_id": int(customer_id),
+        "payment_method": site_orders_service.WALLET_METHOD,
+        "created_at": {"$gte": since},
+    }))
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.get("cart_reference") or ""), []).append(row)
+    found: list[tuple[int, str]] = []
+    for reference, group in grouped.items():
+        if not reference or _line_signature(group) != signature:
+            continue
+        if not storefront_wallet_service.purchase_recorded(customer_id, reference):
+            continue
+        if any(_supplier_charge_never_sent(row) for row in group):
+            found.append((max(int(row.get("created_at") or 0) for row in group), reference))
+    found.sort()
+    return [reference for _, reference in found]
+
+
+def _release_duplicate_wallet_charges(
+    customer_id: int, keep: str, signature: tuple[tuple[int, int], ...]
+) -> None:
+    """Give back every earlier wallet click that never reached the supplier."""
+    for reference in _open_wallet_carts(customer_id, signature):
+        if reference == keep:
+            continue
+        try:
+            site_orders_service.cancel_cart(
+                reference,
+                "Paiement en double annulé : un seul achat a été conservé.",
+            )
+        except Exception:
+            log.exception("Duplicate wallet cart %s could not be refunded", reference)
+
+
+def _checkout_response(
+    customer_id: int, reference: str, tracking_token: str, status: str
+) -> dict[str, Any]:
+    rows = _cart_rows(reference)
+    first = rows[0]
+    items = [
+        {
+            "offer_id": int(row.get("offer_id") or 0),
+            "offer_name": row.get("offer_name", ""),
+            "service_name": row.get("service_name", ""),
+            "quantity": int(row.get("qty") or 1),
+            "unit_millimes": int(row.get("unit_price_millimes") or 0),
+            "total_millimes": int(row.get("total_millimes") or 0),
+        }
+        for row in rows
+    ]
+    return {
+        "ok": True,
+        "reference": reference,
+        "order_ids": [int(row["id"]) for row in rows],
+        "tracking_token": tracking_token,
+        "status": status,
+        "payment_method": first.get("payment_method", ""),
+        "total_millimes": int(first.get("cart_total_millimes") or 0) or sum(item["total_millimes"] for item in items),
+        "currency": "TND",
+        "items": items,
+        "balance_millimes": storefront_wallet_service.balance(customer_id),
+    }
+
+
+def _finish_saved_cart(customer_id: int, reference: str, tracking_token: str = "") -> dict[str, Any]:
+    """Finish a cart that was already stored, without taking the money twice."""
+    rows = _cart_rows(reference)
+    if not rows:
+        raise StorefrontError("Commande introuvable.")
+    total = int(rows[0].get("cart_total_millimes") or 0)
+    if str(rows[0].get("payment_method") or "") == site_orders_service.WALLET_METHOD:
+        status = _pay_from_wallet(customer_id, reference, rows, total)
+        _release_duplicate_wallet_charges(customer_id, reference, _line_signature(rows))
+    else:
+        status = site_orders_service.cart_status(rows)
+    return _checkout_response(customer_id, reference, tracking_token, status)
+
+
 def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str, Any]:
     """Store a signed-in customer's cart and pay it from the wallet or by transfer."""
     customer_id = int(customer["id"])
@@ -571,6 +708,16 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
     ]
     cart_total = sum(line["total_millimes"] for line in lines)
     by_wallet = method == site_orders_service.WALLET_METHOD
+    checkout_key = _checkout_key(payload.get("idempotency_key") or payload.get("checkout_key"))
+    signature = _line_signature(lines)
+
+    existing = _existing_checkout(customer_id, checkout_key)
+    if existing:
+        return _finish_saved_cart(customer_id, existing)
+    if by_wallet:
+        open_carts = _open_wallet_carts(customer_id, signature)
+        if open_carts:
+            return _finish_saved_cart(customer_id, open_carts[-1])
 
     payment_reference = ""
     receipt_id = None
@@ -624,6 +771,7 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
             "payment_method": method,
             "status": OrderStatus.MANUAL_REVIEW,
             "verification_channel": "wallet" if by_wallet else "receipt",
+            "checkout_key": checkout_key,
             "cart_token_hash": _token_hash(tracking_token),
             "txid": "",
             "verify_method": "",
@@ -649,33 +797,29 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
 
     if by_wallet:
         status = _pay_from_wallet(customer_id, reference, documents, cart_total)
+        _release_duplicate_wallet_charges(customer_id, reference, signature)
     else:
         status = "to_verify"
-        email_service.send_order_received(
-            email, name, reference, items, cart_total, site_orders_service.method_label(method)
+        try:
+            email_service.send_order_received(
+                email, name, reference, items, cart_total, site_orders_service.method_label(method)
+            )
+        except Exception:
+            log.exception("Order received email failed for cart %s", reference)
+    try:
+        db.audit_event(
+            "storefront.cart_created",
+            details={
+                "cart_reference": reference,
+                "order_ids": order_ids,
+                "payment_method": method,
+                "total_millimes": cart_total,
+                "status": status,
+            },
         )
-    db.audit_event(
-        "storefront.cart_created",
-        details={
-            "cart_reference": reference,
-            "order_ids": order_ids,
-            "payment_method": method,
-            "total_millimes": cart_total,
-            "status": status,
-        },
-    )
-    return {
-        "ok": True,
-        "reference": reference,
-        "order_ids": order_ids,
-        "tracking_token": tracking_token,
-        "status": status,
-        "payment_method": method,
-        "total_millimes": cart_total,
-        "currency": "TND",
-        "items": items,
-        "balance_millimes": storefront_wallet_service.balance(customer_id),
-    }
+    except Exception:
+        log.exception("Checkout audit failed for cart %s", reference)
+    return _checkout_response(customer_id, reference, tracking_token, status)
 
 
 def _pay_from_wallet(customer_id: int, reference: str, documents: list[dict[str, Any]], total: int) -> str:
@@ -686,7 +830,10 @@ def _pay_from_wallet(customer_id: int, reference: str, documents: list[dict[str,
 
 def _pay_from_wallet_now(customer_id: int, reference: str, documents: list[dict[str, Any]], total: int) -> str:
     conn = db.get_conn()
-    if storefront_wallet_service.debit(customer_id, total, kind="purchase", reference=reference) is None:
+    already_paid = storefront_wallet_service.purchase_recorded(customer_id, reference)
+    if not already_paid and storefront_wallet_service.debit(
+        customer_id, total, kind="purchase", reference=reference,
+    ) is None:
         conn.orders.delete_many({"cart_reference": reference, "status": OrderStatus.MANUAL_REVIEW})
         raise StorefrontError("Solde insuffisant. Recharge ton portefeuille ou paie par virement.")
 
@@ -707,7 +854,10 @@ def _pay_from_wallet_now(customer_id: int, reference: str, documents: list[dict[
         storefront_wallet_service.credit(
             customer_id, line["total_millimes"], kind="refund", reference=reference, note=line["offer_name"]
         )
-    site_orders_service.fulfill_cart(reference)
+    try:
+        site_orders_service.fulfill_cart(reference)
+    except Exception:
+        log.exception("Wallet cart %s stayed paid but delivery did not finish", reference)
     lines = list(conn.orders.find({"cart_reference": reference}))
     return site_orders_service.cart_status(lines)
 

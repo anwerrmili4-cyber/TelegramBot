@@ -978,6 +978,51 @@ def test_upibot_purchase_is_idempotent_and_extracts_delivered_keys(
     })]
 
 
+def test_site_supplier_purchase_uses_the_shop_customer_and_retries_a_stuck_one(
+    monkeypatch, mock_mongodb,
+):
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append(kwargs.get("body"))
+        return {"ok": True, "order": {"id": 4}, "delivered_keys": ["site-key"]}
+
+    monkeypatch.setattr(reseller_service, "_upibot_request_json", fake_request)
+    offer_id = db.add_offer(
+        db.add_service("Google AI Pro", "✦"),
+        "Google AI Pro 18 mois",
+        15.0,
+        2,
+        supplier_provider="upibot",
+        supplier_product_id="18",
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 77,
+        "user_id": None,
+        "customer_id": 15,
+        "offer_id": offer_id,
+        "qty": 1,
+        "status": "payment_confirmed",
+    })
+    mock_mongodb.reseller_fulfillments.insert_one({
+        "provider": "upibot",
+        "external_order_id": "BM-77",
+        "order_id": 77,
+        "supplier_product_id": "18",
+        "idempotency_key": "BM-77",
+        "status": "purchasing",
+    })
+
+    assert reseller_service.fulfill_paid_order(77) == ["site-key"]
+    assert reseller_service.fulfill_paid_order(77) == ["site-key"]
+    assert calls == [{
+        "product_id": 18,
+        "quantity": 1,
+        "customer_name": "site_customer_15",
+        "idempotency_key": "BM-77",
+    }]
+
+
 def test_cgpt_active_catalog_maps_cdk_products_and_skips_input_products(
     monkeypatch, mock_mongodb,
 ):

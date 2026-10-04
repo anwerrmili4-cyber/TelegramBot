@@ -304,6 +304,10 @@ def init_db():
         [("payment_method", ASCENDING), ("payment_reference_key", ASCENDING)],
         partialFilterExpression={"payment_reference_key": {"$exists": True}},
     )
+    db.orders.create_index(
+        [("customer_id", ASCENDING), ("checkout_key", ASCENDING)],
+        partialFilterExpression={"checkout_key": {"$gt": ""}},
+    )
     db.settings.create_index("key", unique=True)
     db.text_overrides.create_index([("key", ASCENDING), ("lang", ASCENDING)], unique=True)
     db.lovable_licenses.create_index("id", unique=True)
@@ -395,6 +399,11 @@ def init_db():
     db.storefront_wallets.create_index("customer_id", unique=True)
     db.storefront_wallet_ledger.create_index("id", unique=True)
     db.storefront_wallet_ledger.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])
+    db.storefront_wallet_ledger.create_index(
+        [("customer_id", ASCENDING), ("reference", ASCENDING)],
+        unique=True,
+        partialFilterExpression={"kind": "purchase", "reference": {"$gt": ""}},
+    )
     db.storefront_deposits.create_index("id", unique=True)
     db.storefront_deposits.create_index([("status", ASCENDING), ("id", DESCENDING)])
     db.storefront_deposits.create_index([("customer_id", ASCENDING), ("id", DESCENDING)])

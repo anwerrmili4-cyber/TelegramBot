@@ -158,6 +158,8 @@ if (typeof window !== "undefined") void prefetchCatalog();
 export type CheckoutPayload = {
   /** `wallet`, or a transfer method id such as `d17`. */
   payment_method: string;
+  /** Same value for every click of this payment, so a retry cannot charge twice. */
+  idempotency_key?: string;
   transaction_reference?: string;
   /** Receipt screenshot as a `data:image/...` URL, for transfers only. */
   receipt?: string;

@@ -88,10 +88,29 @@ def credit(customer_id: int, amount: int, *, kind: str, reference: str = "", not
     return after
 
 
+def purchase_recorded(customer_id: int, reference: str) -> bool:
+    """True when this cart was already taken from the wallet."""
+    reference = str(reference or "")
+    if not reference:
+        return False
+    return db.get_conn().storefront_wallet_ledger.find_one({
+        "customer_id": int(customer_id),
+        "reference": reference,
+        "kind": "purchase",
+    }) is not None
+
+
 def debit(customer_id: int, amount: int, *, kind: str, reference: str = "", note: str = "") -> int | None:
-    """Take ``amount`` from the wallet, or return ``None`` if the balance is short."""
+    """Take ``amount`` from the wallet, or return ``None`` if the balance is short.
+
+    A purchase tied to a cart reference is taken once. Paying the same cart
+    again returns the current balance and does not debit a second time.
+    """
     if amount <= 0:
         raise WalletError("Le montant à débiter doit être positif.")
+    reference = str(reference or "")
+    if kind == "purchase" and purchase_recorded(customer_id, reference):
+        return balance(customer_id)
     wallet = db.get_conn().storefront_wallets.find_one_and_update(
         {"customer_id": int(customer_id), "balance_millimes": {"$gte": int(amount)}},
         {"$inc": {"balance_millimes": -int(amount)}, "$set": {"updated_at": int(time.time())}},
@@ -100,7 +119,16 @@ def debit(customer_id: int, amount: int, *, kind: str, reference: str = "", note
     if not wallet:
         return None
     after = int(wallet["balance_millimes"])
-    _ledger(customer_id, kind, -amount, after, reference, note)
+    try:
+        _ledger(customer_id, kind, -amount, after, reference, note)
+    except DuplicateKeyError:
+        if kind == "purchase" and purchase_recorded(customer_id, reference):
+            db.get_conn().storefront_wallets.update_one(
+                {"customer_id": int(customer_id)},
+                {"$inc": {"balance_millimes": int(amount)}, "$set": {"updated_at": int(time.time())}},
+            )
+            return balance(customer_id)
+        raise
     from app.domain import storefront_notification_service
 
     storefront_notification_service.announce_balance(int(customer_id), -int(amount), after)

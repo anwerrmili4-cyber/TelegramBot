@@ -378,6 +378,212 @@ def test_order_status_returns_a_single_line_of_the_cart(mock_mongodb, customer):
         storefront_service.order_status(result["order_ids"][0], "wrong-token")
 
 
+def test_wallet_pays_a_supplier_offer_for_a_site_customer(monkeypatch, mock_mongodb, customer, sent_emails):
+    """Site orders have no Telegram id. Wallet payment must still buy and deliver."""
+    from app.domain import reseller_service
+
+    _, offer_id = _catalog_offer(name="Google AI Pro 18 mois", millimes=15_000_000, stock=5)
+    db.get_conn().offers.update_one(
+        {"id": offer_id},
+        {"$set": {"supplier_provider": "upibot", "supplier_product_id": "18"}},
+    )
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append(kwargs.get("body"))
+        return {
+            "ok": True,
+            "order": {"id": 123, "status": "delivered"},
+            "delivered_keys": ["google-ai-pro-key"],
+        }
+
+    monkeypatch.setattr(reseller_service, "_upibot_request_json", fake_request)
+    storefront_wallet_service.credit(customer["id"], 50_000_000, kind="deposit")
+    payload = {
+        "payment_method": "wallet",
+        "idempotency_key": "checkout-key-google",
+        "items": [{"offer_id": offer_id, "quantity": 1}],
+    }
+
+    first = storefront_service.create_order(payload, customer)
+    again = storefront_service.create_order(payload, customer)
+
+    assert first["status"] == "delivered"
+    assert again["reference"] == first["reference"]
+    assert again["balance_millimes"] == first["balance_millimes"] == 35_000_000
+    assert calls == [{
+        "product_id": 18,
+        "quantity": 1,
+        "customer_name": f"site_customer_{customer['id']}",
+        "idempotency_key": f"BM-{first['order_ids'][0]}",
+    }]
+    assert "google-ai-pro-key" in storefront_service.customer_carts(customer["id"])[0]["items"][0]["delivery"]
+
+
+def test_a_failed_wallet_click_is_finished_instead_of_charged_again(
+    monkeypatch, mock_mongodb, customer, sent_emails,
+):
+    from app.domain import reseller_service
+
+    _, offer_id = _catalog_offer(name="Google AI Pro 18 mois", millimes=15_000_000, stock=5)
+    db.get_conn().offers.update_one(
+        {"id": offer_id},
+        {"$set": {"supplier_provider": "upibot", "supplier_product_id": "18"}},
+    )
+    storefront_wallet_service.credit(customer["id"], 50_000_000, kind="deposit")
+    now = int(__import__("time").time())
+    order_id = db._next_id("orders")
+    db.get_conn().orders.insert_one({
+        "id": order_id,
+        "sales_channel": "tn_site",
+        "user_id": None,
+        "customer_id": customer["id"],
+        "customer_name": customer["name"],
+        "customer_email": customer["email"],
+        "cart_reference": "TN-STUCK1",
+        "cart_position": 1,
+        "cart_size": 1,
+        "cart_total_millimes": 15_000_000,
+        "offer_id": offer_id,
+        "offer_name": "Google AI Pro 18 mois",
+        "qty": 1,
+        "unit_price_millimes": 15_000_000,
+        "total_millimes": 15_000_000,
+        "payment_method": "wallet",
+        "status": OrderStatus.PAYMENT_CONFIRMED,
+        "created_at": now,
+        "updated_at": now,
+    })
+    db.get_conn().reseller_fulfillments.insert_one({
+        "provider": "upibot",
+        "external_order_id": f"BM-{order_id}",
+        "order_id": order_id,
+        "supplier_product_id": "18",
+        "idempotency_key": f"BM-{order_id}",
+        "status": "purchasing",
+        "created_at": now,
+        "updated_at": now,
+    })
+    assert storefront_wallet_service.debit(
+        customer["id"], 15_000_000, kind="purchase", reference="TN-STUCK1",
+    ) == 35_000_000
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append(kwargs.get("body"))
+        return {"ok": True, "order": {"id": 9}, "delivered_keys": ["recovered-key"]}
+
+    monkeypatch.setattr(reseller_service, "_upibot_request_json", fake_request)
+
+    result = storefront_service.create_order(
+        {"payment_method": "wallet", "items": [{"offer_id": offer_id, "quantity": 1}]},
+        customer,
+    )
+
+    assert result["reference"] == "TN-STUCK1"
+    assert result["status"] == "delivered"
+    assert result["balance_millimes"] == 35_000_000
+    assert len(calls) == 1
+    assert calls[0]["customer_name"] == f"site_customer_{customer['id']}"
+
+
+def test_repeated_failed_wallet_clicks_keep_one_charge(monkeypatch, mock_mongodb, customer, sent_emails):
+    from app.domain import reseller_service
+
+    _, offer_id = _catalog_offer(name="Google AI Pro 18 mois", millimes=15_000_000, stock=5)
+    db.get_conn().offers.update_one(
+        {"id": offer_id},
+        {"$set": {"supplier_provider": "upibot", "supplier_product_id": "18"}},
+    )
+    storefront_wallet_service.credit(customer["id"], 80_000_000, kind="deposit")
+    now = int(__import__("time").time())
+    for offset, reference in ((0, "TN-OLD111"), (2, "TN-NEW222")):
+        order_id = db._next_id("orders")
+        db.get_conn().orders.insert_one({
+            "id": order_id,
+            "sales_channel": "tn_site",
+            "user_id": None,
+            "customer_id": customer["id"],
+            "customer_name": customer["name"],
+            "customer_email": customer["email"],
+            "cart_reference": reference,
+            "cart_position": 1,
+            "cart_size": 1,
+            "cart_total_millimes": 15_000_000,
+            "offer_id": offer_id,
+            "offer_name": "Google AI Pro 18 mois",
+            "qty": 1,
+            "unit_price_millimes": 15_000_000,
+            "total_millimes": 15_000_000,
+            "payment_method": "wallet",
+            "status": OrderStatus.PAYMENT_CONFIRMED,
+            "created_at": now + offset,
+            "updated_at": now + offset,
+        })
+        db.get_conn().reseller_fulfillments.insert_one({
+            "provider": "upibot",
+            "external_order_id": f"BM-{order_id}",
+            "order_id": order_id,
+            "supplier_product_id": "18",
+            "idempotency_key": f"BM-{order_id}",
+            "status": "purchasing",
+            "created_at": now + offset,
+            "updated_at": now + offset,
+        })
+        storefront_wallet_service.debit(customer["id"], 15_000_000, kind="purchase", reference=reference)
+    monkeypatch.setattr(
+        reseller_service,
+        "_upibot_request_json",
+        lambda path, **kwargs: {"ok": True, "order": {"id": 1}, "delivered_keys": ["one-key"]},
+    )
+
+    result = storefront_service.create_order(
+        {"payment_method": "wallet", "items": [{"offer_id": offer_id, "quantity": 1}]},
+        customer,
+    )
+
+    assert result["reference"] == "TN-NEW222"
+    assert result["status"] == "delivered"
+    assert result["balance_millimes"] == 65_000_000
+    carts = {cart["reference"]: cart for cart in storefront_service.customer_carts(customer["id"])}
+    assert carts["TN-NEW222"]["status"] == "delivered"
+    assert carts["TN-OLD111"]["status"] == "cancelled"
+    assert carts["TN-OLD111"]["refunded_millimes"] == 15_000_000
+
+
+def test_a_wallet_payment_still_succeeds_when_the_email_breaks(monkeypatch, mock_mongodb, customer, sent_emails):
+    from app.domain import email_service
+
+    _, offer_id = _catalog_offer(millimes=20_000, stock=3)
+    storefront_wallet_service.credit(customer["id"], 20_000, kind="deposit")
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("mail log down")
+
+    monkeypatch.setattr(email_service, "send_order_preparing", broken)
+    result = storefront_service.create_order(
+        {
+            "payment_method": "wallet",
+            "idempotency_key": "checkout-key-mail",
+            "items": [{"offer_id": offer_id, "quantity": 1}],
+        },
+        customer,
+    )
+    assert result["status"] == "confirmed"
+    assert result["balance_millimes"] == 0
+
+    again = storefront_service.create_order(
+        {
+            "payment_method": "wallet",
+            "idempotency_key": "checkout-key-mail",
+            "items": [{"offer_id": offer_id, "quantity": 1}],
+        },
+        customer,
+    )
+    assert again["reference"] == result["reference"]
+    assert again["balance_millimes"] == 0
+
+
 def test_customer_history_only_shows_their_own_carts(mock_mongodb, site_customer):
     amine, karim = site_customer(), site_customer(name="Karim", email="karim@example.com")
     _, offer_id = _catalog_offer()
