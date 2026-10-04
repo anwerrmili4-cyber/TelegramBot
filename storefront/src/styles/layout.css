@@ -316,6 +316,17 @@
   box-shadow: var(--shadow-float);
 }
 
+@media (max-width: 760px) {
+  .notice-panel {
+    position: fixed;
+    top: 76px;
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    width: auto;
+    max-height: min(70dvh, calc(100dvh - 96px));
+  }
+}
+
 .notice-head {
   display: flex;
   align-items: center;
@@ -413,6 +424,28 @@
   color: var(--text-soft);
   font-size: 13px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.notice-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--brand-hot);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notice-more:hover {
+  background: var(--ink-800);
 }
 
 .notice-empty {

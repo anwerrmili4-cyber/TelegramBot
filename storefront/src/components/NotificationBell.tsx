@@ -3,6 +3,7 @@ import { Bell } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchNotifications, markNotificationRead, errorMessage } from "@/lib/api";
 import { dateTime } from "@/lib/format";
+import { accountPath } from "@/lib/accountPath";
 import { navigate, ROUTES, usePathname, withNext } from "@/lib/router";
 import type { SiteNotification } from "@/types";
 
@@ -115,7 +116,7 @@ export function NotificationBell() {
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           {!items.length ? <p className="notice-empty">Aucune notification pour le moment.</p> : null}
           <ul>
-            {items.slice(0, 8).map((item) => (
+            {items.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
@@ -131,6 +132,18 @@ export function NotificationBell() {
               </li>
             ))}
           </ul>
+          {items.length ? (
+            <button
+              type="button"
+              className="notice-more"
+              onClick={() => {
+                setOpen(false);
+                navigate(accountPath("notifications"));
+              }}
+            >
+              Voir tout
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
