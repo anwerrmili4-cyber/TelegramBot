@@ -6,9 +6,10 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import time
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -21,7 +22,15 @@ import database as db
 from config import DASHBOARD_PASSWORD, env_value, public_base_url_from_environment
 
 log = logging.getLogger(__name__)
-CATEGORIES = {"order", "sale", "deposit", "support", "withdrawal", "warranty", "stock", "system"}
+CATEGORIES = {
+    "order", "sale", "deposit", "support", "product_request", "review",
+    "withdrawal", "warranty", "stock", "system",
+}
+# Devices enrolled before Avis and Demandes existed stored this exact set when
+# the operator had left every category enabled.
+_LEGACY_ALL_CATEGORIES = frozenset({
+    "order", "sale", "deposit", "support", "withdrawal", "warranty", "stock", "system",
+})
 
 
 class _PushSession(Session):
@@ -32,6 +41,62 @@ class _PushSession(Session):
 
 def _auth_version():
     return hashlib.sha256(DASHBOARD_PASSWORD.encode()).hexdigest()
+
+
+def _selected_categories(preferences):
+    """Categories this device wants, including ones added after an all-on enrollment."""
+    if not isinstance(preferences, dict):
+        return set(CATEGORIES)
+    selected = preferences.get("categories", CATEGORIES)
+    if not isinstance(selected, list):
+        return set(CATEGORIES)
+    chosen = {item for item in selected if isinstance(item, str) and item in CATEGORIES}
+    if _LEGACY_ALL_CATEGORIES <= chosen:
+        chosen |= set(CATEGORIES)
+    return chosen
+
+
+def _muted(preferences, item, now):
+    preferences = preferences if isinstance(preferences, dict) else {}
+    return (
+        preferences.get("paused_until", 0) > now
+        or item["category"] not in _selected_categories(preferences)
+        or preferences.get("urgent_only") and item["severity"] != "error"
+    )
+
+
+def _relative_url(item):
+    """Admin path opened when the operator taps the alert."""
+    target = item.get("target") or {}
+    page = str(target.get("page") or "overview")
+    if not re.fullmatch(r"[a-z0-9-]{1,40}", page):
+        page = "overview"
+    relative = "/admin" if page == "overview" else f"/admin/{page}"
+    entity_id = target.get("entity_id")
+    if page == "orders" and entity_id is not None:
+        return f"{relative}/{int(entity_id)}"
+    raw = target.get("query") if isinstance(target.get("query"), dict) else {}
+    params = {}
+    if page == "site-orders" and (raw.get("cart") or entity_id):
+        cart = str(raw.get("cart") or entity_id)[:80]
+        status = str(raw.get("status") or "all")
+        if status not in {"to_verify", "confirmed", "delivered", "cancelled", "all"}:
+            status = "all"
+        params = {"cart": cart, "status": status, "search": str(raw.get("search") or cart)[:80]}
+    elif page == "site-deposits" and entity_id is not None:
+        status = str(raw.get("status") or "pending")
+        if status not in {"pending", "approved", "rejected", "all"}:
+            status = "pending"
+        params = {"deposit": str(entity_id)[:20], "status": status}
+    elif page in {"support", "site-support"} and entity_id is not None:
+        params = {"ticket": str(entity_id)[:20]}
+    elif page in {"product-requests", "site-product-requests"} and entity_id is not None:
+        params = {"request": str(entity_id)[:20]}
+    elif page in {"warranties", "site-warranties"} and entity_id is not None:
+        params = {"warranty": str(entity_id)[:20]}
+    if params:
+        relative += "?" + urlencode(params)
+    return relative
 
 
 def _keypair():
@@ -201,11 +266,7 @@ def dismissed_ids():
 def _send(device, item, *, test=False):
     from pywebpush import WebPushException, webpush
     private = device.get("preferences", {}).get("private", True) and not test
-    page = str(item.get("target", {}).get("page") or "overview")
-    relative_url = "/admin" if page == "overview" else "/admin/" + page
-    entity_id = item.get("target", {}).get("entity_id")
-    if page == "orders" and entity_id is not None:
-        relative_url += f"/{int(entity_id)}"
+    relative_url = _relative_url(item)
     navigate = _app_origin(device.get("app_origin")) + relative_url
     title = "Black Market · Nouvelle notification" if private else item["title"]
     body = "Ouvrez le tableau de bord pour consulter les détails." if private else item["message"][:500]
@@ -271,10 +332,7 @@ def enqueue_alert(item):
     now = int(time.time())
     for device in conn.admin_push_devices.find({"auth_version": _auth_version()}):
         preferences = device.get("preferences", {})
-        muted = (preferences.get("paused_until", 0) > now
-                 or item["category"] not in preferences.get("categories", CATEGORIES)
-                 or preferences.get("urgent_only") and item["severity"] != "error")
-        if muted:
+        if _muted(preferences, item, now):
             conn.admin_push_receipts.update_one(
                 {"_id": f'{device["_id"]}:{identifier}'},
                 {"$setOnInsert": {"created_at": datetime.now(UTC)}},
@@ -327,12 +385,7 @@ def capture_feed(complete=True):
         identifier = str(item["id"])
         for device in devices:
             preferences = device.get("preferences") or {}
-            muted = (
-                preferences.get("paused_until", 0) > now
-                or item["category"] not in preferences.get("categories", CATEGORIES)
-                or preferences.get("urgent_only") and item["severity"] != "error"
-            )
-            if muted:
+            if _muted(preferences, item, now):
                 receipts.append({
                     "_id": f'{device["_id"]}:{identifier}',
                     "created_at": created_at,
@@ -374,10 +427,7 @@ def deliver_pending():
                 if item["id"] in dismissed:
                     receipts.update_one({"_id": receipt_id}, {"$setOnInsert": {"created_at": datetime.now(UTC)}}, upsert=True)
                     continue
-                muted = (preferences.get("paused_until", 0) > now
-                         or item["category"] not in preferences.get("categories", CATEGORIES)
-                         or preferences.get("urgent_only") and item["severity"] != "error")
-                if not muted:
+                if not _muted(preferences, item, now):
                     if count >= 5:
                         break
                     if not _send(device, item):

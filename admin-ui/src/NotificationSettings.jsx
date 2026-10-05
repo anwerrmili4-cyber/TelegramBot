@@ -3,6 +3,7 @@ import { BellRing, Settings2 } from "lucide-react";
 
 export const NOTIFICATION_CATEGORIES = {
   order: "Commandes", sale: "Ventes", deposit: "Dépôts", support: "Support",
+  product_request: "Demandes", review: "Avis",
   withdrawal: "Retraits", warranty: "Garanties", stock: "Stock", system: "Système",
 };
 

@@ -2451,7 +2451,11 @@ def fulfill_order(order_id):
 def audit_event(action, actor_id=None, details=None):
     event_id = _next_id("audit_events")
     get_conn().audit_events.insert_one({"id": event_id, "action": action, "actor_id": actor_id, "details": details or {}, "created_at": datetime.now(UTC)})
-    if str(action).startswith(("order.", "payment.", "ticket.", "wallet.", "withdrawal.", "warranty.", "offer.", "inventory.", "system.", "webhook.", "delivery.")):
+    if str(action).startswith((
+        "order.", "payment.", "ticket.", "wallet.", "withdrawal.", "warranty.",
+        "offer.", "inventory.", "system.", "webhook.", "delivery.",
+        "site_cart.", "storefront.",
+    )):
         _capture_admin_notifications()
     return event_id
 
