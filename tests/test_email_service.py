@@ -35,23 +35,34 @@ def test_post_sends_a_user_agent_and_the_configured_sender(monkeypatch):
     assert captured["body"]["to"] == ["a@b.tn"]
 
 
-def test_review_form_uses_tappable_stars_that_do_not_send():
+def test_review_form_is_filled_inside_the_email():
     token = "12.1800000000." + "ab" * 16
     html, text = email_service.review_form_parts(token)
+    action = f"{email_service.site_url()}{email_service.REVIEW_EMAIL_PATH}?token={token}"
     assert "☆" in html
-    assert "<a " in html
-    assert "Si ton application" not in html
+    assert "<form " in html
+    assert 'method="post"' in html
+    assert f'action="{action}"' in html
+    assert "send=1" not in action
+    assert 'name="send" value="1"' in html
+    assert 'name="comment"' in html
+    assert 'name="score"' in html
+    assert 'type="radio"' in html
+    assert 'type="submit"' in html
+    assert "width:1px" not in html
+    assert "clip:rect" not in html
+    assert "<a " not in html
+    assert "&score=" not in html
     assert "Rien n'est envoyé avant ce bouton." in text
     for score in range(1, 6):
-        href = f"/api/storefront/reviews/email?token={token}&amp;score={score}"
-        assert href in html
-        assert f"score={score}" in text
-    assert "send=1" not in html
-    assert 'type="radio"' not in html
+        assert f'value="{score}"' in html
+        assert f"score={score}" not in text
 
     _subject, message, _plain = email_service.review_request_content("Amine", "TN-1", token)
-    assert "score=4" in message
-    assert "send=1" not in message
+    assert 'name="comment"' in message
+    assert 'value="4"' in message
+    assert "&score=" not in message
+    assert 'name="send" value="1"' in message
 
 
 def test_post_without_an_api_key_only_logs(monkeypatch):

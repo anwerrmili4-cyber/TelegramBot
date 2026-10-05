@@ -733,6 +733,20 @@ def review_stars_css() -> str:
         ".bm-done-stars{margin:0 0 12px;font-size:32px;letter-spacing:4px;line-height:1}"
         ".bm-done-stars .bm-on{color:#fbbc04}"
         ".bm-done-stars .bm-off{color:#9aa0a6}"
+        ".bm-mail:has(input[value=\"1\"]:checked) td:nth-child(-n+1) .bm-on,"
+        ".bm-mail:has(input[value=\"2\"]:checked) td:nth-child(-n+2) .bm-on,"
+        ".bm-mail:has(input[value=\"3\"]:checked) td:nth-child(-n+3) .bm-on,"
+        ".bm-mail:has(input[value=\"4\"]:checked) td:nth-child(-n+4) .bm-on,"
+        ".bm-mail:has(input[value=\"5\"]:checked) td:nth-child(-n+5) .bm-on"
+        "{display:block !important;color:#fbbc04}"
+        ".bm-mail:has(input[value=\"1\"]:checked) td:nth-child(-n+1) .bm-off,"
+        ".bm-mail:has(input[value=\"2\"]:checked) td:nth-child(-n+2) .bm-off,"
+        ".bm-mail:has(input[value=\"3\"]:checked) td:nth-child(-n+3) .bm-off,"
+        ".bm-mail:has(input[value=\"4\"]:checked) td:nth-child(-n+4) .bm-off,"
+        ".bm-mail:has(input[value=\"5\"]:checked) td:nth-child(-n+5) .bm-off"
+        "{display:none !important}"
+        ".bm-mail:has(input) input[type=\"radio\"]{position:absolute;top:0;left:0;width:52px;height:52px;"
+        "margin:0;opacity:0}"
         "</style>"
     )
 
@@ -785,59 +799,68 @@ def review_stars_static(score: int) -> str:
     )
 
 
-def review_star_links(token: str) -> str:
-    """Five tappable stars. Mail apps do not press a hidden radio, so each star is a link.
+def review_mail_stars() -> str:
+    """Five stars with a real radio under each one, so a mail app can select a score.
 
-    The link only opens the review page with that score. It does not carry ``send=1``,
-    so the review is still stored only when Envoyer is used.
+    Gmail does not activate a 1px clipped radio through ``label for``. The control
+    sits inside the label, at a finger-sized size, and it is not a link.
+    Clients that understand ``:has`` also turn stars 1 through N gold.
     """
-    token = str(token or "").strip()
     cells = []
     for score in range(1, 6):
-        href = escape(f"{site_url()}{REVIEW_EMAIL_PATH}?token={token}&score={score}")
         cells.append(
-            '<td style="padding:0 2px;">'
-            f'<a href="{href}" aria-label="{score} sur 5" '
-            'style="display:block;min-width:44px;padding:8px 4px;font-size:40px;line-height:1;'
-            'text-align:center;text-decoration:none;color:#9aa0a6;">'
-            '<span style="color:#9aa0a6;text-decoration:none;">\u2606</span></a></td>'
+            '<td style="padding:0 2px;text-align:center;vertical-align:top;">'
+            '<label style="position:relative;display:block;width:52px;cursor:pointer;text-align:center;">'
+            '<span class="bm-off" style="display:block;font-size:36px;line-height:1;color:#9aa0a6;">\u2606</span>'
+            '<span class="bm-on" style="display:none;font-size:36px;line-height:1;color:#fbbc04;">\u2605</span>'
+            f'<input type="radio" name="score" value="{score}" required aria-label="{score} sur 5" '
+            'style="display:block;width:36px;height:36px;margin:8px auto 0;accent-color:#fbbc04;">'
+            "</label></td>"
         )
     return (
-        '<table role="presentation" cellspacing="0" cellpadding="0" aria-label="Note de 1 à 5"><tr>'
+        '<table class="bm-mail" role="presentation" cellspacing="0" cellpadding="0" '
+        'aria-label="Note de 1 à 5"><tr>'
         + "".join(cells)
         + "</tr></table>"
     )
 
 
 def review_form_parts(token: str) -> tuple[str, str]:
-    """Stars a mail app can tap, then the white comment field and Envoyer on the page they open.
+    """The note, the comment and Envoyer, all inside the email. Stars are not links.
 
-    Gmail leaves a clipped radio untouchable, so the stars in the message are links.
-    Opening one shows the note already chosen and does not save it.
+    Nothing is stored until the button submits the form. The address itself has no
+    ``send=1``, so opening it only redisplays the page.
     """
     token = str(token or "").strip()
     if not token:
         return "", ""
     action = f"{site_url()}{REVIEW_EMAIL_PATH}?token={token}"
+    safe_action = escape(action)
+    safe_token = escape(token)
     html = (
-        '<div style="margin:8px 0 0">'
+        f'<form action="{safe_action}" method="post" style="margin:8px 0 0">'
+        f'<input type="hidden" name="token" value="{safe_token}">'
+        '<input type="hidden" name="send" value="1">'
         f'<div style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.12em;color:{_MUTED}">TON AVIS</div>'
-        "<p style=\"margin:0 0 12px\">Appuie sur une étoile pour choisir ta note. "
-        "La page s'ouvre avec cette note : écris ton commentaire, puis appuie sur Envoyer. "
+        "<p style=\"margin:0 0 12px\">Choisis tes étoiles, écris ton commentaire, puis appuie sur Envoyer. "
         "Rien n'est envoyé avant ce bouton.</p>"
-        f'<div style="margin:0 0 14px">{review_star_links(token)}</div>'
-        "</div>"
+        f'<div style="margin:0 0 14px">{review_mail_stars()}</div>'
+        '<textarea class="bm-comment" name="comment" required minlength="8" maxlength="600" rows="4" '
+        'placeholder="Ton commentaire" '
+        'style="display:block;width:100%;max-width:100%;box-sizing:border-box;margin:0 0 14px;'
+        "padding:12px 14px;border-radius:12px;border:1px solid #dadce0;background-color:#ffffff;"
+        "color:#1f1f1f;color-scheme:light;-webkit-appearance:none;appearance:none;"
+        f'font-size:15px;line-height:1.5;font-family:{_FONT}"></textarea>'
+        f'<input type="submit" value="Envoyer" style="display:inline-block;padding:14px 26px;border:0;'
+        f'border-radius:12px;background:{_BRAND};color:#ffffff;font-size:15px;font-weight:700;'
+        f'font-family:{_FONT};cursor:pointer">'
+        "</form>"
         + _note("Ton avis reste privé jusqu'à validation.")
-    )
-    lines = "\n".join(
-        f"{score} sur 5 : {site_url()}{REVIEW_EMAIL_PATH}?token={token}&score={score}"
-        for score in range(1, 6)
     )
     text = (
         "\n\nTon avis\n"
-        "Appuie sur une étoile pour choisir ta note. La page s'ouvre avec cette note : "
-        "écris ton commentaire, puis appuie sur Envoyer. Rien n'est envoyé avant ce bouton.\n"
-        f"{lines}\n"
+        "Choisis une note de 1 à 5, écris ton commentaire, puis appuie sur Envoyer. "
+        "Rien n'est envoyé avant ce bouton.\n"
         f"Formulaire : {action}\n"
         "Ton avis reste privé jusqu'à validation.\n"
     )
