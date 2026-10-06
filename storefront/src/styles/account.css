@@ -262,6 +262,17 @@
   border: 0;
 }
 
+.pay-with-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.pay-with-row label {
+  align-items: flex-start;
+  min-width: 0;
+}
+
 .pay-with legend {
   padding: 0 0 7px;
   color: var(--text-soft);

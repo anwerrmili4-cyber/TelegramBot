@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowRight, BadgeCheck, Clock3, LogIn, PackageCheck, Wallet as WalletIcon, X } from "lucide-react";
+import { ArrowRight, BadgeCheck, Clock3, Landmark, LogIn, PackageCheck, Wallet as WalletIcon, X } from "lucide-react";
 import { Overlay } from "@/components/Overlay";
 import { MethodPicker, PaymentInstructions, ReceiptField } from "@/components/PaymentFields";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,7 +19,9 @@ type CheckoutDialogProps = {
   onConfirmed: () => void;
 };
 
-type PayWith = "wallet" | "transfer";
+type PayWith = "wallet" | "postal" | "transfer";
+
+const POSTAL_METHOD = "virement_postal";
 
 const BULLET = /^([•\u2022\-*]|\d+[.)])\s+(.+)$/;
 
@@ -63,7 +65,10 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
 
   const total = cart.totalMillimes;
   const walletEnough = balance !== null && balance >= total;
-  const chosenMethod = paymentMethods.find((option) => option.id === method) ?? paymentMethods[0];
+  const postalMethod = paymentMethods.find((option) => option.id === POSTAL_METHOD);
+  const otherMethods = paymentMethods.filter((option) => option.id !== POSTAL_METHOD);
+  const chosenMethod = otherMethods.find((option) => option.id === method) ?? otherMethods[0];
+  const activeMethod = payWith === "postal" ? postalMethod : chosenMethod;
 
   useEffect(() => {
     if (!open) return;
@@ -76,7 +81,9 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
     fetchWallet(token, controller.signal)
       .then((wallet) => {
         setBalance(wallet.balance_millimes);
-        if (wallet.balance_millimes < total) setPayWith("transfer");
+        if (wallet.balance_millimes < total) {
+          setPayWith(paymentMethods.some((option) => option.id === POSTAL_METHOD) ? "postal" : "transfer");
+        }
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted) handleError(reason);
@@ -111,12 +118,8 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       setError("Solde insuffisant : recharge ton portefeuille ou paie par virement.");
       return;
     }
-    if (payWith === "transfer" && !receipt) {
-      setError(
-        chosenMethod?.id === "virement_postal"
-          ? "Ajoute une capture du virement."
-          : "Ajoute une capture de ton reçu.",
-      );
+    if ((payWith === "postal" || payWith === "transfer") && !receipt) {
+      setError(payWith === "postal" ? "Ajoute une capture du virement." : "Ajoute une capture de ton reçu.");
       return;
     }
     const missing = cart.lines.find((line) => {
@@ -132,9 +135,9 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
     setError("");
     try {
       const created = await submitCheckout(token, {
-        payment_method: payWith === "wallet" ? "wallet" : chosenMethod?.id ?? "",
+        payment_method: payWith === "wallet" ? "wallet" : payWith === "postal" ? POSTAL_METHOD : chosenMethod?.id ?? "",
         idempotency_key: checkoutKey.current,
-        receipt: payWith === "transfer" ? receipt : undefined,
+        receipt: payWith === "wallet" ? undefined : receipt,
         items: cart.lines.map((line) => ({
           offer_id: line.offer.id,
           quantity: line.quantity,
@@ -279,39 +282,60 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
 
           <fieldset className="pay-with">
             <legend>Payer avec</legend>
-            <label className={payWith === "wallet" ? "selected" : ""}>
-              <input
-                type="radio"
-                name="pay_with"
-                checked={payWith === "wallet"}
-                onChange={() => setPayWith("wallet")}
-              />
-              <WalletIcon size={18} aria-hidden="true" />
-              <span>
-                <strong>Mon portefeuille</strong>
-                <small>
-                  {balance === null
-                    ? "Chargement du solde…"
-                    : walletEnough
-                      ? `Solde : ${money(balance)} · livraison immédiate`
-                      : `Solde : ${money(balance)} · insuffisant`}
-                </small>
-              </span>
-            </label>
-            <label className={payWith === "transfer" ? "selected" : ""}>
-              <input
-                type="radio"
-                name="pay_with"
-                checked={payWith === "transfer"}
-                onChange={() => setPayWith("transfer")}
-                disabled={!paymentMethods.length}
-              />
-              <Clock3 size={18} aria-hidden="true" />
-              <span>
-                <strong>Virement avec reçu</strong>
-                <small>{paymentMethods.map((option) => option.label).join(", ") || "Indisponible"}</small>
-              </span>
-            </label>
+            <div className={postalMethod ? "pay-with-row" : undefined}>
+              <label className={payWith === "wallet" ? "selected" : ""}>
+                <input
+                  type="radio"
+                  name="pay_with"
+                  checked={payWith === "wallet"}
+                  onChange={() => setPayWith("wallet")}
+                />
+                <WalletIcon size={18} aria-hidden="true" />
+                <span>
+                  <strong>Mon portefeuille</strong>
+                  <small>
+                    {balance === null
+                      ? "Chargement du solde…"
+                      : walletEnough
+                        ? `Solde : ${money(balance)} · livraison immédiate`
+                        : `Solde : ${money(balance)} · insuffisant`}
+                  </small>
+                </span>
+              </label>
+              {postalMethod ? (
+                <label className={payWith === "postal" ? "selected" : ""}>
+                  <input
+                    type="radio"
+                    name="pay_with"
+                    checked={payWith === "postal"}
+                    onChange={() => setPayWith("postal")}
+                  />
+                  <Landmark size={18} aria-hidden="true" />
+                  <span>
+                    <strong>Virement postal</strong>
+                    <small>Carte e-dinar · capture du virement</small>
+                  </span>
+                </label>
+              ) : null}
+            </div>
+            {otherMethods.length ? (
+              <label className={payWith === "transfer" ? "selected" : ""}>
+                <input
+                  type="radio"
+                  name="pay_with"
+                  checked={payWith === "transfer"}
+                  onChange={() => {
+                    if (!otherMethods.some((option) => option.id === method)) setMethod(otherMethods[0].id);
+                    setPayWith("transfer");
+                  }}
+                />
+                <Clock3 size={18} aria-hidden="true" />
+                <span>
+                  <strong>Virement avec reçu</strong>
+                  <small>{otherMethods.map((option) => option.label).join(", ")}</small>
+                </span>
+              </label>
+            ) : null}
           </fieldset>
 
           {payWith === "wallet" ? (
@@ -329,18 +353,20 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
             ) : null
           ) : (
             <>
-              <MethodPicker
-                methods={paymentMethods}
-                value={chosenMethod?.id ?? ""}
-                onChange={setMethod}
-                name="payment_method"
-              />
-              <PaymentInstructions method={chosenMethod} amountMillimes={total} />
+              {payWith === "transfer" ? (
+                <MethodPicker
+                  methods={otherMethods}
+                  value={chosenMethod?.id ?? ""}
+                  onChange={setMethod}
+                  name="payment_method"
+                />
+              ) : null}
+              <PaymentInstructions method={activeMethod} amountMillimes={total} />
               <ReceiptField
                 value={receipt}
                 onChange={setReceipt}
                 onError={setError}
-                label={chosenMethod?.id === "virement_postal" ? "Capture du virement" : "Capture du reçu"}
+                label={payWith === "postal" ? "Capture du virement" : "Capture du reçu"}
               />
             </>
           )}
@@ -360,7 +386,9 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
               ? "Paiement en cours…"
               : payWith === "wallet"
                 ? `Payer ${money(total)}`
-                : "Envoyer mon reçu"}
+                : payWith === "postal"
+                  ? "Envoyer la capture"
+                  : "Envoyer mon reçu"}
             {submitting ? null : <ArrowRight size={17} aria-hidden="true" />}
           </button>
         </form>
