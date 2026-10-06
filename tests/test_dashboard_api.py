@@ -780,6 +780,8 @@ def test_dashboard_has_mailreader_api_products_management():
     assert "selectApiProvider('shop_cron')" in page
     assert "UPIBot Shop" in page
     assert "selectApiProvider('upibot')" in page
+    assert "Safwan Tiger" in page
+    assert "selectApiProvider('safwantiger')" in page
     assert "Clés Buyer API" in page
     assert "/api/swagger" in page
     assert "createBuyerApiKey" in page
