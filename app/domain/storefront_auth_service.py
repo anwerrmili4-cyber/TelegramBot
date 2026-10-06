@@ -36,6 +36,7 @@ from app.domain import (
     email_service,
     site_requests_service,
     storefront_invoice_service,
+    storefront_receipt_service,
     storefront_service,
     storefront_wallet_service,
 )
@@ -621,9 +622,9 @@ def warranty_proof(token: Any, proof_id: Any) -> tuple[bytes, str]:
         "customer_id": int(customer["id"]),
         "purpose": "warranty",
     })
-    if not row or not row.get("data"):
+    if not row or not (row.get("data") or row.get("object_key")):
         raise AuthError("Preuve introuvable.", status=404)
-    return bytes(row["data"]), str(row.get("content_type") or "image/jpeg")
+    return storefront_receipt_service.load_row(row)
 
 
 def open_warranty(token: Any, payload: dict[str, Any]) -> dict[str, Any]:

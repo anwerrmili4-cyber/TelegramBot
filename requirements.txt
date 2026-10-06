@@ -4,3 +4,4 @@ pymongo==4.10.1
 cryptography==48.0.1
 pywebpush==2.1.2
 reportlab==4.4.10
+boto3==1.43.108

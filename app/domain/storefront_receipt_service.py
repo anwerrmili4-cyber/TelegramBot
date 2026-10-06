@@ -1,7 +1,8 @@
 """Payment receipt screenshots uploaded by storefront customers.
 
 A receipt arrives as a ``data:`` URL inside the JSON body and is stored in
-MongoDB as raw bytes. Only PNG, JPEG and WebP are kept, and the declared type
+private object storage when configured, with legacy MongoDB support.
+Only PNG, JPEG and WebP are kept, and the declared type
 must match the file's own signature so nothing else can be served back to the
 admin as an image.
 """
@@ -17,6 +18,7 @@ from typing import Any
 from bson.binary import Binary
 
 import database as db
+from app.domain import receipt_object_storage
 
 MAX_RECEIPT_BYTES = 2_500_000
 # Base64 grows the file by a third; the JSON envelope adds little on top.
@@ -49,15 +51,19 @@ def store(data_url: Any, *, customer_id: int, purpose: str) -> int:
         raise ReceiptError("La capture du reçu est illisible.")
 
     receipt_id = db._next_id("storefront_receipts")
-    db.get_conn().storefront_receipts.insert_one({
+    row = {
         "id": receipt_id,
         "customer_id": int(customer_id),
         "purpose": purpose,
         "content_type": content_type,
         "size": len(data),
-        "data": Binary(data),
         "created_at": int(time.time()),
-    })
+    }
+    if receipt_object_storage.configured():
+        row.update(receipt_object_storage.upload(data, content_type))
+    else:
+        row["data"] = Binary(data)
+    db.get_conn().storefront_receipts.insert_one(row)
     return receipt_id
 
 
@@ -69,4 +75,11 @@ def load(receipt_id: Any) -> tuple[bytes, str] | None:
     row = db.get_conn().storefront_receipts.find_one({"id": receipt_id})
     if not row:
         return None
-    return bytes(row["data"]), str(row.get("content_type") or "application/octet-stream")
+    return load_row(row)
+
+
+def load_row(row: dict) -> tuple[bytes, str]:
+    """Load a row after its caller has checked ownership/authorization."""
+    data = (receipt_object_storage.read(row) if row.get("object_key")
+            else bytes(row["data"]))
+    return data, str(row.get("content_type") or "application/octet-stream")
