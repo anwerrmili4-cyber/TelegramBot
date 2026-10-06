@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -109,6 +111,17 @@ CANBOSO_PROVIDERS = {
     SHOP_CRON_PROVIDER,
 }
 log = logging.getLogger(__name__)
+_STOCK_REFRESH_SECONDS = 2.0
+_stock_refreshed_at: dict[str, float] = {}
+_stock_refresh_lock = threading.Lock()
+_OUT_OF_STOCK_STATUSES = {
+    "out_of_stock",
+    "sold_out",
+    "unavailable",
+    "empty",
+    "out",
+    "rupture",
+}
 
 
 class ResellerApiError(RuntimeError):
@@ -966,6 +979,131 @@ def provider_summaries() -> list[dict[str, Any]]:
     ]
 
 
+def _provider_is_configured(provider: str) -> bool:
+    """Return whether this process can call the supplier right now."""
+    flags = {
+        PROVIDER: bool(MAILREADER_API_KEY),
+        SHAMEKH_PROVIDER: bool(SHAMEKH_API_KEY),
+        KAKAO_PROVIDER: bool(KAKAO_API_KEY),
+        VEX_PROVIDER: bool(VEX_API_KEY),
+        NASTELE_PROVIDER: bool(NASTELE_API_KEY),
+        CANBOSO_PROVIDER: bool(CANBOSO_API_KEY),
+        GPT_CHEAP_PROVIDER: bool(GPT_CHEAP_API_KEY),
+        SHOP_CRON_PROVIDER: bool(SHOP_CRON_API_KEY),
+        UPIBOT_PROVIDER: bool(UPIBOT_API_KEY),
+        TOOLORAX_PROVIDER: bool(TOOLORAX_API_KEY),
+        CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
+        VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
+        PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
+    }
+    return bool(flags.get(str(provider or "").strip().lower()))
+
+
+def _raw_product_id(provider: str, raw: dict[str, Any]) -> str:
+    """Return the supplier product id used to link a local offer."""
+    if provider in CANBOSO_PROVIDERS:
+        value = raw.get("_id") or raw.get("productId") or raw.get("id")
+    else:
+        value = raw.get("id")
+    if value in (None, ""):
+        return ""
+    return str(value)
+
+
+def _as_count(value: Any) -> int | None:
+    """Parse a stock count. Zero stays zero; a missing value stays missing."""
+    if value is None or isinstance(value, bool) or isinstance(value, dict):
+        return None
+    try:
+        return int(Decimal(str(value)))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
+def _explicitly_unavailable(raw: dict[str, Any]) -> bool:
+    if raw.get("in_stock") is False or raw.get("is_available") is False:
+        return True
+    if raw.get("out_of_stock") is True or raw.get("sold_out") is True:
+        return True
+    if raw.get("available") is False:
+        return True
+    status = str(raw.get("stock_status") or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return status in _OUT_OF_STOCK_STATUSES
+
+
+def _explicitly_unlimited(raw: dict[str, Any]) -> bool:
+    if bool(raw.get("unlimited_stock") or raw.get("unlimited")):
+        return True
+    for key in ("stock", "stock_count"):
+        if key in raw and raw.get(key) in (-1, "-1"):
+            return True
+    return False
+
+
+def _count_from_keys(raw: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key not in raw or raw.get(key) is None:
+            continue
+        parsed = _as_count(raw.get(key))
+        return 0 if parsed is None else parsed
+    return 0
+
+
+def supplier_stock(provider: str, raw: dict[str, Any]) -> tuple[int, bool]:
+    """Return ``(stock, unlimited)`` exactly as the supplier reported it.
+
+    A count of zero is out of stock. A missing count is also out of stock,
+    except Rich AI Store codes whose ``stock`` is JSON null (unlimited) and
+    products that explicitly say they are unlimited. An out-of-stock flag
+    wins over a leftover positive count.
+    """
+    provider = str(provider or "").strip().lower()
+    if _explicitly_unavailable(raw):
+        return 0, False
+    if provider == CGPT_ACTIVE_PROVIDER and "stock" in raw and raw.get("stock") is None:
+        return 0, True
+    if _explicitly_unlimited(raw):
+        return 0, True
+    if provider in CANBOSO_PROVIDERS:
+        stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
+        availability = raw.get("availability") if isinstance(raw.get("availability"), dict) else {}
+        if "available" in stats:
+            parsed = _as_count(stats.get("available"))
+            return (0 if parsed is None else max(0, parsed)), False
+        if "available" in availability:
+            parsed = _as_count(availability.get("available"))
+            return (0 if parsed is None else max(0, parsed)), False
+        return 0, False
+    if provider in {SHAMEKH_PROVIDER, UPIBOT_PROVIDER, TOOLORAX_PROVIDER} or (
+        provider == PHAGIA_PROVIDER and raw.get("stock_count") is not None
+    ):
+        return max(0, _count_from_keys(raw, "stock_count", "stock")), False
+    return max(0, _count_from_keys(raw, "stock", "stock_count")), False
+
+
+def _clear_missing_supplier_stock(
+    provider: str,
+    saved: dict[str, dict[str, Any]],
+    seen_product_ids: set[str],
+) -> None:
+    """Zero linked offers whose product disappeared from a real catalog."""
+    if not seen_product_ids:
+        return
+    for product_id, config in saved.items():
+        if str(product_id) in seen_product_ids:
+            continue
+        local_offer_id = config.get("local_offer_id")
+        if not local_offer_id:
+            continue
+        db.update_offer(
+            int(local_offer_id),
+            stock=0,
+            unlimited_stock=False,
+            supplier_provider=provider,
+            supplier_product_id=str(product_id),
+        )
+
+
 def catalog(provider: str = PROVIDER) -> dict[str, Any]:
     """Fetch the live supplier catalog and overlay local retail selections."""
     provider = str(provider or PROVIDER).lower()
@@ -1080,6 +1218,13 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         row["product_id"]: row
         for row in db.list_reseller_product_configs(provider)
     }
+    seen_product_ids = {
+        product_id
+        for raw in raw_products
+        if isinstance(raw, dict)
+        for product_id in (_raw_product_id(provider, raw),)
+        if product_id
+    }
     products = []
     for raw in raw_products:
         if not isinstance(raw, dict):
@@ -1097,14 +1242,9 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             # Activation products require extra customer input and polling, so
             # keep them out of the publishable catalog for now.
             continue
-        raw_product_id = (
-            raw.get("_id") or raw.get("productId") or raw.get("id")
-            if provider in CANBOSO_PROVIDERS
-            else raw.get("id")
-        )
-        if not raw_product_id:
+        product_id = _raw_product_id(provider, raw)
+        if not product_id:
             continue
-        product_id = str(raw_product_id)
         try:
             canboso_price = raw.get("price")
             if isinstance(canboso_price, dict):
@@ -1145,37 +1285,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 wholesale = float(Decimal(str(phagia_price)))
         except (InvalidOperation, ValueError):
             wholesale = 0.0
-        stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
-        availability = (
-            raw.get("availability")
-            if isinstance(raw.get("availability"), dict)
-            else {}
-        )
-        unlimited_stock = (
-            (provider == CGPT_ACTIVE_PROVIDER and raw.get("stock") is None)
-            or (provider == VENTEBOT_PROVIDER and raw.get("stock") is None)
-            or (
-                provider == PHAGIA_PROVIDER
-                and raw.get("stock") is None
-                and raw.get("stock_count") is None
-            )
-            or (provider in {UPIBOT_PROVIDER, TOOLORAX_PROVIDER} and raw.get("stock_count") is None)
-            or (provider == PROVIDER and raw.get("stock") is None)
-            or raw.get("stock") == -1
-            or bool(raw.get("unlimited_stock") or raw.get("unlimited"))
-        )
-        stock = max(0, int(
-            (stats.get("available") or availability.get("available") or 0)
-            if provider in CANBOSO_PROVIDERS
-            else (
-                (raw.get("stock_count") or 0)
-                if (
-                    provider in {SHAMEKH_PROVIDER, UPIBOT_PROVIDER, TOOLORAX_PROVIDER}
-                    or (provider == PHAGIA_PROVIDER and raw.get("stock_count") is not None)
-                )
-                else raw.get("stock") or 0
-            )
-        ))
+        stock, unlimited_stock = supplier_stock(provider, raw)
         config = saved.get(product_id, {})
         retail_price = config.get("retail_price")
         local_offer_id = config.get("local_offer_id")
@@ -1283,6 +1393,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
             "low_stock_threshold": int(config.get("low_stock_threshold") or 5),
             "published": bool(config.get("local_offer_id")),
         })
+    _clear_missing_supplier_stock(provider, saved, seen_product_ids)
     used_count = sum(1 for product in products if product["enabled"])
     return {
         "ok": True,
@@ -1303,6 +1414,47 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         "used_count": used_count,
         "unused_count": len(products) - used_count,
     }
+
+
+def refresh_supplier_stock(offers: list[dict[str, Any]] | None = None) -> None:
+    """Rewrite linked offer stock from the live supplier catalogs.
+
+    Each configured provider is fetched at most once every couple of seconds.
+    A failed provider keeps the last saved number and can be tried again on
+    the next view. An empty or unconfigured provider is left untouched.
+    """
+    rows = offers if offers is not None else db.list_catalog_offers()
+    providers: list[str] = []
+    for offer in rows:
+        if not isinstance(offer, dict):
+            continue
+        provider = str(offer.get("supplier_provider") or "").strip().lower()
+        if provider in SUPPORTED_PROVIDERS and provider not in providers:
+            providers.append(provider)
+    now = time.monotonic()
+    due: list[str] = []
+    with _stock_refresh_lock:
+        for provider in providers:
+            if not _provider_is_configured(provider):
+                continue
+            if now - _stock_refreshed_at.get(provider, 0.0) < _STOCK_REFRESH_SECONDS:
+                continue
+            _stock_refreshed_at[provider] = now
+            due.append(provider)
+    if not due:
+        return
+
+    def _refresh_one(provider: str) -> None:
+        try:
+            catalog(provider)
+        except Exception:
+            log.exception("Supplier stock refresh failed for %s", provider)
+
+    if len(due) == 1:
+        _refresh_one(due[0])
+        return
+    with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
+        list(pool.map(_refresh_one, due))
 
 
 def detect_restock_events() -> dict[str, Any]:

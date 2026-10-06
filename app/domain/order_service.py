@@ -92,6 +92,11 @@ def create_order(
         raise ValueError("Bybit payments are disabled.")
     if not offer or offer.get("price") is None or not offer.get("active", 1):
         raise ValueError("Cette offre n'est pas disponible à l'achat.")
+    if offer.get("supplier_provider") and offer.get("id") is not None:
+        from app.domain import reseller_service
+
+        reseller_service.refresh_supplier_stock([offer])
+        offer = db.get_offer(int(offer["id"])) or offer
     if not preorder and not db.offer_has_stock(offer):
         raise ValueError("Cette offre est en rupture de stock.")
     if qty < 1:

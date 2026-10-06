@@ -279,6 +279,7 @@ def _requester(key: dict[str, Any]) -> dict[str, Any]:
 
 
 def products(key: dict[str, Any]) -> dict[str, Any]:
+    reseller_service.refresh_supplier_stock()
     conn = db.get_conn()
     services = {
         row["id"]: row

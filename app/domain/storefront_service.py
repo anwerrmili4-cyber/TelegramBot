@@ -317,6 +317,9 @@ _CATALOG_OFFER_FIELDS = {
 
 def catalog() -> dict[str, Any]:
     """Project the bot's live MongoDB catalog into a customer-safe response."""
+    from app.domain import reseller_service
+
+    reseller_service.refresh_supplier_stock()
     services: list[dict[str, Any]] = []
     used_categories: set[str] = set()
     flat_groups: dict[str, dict[str, Any]] = {}
@@ -458,7 +461,12 @@ def _requested_lines(payload: dict[str, Any]) -> list[tuple[int, int, str]]:
 
 def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, Any]:
     """Validate one cart line against the live catalog and price it in TND."""
+    from app.domain import reseller_service
+
     offer = db.get_offer(offer_id)
+    if offer and offer.get("supplier_provider"):
+        reseller_service.refresh_supplier_stock([offer])
+        offer = db.get_offer(offer_id)
     service = db.get_service(int(offer.get("service_id"))) if offer else None
     if not offer or not service or offer.get("archived") == 1:
         raise StorefrontError("Cette offre n'est plus disponible.")

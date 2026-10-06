@@ -1639,9 +1639,18 @@ async def announce_channel_purchase(context, order_id):
 async def safely_announce_channel_purchase(context, order_id):
     return False
 
+async def _load_offer_with_live_stock(offer_id):
+    """Re-read one offer after its supplier stock has been refreshed."""
+    offer = db.get_offer(offer_id)
+    if not offer:
+        return None
+    await asyncio.to_thread(reseller_service.refresh_supplier_stock, [offer])
+    return db.get_offer(offer.get("id", offer_id))
+
+
 async def show_deep_link_offer(update, lang, offer_id):
     """Open one channel-advertised offer safely in the customer's private chat."""
-    offer = db.get_offer(int(offer_id))
+    offer = await _load_offer_with_live_stock(int(offer_id))
     if not offer or not db.offer_has_stock(offer):
         await update.message.reply_text(
             premium_customer_text(lang, "out_of_stock"),
@@ -1677,6 +1686,8 @@ async def show_service_offers(update, context, lang, service_id):
         await show_catalog(update, context, lang)
         return
 
+    offers = db.list_offers(int(service_id))
+    await asyncio.to_thread(reseller_service.refresh_supplier_stock, offers)
     offers = db.list_offers(int(service_id))
     if len(offers) == 1:
         await show_deep_link_offer(update, lang, offers[0]["id"])
@@ -2233,6 +2244,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------------- Catalogue (client) ----------------
 async def show_catalog(update, context, lang):
+    await asyncio.to_thread(reseller_service.refresh_supplier_stock)
     text = t(lang, "catalog_flat_title", shop=SHOP_NAME)
     msg = update.message or update.callback_query.message
     notifications_enabled = db.catalog_notifications_enabled(update.effective_user.id)
@@ -2486,6 +2498,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_main_menu(update, context, lang)
         return
     if data == "catalog":
+        await asyncio.to_thread(reseller_service.refresh_supplier_stock)
         await show_callback_screen(
             q,
             t(lang, "catalog_flat_title", shop=SHOP_NAME),
@@ -2497,6 +2510,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "catalog_notifications_toggle":
         enabled = not db.catalog_notifications_enabled(uid)
         db.set_catalog_notifications_enabled(uid, enabled)
+        await asyncio.to_thread(reseller_service.refresh_supplier_stock)
         await q.edit_message_reply_markup(
             reply_markup=kb.catalog_offers_keyboard(lang, enabled),
         )
@@ -2883,6 +2897,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sid = int(data.split(":")[1])
         service = db.get_service(sid)
         if not service:
+            await asyncio.to_thread(reseller_service.refresh_supplier_stock)
             await show_callback_screen(
                 q,
                 t(lang, "catalog_flat_title", shop=SHOP_NAME),
@@ -2891,6 +2906,8 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
             )
             return
+        offers = db.list_offers(sid)
+        await asyncio.to_thread(reseller_service.refresh_supplier_stock, offers)
         offers = db.list_offers(sid)
         if len(offers) == 1:
             # Continue through the regular offer-detail branch below so old
@@ -2914,6 +2931,9 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except (ValueError, TypeError):
             oid = raw_oid
         off = db.get_offer(oid) or db.get_offer(str(raw_oid))
+        if off:
+            await asyncio.to_thread(reseller_service.refresh_supplier_stock, [off])
+            off = db.get_offer(off.get("id", oid))
         if not off or not db.offer_has_stock(off):
             await q.message.reply_text(
                 premium_customer_text(lang, "out_of_stock"),
@@ -3212,7 +3232,7 @@ async def handle_quantity_selection(update, context, lang):
     q = update.callback_query
     parts = q.data.split(":")
     offer_id = int(parts[1])
-    offer = db.get_offer(offer_id)
+    offer = await _load_offer_with_live_stock(offer_id)
 
     if not offer or offer.get("price") is None or not db.offer_has_stock(offer):
         await q.answer(t(lang, "out_of_stock"), show_alert=True)
@@ -3251,7 +3271,7 @@ async def handle_quantity_selection(update, context, lang):
 
 async def send_buy_confirmation(send, uid, offer_id, qty, lang):
     """Validate a quantity and display the purchase summary."""
-    offer = db.get_offer(offer_id)
+    offer = await _load_offer_with_live_stock(offer_id)
     if not offer or offer.get("price") is None:
         return False
     if _is_single_unit_offer(offer):
@@ -3340,7 +3360,7 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
     if len(parts) > 3 and parts[3] == "preorder":
         await q.message.reply_text(t(lang, "out_of_stock"))
         return
-    offer = db.get_offer(offer_id)
+    offer = await _load_offer_with_live_stock(offer_id)
     if _is_single_unit_offer(offer):
         qty = 1
 
@@ -3430,7 +3450,7 @@ async def handle_pending_input(update, context, lang):
 
     if kind == "await_quantity":
         ref_id = ref
-        offer = db.get_offer(int(ref_id))
+        offer = await _load_offer_with_live_stock(int(ref_id))
         try:
             qty = int(text)
         except ValueError:

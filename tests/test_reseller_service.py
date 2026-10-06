@@ -1584,3 +1584,211 @@ def test_nastele_catalog_and_fulfillment(monkeypatch, mock_mongodb):
     fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 99})
     assert fulfillment["supplier_order_id"] == "2244"
 
+
+def test_supplier_stock_keeps_zero_and_honors_out_of_stock_flags():
+    assert reseller_service.supplier_stock("canboso", {
+        "stats": {"available": 0},
+        "availability": {"available": 41},
+    }) == (0, False)
+    assert reseller_service.supplier_stock("canboso", {
+        "availability": {"available": 0},
+    }) == (0, False)
+    assert reseller_service.supplier_stock("upibot", {
+        "in_stock": False,
+        "stock_count": 94,
+    }) == (0, False)
+    assert reseller_service.supplier_stock("upibot", {"name": "Missing count"}) == (0, False)
+    assert reseller_service.supplier_stock("toolorax", {"stock_count": None}) == (0, False)
+    assert reseller_service.supplier_stock("mailreader", {"stock": None}) == (0, False)
+    assert reseller_service.supplier_stock("ventebot", {"stock": None}) == (0, False)
+    assert reseller_service.supplier_stock("phagia", {"stock": None, "stock_count": None}) == (0, False)
+    assert reseller_service.supplier_stock("mailreader", {"stock": -1}) == (0, True)
+    assert reseller_service.supplier_stock("kakao", {"stock": 4, "unlimited": True}) == (0, True)
+    assert reseller_service.supplier_stock("cgpt_active", {"stock": None}) == (0, True)
+    assert reseller_service.supplier_stock("shamekh", {"stock_count": 0}) == (0, False)
+    assert reseller_service.supplier_stock("nastele", {"stock": "15"}) == (15, False)
+
+
+def test_canboso_zero_stock_is_not_replaced_by_availability(monkeypatch, mock_mongodb):
+    def fake_request(path, **_kwargs):
+        if path == "/balance":
+            return {"success": True, "walletCurrency": "USD", "balance": 1}
+        return {
+            "success": True,
+            "products": [{
+                "productId": "empty-account",
+                "name": "Empty account",
+                "price": {"amount": 1.0, "currency": "USD"},
+                "stats": {"available": 0},
+                "availability": {"available": 41},
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_canboso_request_json", fake_request)
+
+    product = reseller_service.catalog("canboso")["products"][0]
+
+    assert product["stock"] == 0
+    assert product["unlimited_stock"] is False
+
+
+def test_upibot_out_of_stock_flag_clears_a_positive_count(monkeypatch, mock_mongodb):
+    def fake_request(path, **_kwargs):
+        if path == "/me":
+            return {"ok": True, "deposit_balance": 1}
+        return {
+            "ok": True,
+            "products": [{
+                "id": 18,
+                "name": "Outlook",
+                "sell_price": 0.04,
+                "in_stock": False,
+                "stock_count": 94,
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_upibot_request_json", fake_request)
+
+    product = reseller_service.catalog("upibot")["products"][0]
+
+    assert product["stock"] == 0
+    assert product["unlimited_stock"] is False
+
+
+def _linked_offer(provider, product_id, stock, *, unlimited=False):
+    service_id = db.add_service(provider, "📦")
+    offer_id = db.add_offer(
+        service_id,
+        product_id,
+        3.0,
+        stock,
+        unlimited_stock=unlimited,
+        supplier_provider=provider,
+        supplier_product_id=product_id,
+    )
+    db.save_reseller_product_config(
+        provider,
+        product_id,
+        name=product_id,
+        wholesale_price=1.0,
+        currency="USDT",
+        retail_price=3.0,
+        enabled=True,
+        service_id=service_id,
+        local_offer_id=offer_id,
+    )
+    return offer_id
+
+
+def test_a_product_missing_from_a_live_catalog_is_marked_out_of_stock(monkeypatch, mock_mongodb):
+    vanished = _linked_offer("ventebot", "16", 101)
+    kept = _linked_offer("ventebot", "17", 8)
+
+    def fake_request(path, **_kwargs):
+        if path == "/api/reseller/me":
+            return {"success": True, "wallet_balance": 1}
+        return {
+            "success": True,
+            "products": [{
+                "id": 17,
+                "name": "Manual activation",
+                "price_usd": 2.0,
+                "delivery_type": "activation",
+                "stock": None,
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_ventebot_request_json", fake_request)
+
+    reseller_service.catalog("ventebot")
+
+    assert db.get_offer(vanished)["stock"] == 0
+    assert db.get_offer(vanished)["unlimited_stock"] is False
+    assert db.get_offer(kept)["stock"] == 8
+
+
+def test_an_empty_supplier_payload_does_not_wipe_linked_stock(monkeypatch, mock_mongodb):
+    offer_id = _linked_offer("mailreader", "mail_100", 12)
+    monkeypatch.setattr(reseller_service, "_request_json", lambda _path: {
+        "ok": True,
+        "reseller": {"name": "Demo", "balance": "1"},
+        "products": [],
+    })
+
+    result = reseller_service.catalog("mailreader")
+
+    assert result["products"] == []
+    assert db.get_offer(offer_id)["stock"] == 12
+
+
+def test_refresh_writes_a_decrease_and_an_increase_immediately(monkeypatch, mock_mongodb):
+    reseller_service._stock_refreshed_at.clear()
+    offer_id = _linked_offer("mailreader", "sku-live", 3, unlimited=True)
+    stock = {"value": 7}
+    calls = {"n": 0}
+
+    def fake_request(_path):
+        calls["n"] += 1
+        return {
+            "ok": True,
+            "reseller": {"name": "Demo", "balance": "1"},
+            "products": [{
+                "id": "sku-live",
+                "name": "Live",
+                "wholesale_price": "1.00",
+                "stock": stock["value"],
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "MAILREADER_API_KEY", "configured")
+    monkeypatch.setattr(reseller_service, "_request_json", fake_request)
+
+    reseller_service.refresh_supplier_stock([db.get_offer(offer_id)])
+
+    increased = db.get_offer(offer_id)
+    assert increased["stock"] == 7
+    assert increased["unlimited_stock"] is False
+    assert calls["n"] == 1
+
+    stock["value"] = 0
+    reseller_service.refresh_supplier_stock([db.get_offer(offer_id)])
+    assert db.get_offer(offer_id)["stock"] == 7
+    assert calls["n"] == 1
+
+    reseller_service._stock_refreshed_at.clear()
+    reseller_service.refresh_supplier_stock([db.get_offer(offer_id)])
+    decreased = db.get_offer(offer_id)
+    assert decreased["stock"] == 0
+    assert decreased["unlimited_stock"] is False
+    assert calls["n"] == 2
+
+    reseller_service._stock_refreshed_at.clear()
+    stock["value"] = 4
+    reseller_service.refresh_supplier_stock([db.get_offer(offer_id)])
+    assert db.get_offer(offer_id)["stock"] == 4
+    reseller_service._stock_refreshed_at.clear()
+
+
+def test_purchase_is_refused_when_the_supplier_just_ran_out(monkeypatch, mock_mongodb):
+    from app.domain import order_service
+
+    reseller_service._stock_refreshed_at.clear()
+    offer_id = _linked_offer("mailreader", "sku-live", 5)
+    monkeypatch.setattr(reseller_service, "MAILREADER_API_KEY", "configured")
+    monkeypatch.setattr(reseller_service, "_request_json", lambda _path: {
+        "ok": True,
+        "reseller": {"name": "Demo", "balance": "9"},
+        "products": [{
+            "id": "sku-live",
+            "name": "Live",
+            "wholesale_price": "1.00",
+            "stock": 0,
+        }],
+    })
+
+    with pytest.raises(ValueError, match="rupture"):
+        order_service.create_order(12345, db.get_offer(offer_id), qty=1)
+
+    assert db.get_offer(offer_id)["stock"] == 0
+    reseller_service._stock_refreshed_at.clear()
+
