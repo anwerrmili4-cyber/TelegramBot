@@ -615,6 +615,88 @@ def test_live_admin_notifications_reference_real_entities(mock_mongodb):
     assert result["summary"]["critical"] == 1
 
 
+def test_site_carts_and_deposits_reach_the_admin_bell(mock_mongodb):
+    now = int(time.time())
+    mock_mongodb.orders.insert_many([
+        {
+            "id": 1, "sales_channel": "tn_site", "cart_reference": "TN-PAY1",
+            "status": "manual_review", "customer_name": "Amine", "offer_name": "ChatGPT Plus",
+            "cart_total_millimes": 25000, "payment_method": "d17", "created_at": now - 30,
+        },
+        {
+            "id": 2, "sales_channel": "tn_site", "cart_reference": "TN-SHIP1", "cart_position": 0,
+            "status": "payment_confirmed", "customer_name": "Sana", "offer_name": "Netflix",
+            "cart_total_millimes": 18000, "payment_method": "wallet", "created_at": now - 19,
+        },
+        {
+            "id": 3, "sales_channel": "tn_site", "cart_reference": "TN-SHIP1", "cart_position": 1,
+            "status": "payment_confirmed", "customer_name": "Sana", "offer_name": "Spotify",
+            "cart_total_millimes": 18000, "payment_method": "wallet", "created_at": now - 20,
+        },
+        {
+            "id": 4, "sales_channel": "tn_site", "cart_reference": "TN-OLD",
+            "status": "delivered", "customer_name": "Ancien", "offer_name": "Archive",
+            "cart_total_millimes": 1000, "created_at": now - 90000, "delivered_at": now - 90000,
+        },
+        {
+            "id": 5, "user_id": 42, "status": "manual_review", "offer_name": "Bot",
+            "created_at": now - 10,
+        },
+    ])
+    mock_mongodb.storefront_deposits.insert_many([
+        {
+            "id": 7, "status": "pending", "customer_name": "Amine",
+            "amount_millimes": 50000, "method": "flouci", "created_at": now - 5,
+        },
+        {
+            "id": 8, "status": "approved", "customer_name": "Sana",
+            "credited_millimes": 12000, "method": "d17", "reviewed_at": now - 4,
+        },
+    ])
+
+    items = dashboard_api.list_admin_notifications(complete=True)["items"]
+    by_id = {item["id"]: item for item in items}
+
+    verify = by_id["site-order:TN-PAY1:to_verify"]
+    assert verify["category"] == "order"
+    assert verify["title"] == "Commande du site à vérifier"
+    assert verify["actionable"] is True
+    assert "Amine" in verify["message"]
+    assert "25,000 DT" in verify["message"]
+    assert "D17" in verify["message"]
+    assert verify["target"] == {
+        "page": "site-orders",
+        "entity_id": "TN-PAY1",
+        "query": {"cart": "TN-PAY1", "status": "to_verify", "search": "TN-PAY1"},
+    }
+
+    ship = by_id["site-order:TN-SHIP1:to_deliver"]
+    assert ship["title"] == "Commande du site à livrer"
+    assert "Netflix et Spotify" in ship["message"]
+    assert "Portefeuille" in ship["message"]
+    assert ship["target"]["page"] == "site-orders"
+    assert ship["target"]["query"]["status"] == "confirmed"
+    assert "site-order:TN-OLD:delivered" not in by_id
+
+    deposit = by_id["site-deposit:7:pending"]
+    assert deposit["category"] == "deposit"
+    assert deposit["title"] == "Recharge du site à vérifier"
+    assert "50,000 DT" in deposit["message"]
+    assert "Flouci" in deposit["message"]
+    assert deposit["target"] == {
+        "page": "site-deposits",
+        "entity_id": 7,
+        "query": {"deposit": 7, "status": "pending"},
+    }
+    credited = by_id["site-deposit:8:approved"]
+    assert credited["actionable"] is False
+    assert credited["target"]["query"]["status"] == "approved"
+
+    bot = by_id["order:5:manual_review"]
+    assert bot["target"] == {"page": "orders", "entity_id": 5}
+    assert "TN-PAY1" not in bot["message"]
+
+
 def test_order_detail_exposes_manual_delivery_and_customer(mock_mongodb):
     mock_mongodb.users.insert_one({"telegram_id": 42, "username": "buyer", "first_name": "Sam", "last_name": "Martin"})
     mock_mongodb.orders.insert_one({

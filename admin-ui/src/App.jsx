@@ -345,6 +345,8 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
     deposit: CircleDollarSign,
     withdrawal: CircleDollarSign,
     support: Headphones,
+    product_request: PackageSearch,
+    review: Star,
     warranty: ShieldCheck,
     stock: Boxes,
     system: Activity,
@@ -363,7 +365,7 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
           {loading && !notifications.length ? <div className="notification-loading"><RefreshCw className="spin" size={19} />Lecture des événements réels…</div> : visible.length === 0 ? <div className="search-empty"><CheckCheck size={25} /><strong>{notifications.length ? "Aucun résultat pour ces filtres" : "Aucune notification"}</strong><span>{notifications.length ? "Les nouvelles opérations apparaîtront automatiquement." : "Aucune intervention n’est nécessaire actuellement."}</span></div> : visible.map((notification) => {
             const Icon = iconFor(notification);
             const read = isRead(notification);
-            return <button key={notification.id} onClick={() => { onMarkRead(notification.id); onNavigate(notification.target?.page || "overview", notification.target?.entity_id); onClose(); }} className={`${notification.severity || "info"} ${read ? "is-read" : "is-unread"}`}>
+            return <button key={notification.id} onClick={() => { onMarkRead(notification.id); onNavigate(notification.target?.page || "overview", notification.target?.entity_id, notification.target?.query); onClose(); }} className={`${notification.severity || "info"} ${read ? "is-read" : "is-unread"}`}>
               <span><Icon size={17} /></span><div><header><strong>{notification.title}</strong><time>{relativeDate(notification.created_at)}</time></header><small>{notification.message}</small><em>{notification.actionable ? "Ouvrir et traiter" : "Voir les détails"}</em></div>{!read && <i className="unread-dot" aria-label="Non lue" />}<ChevronRight size={16} />
             </button>;
           })}

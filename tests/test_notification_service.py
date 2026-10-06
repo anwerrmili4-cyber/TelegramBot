@@ -163,6 +163,73 @@ def test_subscription_keeps_admin_origin_for_background_navigation(monkeypatch, 
     assert result["diagnostics"]["provider"] == "Apple Push"
 
 
+def test_site_push_opens_the_cart_and_the_deposit(monkeypatch, mock_mongodb):
+    import pywebpush
+
+    captured = []
+    monkeypatch.setattr(pywebpush, "webpush", lambda **kwargs: captured.append(kwargs))
+    device = {"_id": "device", "subscription": subscription(), "preferences": {"private": False}, "app_origin": "https://admin.example.com"}
+    cart = event("site-order:TN-PAY1:to_verify", "order")
+    cart["target"] = {
+        "page": "site-orders",
+        "entity_id": "TN-PAY1",
+        "query": {"cart": "TN-PAY1", "status": "to_verify", "search": "TN-PAY1"},
+    }
+    deposit = event("site-deposit:7:pending", "deposit")
+    deposit["target"] = {
+        "page": "site-deposits",
+        "entity_id": 7,
+        "query": {"deposit": 7, "status": "pending"},
+    }
+
+    assert service._send(device, cart)
+    assert service._send(device, deposit)
+
+    opened = [json.loads(call["data"])["notification"]["data"]["url"] for call in captured]
+    assert opened == [
+        "/admin/site-orders?cart=TN-PAY1&status=to_verify&search=TN-PAY1",
+        "/admin/site-deposits?deposit=7&status=pending",
+    ]
+
+
+def test_existing_all_category_devices_receive_site_reviews(monkeypatch, mock_mongodb):
+    items = []
+    monkeypatch.setattr(dashboard_api, "list_admin_notifications", lambda *_: {"items": items})
+    sub = subscription()
+    service.device_action({
+        "action": "subscribe",
+        "subscription": sub,
+        "preferences": {"categories": sorted(service._LEGACY_ALL_CATEGORIES)},
+    })
+    sent = []
+    monkeypatch.setattr(service, "_send", lambda device, item: sent.append(item["id"]) or True)
+    items.append(event("site-review:4:pending", "review", "warning"))
+    service.deliver_pending()
+    assert sent == ["site-review:4:pending"]
+
+
+def test_a_new_site_cart_is_snapshotted_for_push(monkeypatch, mock_mongodb):
+    items = []
+    monkeypatch.setattr(dashboard_api, "list_admin_notifications", lambda *_args, **_kwargs: {"items": items})
+    service.device_action({"action": "subscribe", "subscription": subscription()})
+    now = int(time.time())
+    mock_mongodb.orders.insert_one({
+        "id": 91, "sales_channel": "tn_site", "cart_reference": "TN-NEW",
+        "status": "manual_review", "customer_name": "Amine", "offer_name": "ChatGPT Plus",
+        "cart_total_millimes": 25000, "payment_method": "d17", "created_at": now,
+    })
+    items.append({
+        "id": "site-order:TN-NEW:to_verify",
+        "category": "order",
+        "severity": "warning",
+        "title": "Commande du site à vérifier",
+        "message": "Panier TN-NEW",
+        "target": {"page": "site-orders", "entity_id": "TN-NEW"},
+    })
+    db.audit_event("storefront.cart_created", details={"cart_reference": "TN-NEW"})
+    assert mock_mongodb.admin_notification_outbox.find_one({"_id": "site-order:TN-NEW:to_verify"})
+
+
 def test_order_push_opens_the_full_order_page(monkeypatch, mock_mongodb):
     import pywebpush
 

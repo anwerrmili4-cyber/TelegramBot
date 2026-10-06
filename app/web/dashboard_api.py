@@ -799,6 +799,25 @@ def customer_detail(user_id: int) -> dict[str, Any] | None:
     return result
 
 
+def _dinars(millimes: Any) -> str:
+    whole, fraction = divmod(max(0, int(millimes or 0)), 1000)
+    return f"{whole},{fraction:03d} DT"
+
+
+_SITE_METHOD_LABELS = {
+    "wallet": "Portefeuille",
+    "d17": "D17",
+    "flouci": "Flouci",
+    "izi": "IZI",
+    "wafacash": "Wafa Cash",
+}
+
+
+def _site_method(value: Any) -> str:
+    method = str(value or "").strip().lower()
+    return _SITE_METHOD_LABELS.get(method, method.upper() or "paiement")
+
+
 def _event_timestamp(value: Any) -> float:
     """Normalize mixed MongoDB date formats for a stable CRM timeline."""
     if isinstance(value, (int, float)):
@@ -809,6 +828,147 @@ def _event_timestamp(value: Any) -> float:
         with suppress(ValueError):
             return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
     return 0.0
+
+
+def _cart_label(lines: list[dict[str, Any]]) -> str:
+    names: list[str] = []
+    for line in lines:
+        name = str(line.get("offer_name") or line.get("service_name") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    if not names:
+        return "Commande"
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} et {names[1]}"
+    return f"{names[0]} et {len(names) - 1} autres"
+
+
+def _append_site_order_alerts(add, conn, now: int, complete: bool) -> None:
+    """Notify the admin about Tunisian carts the bot feed deliberately ignores."""
+    actionable_statuses = [
+        "manual_review", "paid", "payment_confirmed", "preparing_delivery", "stock_issue",
+    ]
+    fields = {
+        "cart_reference": 1, "status": 1, "customer_name": 1, "customer_email": 1,
+        "offer_name": 1, "service_name": 1, "cart_total_millimes": 1, "total_millimes": 1,
+        "payment_method": 1, "created_at": 1, "updated_at": 1, "paid_at": 1, "delivered_at": 1,
+    }
+    lines = list(conn.orders.find({
+        "sales_channel": "tn_site",
+        "cart_reference": {"$exists": True, "$ne": ""},
+        "$or": [
+            {"status": {"$in": actionable_statuses}},
+            {"status": "delivered", "created_at": {"$gte": now - 86400}},
+        ],
+    }, fields).sort("created_at", DESCENDING).limit(0 if complete else 120))
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for line in lines:
+        reference = str(line.get("cart_reference") or "").strip()
+        if not reference:
+            continue
+        if reference not in grouped:
+            order.append(reference)
+            grouped[reference] = []
+        grouped[reference].append(line)
+
+    to_handle: list[tuple] = []
+    delivered: list[tuple] = []
+    deliver_statuses = {"paid", "payment_confirmed", "preparing_delivery", "stock_issue"}
+    for reference in order:
+        cart = grouped[reference]
+        statuses = {str(line.get("status") or "") for line in cart}
+        if statuses <= {"cancelled"}:
+            continue
+        first = cart[0]
+        total = int(first.get("cart_total_millimes") or 0) or sum(int(line.get("total_millimes") or 0) for line in cart)
+        who = str(first.get("customer_name") or first.get("customer_email") or "Client site")
+        message = f"Panier {reference} · {who} · {_cart_label(cart)} · {_dinars(total)} · {_site_method(first.get('payment_method'))}"
+        stamp = max(
+            (_event_timestamp(line.get("updated_at") or line.get("paid_at") or line.get("delivered_at") or line.get("created_at")) for line in cart),
+            default=0,
+        ) or first.get("created_at")
+        if "manual_review" in statuses:
+            kind, title, bucket, page_status = "to_verify", "Commande du site à vérifier", to_handle, "to_verify"
+        elif statuses <= {"delivered"}:
+            newest = max(
+                (_event_timestamp(line.get("delivered_at") or line.get("updated_at") or line.get("created_at")) for line in cart),
+                default=0,
+            )
+            if newest and newest < now - 86400:
+                continue
+            kind, title, bucket, page_status = "delivered", "Commande du site livrée", delivered, "delivered"
+            stamp = newest or stamp
+        elif statuses & deliver_statuses:
+            kind, title, bucket, page_status = "to_deliver", "Commande du site à livrer", to_handle, "confirmed"
+        else:
+            continue
+        bucket.append((reference, kind, title, message, stamp, page_status))
+
+    if not complete:
+        to_handle = to_handle[:40]
+        delivered = delivered[:12]
+    for reference, kind, title, message, stamp, page_status in (*to_handle, *delivered):
+        add(
+            f"site-order:{reference}:{kind}",
+            category="sale" if kind == "delivered" else "order",
+            severity="success" if kind == "delivered" else "warning",
+            title=title,
+            message=message,
+            page="site-orders",
+            entity_id=reference,
+            created_at=stamp,
+            actionable=kind != "delivered",
+            query={"cart": reference, "status": page_status, "search": reference},
+        )
+
+
+def _append_site_deposit_alerts(add, conn, now: int, complete: bool) -> None:
+    """Notify the admin when a site wallet top-up is waiting or was just credited."""
+    pending = list(conn.storefront_deposits.find(
+        {"status": "pending"},
+    ).sort("created_at", DESCENDING).limit(0 if complete else 30))
+    for deposit in pending:
+        deposit_id = deposit.get("id")
+        add(
+            f"site-deposit:{deposit_id}:pending",
+            category="deposit",
+            severity="warning",
+            title="Recharge du site à vérifier",
+            message=(
+                f"{deposit.get('customer_name') or deposit.get('customer_email') or 'Client site'} · "
+                f"{_dinars(deposit.get('amount_millimes'))} · {_site_method(deposit.get('method'))}"
+            ),
+            page="site-deposits",
+            entity_id=deposit_id,
+            created_at=deposit.get("created_at"),
+            query={"deposit": deposit_id, "status": "pending"},
+        )
+
+    approved = list(conn.storefront_deposits.find({
+        "status": "approved",
+        "reviewed_at": {"$gte": now - 86400},
+    }).sort("reviewed_at", DESCENDING).limit(0 if complete else 12))
+    for deposit in approved:
+        deposit_id = deposit.get("id")
+        credited = deposit.get("credited_millimes") or deposit.get("amount_millimes")
+        add(
+            f"site-deposit:{deposit_id}:approved",
+            category="deposit",
+            severity="success",
+            title="Recharge du site créditée",
+            message=(
+                f"{deposit.get('customer_name') or deposit.get('customer_email') or 'Client site'} · "
+                f"+{_dinars(credited)}"
+            ),
+            page="site-deposits",
+            entity_id=deposit_id,
+            created_at=deposit.get("reviewed_at") or deposit.get("created_at"),
+            actionable=False,
+            query={"deposit": deposit_id, "status": "approved"},
+        )
 
 
 def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[str, Any]:
@@ -861,7 +1021,11 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
         created_at: Any,
         entity_id: Any = None,
         actionable: bool = True,
+        query: dict[str, Any] | None = None,
     ) -> None:
+        target: dict[str, Any] = {"page": page, "entity_id": entity_id}
+        if query:
+            target["query"] = query
         notifications.append({
             "id": notification_id,
             "category": category,
@@ -870,7 +1034,7 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             "message": message,
             "created_at": created_at,
             "actionable": actionable,
-            "target": {"page": page, "entity_id": entity_id},
+            "target": target,
         })
 
     order_statuses = [
@@ -1077,6 +1241,9 @@ def list_admin_notifications(limit: int = 100, complete: bool = False) -> dict[s
             message=str(details.get("message") or details.get("error") or event.get("action") or "Erreur à examiner"),
             page="activity", entity_id=event_id, created_at=event.get("created_at"),
         )
+
+    _append_site_order_alerts(add, conn, now, complete)
+    _append_site_deposit_alerts(add, conn, now, complete)
 
     priority = {"error": 0, "warning": 1, "success": 2, "info": 3}
     notifications.sort(key=lambda item: (
