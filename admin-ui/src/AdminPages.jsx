@@ -1,6 +1,7 @@
 import AiManagerPage from "./pages/AiManagerPage.jsx";
 import ActivityPage from "./pages/ActivityPage.jsx";
 import ApiProductsPage from "./pages/ApiProductsPage.jsx";
+import ProviderHistoryPage from "./pages/ProviderHistoryPage.jsx";
 import BinanceWalletPage from "./pages/BinanceWalletPage.jsx";
 import CatalogPage from "./pages/CatalogPage.jsx";
 import CustomersPage from "./pages/CustomersPage.jsx";
@@ -34,6 +35,7 @@ export default function AdminPage({
   if (page === "orders") return <OrdersPage {...props} />;
   if (page === "catalog") return <CatalogPage {...props} />;
   if (page === "api-products") return <ApiProductsPage {...props} />;
+  if (page === "provider-history") return <ProviderHistoryPage {...props} />;
   if (page === "api-clients") return <ResellerClientsPage {...props} />;
   if (page === "inventory") return <InventoryPage {...props} />;
   if (page === "customers") return <CustomersPage {...props} />;

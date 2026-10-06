@@ -12,7 +12,7 @@ from typing import Any
 from pymongo import DESCENDING
 
 import database as db
-from app.domain import loyalty_service
+from app.domain import loyalty_service, reseller_service
 
 
 def _admin_order(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1570,6 +1570,96 @@ def list_wallet_topups(params: dict[str, list[str]]) -> dict[str, Any]:
         "pages": max(1, (total + per_page - 1) // per_page),
         "status": status,
         "summary": summary,
+    }
+
+
+PROVIDER_TRANSACTION_STATUSES = ("purchasing", "completed", "delivery_pending", "not_created", "review_required")
+_PROVIDER_TRANSACTION_FIELDS = (
+    "provider", "external_order_id", "order_id", "supplier_product_id", "supplier_order_id",
+    "status", "quantity", "purchase_unit_cost", "purchase_cost_total", "purchase_cost_currency",
+    "created_at", "updated_at",
+)
+_PROVIDER_TRANSACTION_SEARCH_FIELDS = ("external_order_id", "supplier_order_id", "supplier_product_id")
+
+
+def list_provider_transactions(params: dict[str, list[str]]) -> dict[str, Any]:
+    """Return stored supplier API purchases without delivered contents."""
+    page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
+    per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
+    provider = _first(params, "provider") or "all"
+    status = _first(params, "status") or "all"
+    query_parts: list[dict[str, Any]] = []
+    if provider in reseller_service.SUPPORTED_PROVIDERS:
+        query_parts.append({"provider": provider})
+    if status in PROVIDER_TRANSACTION_STATUSES:
+        query_parts.append({"status": status})
+
+    search = _first(params, "search")
+    if search:
+        search_field = _first(params, "search_field") or "all"
+        pattern = {"$regex": re.escape(search), "$options": "i"}
+        clauses: list[dict[str, Any]] = [
+            {field: pattern}
+            for field in _PROVIDER_TRANSACTION_SEARCH_FIELDS
+            if search_field in {"all", field}
+        ]
+        order_number = search.removeprefix("#")
+        if order_number.isdigit() and search_field in {"all", "order_id"}:
+            clauses.append({"order_id": int(order_number)})
+        query_parts.append({"$or": clauses} if clauses else {"_id": None})
+
+    query: dict[str, Any] = {"$and": query_parts} if query_parts else {}
+    collection = db.get_conn().reseller_fulfillments
+    total = collection.count_documents(query)
+    direction = 1 if _first(params, "direction") == "asc" else DESCENDING
+    rows = list(
+        collection.find(query, {field: 1 for field in _PROVIDER_TRANSACTION_FIELDS})
+        .sort([("created_at", direction), ("_id", direction)])
+        .skip((page - 1) * per_page)
+        .limit(per_page)
+    )
+    order_ids = [row["order_id"] for row in rows if isinstance(row.get("order_id"), int)]
+    orders = {
+        order["id"]: order
+        for order in db.get_conn().orders.find(
+            {"id": {"$in": order_ids}}, {"id": 1, "offer_name": 1, "service_name": 1},
+        )
+    } if order_ids else {}
+
+    items = []
+    for row in rows:
+        item = {field: row.get(field) for field in _PROVIDER_TRANSACTION_FIELDS}
+        order = orders.get(row.get("order_id"))
+        item["order_exists"] = order is not None
+        item["product_name"] = (order or {}).get("offer_name") or (order or {}).get("service_name") or ""
+        item["provider_name"] = reseller_service.PROVIDER_DISPLAY_NAMES.get(str(row.get("provider") or ""), str(row.get("provider") or ""))
+        items.append(item)
+
+    summary: dict[str, Any] = {"count": total, "completed": 0, "needs_review": 0, "costs": {}}
+    for row in collection.find(query, {"status": 1, "purchase_cost_total": 1, "purchase_cost_currency": 1}):
+        row_status = row.get("status")
+        if row_status == "completed":
+            summary["completed"] += 1
+        elif row_status in {"review_required", "delivery_pending"}:
+            summary["needs_review"] += 1
+        cost = row.get("purchase_cost_total")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            currency = str(row.get("purchase_cost_currency") or "USDT")
+            summary["costs"][currency] = summary["costs"].get(currency, 0.0) + float(cost)
+    summary["costs"] = {currency: round(amount, 4) for currency, amount in summary["costs"].items()}
+
+    return {
+        "items": items,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": max(1, (total + per_page - 1) // per_page),
+        "summary": summary,
+        "providers": [
+            {"id": provider_id, "name": reseller_service.PROVIDER_DISPLAY_NAMES.get(provider_id, provider_id)}
+            for provider_id in sorted(reseller_service.SUPPORTED_PROVIDERS)
+        ],
+        "statuses": list(PROVIDER_TRANSACTION_STATUSES),
     }
 
 

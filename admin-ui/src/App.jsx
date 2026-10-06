@@ -59,6 +59,7 @@ const NAV_GROUPS = [
     { id: "catalog", label: "Mon catalogue", icon: ShoppingBag },
     { id: "inventory", label: "Inventaire", icon: Boxes },
     { id: "api-products", label: "Fournisseurs & API", icon: Cloud },
+    { id: "provider-history", label: "Historique fournisseurs", icon: Cloud },
     { id: "deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
     { id: "withdrawals", label: "Retraits", icon: CircleDollarSign },
     { id: "finance", label: "Profit & pertes", icon: CalendarDays },

@@ -967,3 +967,122 @@ def test_dashboard_javascript_syntax_is_valid(tmp_path):
     result = subprocess.run(["node", "--check", str(script_path)], capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
+
+def _seed_provider_transactions(mock_mongodb):
+    mock_mongodb.orders.insert_many([
+        {"id": 501, "offer_name": "ChatGPT Plus", "status": "delivered"},
+        {"id": 502, "service_name": "Kakao Talk", "status": "delivered"},
+    ])
+    mock_mongodb.reseller_fulfillments.insert_many([
+        {
+            "provider": "mailreader", "external_order_id": "BM-501-a", "order_id": 501,
+            "supplier_product_id": "gpt-plus", "supplier_order_id": "MR-1", "idempotency_key": "secret-key",
+            "status": "completed", "quantity": 1, "purchase_unit_cost": 2.5, "purchase_cost_total": 2.5,
+            "purchase_cost_currency": "USDT", "encrypted_items": ["gAAAA-secret"],
+            "created_at": "2026-10-01T10:00:00+00:00", "updated_at": "2026-10-01T10:01:00+00:00",
+        },
+        {
+            "provider": "kakao", "external_order_id": "BM-502-b", "order_id": 502,
+            "supplier_product_id": "kakao-1", "supplier_order_id": "KK-77",
+            "status": "review_required", "quantity": 2, "purchase_cost_total": 4,
+            "purchase_cost_currency": "USDT",
+            "created_at": "2026-10-02T10:00:00+00:00", "updated_at": "2026-10-02T10:00:00+00:00",
+        },
+        {
+            "provider": "mailreader", "external_order_id": "BM-999-c", "order_id": 999,
+            "supplier_product_id": "gpt-team", "supplier_order_id": None,
+            "status": "delivery_pending", "quantity": 1,
+            "created_at": "2026-10-03T10:00:00+00:00", "updated_at": "2026-10-03T10:00:00+00:00",
+        },
+    ])
+
+
+def test_provider_transactions_empty_list(mock_mongodb):
+    result = dashboard_api.list_provider_transactions({})
+
+    assert result["items"] == []
+    assert result["total"] == 0
+    assert result["pages"] == 1
+    assert result["summary"] == {"count": 0, "completed": 0, "needs_review": 0, "costs": {}}
+
+
+def test_provider_transactions_never_return_delivered_secrets(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    result = dashboard_api.list_provider_transactions({})
+
+    assert [item["external_order_id"] for item in result["items"]] == ["BM-999-c", "BM-502-b", "BM-501-a"]
+    for item in result["items"]:
+        assert "encrypted_items" not in item
+        assert "idempotency_key" not in item
+        assert "_id" not in item
+    assert "gAAAA-secret" not in repr(result)
+    assert "secret-key" not in repr(result)
+
+
+def test_provider_transactions_filter_by_provider_and_status(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    by_provider = dashboard_api.list_provider_transactions({"provider": ["mailreader"]})
+    by_status = dashboard_api.list_provider_transactions({"status": ["review_required"]})
+    both = dashboard_api.list_provider_transactions({"provider": ["mailreader"], "status": ["completed"]})
+    unknown = dashboard_api.list_provider_transactions({"provider": ["not-a-provider"], "status": ["bogus"]})
+
+    assert {item["external_order_id"] for item in by_provider["items"]} == {"BM-501-a", "BM-999-c"}
+    assert [item["external_order_id"] for item in by_status["items"]] == ["BM-502-b"]
+    assert [item["external_order_id"] for item in both["items"]] == ["BM-501-a"]
+    assert unknown["total"] == 3
+
+
+def test_provider_transactions_search_and_oldest_sort(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    def search(term, field="all"):
+        result = dashboard_api.list_provider_transactions({"search": [term], "search_field": [field]})
+        return [item["external_order_id"] for item in result["items"]]
+
+    assert search("502") == ["BM-502-b"]
+    assert search("#501", "order_id") == ["BM-501-a"]
+    assert search("kk-77") == ["BM-502-b"]
+    assert search("gpt-team", "supplier_product_id") == ["BM-999-c"]
+    assert search("gpt-team", "supplier_order_id") == []
+    oldest = dashboard_api.list_provider_transactions({"direction": ["asc"]})
+    assert [item["external_order_id"] for item in oldest["items"]] == ["BM-501-a", "BM-502-b", "BM-999-c"]
+
+
+def test_provider_transactions_pagination(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    first = dashboard_api.list_provider_transactions({"per_page": ["2"]})
+    second = dashboard_api.list_provider_transactions({"per_page": ["2"], "page": ["2"]})
+    default = dashboard_api.list_provider_transactions({})
+
+    assert default["per_page"] == 25
+    assert first["pages"] == 2 and first["total"] == 3
+    assert len(first["items"]) == 2
+    assert [item["external_order_id"] for item in second["items"]] == ["BM-501-a"]
+
+
+def test_provider_transactions_cost_sum_and_counts_follow_filters(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    everything = dashboard_api.list_provider_transactions({"per_page": ["1"]})
+    kakao = dashboard_api.list_provider_transactions({"provider": ["kakao"]})
+
+    assert everything["summary"] == {"count": 3, "completed": 1, "needs_review": 2, "costs": {"USDT": 6.5}}
+    assert kakao["summary"]["costs"] == {"USDT": 4.0}
+    missing_cost = next(item for item in everything["items"] if item["external_order_id"] == "BM-999-c")
+    assert missing_cost["purchase_cost_total"] is None
+
+
+def test_provider_transactions_join_orders_and_tolerate_deleted_order(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    items = {item["external_order_id"]: item for item in dashboard_api.list_provider_transactions({})["items"]}
+
+    assert items["BM-501-a"]["product_name"] == "ChatGPT Plus"
+    assert items["BM-501-a"]["order_exists"] is True
+    assert items["BM-502-b"]["product_name"] == "Kakao Talk"
+    assert items["BM-999-c"]["order_exists"] is False
+    assert items["BM-999-c"]["product_name"] == ""
+    assert items["BM-999-c"]["order_id"] == 999

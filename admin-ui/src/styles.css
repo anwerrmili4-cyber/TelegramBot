@@ -511,6 +511,8 @@ html[data-admin-theme="light"] .toast { background:color-mix(in srgb,#fff 95%,tr
 .txid-link { color:var(--accent); font-family:monospace; font-size:11px; text-decoration:none; }.txid-link:hover { text-decoration:underline; }
 .topup-actions { display:flex; gap:6px; }.topup-actions .action-button { min-height:31px; padding:0 9px; font-size:10px; }
 .deposit-provider { display:inline-flex; padding:5px 8px; border-radius:9px; color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,transparent); font-size:10px; font-weight:700; white-space:nowrap; }
+.provider-history-product { display:grid; gap:3px; }.provider-history-product small { color:var(--muted); font-size:11px; }.provider-history-product.deleted strong { color:var(--muted); font-weight:600; }
+.status.review_required { color:var(--red); background:color-mix(in srgb,var(--red) 14%,transparent); }.status.not_created { color:var(--muted); background:var(--panel-soft); }.status.purchasing { color:var(--accent); background:var(--accent-soft); }
 .txid-text { color:var(--muted); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:11px; }
 .topup-actions .row-action.approve { color:var(--green); border-color:color-mix(in srgb,var(--green) 20%,transparent); }
 .topup-actions .row-action.reject { color:var(--red); border-color:color-mix(in srgb,var(--red) 20%,transparent); }
