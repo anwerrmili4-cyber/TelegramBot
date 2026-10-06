@@ -170,6 +170,7 @@ def admin_panel_keyboard():
         InlineKeyboardButton("📦 Catalogue", callback_data="adm_catalog", style="primary"),
         InlineKeyboardButton("📋 Produits en stock", callback_data="adm_stock_products", style="success"),
         InlineKeyboardButton("👥 Activité utilisateurs", callback_data="adm_user_activity", style="primary"),
+        InlineKeyboardButton("📊 Activité bot, site & API", callback_data="adm_channel_activity", style="primary"),
         InlineKeyboardButton("📢 Créer une annonce", callback_data="adm_broadcast_message", style="primary"),
         InlineKeyboardButton("🧹 Historique annonces", callback_data="adm_broadcast_history", style="primary"),
         InlineKeyboardButton(maintenance_label, callback_data="adm_maintenance_toggle", style="danger" if maintenance_enabled else "success"),
@@ -601,6 +602,181 @@ def user_activity_keyboard():
         [InlineKeyboardButton("🔄 Actualiser", callback_data="adm_user_activity"),
          InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")],
     ])
+
+
+_CHANNEL_ACTIVITY_SOURCES = ("all", "bot", "site", "supplier")
+_ACTIVITY_STATUS_LABELS = {
+    "pending_payment": "en attente de paiement",
+    "awaiting_verification": "vérification",
+    "payment_confirmed": "payé",
+    "paid": "payé",
+    "preparing_delivery": "préparation",
+    "delivered": "livré",
+    "manual_review": "à vérifier",
+    "cancelled": "annulé",
+    "refunded": "remboursé",
+    "expired": "expiré",
+    "verification_failed": "paiement refusé",
+    "purchasing": "achat en cours",
+    "delivery_pending": "livraison en attente",
+    "review_required": "à vérifier",
+    "not_created": "non créé",
+    "completed": "livré",
+}
+_PROVIDER_LABELS = {
+    "mailreader": "Mailreader",
+    "shamekh": "Shamekh",
+    "kakao": "Kakao",
+    "vex": "Vex",
+    "nastele": "Nastele",
+    "canboso": "Canboso",
+    "gpt_cheap": "GPT Cheap",
+    "shop_cron": "Shop Cron",
+    "upibot": "UPI Bot",
+    "toolorax": "Toolorax",
+    "cgpt_active": "CGPT Active",
+    "ventebot": "Ventebot",
+    "phagia": "Phagia",
+    "safwantiger": "Safwan Tiger",
+}
+
+
+def _activity_source(source):
+    return source if source in _CHANNEL_ACTIVITY_SOURCES else "all"
+
+
+def _provider_label(provider):
+    key = str(provider or "").strip()
+    return _PROVIDER_LABELS.get(key, key or "Fournisseur")
+
+
+def _activity_money(amount, currency):
+    if amount is None:
+        return ""
+    if currency == "TND":
+        return f"{int(amount) / 1000:.3f} DT"
+    return f"{float(amount):.2f} {html.escape(str(currency or CURRENCY))}"
+
+
+def _activity_clock(timestamp):
+    if not timestamp:
+        return "—"
+    return datetime.fromtimestamp(int(timestamp), UTC).strftime("%H:%M")
+
+
+def channel_activity_keyboard(source="all"):
+    """Filters for bot, site, and external-supplier activity."""
+    source = _activity_source(source)
+
+    def button(key, label):
+        return InlineKeyboardButton(
+            label,
+            callback_data=f"adm_channel_activity:{key}",
+            style="success" if source == key else "primary",
+        )
+
+    return InlineKeyboardMarkup([
+        [button("bot", "🤖 Bot"), button("site", "🌐 Site")],
+        [button("supplier", "🔌 Fournisseur"), button("all", "📋 Tout")],
+        [
+            InlineKeyboardButton("🔄 Actualiser", callback_data=f"adm_channel_activity:{source}"),
+            InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel"),
+        ],
+    ])
+
+
+def _activity_event_line(event):
+    status = _ACTIVITY_STATUS_LABELS.get(event.get("status"), event.get("status") or "")
+    money = _activity_money(event.get("amount"), event.get("currency"))
+    title = html.escape(str(event.get("title") or ""))
+    reference = html.escape(str(event.get("reference") or ""))
+    parts = [_activity_clock(event.get("at"))]
+    if event.get("source") == "supplier":
+        parts.append(html.escape(_provider_label(event.get("provider"))))
+        channel = {"bot": "via le bot", "site": "via le site"}.get(event.get("channel"))
+        if channel:
+            parts.append(channel)
+    else:
+        parts.append("Bot" if event.get("source") == "bot" else "Site")
+    if title:
+        parts.append(title)
+    if reference:
+        parts.append(reference)
+    if status:
+        parts.append(html.escape(status))
+    if money:
+        parts.append(money)
+    return "• " + " · ".join(parts)
+
+
+def _activity_events_block(events):
+    if not events:
+        return "Aucune activité récente."
+    return "\n".join(_activity_event_line(event) for event in events[:8])
+
+
+def channel_activity_text(report, source="all"):
+    """HTML screen for activity on the bot, the site, and the supplier API."""
+    source = _activity_source(source)
+    bot = report.get("bot") or {}
+    site = report.get("site") or {}
+    supplier = report.get("supplier") or {}
+    recent = (report.get("recent") or {}).get(source) or []
+    titles = {
+        "all": "Activité — bot, site et fournisseur",
+        "bot": "Activité du bot",
+        "site": "Activité du site",
+        "supplier": "Activité du fournisseur",
+    }
+    sections = []
+    if source in {"all", "bot"}:
+        sections.append(
+            "<b>🤖 Bot</b>\n"
+            f"🟢 En ligne : <b>{int(bot.get('online_now') or 0)}</b>\n"
+            f"📅 Actifs aujourd’hui : <b>{int(bot.get('active_today') or 0)}</b>\n"
+            f"👤 Utilisateurs : <b>{int(bot.get('users') or 0)}</b>"
+            f" · nouveaux : <b>{int(bot.get('new_users_today') or 0)}</b>\n"
+            f"🛒 Commandes aujourd’hui : <b>{int(bot.get('orders_today') or 0)}</b>\n"
+            f"✅ Payées : <b>{int(bot.get('paid_today') or 0)}</b>"
+            f" · <b>{_activity_money(bot.get('revenue_today') or 0, 'USDT')}</b>"
+        )
+    if source in {"all", "site"}:
+        sections.append(
+            "<b>🌐 Site</b>\n"
+            f"👥 Clients : <b>{int(site.get('customers') or 0)}</b>"
+            f" · nouveaux : <b>{int(site.get('new_customers_today') or 0)}</b>\n"
+            f"🛒 Paniers aujourd’hui : <b>{int(site.get('carts_today') or 0)}</b>\n"
+            f"✅ Payés : <b>{int(site.get('paid_carts_today') or 0)}</b>"
+            f" · <b>{_activity_money(site.get('revenue_today_millimes') or 0, 'TND')}</b>\n"
+            f"⏳ À vérifier : <b>{int(site.get('to_verify') or 0)}</b>"
+        )
+    if source in {"all", "supplier"}:
+        provider_lines = []
+        for item in (supplier.get("providers") or [])[:8]:
+            label = html.escape(_provider_label(item.get("provider")))
+            provider_lines.append(
+                f"• {label} : <b>{int(item.get('count') or 0)}</b>"
+                f" · {_activity_money(item.get('cost') or 0, 'USDT')}"
+            )
+        extra = len(supplier.get("providers") or []) - len(provider_lines)
+        if extra > 0:
+            provider_lines.append(f"• + {extra} autre{'s' if extra > 1 else ''}")
+        unlinked = int(supplier.get("unlinked_today") or 0)
+        unlinked_line = f" · sans commande : <b>{unlinked}</b>" if unlinked else ""
+        providers_block = ("\n" + "\n".join(provider_lines)) if provider_lines else ""
+        sections.append(
+            "<b>🔌 Fournisseur (API externe)</b>\n"
+            f"📦 Achats aujourd’hui : <b>{int(supplier.get('orders_today') or 0)}</b>\n"
+            f"Depuis le bot : <b>{int(supplier.get('from_bot_today') or 0)}</b>"
+            f" · depuis le site : <b>{int(supplier.get('from_site_today') or 0)}</b>"
+            f"{unlinked_line}\n"
+            f"✅ Terminés : <b>{int(supplier.get('completed_today') or 0)}</b>\n"
+            f"⏳ En attente : <b>{int(supplier.get('pending') or 0)}</b>\n"
+            f"💸 Coût : <b>{_activity_money(supplier.get('cost_today') or 0, 'USDT')}</b>"
+            f"{providers_block}"
+        )
+    sections.append("<b>Dernières activités</b> <i>(UTC)</i>\n" + _activity_events_block(recent))
+    return f"📊 <b>{titles[source]}</b>\n\n" + "\n\n".join(sections)
 
 
 def customize_keyboard():

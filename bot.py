@@ -5900,6 +5900,17 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data == "adm_channel_activity" or data.startswith("adm_channel_activity:"):
+        source = data.split(":", 1)[1] if ":" in data else "all"
+        report = db.channel_activity()
+        await show_callback_screen(
+            q,
+            admin.channel_activity_text(report, source),
+            reply_markup=admin.channel_activity_keyboard(source),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     if data == "adm_maintenance_toggle":
         enabled = not db.shop_settings()["maintenance_enabled"]
         db.set_setting("maintenance_enabled", enabled)

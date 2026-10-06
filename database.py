@@ -2653,6 +2653,261 @@ def user_activity_summary():
     }
 
 
+_PAID_ORDER_STATUSES = ["paid", "payment_confirmed", "delivered"]
+_SUPPLIER_PENDING_STATUSES = ["purchasing", "delivery_pending", "review_required", "not_created"]
+
+
+def _activity_timestamp(value):
+    """Unix seconds for an order or fulfillment clock, or 0 when it is missing."""
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    try:
+        number = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
+
+
+def _cart_key(row):
+    reference = str(row.get("cart_reference") or "").strip()
+    return reference or f"#{row.get('id')}"
+
+
+def _line_millimes(row):
+    if row.get("total_millimes") is not None:
+        return max(0, int(row.get("total_millimes") or 0))
+    return max(0, int(round(float(row.get("total_price") or 0) * 1000)))
+
+
+def _orders_by_id(conn, order_ids):
+    ids = []
+    for order_id in order_ids:
+        try:
+            ids.append(int(order_id))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return {}
+    return {
+        int(row["id"]): row
+        for row in conn.orders.find(
+            {"id": {"$in": ids}},
+            {"id": 1, "sales_channel": 1, "offer_name": 1, "cart_reference": 1},
+        )
+    }
+
+
+def _activity_origin(order):
+    if not order:
+        return "unknown"
+    return "site" if order.get("sales_channel") == "tn_site" else "bot"
+
+
+def _linked_order(orders, order_id):
+    try:
+        return orders.get(int(order_id))
+    except (TypeError, ValueError):
+        return None
+
+
+def channel_activity(*, recent_limit=8):
+    """Activity for the bot, the Tunisian site, and the external supplier API.
+
+    Bot totals follow the dashboard: site carts and the administrator's own
+    purchases stay out. Site money is counted in millimes. Supplier rows are
+    purchases sent to the reseller API, tagged with the channel that sold them.
+    """
+    conn = get_conn()
+    now = int(time.time())
+    today_start = now - (now % 86400)
+    limit = max(1, min(20, int(recent_limit)))
+    paid = {"status": {"$in": _PAID_ORDER_STATUSES}}
+
+    bot_orders_today = conn.orders.count_documents(
+        customer_order_query({"created_at": {"$gte": today_start}})
+    )
+    bot_paid_today = conn.orders.count_documents(customer_order_query({
+        "created_at": {"$gte": today_start},
+        **paid,
+    }))
+    revenue_rows = list(conn.orders.aggregate([
+        {"$match": customer_order_query({
+            "created_at": {"$gte": today_start},
+            **paid,
+        })},
+        {"$group": {"_id": None, "total": {"$sum": order_charge_total_expression()}}},
+    ]))
+
+    site_today = list(conn.orders.find({
+        "sales_channel": "tn_site",
+        "created_at": {"$gte": today_start},
+    }))
+    site_paid_rows = [
+        row for row in conn.orders.find({
+            "sales_channel": "tn_site",
+            **paid,
+            "$or": [
+                {"paid_at": {"$gte": today_start}},
+                {"created_at": {"$gte": today_start}},
+            ],
+        })
+        if _activity_timestamp(row.get("paid_at") or row.get("created_at")) >= today_start
+    ]
+    site_review = list(conn.orders.find({
+        "sales_channel": "tn_site",
+        "status": "manual_review",
+    }, {"cart_reference": 1, "id": 1}))
+
+    fulfillments_today = list(conn.reseller_fulfillments.find({"created_at": {"$gte": today_start}}))
+    completed_rows = list(conn.reseller_fulfillments.find({
+        "status": "completed",
+        "$or": [
+            {"updated_at": {"$gte": today_start}},
+            {"created_at": {"$gte": today_start}},
+        ],
+    }))
+    supplier_order_ids = [
+        row.get("order_id") for row in fulfillments_today
+    ]
+    supplier_orders = _orders_by_id(conn, supplier_order_ids)
+    origins = {"bot": 0, "site": 0, "unknown": 0}
+    providers = {}
+    cost_today = 0.0
+    for row in fulfillments_today:
+        origin = _activity_origin(_linked_order(supplier_orders, row.get("order_id")))
+        origins[origin] += 1
+        provider = str(row.get("provider") or "inconnu")
+        bucket = providers.setdefault(provider, {"provider": provider, "count": 0, "cost": 0.0})
+        bucket["count"] += 1
+        cost = max(0.0, float(row.get("purchase_cost_total") or 0))
+        bucket["cost"] = round(bucket["cost"] + cost, 4)
+        cost_today += cost
+    provider_rows = sorted(providers.values(), key=lambda item: (-item["count"], item["provider"]))
+    for item in provider_rows:
+        item["cost"] = round(item["cost"], 2)
+
+    bot_events = []
+    for row in conn.orders.find(customer_order_query()).sort("created_at", -1).limit(limit):
+        bot_events.append({
+            "source": "bot",
+            "at": _activity_timestamp(row.get("created_at")),
+            "reference": f"#{row.get('id')}",
+            "title": str(row.get("offer_name") or "Commande")[:80],
+            "status": str(row.get("status") or ""),
+            "amount": order_charge_total(row),
+            "currency": "USDT",
+            "channel": "bot",
+            "provider": "",
+        })
+
+    site_groups = {}
+    site_order = []
+    for row in conn.orders.find({"sales_channel": "tn_site"}).sort("created_at", -1).limit(limit * 5):
+        key = _cart_key(row)
+        if key not in site_groups:
+            if len(site_order) >= limit:
+                continue
+            site_groups[key] = []
+            site_order.append(key)
+        site_groups[key].append(row)
+    site_events = []
+    for key in site_order:
+        lines = site_groups[key]
+        newest = max(lines, key=lambda item: _activity_timestamp(item.get("paid_at") or item.get("created_at")))
+        names = []
+        for line in sorted(lines, key=lambda item: int(item.get("cart_position") or 0)):
+            name = str(line.get("offer_name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        statuses = {str(line.get("status") or "") for line in lines}
+        status = "manual_review" if "manual_review" in statuses else str(newest.get("status") or "")
+        cart_total = max(int(line.get("cart_total_millimes") or 0) for line in lines)
+        site_events.append({
+            "source": "site",
+            "at": _activity_timestamp(newest.get("paid_at") or newest.get("created_at")),
+            "reference": key,
+            "title": ", ".join(names)[:80] or "Panier",
+            "status": status,
+            "amount": cart_total or sum(_line_millimes(line) for line in lines),
+            "currency": "TND",
+            "channel": "site",
+            "provider": "",
+        })
+
+    supplier_recent = list(
+        conn.reseller_fulfillments.find({}).sort("created_at", -1).limit(limit)
+    )
+    recent_orders = _orders_by_id(conn, [row.get("order_id") for row in supplier_recent])
+    supplier_events = []
+    for row in supplier_recent:
+        order = _linked_order(recent_orders, row.get("order_id"))
+        amount = row.get("purchase_cost_total")
+        supplier_events.append({
+            "source": "supplier",
+            "at": _activity_timestamp(row.get("updated_at") or row.get("created_at")),
+            "reference": f"#{row.get('order_id')}" if row.get("order_id") is not None else "—",
+            "title": str((order or {}).get("offer_name") or row.get("supplier_product_id") or "Achat API")[:80],
+            "status": str(row.get("status") or ""),
+            "amount": None if amount is None else max(0.0, float(amount)),
+            "currency": str(row.get("purchase_cost_currency") or "USDT")[:12] or "USDT",
+            "channel": _activity_origin(order),
+            "provider": str(row.get("provider") or ""),
+        })
+
+    merged = sorted(
+        [*bot_events, *site_events, *supplier_events],
+        key=lambda item: item["at"],
+        reverse=True,
+    )[:limit]
+    return {
+        "bot": {
+            "online_now": len(conn.interaction_events.distinct(
+                "user_id", {"created_at": {"$gte": now - 300}},
+            )),
+            "active_today": len(conn.interaction_events.distinct(
+                "user_id", {"created_at": {"$gte": today_start}},
+            )),
+            "users": conn.users.count_documents({}),
+            "new_users_today": conn.users.count_documents({"created_at": {"$gte": today_start}}),
+            "orders_today": bot_orders_today,
+            "paid_today": bot_paid_today,
+            "revenue_today": round((revenue_rows[0].get("total") if revenue_rows else 0) or 0, 2),
+        },
+        "site": {
+            "customers": conn.storefront_customers.count_documents({"email_verified": {"$ne": False}}),
+            "new_customers_today": conn.storefront_customers.count_documents({
+                "email_verified": {"$ne": False},
+                "created_at": {"$gte": today_start},
+            }),
+            "carts_today": len({_cart_key(row) for row in site_today}),
+            "paid_carts_today": len({_cart_key(row) for row in site_paid_rows}),
+            "revenue_today_millimes": sum(_line_millimes(row) for row in site_paid_rows),
+            "to_verify": len({_cart_key(row) for row in site_review}),
+        },
+        "supplier": {
+            "orders_today": len(fulfillments_today),
+            "from_bot_today": origins["bot"],
+            "from_site_today": origins["site"],
+            "unlinked_today": origins["unknown"],
+            "pending": conn.reseller_fulfillments.count_documents(
+                {"status": {"$in": _SUPPLIER_PENDING_STATUSES}}
+            ),
+            "completed_today": sum(
+                1 for row in completed_rows
+                if (_activity_timestamp(row.get("updated_at")) or _activity_timestamp(row.get("created_at"))) >= today_start
+            ),
+            "cost_today": round(cost_today, 2),
+            "providers": provider_rows,
+        },
+        "recent": {
+            "all": merged,
+            "bot": bot_events,
+            "site": site_events,
+            "supplier": supplier_events,
+        },
+    }
+
+
 def dashboard_summary():
     """Legacy wrapper — kept for backward compatibility."""
     data = dashboard_data()
