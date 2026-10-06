@@ -336,6 +336,21 @@
   word-break: break-word;
 }
 
+.payment-account {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-mute);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.payment-account-number {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
 .payment-instructions small {
   color: var(--text-mute);
   font-size: 11.5px;

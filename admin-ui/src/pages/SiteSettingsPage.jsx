@@ -51,7 +51,7 @@ export default function SiteSettingsPage({ onAction }) {
           </Field>
         </div>
         <h3 className="site-section-title">Moyens de paiement</h3>
-        <p className="site-field-help">Les coordonnées sont affichées au client au moment de payer une commande ou de recharger son portefeuille. Il joint ensuite la référence et la capture du reçu.</p>
+        <p className="site-field-help">Les coordonnées sont affichées au client au moment de payer une commande ou de recharger son portefeuille. Il joint ensuite la capture du reçu.</p>
         <div className="site-method-grid">{methods.map(({ id, label }) => <div key={id} className={`site-method-card${form.methods.has(id) ? " active" : ""}`}>
           <label className="switch"><input type="checkbox" checked={form.methods.has(id)} onChange={() => toggleMethod(id)} /><span />{label}</label>
           <textarea value={form.details[id] || ""} onChange={(event) => setDetails(id, event.target.value)} maxLength={300} rows={3} required={form.methods.has(id)} placeholder={`Où envoyer l’argent par ${label} (numéro, nom du bénéficiaire…)`} aria-label={`Coordonnées ${label}`} />

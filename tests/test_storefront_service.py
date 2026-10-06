@@ -72,7 +72,12 @@ def test_catalog_uses_live_mongo_offers_and_tnd(mock_mongodb):
     assert offer["service_name"] == "ChatGPT"
     assert result["currency"] == "TND"
     assert result["max_cart_lines"] == storefront_service.MAX_CART_LINES
-    assert {item["id"] for item in result["payment_methods"]} == {"d17", "flouci"}
+    methods = {item["id"]: item for item in result["payment_methods"]}
+    assert set(methods) == {"d17", "flouci", "virement_postal"}
+    assert methods["virement_postal"]["label"] == "Virement postal"
+    assert methods["virement_postal"]["details"] == "5359403634747440"
+    assert methods["virement_postal"]["account_label"] == "Carte e-dinar"
+    assert "account_label" not in methods["d17"]
     assert "whatsapp" not in result
 
 
@@ -184,16 +189,40 @@ def test_transfer_cart_stores_one_order_per_line_with_the_receipt(mock_mongodb, 
     assert receipt["content_type"] == "image/png"
 
 
-def test_transfer_needs_a_reference_and_a_valid_receipt(mock_mongodb, customer):
+def test_transfer_needs_a_receipt_and_not_a_reference(mock_mongodb, customer):
     _, offer_id = _catalog_offer()
     items = [{"offer_id": offer_id, "quantity": 1}]
     with pytest.raises(storefront_service.StorefrontError, match="référence"):
-        _create(customer, items=items, transaction_reference="")
+        _create(customer, items=items, transaction_reference="12")
     with pytest.raises(storefront_service.StorefrontError, match="capture"):
         _create(customer, items=items, receipt="")
     with pytest.raises(storefront_service.StorefrontError, match="illisible"):
         _create(customer, items=items, receipt="data:image/png;base64,bm90IGFuIGltYWdl")
     assert mock_mongodb.orders.count_documents({}) == 0
+
+    first = _create(customer, items=items, transaction_reference="")
+    second = _create(customer, items=items, transaction_reference="   ")
+    assert first["reference"] != second["reference"]
+    stored = list(mock_mongodb.orders.find({}))
+    assert stored
+    assert all(order.get("payment_reference", "") == "" for order in stored)
+    assert all("payment_reference_key" not in order for order in stored)
+
+
+def test_postal_transfer_uses_the_edinar_card_and_only_the_receipt(mock_mongodb, customer):
+    _, offer_id = _catalog_offer()
+    cart = _create(
+        customer,
+        payment_method="virement_postal",
+        items=[{"offer_id": offer_id, "quantity": 1}],
+        transaction_reference="",
+    )
+    order = db.get_order(cart["order_ids"][0])
+    assert cart["status"] == "to_verify"
+    assert order["payment_method"] == "virement_postal"
+    assert order["payment_reference"] == ""
+    assert "payment_reference_key" not in order
+    assert order["receipt_id"]
 
 
 def test_a_transaction_reference_cannot_be_reused(mock_mongodb, customer):

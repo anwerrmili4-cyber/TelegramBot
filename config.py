@@ -343,7 +343,7 @@ TN_WHATSAPP_NUMBER: str = re.sub(
 )
 if not TN_WHATSAPP_NUMBER:
     TN_WHATSAPP_NUMBER = "21621994132"
-TN_MANUAL_PAYMENT_METHODS: frozenset[str] = frozenset({"d17", "flouci"})
+TN_MANUAL_PAYMENT_METHODS: frozenset[str] = frozenset({"d17", "flouci", "virement_postal"})
 TN_TND_PER_USDT: float = max(
     0.0, float(os.environ.get("HP_TN_TND_PER_USDT", "3.2"))
 )

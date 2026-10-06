@@ -186,6 +186,8 @@ def summary(customer: dict[str, Any]) -> dict[str, Any]:
 
 def _transaction_reference(value: Any) -> str:
     reference = re.sub(r"\s+", " ", str(value or "").strip())[:64]
+    if not reference:
+        return ""
     if len(reference) < 3:
         raise WalletError("Saisis la référence de la transaction indiquée sur ton reçu.")
     return reference
@@ -208,7 +210,7 @@ def create_deposit(customer: dict[str, Any], payload: dict[str, Any]) -> dict[st
     customer_id = int(customer["id"])
     if conn.storefront_deposits.count_documents({"customer_id": customer_id, "status": DEPOSIT_PENDING}) >= MAX_PENDING_DEPOSITS:
         raise WalletError("Tu as déjà des recharges en attente. Attends leur validation avant d'en ajouter.")
-    if conn.storefront_deposits.find_one({
+    if reference and conn.storefront_deposits.find_one({
         "method": method,
         "transaction_reference_key": reference.lower(),
         "status": {"$ne": DEPOSIT_REJECTED},
@@ -232,7 +234,7 @@ def create_deposit(customer: dict[str, Any], payload: dict[str, Any]) -> dict[st
         "amount_millimes": amount,
         "credited_millimes": 0,
         "transaction_reference": reference,
-        "transaction_reference_key": reference.lower(),
+        **({"transaction_reference_key": reference.lower()} if reference else {}),
         "receipt_id": receipt_id,
         "status": DEPOSIT_PENDING,
         "reason": "",
@@ -352,7 +354,9 @@ def approve_deposit(deposit_id: Any, amount: Any = "") -> dict[str, Any]:
         credited,
         kind="deposit",
         reference=f"R-{row['id']}",
-        note=f"{method_label} · {row.get('transaction_reference', '')}",
+        note=" · ".join(
+            part for part in (method_label, str(row.get("transaction_reference") or "").strip()) if part
+        ),
     )
     db.audit_event(
         "storefront.deposit_approved",

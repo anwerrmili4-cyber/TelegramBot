@@ -554,6 +554,8 @@ def _payment_method(value: Any) -> str:
 
 def _transfer_reference(method: str, value: Any) -> str:
     reference = re.sub(r"\s+", " ", str(value or "").strip())[:64]
+    if not reference:
+        return ""
     if len(reference) < 3:
         raise StorefrontError("Saisis la référence de la transaction indiquée sur ton reçu.")
     key = reference.lower()
@@ -759,7 +761,7 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
             "customer_info": line["customer_info"],
             "site_remark": line["site_remark"],
             "payment_reference": payment_reference,
-            "payment_reference_key": payment_reference.lower(),
+            **({"payment_reference_key": payment_reference.lower()} if payment_reference else {}),
             "receipt_id": receipt_id,
             "cart_position": position,
             "cart_size": len(lines),

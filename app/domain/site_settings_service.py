@@ -14,7 +14,16 @@ from typing import Any
 import database as db
 from config import TN_MANUAL_PAYMENT_METHODS, TN_TND_PER_USDT, TN_WHATSAPP_NUMBER
 
-PAYMENT_METHOD_LABELS = {"d17": "D17", "flouci": "Flouci", "izi": "IZI", "wafacash": "Wafa Cash"}
+PAYMENT_METHOD_LABELS = {
+    "d17": "D17",
+    "flouci": "Flouci",
+    "izi": "IZI",
+    "wafacash": "Wafa Cash",
+    "virement_postal": "Virement postal",
+}
+POSTAL_METHOD = "virement_postal"
+POSTAL_ACCOUNT_LABEL = "Carte e-dinar"
+POSTAL_DESTINATION = "5359403634747440"
 MAX_DETAILS_LENGTH = 300
 
 _WHATSAPP_KEY = "tn_whatsapp_number"
@@ -41,32 +50,48 @@ def tnd_per_usdt() -> float:
     return rate if rate > 0 else TN_TND_PER_USDT
 
 
+def _stored_details() -> dict[str, Any]:
+    try:
+        stored = json.loads(str(db.get_setting(_DETAILS_KEY, "") or "{}"))
+    except ValueError:
+        stored = {}
+    return stored if isinstance(stored, dict) else {}
+
+
 def payment_methods() -> list[str]:
     stored = db.get_setting(_METHODS_KEY)
     if stored is None:
         chosen = set(TN_MANUAL_PAYMENT_METHODS)
     else:
-        chosen = {value.strip().lower() for value in str(stored).split(",")}
+        chosen = {value.strip().lower() for value in str(stored).split(",") if value.strip()}
+        # A shop that saved its methods before postal transfer existed keeps it
+        # on until an administrator explicitly saves the new setting.
+        if POSTAL_METHOD not in chosen and POSTAL_METHOD not in _stored_details():
+            chosen.add(POSTAL_METHOD)
     return [key for key in PAYMENT_METHOD_LABELS if key in chosen]
 
 
 def payment_details() -> dict[str, str]:
     """Where the customer sends the money, per method, as the admin wrote it."""
-    try:
-        stored = json.loads(str(db.get_setting(_DETAILS_KEY, "") or "{}"))
-    except ValueError:
-        stored = {}
-    if not isinstance(stored, dict):
-        stored = {}
-    return {key: str(stored.get(key) or "")[:MAX_DETAILS_LENGTH] for key in PAYMENT_METHOD_LABELS}
+    stored = _stored_details()
+    details = {}
+    for key in PAYMENT_METHOD_LABELS:
+        value = str(stored.get(key) or "")[:MAX_DETAILS_LENGTH]
+        if not value and key == POSTAL_METHOD and key not in stored:
+            value = POSTAL_DESTINATION
+        details[key] = value
+    return details
 
 
 def public_payment_methods() -> list[dict[str, str]]:
     details = payment_details()
-    return [
-        {"id": key, "label": PAYMENT_METHOD_LABELS[key], "details": details[key]}
-        for key in payment_methods()
-    ]
+    methods = []
+    for key in payment_methods():
+        item = {"id": key, "label": PAYMENT_METHOD_LABELS[key], "details": details[key]}
+        if key == POSTAL_METHOD:
+            item["account_label"] = POSTAL_ACCOUNT_LABEL
+        methods.append(item)
+    return methods
 
 
 def normalize_method(method: Any) -> str:
@@ -110,6 +135,10 @@ def save(form: dict[str, Any]) -> dict[str, Any]:
     for key in PAYMENT_METHOD_LABELS:
         if f"details_{key}" in form:
             details[key] = str(form.get(f"details_{key}") or "").strip()[:MAX_DETAILS_LENGTH]
+    # Persist the postal key even when this form leaves it off. That stops the
+    # one-time auto-enable used for shops saved before the method existed.
+    if POSTAL_METHOD not in _stored_details() and f"details_{POSTAL_METHOD}" not in form:
+        details[POSTAL_METHOD] = details.get(POSTAL_METHOD) or POSTAL_DESTINATION
     missing = [PAYMENT_METHOD_LABELS[key] for key in methods if not details[key]]
     if missing:
         raise SiteSettingsError(

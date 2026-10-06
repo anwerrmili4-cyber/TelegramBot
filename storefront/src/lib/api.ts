@@ -249,7 +249,7 @@ export function fetchWallet(token: string, signal?: AbortSignal) {
 
 export function createDeposit(
   token: string,
-  payload: { method: string; amount: string; transaction_reference: string; receipt: string },
+  payload: { method: string; amount: string; transaction_reference?: string; receipt: string },
 ) {
   return postJson<{ ok: boolean; deposit: Deposit }>("/api/storefront/auth/deposits", payload, token);
 }

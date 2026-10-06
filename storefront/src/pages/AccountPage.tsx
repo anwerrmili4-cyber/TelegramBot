@@ -1341,7 +1341,8 @@ function WalletTab() {
                       {deposit.method_label}
                     </strong>
                     <small>
-                      Réf. {deposit.transaction_reference} · {dateTime(deposit.created_at)}
+                      {deposit.transaction_reference ? `Réf. ${deposit.transaction_reference} · ` : ""}
+                      {dateTime(deposit.created_at)}
                       {deposit.reason ? ` · ${deposit.reason}` : ""}
                     </small>
                   </span>
@@ -1391,7 +1392,6 @@ function DepositForm({ wallet, onCreated }: { wallet: Wallet; onCreated: () => v
   const methods = wallet.payment_methods;
   const [method, setMethod] = useState(methods[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [reference, setReference] = useState("");
   const [receipt, setReceipt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1408,12 +1408,8 @@ function DepositForm({ wallet, onCreated }: { wallet: Wallet; onCreated: () => v
       );
       return;
     }
-    if (reference.trim().length < 3) {
-      setError("Saisis la référence de la transaction indiquée sur ton reçu.");
-      return;
-    }
     if (!receipt) {
-      setError("Ajoute une capture de ton reçu.");
+      setError(chosen?.id === "virement_postal" ? "Ajoute une capture du virement." : "Ajoute une capture de ton reçu.");
       return;
     }
     setSubmitting(true);
@@ -1423,11 +1419,9 @@ function DepositForm({ wallet, onCreated }: { wallet: Wallet; onCreated: () => v
       await createDeposit(token, {
         method: chosen?.id ?? "",
         amount: amount.trim(),
-        transaction_reference: reference.trim(),
         receipt,
       });
       setAmount("");
-      setReference("");
       setReceipt("");
       setNotice("Demande envoyée. Ton solde sera crédité dès que l'administrateur aura vérifié le reçu.");
       onCreated();
@@ -1464,23 +1458,12 @@ function DepositForm({ wallet, onCreated }: { wallet: Wallet; onCreated: () => v
             placeholder="Ex. 50"
           />
         </label>
-        <label>
-          Référence de la transaction
-          <input
-            required
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            name="transaction_reference"
-            value={reference}
-            maxLength={64}
-            onChange={(event) => setReference(event.target.value)}
-            placeholder="Ex. 123456789"
-          />
-        </label>
-        <ReceiptField value={receipt} onChange={setReceipt} onError={setError} />
+        <ReceiptField
+          value={receipt}
+          onChange={setReceipt}
+          onError={setError}
+          label={chosen?.id === "virement_postal" ? "Capture du virement" : "Capture du reçu"}
+        />
         {error ? (
           <p className="form-error" role="alert">
             {error}

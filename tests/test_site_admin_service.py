@@ -552,9 +552,12 @@ def test_customers_are_accounts_with_wallet_and_history(mock_mongodb, site_custo
 
 def test_settings_validation(mock_mongodb):
     settings = site_settings_service.get()
-    assert settings["payment_methods"] == ["d17", "flouci"]
+    assert settings["payment_methods"] == ["d17", "flouci", "virement_postal"]
+    assert settings["payment_details"]["virement_postal"] == "5359403634747440"
     assert "whatsapp_number" not in settings
-    assert [item["id"] for item in settings["available_payment_methods"]] == ["d17", "flouci", "izi", "wafacash"]
+    assert [item["id"] for item in settings["available_payment_methods"]] == [
+        "d17", "flouci", "izi", "wafacash", "virement_postal",
+    ]
     with pytest.raises(site_settings_service.SiteSettingsError, match="taux"):
         site_settings_service.save({"tnd_per_usdt": "0", "payment_d17": "1", "details_d17": "21 000 000"})
     with pytest.raises(site_settings_service.SiteSettingsError, match="au moins un"):
@@ -572,6 +575,22 @@ def test_settings_validation(mock_mongodb):
     assert saved["tnd_per_usdt"] == 3.25
     assert saved["payment_methods"] == ["d17", "izi"]
     assert saved["payment_details"]["izi"] == "IZI : 55 000 000"
+    assert "virement_postal" not in saved["payment_methods"]
+
+    db.set_setting("tn_payment_methods", "d17")
+    db.set_setting("tn_payment_details", '{"d17": "21 000 000"}')
+    revived = site_settings_service.public_payment_methods()
+    postal = next(item for item in revived if item["id"] == "virement_postal")
+    assert postal["details"] == "5359403634747440"
+    assert postal["account_label"] == "Carte e-dinar"
+    turned_off = site_settings_service.save({
+        "tnd_per_usdt": "3",
+        "payment_d17": "1",
+        "details_d17": "21 000 000",
+        "payment_virement_postal": "0",
+        "details_virement_postal": "5359403634747440",
+    })
+    assert turned_off["payment_methods"] == ["d17"]
 
 
 def test_site_requests_stay_out_of_the_bot_workspace(mock_mongodb, site_customer):

@@ -24,10 +24,10 @@ marked 🔒 need the `Authorization: Bearer <session>` header returned at login.
 | --- | --- |
 | `GET /api/storefront/catalog` | Services, offers, categories, payment methods and where to send money |
 | `POST /api/storefront/auth/register`, `login`, `verify-email`, … | Account and session |
-| 🔒 `POST /api/storefront/orders` | Create a cart paid by `wallet`, or by transfer with `transaction_reference` and `receipt` (image `data:` URL) |
+| 🔒 `POST /api/storefront/orders` | Create a cart paid by `wallet`, or by transfer with a `receipt` (image `data:` URL). `transaction_reference` is optional |
 | 🔒 `GET /api/storefront/auth/orders` | Purchase history, with the delivered access details |
 | 🔒 `GET /api/storefront/auth/wallet` | Balance, ledger and deposit requests |
-| 🔒 `POST /api/storefront/auth/deposits` | Wallet top-up: `method`, `amount`, `transaction_reference`, `receipt` |
+| 🔒 `POST /api/storefront/auth/deposits` | Wallet top-up: `method`, `amount`, `receipt`. `transaction_reference` is optional |
 | 🔒 `POST /api/storefront/auth/profile`, `password` | Account settings |
 | `GET /api/storefront/cart?ref=&token=` | Cart status, authenticated by the tracking token |
 

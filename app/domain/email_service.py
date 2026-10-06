@@ -1037,14 +1037,15 @@ def deposit_received_content(
         + _details([
             ("Montant", _money(amount_millimes)),
             ("Moyen", escape(method_label)),
-            ("Référence", escape(reference)),
+            *( [("Référence", escape(reference))] if str(reference or "").strip() else [] ),
         ])
         + _note("Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation.", "pending")
         + button
     )
+    reference_line = f" (référence {reference})" if str(reference or "").strip() else ""
     text = (
         f"{_greeting(name)}\n\nNous avons bien reçu ta demande de recharge de {_money(amount_millimes)} "
-        f"par {method_label} (référence {reference}).\n"
+        f"par {method_label}{reference_line}.\n"
         "Un administrateur vérifie ton reçu. Ton solde sera crédité dès la validation."
         + link
     )

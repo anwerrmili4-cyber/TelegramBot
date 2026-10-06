@@ -810,6 +810,7 @@ _SITE_METHOD_LABELS = {
     "flouci": "Flouci",
     "izi": "IZI",
     "wafacash": "Wafa Cash",
+    "virement_postal": "Virement postal",
 }
 
 

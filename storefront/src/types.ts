@@ -42,7 +42,7 @@ export type Offer = {
 export type Category = { id: string; label: string };
 
 /** A transfer method; `details` says where to send the money. */
-export type PaymentMethod = { id: string; label: string; details: string };
+export type PaymentMethod = { id: string; label: string; details: string; account_label?: string };
 
 export type Catalog = {
   ok: boolean;

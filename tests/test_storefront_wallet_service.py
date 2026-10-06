@@ -99,6 +99,19 @@ def test_invalid_deposits_are_rejected(mock_mongodb, customer, overrides, messag
         _deposit(customer, **overrides)
 
 
+def test_a_deposit_without_a_reference_is_accepted(mock_mongodb, customer, sent_emails):
+    first = _deposit(customer, transaction_reference="")
+    second = _deposit(customer, method="virement_postal", transaction_reference="  ")
+    assert first["transaction_reference"] == ""
+    assert first["method_label"] == "D17"
+    assert second["method"] == "virement_postal"
+    assert second["method_label"] == "Virement postal"
+    assert second["transaction_reference"] == ""
+    stored = list(mock_mongodb.storefront_deposits.find({}))
+    assert all("transaction_reference_key" not in row for row in stored)
+    assert "référence" not in sent_emails[-1]["text"].lower()
+
+
 def test_deposit_references_are_unique_and_pending_requests_are_capped(mock_mongodb, customer):
     _deposit(customer)
     with pytest.raises(wallet.WalletError, match="déjà été déclarée"):

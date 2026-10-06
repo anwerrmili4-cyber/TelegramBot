@@ -15,6 +15,15 @@ function methodLogo(id: string) {
   return METHOD_LOGOS[id.toLowerCase()] ?? "";
 }
 
+/** Card numbers are shown in groups of four and copied as plain digits. */
+function destinationText(details: string): { display: string; copy: string; grouped: boolean } {
+  const compact = details.replace(/\s+/g, "");
+  if (/^\d{12,19}$/.test(compact)) {
+    return { display: compact.replace(/(.{4})/g, "$1 ").trim(), copy: compact, grouped: true };
+  }
+  return { display: details, copy: details, grouped: false };
+}
+
 type MethodPickerProps = {
   methods: PaymentMethod[];
   value: string;
@@ -53,6 +62,8 @@ export function PaymentInstructions({ method, amountMillimes }: { method?: Payme
   const [copied, setCopied] = useState(false);
   if (!method) return null;
   const logo = methodLogo(method.id);
+  const postal = method.id === "virement_postal";
+  const destination = method.details ? destinationText(method.details) : null;
   return (
     <div className="payment-instructions">
       <p>
@@ -66,14 +77,21 @@ export function PaymentInstructions({ method, amountMillimes }: { method?: Payme
         )}
       </p>
       <div className="payment-target">
-        <span>{method.details || "Coordonnées bientôt disponibles."}</span>
-        {method.details ? (
+        <span>
+          {method.account_label ? <span className="payment-account">{method.account_label}</span> : null}
+          {destination ? (
+            <span className={destination.grouped ? "payment-account-number" : undefined}>{destination.display}</span>
+          ) : (
+            "Coordonnées bientôt disponibles."
+          )}
+        </span>
+        {destination ? (
           <button
             type="button"
             className="icon-button"
             aria-label="Copier les coordonnées"
             onClick={() => {
-              void navigator.clipboard?.writeText(method.details).then(() => setCopied(true));
+              void navigator.clipboard?.writeText(destination.copy).then(() => setCopied(true));
             }}
           >
             <Copy size={15} aria-hidden="true" />
@@ -81,7 +99,7 @@ export function PaymentInstructions({ method, amountMillimes }: { method?: Payme
         ) : null}
       </div>
       <small aria-live="polite">
-        {copied ? "Copié." : "Garde ensuite la référence de la transaction et une capture du reçu."}
+        {copied ? "Copié." : postal ? "Ajoute ensuite une capture du virement." : "Ajoute ensuite une capture du reçu."}
       </small>
     </div>
   );
@@ -91,9 +109,10 @@ type ReceiptFieldProps = {
   value: string;
   onChange: (dataUrl: string) => void;
   onError: (message: string) => void;
+  label?: string;
 };
 
-export function ReceiptField({ value, onChange, onError }: ReceiptFieldProps) {
+export function ReceiptField({ value, onChange, onError, label = "Capture du reçu" }: ReceiptFieldProps) {
   const inputId = useId();
   const [busy, setBusy] = useState(false);
 
@@ -112,7 +131,7 @@ export function ReceiptField({ value, onChange, onError }: ReceiptFieldProps) {
 
   return (
     <div className="receipt-field">
-      <span className="field-label">Capture du reçu</span>
+      <span className="field-label">{label}</span>
       {value ? (
         <div className="receipt-preview">
           <img src={value} alt="Aperçu du reçu" />

@@ -54,7 +54,6 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
   const [balance, setBalance] = useState<number | null>(null);
   const [payWith, setPayWith] = useState<PayWith>("wallet");
   const [method, setMethod] = useState(paymentMethods[0]?.id ?? "");
-  const [reference, setReference] = useState("");
   const [receipt, setReceipt] = useState("");
   const [info, setInfo] = useState<Record<number, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -99,7 +98,6 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       // The cart is only discarded once the customer leaves a confirmed order,
       // so a failed submission never loses their selection.
       setResult(null);
-      setReference("");
       setReceipt("");
       setInfo({});
       onConfirmed();
@@ -113,15 +111,13 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       setError("Solde insuffisant : recharge ton portefeuille ou paie par virement.");
       return;
     }
-    if (payWith === "transfer") {
-      if (reference.trim().length < 3) {
-        setError("Saisis la référence de la transaction indiquée sur ton reçu.");
-        return;
-      }
-      if (!receipt) {
-        setError("Ajoute une capture de ton reçu.");
-        return;
-      }
+    if (payWith === "transfer" && !receipt) {
+      setError(
+        chosenMethod?.id === "virement_postal"
+          ? "Ajoute une capture du virement."
+          : "Ajoute une capture de ton reçu.",
+      );
+      return;
     }
     const missing = cart.lines.find((line) => {
       if (!line.offer.requires_info) return false;
@@ -138,7 +134,6 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       const created = await submitCheckout(token, {
         payment_method: payWith === "wallet" ? "wallet" : chosenMethod?.id ?? "",
         idempotency_key: checkoutKey.current,
-        transaction_reference: payWith === "transfer" ? reference.trim() : undefined,
         receipt: payWith === "transfer" ? receipt : undefined,
         items: cart.lines.map((line) => ({
           offer_id: line.offer.id,
@@ -341,23 +336,12 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
                 name="payment_method"
               />
               <PaymentInstructions method={chosenMethod} amountMillimes={total} />
-              <label>
-                Référence de la transaction
-                <input
-                  required
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  name="transaction_reference"
-                  value={reference}
-                  maxLength={64}
-                  onChange={(event) => setReference(event.target.value)}
-                  placeholder="Ex. 123456789"
-                />
-              </label>
-              <ReceiptField value={receipt} onChange={setReceipt} onError={setError} />
+              <ReceiptField
+                value={receipt}
+                onChange={setReceipt}
+                onError={setError}
+                label={chosenMethod?.id === "virement_postal" ? "Capture du virement" : "Capture du reçu"}
+              />
             </>
           )}
 
