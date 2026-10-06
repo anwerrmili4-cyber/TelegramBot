@@ -2685,6 +2685,12 @@ def render_dashboard(
                         <button class="btn btn-primary" onclick="selectApiProvider('cgpt_active')">Voir ses produits</button>
                     </div>
                     <div class="api-action-card">
+                        <span class="badge badge-paid">API active</span>
+                        <h3>Safwan Tiger</h3>
+                        <p>Catalogue, solde wallet et livraison automatique via @SafwanTigerShopbot.</p>
+                        <button class="btn btn-primary" onclick="selectApiProvider('safwantiger')">Voir ses produits</button>
+                    </div>
+                    <div class="api-action-card">
                         <span>↻</span>
                         <h3>Synchronisation</h3>
                         <p>Actualisez le solde, les prix grossistes et les stocks.</p>

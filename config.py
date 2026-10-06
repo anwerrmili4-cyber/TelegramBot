@@ -220,6 +220,15 @@ PHAGIA_API_KEY: str = env_value("HP_PHAGIA_API_KEY")
 PHAGIA_API_BASE: str = normalized_http_url(env_value("HP_PHAGIA_API_BASE"))
 
 # ---------------------------------------------------------------------------
+# Fournisseur revendeur Safwan Tiger (@SafwanTigerShopbot)
+# ---------------------------------------------------------------------------
+SAFWANTIGER_API_KEY: str = env_value("HP_SAFWANTIGER_API_KEY")
+SAFWANTIGER_API_BASE: str = normalized_http_url(first_env_value(
+    "HP_SAFWANTIGER_API_BASE",
+    default="https://safwantigershopbot-production.up.railway.app",
+))
+
+# ---------------------------------------------------------------------------
 # Fournisseur revendeur UPIBot Shop
 # ---------------------------------------------------------------------------
 UPIBOT_API_KEY: str = env_value("HP_UPIBOT_API_KEY")

@@ -1491,6 +1491,7 @@ def test_all_supplier_bot_usernames_are_registered():
         "cgpt_active": "RichAIStoreBot",
         "ventebot": "storeBatmanBot",
         "phagia": "tailieudenphagiabot",
+        "safwantiger": "SafwanTigerShopbot",
     }
 
 
@@ -1583,6 +1584,173 @@ def test_nastele_catalog_and_fulfillment(monkeypatch, mock_mongodb):
 
     fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 99})
     assert fulfillment["supplier_order_id"] == "2244"
+
+
+def test_safwantiger_request_uses_bearer_auth_without_exposing_key(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"ok":true,"products":[]}'
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(reseller_service, "SAFWANTIGER_API_KEY", "stapi_test_secret")
+    monkeypatch.setattr(
+        reseller_service,
+        "SAFWANTIGER_API_BASE",
+        "https://safwan.example",
+    )
+    monkeypatch.setattr(reseller_service, "urlopen", fake_urlopen)
+
+    reseller_service._safwantiger_request_json("/api/products")
+
+    request, timeout = requests[0]
+    assert timeout == 20
+    assert request.full_url == "https://safwan.example/api/products"
+    assert request.get_header("Authorization") == "Bearer stapi_test_secret"
+    assert "stapi_test_secret" not in request.full_url
+
+
+def test_safwantiger_catalog_maps_balance_stock_and_unlimited_products(
+    monkeypatch, mock_mongodb,
+):
+    offer_id = _linked_offer("safwantiger", "1", 9)
+
+    def fake_request(path, **_kwargs):
+        if path == "/api/balance":
+            return {"ok": True, "balance": 12.5, "currency": "USDT"}
+        return {
+            "ok": True,
+            "products": [{
+                "id": 1,
+                "name": "Gemini Pro 18M Links",
+                "price": 0.5,
+                "stock": 0,
+                "available": False,
+                "unlimited_stock": False,
+                "warranty": "Saved by the administrator",
+                "description": "<blockquote><b>Self activation link</b></blockquote>",
+            }, {
+                "id": 20,
+                "name": "Linkedin Sales 1M",
+                "price": 20,
+                "stock": None,
+                "available": True,
+                "unlimited_stock": True,
+                "warranty": "",
+                "description": "",
+            }, {
+                "id": 50,
+                "name": "CapCut Pro 1M",
+                "price": 1.6,
+                "stock": 26,
+                "available": True,
+                "unlimited_stock": False,
+                "warranty": "NON \n{{ce:6028551194861899805|🛡}}HOLD: HOLD WARRANTY 24HOURS",
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_safwantiger_request_json", fake_request)
+
+    result = reseller_service.catalog("safwantiger")
+
+    assert result["provider"] == "safwantiger"
+    assert result["supplier_name"] == "Safwan Tiger"
+    assert result["balance"] == 12.5
+    assert result["currency"] == "USDT"
+    sold_out, unlimited, stocked = result["products"]
+    assert sold_out["id"] == "1"
+    assert sold_out["wholesale_price"] == 0.5
+    assert sold_out["stock"] == 0
+    assert sold_out["unlimited_stock"] is False
+    assert sold_out["description"] == "Self activation link"
+    assert sold_out["warranty"] == "Produit API MailReader"
+    assert "HOLD WARRANTY 24HOURS" in stocked["warranty"]
+    assert "{{ce:" not in stocked["warranty"]
+    assert unlimited["stock"] == 0
+    assert unlimited["unlimited_stock"] is True
+    assert stocked["stock"] == 26
+    saved = db.get_offer(offer_id)
+    assert saved["stock"] == 0
+    assert saved["unlimited_stock"] is False
+    assert reseller_service.provider_bot_username("safwantiger") == "SafwanTigerShopbot"
+
+
+def test_safwantiger_purchase_is_idempotent_and_delivers_items(
+    monkeypatch, mock_mongodb,
+):
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append((path, kwargs))
+        return {
+            "ok": True,
+            "order_id": 44,
+            "items": ["user@example.com:password"],
+        }
+
+    monkeypatch.setattr(reseller_service, "_safwantiger_request_json", fake_request)
+    offer_id = db.add_offer(
+        db.add_service("Safwan Tiger", "📦"),
+        "CapCut Pro",
+        2.0,
+        4,
+        supplier_provider="safwantiger",
+        supplier_product_id="50",
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 110,
+        "user_id": 456,
+        "offer_id": offer_id,
+        "qty": 1,
+        "status": "payment_confirmed",
+    })
+
+    first = reseller_service.fulfill_paid_order(110)
+    second = reseller_service.fulfill_paid_order(110)
+
+    assert first == second == ["user@example.com:password"]
+    assert calls == [("/api/order", {
+        "method": "POST",
+        "body": {
+            "product_id": 50,
+            "quantity": 1,
+            "external_order_id": "BM-110",
+            "request_id": "BM-110",
+        },
+    })]
+    fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 110})
+    assert fulfillment["supplier_order_id"] == "44"
+
+
+def test_safwantiger_insufficient_balance_does_not_create_an_order(monkeypatch):
+    monkeypatch.setattr(reseller_service, "SAFWANTIGER_API_KEY", "stapi_test_secret")
+    monkeypatch.setattr(reseller_service, "SAFWANTIGER_API_BASE", "https://safwan.example")
+
+    def raising_urlopen(request, timeout):
+        raise reseller_service.HTTPError(
+            request.full_url, 402, "Payment Required", hdrs=None, fp=BytesIO(
+                b'{"ok":false,"error":"insufficient_balance","message":"Insufficient wallet/API balance."}'
+            ),
+        )
+
+    monkeypatch.setattr(reseller_service, "urlopen", raising_urlopen)
+
+    with pytest.raises(reseller_service.ResellerOrderNotCreatedError, match="Insufficient"):
+        reseller_service._safwantiger_request_json(
+            "/api/order",
+            method="POST",
+            body={"product_id": 50, "quantity": 1},
+        )
 
 
 def test_supplier_stock_keeps_zero_and_honors_out_of_stock_flags():

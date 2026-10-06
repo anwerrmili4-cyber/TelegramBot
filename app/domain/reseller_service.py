@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -33,6 +34,8 @@ from config import (
     NASTELE_VND_PER_USDT,
     PHAGIA_API_BASE,
     PHAGIA_API_KEY,
+    SAFWANTIGER_API_BASE,
+    SAFWANTIGER_API_KEY,
     SHAMEKH_API_BASE,
     SHAMEKH_API_KEY,
     SHOP_CRON_API_KEY,
@@ -59,6 +62,7 @@ TOOLORAX_PROVIDER = "toolorax"
 CGPT_ACTIVE_PROVIDER = "cgpt_active"
 VENTEBOT_PROVIDER = "ventebot"
 PHAGIA_PROVIDER = "phagia"
+SAFWANTIGER_PROVIDER = "safwantiger"
 CGPT_ACTIVE_DISPLAY_NAME = "Rich AI Store"
 PROVIDER_DISPLAY_NAMES = {
     PROVIDER: "MailReader",
@@ -74,6 +78,7 @@ PROVIDER_DISPLAY_NAMES = {
     CGPT_ACTIVE_PROVIDER: CGPT_ACTIVE_DISPLAY_NAME,
     VENTEBOT_PROVIDER: "VenteBot",
     PHAGIA_PROVIDER: "Shop Phá Giá",
+    SAFWANTIGER_PROVIDER: "Safwan Tiger",
 }
 PROVIDER_BOT_USERNAMES = {
     PROVIDER: "dodistore_bot",
@@ -89,6 +94,7 @@ PROVIDER_BOT_USERNAMES = {
     CGPT_ACTIVE_PROVIDER: "RichAIStoreBot",
     VENTEBOT_PROVIDER: "storeBatmanBot",
     PHAGIA_PROVIDER: "tailieudenphagiabot",
+    SAFWANTIGER_PROVIDER: "SafwanTigerShopbot",
 }
 SUPPORTED_PROVIDERS = {
     PROVIDER,
@@ -104,6 +110,7 @@ SUPPORTED_PROVIDERS = {
     CGPT_ACTIVE_PROVIDER,
     VENTEBOT_PROVIDER,
     PHAGIA_PROVIDER,
+    SAFWANTIGER_PROVIDER,
 }
 CANBOSO_PROVIDERS = {
     CANBOSO_PROVIDER,
@@ -892,6 +899,82 @@ def _phagia_request_json(
     return payload
 
 
+def _safwantiger_plain(value: Any, limit: int) -> str:
+    """Drop Telegram markup so a Safwan Tiger warranty stays readable."""
+    text = re.sub(r"\{\{ce:\d+\|([^}]*)\}\}", r"\1", str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("*", "")
+    return " ".join(text.split())[:limit]
+
+
+def _safwantiger_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call Safwan Tiger's reseller API without exposing its wallet key."""
+    if not SAFWANTIGER_API_KEY:
+        raise ResellerApiError(
+            "Safwan Tiger n’est pas configuré. Ajoutez HP_SAFWANTIGER_API_KEY "
+            "dans les variables d’environnement."
+        )
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        f"{SAFWANTIGER_API_BASE}{path}",
+        headers={
+            "Authorization": f"Bearer {SAFWANTIGER_API_KEY}",
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+            "User-Agent": "BlackMarket-Reseller/1.0",
+        },
+        data=payload_bytes,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        error_payload: dict[str, Any] = {}
+        try:
+            decoded = json.loads(exc.read().decode("utf-8"))
+            if isinstance(decoded, dict):
+                error_payload = decoded
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        code = str(error_payload.get("error") or "").lower()
+        message = str(error_payload.get("message") or "")[:300]
+        if exc.code in {401, 403} or code in {"missing_api_key", "invalid_api_key"}:
+            raise ResellerApiError(
+                "Clé API Safwan Tiger refusée. Remplacez-la par une clé active."
+            ) from exc
+        if exc.code == 402 or code == "insufficient_balance" or "balance" in message.lower():
+            raise ResellerOrderNotCreatedError(
+                message or "Solde Safwan Tiger insuffisant : aucune commande n’a été créée."
+            ) from exc
+        error_type = (
+            ResellerOrderNotCreatedError
+            if exc.code in {400, 404, 409, 422} or code in {"out_of_stock", "product_not_found", "invalid_quantity"}
+            else ResellerApiError
+        )
+        raise error_type(
+            message or f"Safwan Tiger a répondu avec l’erreur HTTP {exc.code}."
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ResellerApiError("Safwan Tiger est temporairement indisponible.") from exc
+    if not isinstance(payload, dict):
+        raise ResellerApiError("Réponse Safwan Tiger invalide.")
+    if payload.get("ok") is False:
+        code = str(payload.get("error") or "").lower()
+        message = str(payload.get("message") or payload.get("error") or "Requête Safwan Tiger refusée.")[:300]
+        if code == "insufficient_balance" or "balance" in message.lower():
+            raise ResellerOrderNotCreatedError(message)
+        if code in {"out_of_stock", "product_not_found", "invalid_quantity"}:
+            raise ResellerOrderNotCreatedError(message)
+        raise ResellerApiError(message)
+    return payload
+
+
 def provider_summaries() -> list[dict[str, Any]]:
     """Return safe provider metadata without exposing credentials."""
     return [
@@ -976,6 +1059,12 @@ def provider_summaries() -> list[dict[str, Any]]:
                 if PHAGIA_API_BASE else ""
             ),
         },
+        {
+            "id": SAFWANTIGER_PROVIDER,
+            "name": "Safwan Tiger",
+            "configured": bool(SAFWANTIGER_API_KEY),
+            "documentation_url": f"{SAFWANTIGER_API_BASE}/api",
+        },
     ]
 
 
@@ -995,6 +1084,7 @@ def _provider_is_configured(provider: str) -> bool:
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
         PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
+        SAFWANTIGER_PROVIDER: bool(SAFWANTIGER_API_KEY),
     }
     return bool(flags.get(str(provider or "").strip().lower()))
 
@@ -1182,6 +1272,11 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         account = _ventebot_request_json("/api/reseller/me")
         reseller = {"balance": account.get("wallet_balance", 0)}
         supplier_name = "VenteBot"
+    elif provider == SAFWANTIGER_PROVIDER:
+        payload = _safwantiger_request_json("/api/products")
+        account = _safwantiger_request_json("/api/balance")
+        reseller = {"balance": account.get("balance", 0)}
+        supplier_name = "Safwan Tiger"
     elif provider == PHAGIA_PROVIDER:
         payload = _phagia_request_json("/api/v2/client/products")
         wallet_payload = _phagia_request_json("/api/v2/client/wallet")
@@ -1259,7 +1354,7 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                     if provider in CANBOSO_PROVIDERS
                     else (
                         raw.get("price")
-                        if provider in {SHAMEKH_PROVIDER, KAKAO_PROVIDER, VEX_PROVIDER}
+                        if provider in {SHAMEKH_PROVIDER, KAKAO_PROVIDER, VEX_PROVIDER, SAFWANTIGER_PROVIDER}
                         else raw.get("sell_price")
                         if provider == UPIBOT_PROVIDER
                         else raw.get("unit_price")
@@ -1312,10 +1407,14 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 or raw.get("name")
                 or product_id
             )[:200],
-            "description": str(
-                raw.get("description")
-                or (f"Source : {raw.get('source')}" if raw.get("source") else "")
-            )[:2000],
+            "description": (
+                _safwantiger_plain(raw.get("description"), 2000)
+                if provider == SAFWANTIGER_PROVIDER
+                else str(
+                    raw.get("description")
+                    or (f"Source : {raw.get('source')}" if raw.get("source") else "")
+                )[:2000]
+            ),
             "delivery_instruction": str(
                 raw.get("delivery_instruction")
                 or raw.get("delivery_instructions")
@@ -1372,13 +1471,22 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 or config.get("service_emoji")
                 or "📦"
             ),
-            "custom_description": config.get("description") or str(raw.get("description") or "")[:2000],
+            "custom_description": config.get("description") or (
+                _safwantiger_plain(raw.get("description"), 2000)
+                if provider == SAFWANTIGER_PROVIDER
+                else str(raw.get("description") or "")[:2000]
+            ),
             "warranty": (
                 config.get("warranty")
                 or (native_offer or {}).get("note")
                 or (
                     f"{int(raw.get('warranty_days') or 0)} day warranty"
                     if provider == VENTEBOT_PROVIDER and int(raw.get("warranty_days") or 0) > 0
+                    else ""
+                )
+                or (
+                    _safwantiger_plain(raw.get("warranty"), 250)
+                    if provider == SAFWANTIGER_PROVIDER
                     else ""
                 )
                 or f"Produit API {supplier_name}"
@@ -1473,6 +1581,7 @@ def detect_restock_events() -> dict[str, Any]:
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
         PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
+        SAFWANTIGER_PROVIDER: bool(SAFWANTIGER_API_KEY),
     }
     events: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -1530,6 +1639,7 @@ def detect_supplier_price_changes() -> dict[str, Any]:
         CGPT_ACTIVE_PROVIDER: bool(CGPT_ACTIVE_API_KEY),
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
         PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
+        SAFWANTIGER_PROVIDER: bool(SAFWANTIGER_API_KEY),
     }
     changes: list[dict[str, Any]] = []
     flash_sales: list[dict[str, Any]] = []
@@ -2053,6 +2163,22 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                     "quantity": int(order.get("qty") or 1),
                     "customer_reference": buyer,
                     "idempotency_key": external_order_id,
+                },
+            )
+        elif provider == SAFWANTIGER_PROVIDER:
+            supplier_product_id = str(offer["supplier_product_id"])
+            response = _safwantiger_request_json(
+                "/api/order",
+                method="POST",
+                body={
+                    "product_id": (
+                        int(supplier_product_id)
+                        if supplier_product_id.isdigit()
+                        else supplier_product_id
+                    ),
+                    "quantity": int(order.get("qty") or 1),
+                    "external_order_id": external_order_id,
+                    "request_id": external_order_id,
                 },
             )
         elif provider == PHAGIA_PROVIDER:

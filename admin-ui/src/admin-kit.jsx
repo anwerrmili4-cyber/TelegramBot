@@ -50,6 +50,7 @@ export const PROVIDERS = [
   ["upibot", "UPIBot Shop"],
   ["toolorax", "ToolOraX Store Bot"],
   ["cgpt_active", "Rich AI Store"],
+  ["safwantiger", "Safwan Tiger"],
 ];
 
 export const PROVIDER_LABELS = Object.fromEntries(PROVIDERS);
