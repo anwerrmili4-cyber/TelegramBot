@@ -1582,15 +1582,25 @@ _PROVIDER_TRANSACTION_FIELDS = (
 _PROVIDER_TRANSACTION_SEARCH_FIELDS = ("external_order_id", "supplier_order_id", "supplier_product_id")
 
 
+def _tally_provider_transaction(target: dict[str, Any], status: str, cost: float | None, currency: str) -> None:
+    if status == "completed":
+        target["completed"] += 1
+    elif status in {"review_required", "delivery_pending"}:
+        target["needs_review"] += 1
+    target["statuses"][status] = target["statuses"].get(status, 0) + 1
+    if cost is not None:
+        target["costs"][currency] = target["costs"].get(currency, 0.0) + cost
+
+
 def list_provider_transactions(params: dict[str, list[str]]) -> dict[str, Any]:
     """Return stored supplier API purchases without delivered contents."""
     page = _bounded_int(_first(params, "page"), 1, 1, 100_000)
     per_page = _bounded_int(_first(params, "per_page"), 25, 1, 100)
     provider = _first(params, "provider") or "all"
     status = _first(params, "status") or "all"
+    if provider not in reseller_service.SUPPORTED_PROVIDERS:
+        provider = "all"
     query_parts: list[dict[str, Any]] = []
-    if provider in reseller_service.SUPPORTED_PROVIDERS:
-        query_parts.append({"provider": provider})
     if status in PROVIDER_TRANSACTION_STATUSES:
         query_parts.append({"status": status})
 
@@ -1608,6 +1618,9 @@ def list_provider_transactions(params: dict[str, list[str]]) -> dict[str, Any]:
             clauses.append({"order_id": int(order_number)})
         query_parts.append({"$or": clauses} if clauses else {"_id": None})
 
+    breakdown_query: dict[str, Any] = {"$and": query_parts} if query_parts else {}
+    if provider != "all":
+        query_parts = [{"provider": provider}, *query_parts]
     query: dict[str, Any] = {"$and": query_parts} if query_parts else {}
     collection = db.get_conn().reseller_fulfillments
     total = collection.count_documents(query)
@@ -1635,18 +1648,35 @@ def list_provider_transactions(params: dict[str, list[str]]) -> dict[str, Any]:
         item["provider_name"] = reseller_service.PROVIDER_DISPLAY_NAMES.get(str(row.get("provider") or ""), str(row.get("provider") or ""))
         items.append(item)
 
-    summary: dict[str, Any] = {"count": total, "completed": 0, "needs_review": 0, "costs": {}}
-    for row in collection.find(query, {"status": 1, "purchase_cost_total": 1, "purchase_cost_currency": 1}):
-        row_status = row.get("status")
-        if row_status == "completed":
-            summary["completed"] += 1
-        elif row_status in {"review_required", "delivery_pending"}:
-            summary["needs_review"] += 1
+    summary: dict[str, Any] = {"count": total, "completed": 0, "needs_review": 0, "costs": {}, "statuses": {}}
+    breakdown: dict[str, dict[str, Any]] = {}
+    for row in collection.find(
+        breakdown_query,
+        {"provider": 1, "status": 1, "purchase_cost_total": 1, "purchase_cost_currency": 1, "created_at": 1},
+    ):
+        row_provider = str(row.get("provider") or "")
+        row_status = str(row.get("status") or "")
         cost = row.get("purchase_cost_total")
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            currency = str(row.get("purchase_cost_currency") or "USDT")
-            summary["costs"][currency] = summary["costs"].get(currency, 0.0) + float(cost)
-    summary["costs"] = {currency: round(amount, 4) for currency, amount in summary["costs"].items()}
+        has_cost = isinstance(cost, (int, float)) and not isinstance(cost, bool)
+        currency = str(row.get("purchase_cost_currency") or "USDT")
+        entry = breakdown.setdefault(row_provider, {
+            "id": row_provider,
+            "name": reseller_service.PROVIDER_DISPLAY_NAMES.get(row_provider, row_provider),
+            "count": 0, "completed": 0, "needs_review": 0, "costs": {}, "statuses": {}, "last_created_at": None,
+        })
+        entry["count"] += 1
+        _tally_provider_transaction(entry, row_status, float(cost) if has_cost else None, currency)
+        if provider in {"all", row_provider}:
+            _tally_provider_transaction(summary, row_status, float(cost) if has_cost else None, currency)
+        created_at = row.get("created_at")
+        if created_at and (entry["last_created_at"] is None or str(created_at) > str(entry["last_created_at"])):
+            entry["last_created_at"] = created_at
+    for target in [summary, *breakdown.values()]:
+        target["costs"] = {currency: round(amount, 4) for currency, amount in target["costs"].items()}
+    provider_breakdown = sorted(
+        breakdown.values(),
+        key=lambda entry: (-sum(entry["costs"].values()), -entry["count"], entry["name"]),
+    )
 
     return {
         "items": items,
@@ -1655,6 +1685,8 @@ def list_provider_transactions(params: dict[str, list[str]]) -> dict[str, Any]:
         "total": total,
         "pages": max(1, (total + per_page - 1) // per_page),
         "summary": summary,
+        "provider": provider,
+        "provider_breakdown": provider_breakdown,
         "providers": [
             {"id": provider_id, "name": reseller_service.PROVIDER_DISPLAY_NAMES.get(provider_id, provider_id)}
             for provider_id in sorted(reseller_service.SUPPORTED_PROVIDERS)

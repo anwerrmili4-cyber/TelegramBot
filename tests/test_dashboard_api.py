@@ -1003,7 +1003,8 @@ def test_provider_transactions_empty_list(mock_mongodb):
     assert result["items"] == []
     assert result["total"] == 0
     assert result["pages"] == 1
-    assert result["summary"] == {"count": 0, "completed": 0, "needs_review": 0, "costs": {}}
+    assert result["summary"] == {"count": 0, "completed": 0, "needs_review": 0, "costs": {}, "statuses": {}}
+    assert result["provider_breakdown"] == []
 
 
 def test_provider_transactions_never_return_delivered_secrets(mock_mongodb):
@@ -1069,10 +1070,32 @@ def test_provider_transactions_cost_sum_and_counts_follow_filters(mock_mongodb):
     everything = dashboard_api.list_provider_transactions({"per_page": ["1"]})
     kakao = dashboard_api.list_provider_transactions({"provider": ["kakao"]})
 
-    assert everything["summary"] == {"count": 3, "completed": 1, "needs_review": 2, "costs": {"USDT": 6.5}}
+    assert everything["summary"] == {
+        "count": 3, "completed": 1, "needs_review": 2, "costs": {"USDT": 6.5},
+        "statuses": {"completed": 1, "review_required": 1, "delivery_pending": 1},
+    }
     assert kakao["summary"]["costs"] == {"USDT": 4.0}
     missing_cost = next(item for item in everything["items"] if item["external_order_id"] == "BM-999-c")
     assert missing_cost["purchase_cost_total"] is None
+
+
+def test_provider_breakdown_separates_suppliers_and_ignores_provider_filter(mock_mongodb):
+    _seed_provider_transactions(mock_mongodb)
+
+    result = dashboard_api.list_provider_transactions({"provider": ["kakao"]})
+    breakdown = {entry["id"]: entry for entry in result["provider_breakdown"]}
+
+    assert [entry["id"] for entry in result["provider_breakdown"]] == ["kakao", "mailreader"]
+    assert breakdown["mailreader"]["count"] == 2
+    assert breakdown["mailreader"]["costs"] == {"USDT": 2.5}
+    assert breakdown["mailreader"]["statuses"] == {"completed": 1, "delivery_pending": 1}
+    assert breakdown["mailreader"]["needs_review"] == 1
+    assert breakdown["mailreader"]["last_created_at"] == "2026-10-03T10:00:00+00:00"
+    assert breakdown["kakao"]["name"]
+    assert result["summary"]["count"] == 1
+    assert result["summary"]["statuses"] == {"review_required": 1}
+    filtered = dashboard_api.list_provider_transactions({"status": ["completed"]})
+    assert [entry["id"] for entry in filtered["provider_breakdown"]] == ["mailreader"]
 
 
 def test_provider_transactions_join_orders_and_tolerate_deleted_order(mock_mongodb):
