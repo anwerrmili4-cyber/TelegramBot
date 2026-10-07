@@ -143,6 +143,122 @@
   background: var(--ink-800);
 }
 
+.hero-missing-slot {
+  display: contents;
+}
+
+.hero-missing {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 18px;
+  padding: 12px 16px 12px 12px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--brand-rgb), 0.45);
+  border-radius: 18px;
+  background:
+    radial-gradient(90px 70px at 0% 50%, rgba(var(--brand-rgb), 0.28), transparent 72%),
+    var(--ink-800);
+  color: var(--text);
+  text-align: left;
+  transition:
+    transform 0.28s var(--ease-out),
+    border-color 0.28s var(--ease-out);
+}
+
+.hero-missing:hover {
+  border-color: var(--brand);
+  transform: translateX(4px);
+}
+
+.hero-missing:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+.hero-missing-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 0 0 6px rgba(var(--brand-rgb), 0.16);
+}
+
+.hero-missing-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hero-missing strong {
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.hero-missing small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.hero-missing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.22) 50%, transparent 64%);
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+
+@media (min-width: 1680px) {
+  .hero-card {
+    position: relative;
+  }
+
+  .hero-missing-slot {
+    display: block;
+    position: absolute;
+    z-index: 4;
+    top: 42%;
+    left: 0;
+    width: min(220px, calc(50vw - 652px));
+    transform: translate(calc(-100% - 16px), -50%);
+  }
+
+  .hero-missing {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    margin-top: 0;
+    padding: 14px 14px 12px;
+  }
+
+  .hero-missing:hover {
+    transform: translateX(6px);
+  }
+}
+
+@media (max-width: 760px) {
+  .hero-missing {
+    width: 100%;
+    margin-top: 14px;
+  }
+}
+
 .hero-lead-short,
 .hero-search-go,
 .hero-picks {

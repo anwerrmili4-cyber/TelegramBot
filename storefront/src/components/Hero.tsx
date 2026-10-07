@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { ArrowRight, ArrowUpRight, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, PackageSearch, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { FilmReel } from "@/components/FilmReel";
 import { HeroReviewReel } from "@/components/PublicReviews";
 import { HowItWorks } from "@/components/HowItWorks";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { accountPath } from "@/lib/accountPath";
 import { money } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, navigate, ROUTES } from "@/lib/router";
@@ -226,6 +227,20 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
                 {category.label}
               </Link>
             ))}
+          </div>
+          <div className="hero-missing-slot">
+            <Link className="hero-missing" to={accountPath("demande")}>
+              <span className="hero-missing-icon" aria-hidden="true">
+                <PackageSearch size={18} />
+              </span>
+              <span className="hero-missing-copy">
+                <strong>Tu n&apos;as pas trouvé ton service ?</strong>
+                <small>
+                  Demander un produit
+                  <ArrowRight size={14} aria-hidden="true" />
+                </small>
+              </span>
+            </Link>
           </div>
         </div>
         {popular.length ? (
