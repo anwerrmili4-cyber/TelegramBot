@@ -6,7 +6,7 @@ from i18n import t
 def test_removed_french_language_falls_back_to_english():
     values = {
         "first_name": "Anwer - BMC",
-        "terms_url": "https://blackmarket.today/terms",
+        "terms_url": "https://bot.ourblackmarket.com/terms",
     }
     message = t("fr", "welcome", **values)
 
