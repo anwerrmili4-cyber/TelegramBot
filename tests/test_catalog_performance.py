@@ -1,6 +1,12 @@
-from unittest.mock import Mock
+import asyncio
+import threading
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import database as db
+import keyboards as kb
+from app.domain import reseller_service
 from app.web import dashboard_api
 
 
@@ -85,3 +91,84 @@ def test_inventory_summary_fetches_offer_names_in_one_query(mock_mongodb, monkey
     assert len(rows) == 20
     assert all(row["offer_name"] == f"Offer {row['offer_id']}" for row in rows)
     assert find.call_count == 1
+
+
+def test_flat_catalog_buttons_do_not_load_each_service(mock_mongodb, monkeypatch):
+    service_id = db.add_service("officiels subscribes", "⭐")
+    for index in range(8):
+        db.add_offer(service_id, f"Product {index}", 5.0, 2)
+    find_one = Mock(wraps=mock_mongodb.services.find_one)
+    monkeypatch.setattr(mock_mongodb.services, "find_one", find_one)
+
+    keyboard = kb.catalog_offers_keyboard("en")
+    product_rows = [
+        row for row in keyboard.inline_keyboard
+        if row and str(getattr(row[0], "callback_data", "") or "").startswith("off:")
+    ]
+
+    assert len(product_rows) == 8
+    assert find_one.call_count == 0
+
+
+def test_catalog_keyboard_is_reused_until_it_expires(mock_mongodb, monkeypatch):
+    monkeypatch.setattr(kb, "BOT_CATALOG_CACHE_SECONDS", 30)
+    service_id = db.add_service("Netflix", "N")
+    db.add_offer(service_id, "Premium", 4.0, 2)
+    listed = Mock(wraps=kb.db.list_catalog_offers)
+    monkeypatch.setattr(kb.db, "list_catalog_offers", listed)
+
+    first = kb.catalog_offers_keyboard("en")
+    second = kb.catalog_offers_keyboard("en")
+
+    assert second is first
+    assert listed.call_count == 1
+
+
+def test_catalog_button_returns_before_supplier_refresh(mock_mongodb, monkeypatch):
+    from bot import cb_navigation, show_catalog
+
+    service_id = db.add_service("Netflix", "N")
+    db.add_offer(service_id, "Premium", 4.0, 2)
+    release = threading.Event()
+    entered = threading.Event()
+
+    def slow_refresh(offers=None):
+        entered.set()
+        release.wait(3)
+
+    monkeypatch.setattr(reseller_service, "SUPPLIER_REFRESH_IN_BACKGROUND", True)
+    monkeypatch.setattr(reseller_service, "_background_refresh_started_at", 0.0)
+    monkeypatch.setattr(reseller_service, "_background_refresh_running", threading.Lock())
+    monkeypatch.setattr(reseller_service, "refresh_supplier_stock", slow_refresh)
+
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=7),
+        message=message,
+        callback_query=None,
+    )
+    started = time.perf_counter()
+    try:
+        asyncio.run(show_catalog(update, SimpleNamespace(), "en"))
+        elapsed = time.perf_counter() - started
+        assert elapsed < 1
+        message.reply_text.assert_awaited()
+        assert entered.wait(1)
+
+        entered.clear()
+        query_message = SimpleNamespace(text="menu", reply_text=AsyncMock())
+        query = SimpleNamespace(
+            data="catalog",
+            from_user=SimpleNamespace(id=7),
+            answer=AsyncMock(),
+            message=query_message,
+            edit_message_text=AsyncMock(),
+            edit_message_reply_markup=AsyncMock(),
+        )
+        callback_update = SimpleNamespace(callback_query=query, effective_user=query.from_user)
+        started = time.perf_counter()
+        asyncio.run(cb_navigation(callback_update, SimpleNamespace()))
+        assert time.perf_counter() - started < 1
+        query.edit_message_text.assert_awaited()
+    finally:
+        release.set()

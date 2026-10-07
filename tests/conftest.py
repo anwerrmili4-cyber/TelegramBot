@@ -47,12 +47,14 @@ def deterministic_runtime(monkeypatch):
 
     Supplier refreshes also run inline so no thread outlives its test.
     """
+    import keyboards
     from app.bot import middlewares
     from app.core.cache import cache
     from app.domain import reseller_service, storefront_service
 
     cache.clear()
     monkeypatch.setattr(storefront_service, "CATALOG_CACHE_SECONDS", 0)
+    monkeypatch.setattr(keyboards, "BOT_CATALOG_CACHE_SECONDS", 0)
     monkeypatch.setattr(middlewares, "GUARD_CACHE_SECONDS", 0)
     monkeypatch.setattr(reseller_service, "SUPPLIER_REFRESH_IN_BACKGROUND", False)
     yield

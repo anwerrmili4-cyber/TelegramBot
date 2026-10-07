@@ -2046,15 +2046,28 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------- Catalogue (client) ----------------
+async def catalog_reply_markup(lang, notifications_enabled):
+    """Build the catalog from saved stock, then refresh suppliers off to the side.
+
+    Waiting here used to call every supplier API before the customer saw a
+    single button. Stock on screen is the last saved number; the refresh
+    updates it for the next open.
+    """
+    markup = await asyncio.to_thread(
+        kb.catalog_offers_keyboard, lang, notifications_enabled,
+    )
+    reseller_service.refresh_supplier_stock_in_background()
+    return markup
+
+
 async def show_catalog(update, context, lang):
-    await asyncio.to_thread(reseller_service.refresh_supplier_stock)
     text = t(lang, "catalog_flat_title", shop=SHOP_NAME)
     msg = update.message or update.callback_query.message
     notifications_enabled = db.catalog_notifications_enabled(update.effective_user.id)
     await msg.reply_text(
         text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb.catalog_offers_keyboard(lang, notifications_enabled),
+        reply_markup=await catalog_reply_markup(lang, notifications_enabled),
     )
 
 
@@ -2313,11 +2326,10 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_main_menu(update, context, lang)
         return
     if data == "catalog":
-        await asyncio.to_thread(reseller_service.refresh_supplier_stock)
         await show_callback_screen(
             q,
             t(lang, "catalog_flat_title", shop=SHOP_NAME),
-            reply_markup=kb.catalog_offers_keyboard(
+            reply_markup=await catalog_reply_markup(
                 lang, db.catalog_notifications_enabled(uid),
             ),
         )
@@ -2325,9 +2337,8 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "catalog_notifications_toggle":
         enabled = not db.catalog_notifications_enabled(uid)
         db.set_catalog_notifications_enabled(uid, enabled)
-        await asyncio.to_thread(reseller_service.refresh_supplier_stock)
         await q.edit_message_reply_markup(
-            reply_markup=kb.catalog_offers_keyboard(lang, enabled),
+            reply_markup=await catalog_reply_markup(lang, enabled),
         )
         return
     if data == "profile_notifications":
@@ -2712,11 +2723,10 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sid = int(data.split(":")[1])
         service = db.get_service(sid)
         if not service:
-            await asyncio.to_thread(reseller_service.refresh_supplier_stock)
             await show_callback_screen(
                 q,
                 t(lang, "catalog_flat_title", shop=SHOP_NAME),
-                reply_markup=kb.catalog_offers_keyboard(
+                reply_markup=await catalog_reply_markup(
                     lang, db.catalog_notifications_enabled(uid),
                 ),
             )

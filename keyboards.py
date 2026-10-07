@@ -173,9 +173,14 @@ def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
         price_text = f"${amount}" if currency in {"USD", "USDT"} else f"{amount} {currency}"
 
     period = offer_period_label(lang, offer)
-    service = db.get_service(offer.get("service_id")) or {}
-    service_name = service.get("name") or offer.get("service_name") or ""
-    if str(service_name).strip().casefold() == "methods":
+    # The flat catalog already carries the service name. Looking it up again
+    # once per product made the catalog button wait on a query per offer.
+    service_name = offer.get("service_name")
+    service = None
+    if service_name is None and offer.get("service_id") is not None:
+        service = db.get_service(offer.get("service_id")) or {}
+        service_name = service.get("name") or ""
+    if str(service_name or "").strip().casefold() == "methods":
         period = ""
 
     raw_icon_id = str(
@@ -190,12 +195,10 @@ def offer_button_label(lang, offer, *, stock_label=None, price_tbd=None):
             (raw_icon_id if raw_icon_id else offer.get("emoji") or offer.get("service_emoji"))
             or ""
         ).strip()
-        if not emoji:
-            sid = offer.get("service_id")
-            if sid:
-                svc = db.get_service(sid)
-                if svc:
-                    emoji = str(svc.get("emoji") or "").strip()
+        if not emoji and "service_emoji" not in offer and offer.get("service_id") is not None:
+            if service is None:
+                service = db.get_service(offer.get("service_id")) or {}
+            emoji = str(service.get("emoji") or "").strip()
     clean_name = clean_button_name(offer["name"])
 
     suffix_parts = [p for p in (period, price_text) if p]
@@ -441,7 +444,29 @@ def format_split_button_texts(name, price_str, right_text):
     return left_label, right_label
 
 
+BOT_CATALOG_CACHE_SECONDS = 8.0
+
+
 def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
+    """Return the customer catalog, reusing the last build for a few seconds.
+
+    Supplier stock writes drop this cache, so the next tap shows the new
+    numbers without rebuilding the keyboard on every press.
+    """
+    from app.core.cache import CATALOG_PREFIX, cache
+
+    key = (
+        f"{CATALOG_PREFIX}bot:{lang}:"
+        f"{int(bool(catalog_notifications_enabled))}"
+    )
+    return cache.get_or_set(
+        key,
+        BOT_CATALOG_CACHE_SECONDS,
+        lambda: _catalog_offers_keyboard(lang, catalog_notifications_enabled),
+    )
+
+
+def _catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
     """Group multi-offer services and show single offers directly."""
     buttons = []
     db.preload_text_overrides(
@@ -614,6 +639,7 @@ def offers_keyboard(lang, service_id):
         off_name = (off.get("name") or f"Offre #{off['id']}").strip()
         clean_name = clean_button_name(off_name) or off_name
         emoji = (safe_offer.get("emoji") or svc_emoji).strip()
+        safe_offer["service_name"] = (service or {}).get("name") or ""
         safe_offer["service_emoji"] = emoji
         safe_offer["service_custom_emoji_id"] = (
             service.get("custom_emoji_id") if service else None
