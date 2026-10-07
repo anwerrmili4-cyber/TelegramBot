@@ -1549,6 +1549,37 @@ async def send_main_menu(update, context, lang, chat_id=None):
         )
 
 
+async def reply_admin_offer_validation(message, offer_id, title):
+    """Show the save confirmation first, then the updated offer, as the latest screen."""
+    offer = db.get_offer(offer_id)
+    if db.is_bmc_vip_offer(offer):
+        offer = db.get_offer(db.ensure_bmc_vip_offer())
+    preview = ""
+    if offer:
+        try:
+            preview = compact_offer_text(offer, "en")
+        except Exception:
+            log.warning("Admin offer preview failed for %s", offer_id, exc_info=True)
+    heading = f"✅ <b>{html.escape(str(title).removeprefix('✅').strip())}</b>"
+    text = f"{heading}\n\n{preview}" if preview else heading
+    markup = admin.offer_admin_keyboard(int(offer_id))
+    if len(text) > 3900:
+        await message.reply_text(heading, parse_mode=ParseMode.HTML)
+        await message.reply_text(
+            preview,
+            parse_mode=ParseMode.HTML,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+            reply_markup=markup,
+        )
+        return
+    await message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+        reply_markup=markup,
+    )
+
+
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Accès refusé.")
@@ -3905,13 +3936,13 @@ async def handle_pending_input(update, context, lang):
             if price < 0:
                 raise ValueError
             db.update_offer(ref, price=price)
-            await update.message.reply_text(f"✅ Prix mis à jour : {price:.2f} {CURRENCY}")
         except ValueError:
             await update.message.reply_text("⚠️ Valeur invalide. Envoyez un nombre, ex : 1.99")
             return
         PENDING.pop(uid, None)
-        await update.message.reply_text("🛠️ *Panneau Admin*", parse_mode=ParseMode.MARKDOWN,
-                                        reply_markup=admin.admin_panel_keyboard())
+        await reply_admin_offer_validation(
+            update.message, ref, f"Prix mis à jour : {price:.2f} {CURRENCY}",
+        )
         return
 
     if uid == ADMIN_ID and kind in {
@@ -3976,9 +4007,8 @@ async def handle_pending_input(update, context, lang):
                 custom_emoji_id=custom_emoji_id,
             )
             PENDING.pop(uid, None)
-            await update.message.reply_text(
-                f"✅ Nom de l'offre mis à jour : {clean_name}",
-                reply_markup=admin.offer_admin_keyboard(ref),
+            await reply_admin_offer_validation(
+                update.message, ref, f"Nom de l'offre mis à jour : {clean_name}",
             )
             return
         elif kind == "adm_offemoji":
@@ -3989,10 +4019,7 @@ async def handle_pending_input(update, context, lang):
                 custom_emoji_id=custom_emoji_id,
             )
             PENDING.pop(uid, None)
-            await update.message.reply_text(
-                "✅ Emoji de l'offre mis à jour.",
-                reply_markup=admin.offer_admin_keyboard(ref),
-            )
+            await reply_admin_offer_validation(update.message, ref, "Emoji de l'offre mis à jour.")
             return
         elif kind == "adm_offnote":
             try:
@@ -4022,12 +4049,15 @@ async def handle_pending_input(update, context, lang):
                 period_value=period_value, period_unit=period_unit,
             )
         elif kind == "adm_offdesc":
-            db.update_offer(ref, description=rich_text_from_message(update.message))
+            description = rich_text_from_message(update.message)
+            if db.is_bmc_vip_offer(db.get_offer(ref)):
+                db.set_bmc_vip_custom_description(ref, description)
+            else:
+                db.update_offer(ref, description=description)
         else:
             db.update_offer(ref, delivery_delay=text[:120])
         PENDING.pop(uid, None)
-        await update.message.reply_text("✅ Modification enregistrée.",
-                                        reply_markup=admin.admin_panel_keyboard())
+        await reply_admin_offer_validation(update.message, ref, "Modification enregistrée.")
         return
 
     if kind == "adm_addsvc" and uid == ADMIN_ID:
@@ -6219,6 +6249,11 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "adm_offdesc": "📄 Envoyez la description complète :",
             "adm_offdelay": "🚚 Envoyez le délai de livraison affiché :",
         }
+        if action == "adm_offdesc" and db.is_bmc_vip_offer(db.get_offer(int(oid))):
+            prompts["adm_offdesc"] = (
+                "📄 Send the BMC VIP description buyers will see.\n\n"
+                "This replaces the current text. Other methods and their prices are not added."
+            )
         await q.message.reply_text(prompts[action])
         return
     if data.startswith("adm_offtoggle:"):

@@ -25,7 +25,7 @@ def _method(name, price):
     return offer_id
 
 
-def test_vip_button_is_first_and_description_sums_method_prices(mock_mongodb):
+def test_vip_button_is_first_and_hides_other_method_prices(mock_mongodb):
     _method("Alpha method", 10)
     _method("Beta method", 7.5)
     service_id = db.ensure_methods_service()
@@ -42,10 +42,24 @@ def test_vip_button_is_first_and_description_sums_method_prices(mock_mongodb):
     assert vip["price"] == 15
     assert vip["bmc_vip_claims"] == 1
     description = compact_offer_text(vip, "en")
-    assert "17.5" in description
-    assert "Alpha method" in description
+    assert "Alpha method" not in description
+    assert "7.5" not in description
+    assert "17.5" not in description
     assert "4 places are still $15" in description
     assert "channel link" in description.casefold()
+
+
+def test_admin_description_replaces_the_default_and_is_kept(mock_mongodb):
+    vip_id = db.ensure_bmc_vip_offer()
+    db.set_bmc_vip_custom_description(vip_id, "Private BMC access. New drops every day.")
+
+    vip = db.get_offer(db.ensure_bmc_vip_offer())
+
+    assert vip["description"] == "Private BMC access. New drops every day."
+    assert "Alpha" not in vip["description"]
+    card = compact_offer_text(vip, "ar")
+    assert "Private BMC access" in card
+    assert "أماكن" not in card
 
 
 def test_launch_price_becomes_25_after_five_claims(mock_mongodb):

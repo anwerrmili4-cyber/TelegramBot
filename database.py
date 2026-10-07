@@ -1596,26 +1596,6 @@ def _bmc_vip_money(amount):
     return f"{float(amount):.2f}".rstrip("0").rstrip(".")
 
 
-def list_claimable_methods():
-    """Active Methods the VIP bundle delivers, excluding the bundle itself."""
-    service_id = ensure_methods_service()
-    claimable = []
-    for offer in list_offers(service_id):
-        if is_bmc_vip_offer(offer) or not offer_has_stock(offer):
-            continue
-        try:
-            price = float(offer.get("price"))
-        except (TypeError, ValueError):
-            continue
-        claimable.append({
-            "id": int(offer["id"]),
-            "name": str(offer.get("name") or "Method").strip() or "Method",
-            "price": price,
-            "method_media": list(offer.get("method_media") or []),
-        })
-    return claimable
-
-
 def bmc_vip_claim_count(offer_id):
     """Launch spots already taken, including the one membership claimed outside the bot."""
     now = int(time.time())
@@ -1638,51 +1618,10 @@ def bmc_vip_price_for_claims(claims):
     return BMC_VIP_REGULAR_PRICE
 
 
-def _bmc_vip_method_lines(methods):
-    shown = methods[:12]
-    lines = [
-        f"• {method['name']} — ${_bmc_vip_money(method['price'])}"
-        for method in shown
-    ]
-    extra = len(methods) - len(shown)
-    if extra > 0:
-        lines.append(f"• … +{extra}")
-    return "\n".join(lines)
-
-
-def _bmc_vip_descriptions(methods, total, price, claims):
-    """Explain the saving: separate prices added up, versus one VIP subscription."""
-    count = len(methods)
+def _bmc_vip_descriptions(price, claims):
+    """Default VIP text. It never lists the other methods or their prices."""
     price_text = _bmc_vip_money(price)
-    total_text = _bmc_vip_money(total)
     left = max(0, BMC_VIP_EARLY_SLOTS - int(claims))
-    method_lines = _bmc_vip_method_lines(methods)
-    if count:
-        included_en = (
-            f"Methods included today ({count}):\n{method_lines}\n\n"
-            f"Buying these one by one costs ${total_text}."
-        )
-        included_fr = (
-            f"Méthodes incluses aujourd'hui ({count}) :\n{method_lines}\n\n"
-            f"Les acheter une par une coûte ${total_text}."
-        )
-        included_ar = (
-            f"الطرق المشمولة اليوم ({count}):\n{method_lines}\n\n"
-            f"شراؤها واحدة واحدة يكلف ${total_text}."
-        )
-    else:
-        included_en = (
-            "No separate method is listed yet. "
-            "Join now and every method added after this is included."
-        )
-        included_fr = (
-            "Aucune méthode séparée n'est en ligne pour le moment. "
-            "Rejoins maintenant : chaque méthode ajoutée ensuite est incluse."
-        )
-        included_ar = (
-            "لا توجد طريقة منفصلة معروضة الآن. "
-            "انضم الآن وكل طريقة تُضاف بعد ذلك تكون مشمولة."
-        )
     if left:
         launch_en = (
             f"Launch price: $15 for the first {BMC_VIP_EARLY_SLOTS} members. "
@@ -1718,7 +1657,6 @@ def _bmc_vip_descriptions(methods, total, price, claims):
             "• Every new method we add — new methods drop in that channel every day\n"
             "• A private channel link, sent once after payment\n"
             "• One payment, instead of buying each method alone\n\n"
-            f"{included_en}\n"
             f"BMC VIP is ${price_text}.\n\n"
             f"{launch_en}\n\n"
             "You keep every method you claim today, and the next ones are included too."
@@ -1730,7 +1668,6 @@ def _bmc_vip_descriptions(methods, total, price, claims):
             "• Chaque nouvelle méthode — de nouvelles méthodes tombent dans ce canal tous les jours\n"
             "• Un lien de canal privé, envoyé une seule fois après le paiement\n"
             "• Un seul paiement, au lieu d'acheter chaque méthode à part\n\n"
-            f"{included_fr}\n"
             f"BMC VIP coûte ${price_text}.\n\n"
             f"{launch_fr}\n\n"
             "Tu gardes toutes les méthodes réclamées aujourd'hui, et les prochaines sont incluses."
@@ -1742,7 +1679,6 @@ def _bmc_vip_descriptions(methods, total, price, claims):
             "• كل طريقة جديدة — طرق جديدة في هذه القناة كل يوم\n"
             "• رابط قناة خاص، يُرسل مرة واحدة بعد الدفع\n"
             "• دفعة واحدة بدل شراء كل طريقة وحدها\n\n"
-            f"{included_ar}\n"
             f"سعر BMC VIP هو ${price_text}.\n\n"
             f"{launch_ar}\n\n"
             "تحتفظ بكل الطرق التي تحصل عليها اليوم، والطرق القادمة مشمولة أيضاً."
@@ -1781,27 +1717,19 @@ def ensure_bmc_vip_offer():
         )
     else:
         offer_id = int(offer["id"])
-    methods = list_claimable_methods()
-    total = round(sum(method["price"] for method in methods), 2)
     claims = bmc_vip_claim_count(offer_id)
     price = bmc_vip_price_for_claims(claims)
-    descriptions = _bmc_vip_descriptions(methods, total, price, claims)
-    conn.offers.update_one(
-        {"id": offer_id},
-        {"$set": {
+    custom_description = bool((offer or {}).get("bmc_vip_description_custom"))
+    values = {
             "service_id": service_id,
             "name": "BMC VIP",
             "name_ar": "BMC VIP",
             "emoji": "👑",
             "price": price,
             "currency": "USDT",
-            "description": descriptions["en"],
-            "description_ar": descriptions["ar"],
-            "description_fr": descriptions["fr"],
             "note": "BMC VIP subscription — all current methods plus every new method.",
             "feature_key": BMC_VIP_FEATURE_KEY,
             "bmc_vip_claims": claims,
-            "bmc_vip_catalog_total": total,
             "active": 1,
             "archived": 0,
             "stock": bmc_vip_link_count(),
@@ -1817,9 +1745,33 @@ def ensure_bmc_vip_offer():
             "low_stock_threshold": 0,
             "delivery_delay": "Private channel link after payment",
             "sales_channels": ["bot"],
-        }, "$unset": {"archived_at": ""}},
+    }
+    if not custom_description:
+        descriptions = _bmc_vip_descriptions(price, claims)
+        values.update({
+            "description": descriptions["en"],
+            "description_ar": descriptions["ar"],
+            "description_fr": descriptions["fr"],
+        })
+    conn.offers.update_one(
+        {"id": offer_id},
+        {"$set": values, "$unset": {"archived_at": ""}},
     )
     return offer_id
+
+
+def set_bmc_vip_custom_description(offer_id, description):
+    """Keep the admin's BMC VIP text and stop replacing it with the default."""
+    get_conn().offers.update_one(
+        {"id": int(offer_id)},
+        {
+            "$set": {
+                "description": str(description or ""),
+                "bmc_vip_description_custom": True,
+            },
+            "$unset": {"description_ar": "", "description_fr": ""},
+        },
+    )
 
 
 _BMC_VIP_LINK_RE = re.compile(
