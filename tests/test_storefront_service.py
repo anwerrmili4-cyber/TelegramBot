@@ -420,7 +420,8 @@ def test_wallet_pays_a_supplier_offer_for_a_site_customer(monkeypatch, mock_mong
     calls = []
 
     def fake_request(path, **kwargs):
-        calls.append(kwargs.get("body"))
+        if kwargs.get("body") is not None:
+            calls.append(kwargs["body"])
         return {
             "ok": True,
             "order": {"id": 123, "status": "delivered"},

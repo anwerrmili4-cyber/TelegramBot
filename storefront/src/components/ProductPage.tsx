@@ -359,7 +359,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
             <span className="label-caps">Ta commande</span>
             <div className="oline">
               <span className="order-thumb">
-                {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" /> : offer.service_emoji}
+                {offer.image_url || offer.service_logo_url ? <img src={assetUrl(offer.image_url || offer.service_logo_url)} alt="" loading="lazy" decoding="async" /> : offer.service_emoji}
               </span>
               <div>
                 <b>{offer.name}</b>

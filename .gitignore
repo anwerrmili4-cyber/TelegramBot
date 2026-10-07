@@ -11,6 +11,8 @@ __pycache__/
 outputs/**/node_modules/
 admin-ui/node_modules/
 storefront-ui/node_modules/
+storefront/node_modules/
+customer-site/node_modules/
 scripts/resend/node_modules/
 mobile-app/.gradle/
 mobile-app/local.properties

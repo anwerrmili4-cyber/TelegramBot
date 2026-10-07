@@ -1,7 +1,10 @@
 python-telegram-bot==22.8
 python-dotenv==1.2.2
-pymongo==4.10.1
+pymongo==4.18.2
 cryptography==48.0.1
 pywebpush==2.1.2
 reportlab==4.4.10
 boto3==1.43.108
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+orjson==3.12.0

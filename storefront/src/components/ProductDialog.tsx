@@ -51,7 +51,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
         <header className="dialog-head">
           <div className="product-service">
             <span className="cat-mark">
-              {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" /> : shown.service_emoji}
+              {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" decoding="async" /> : shown.service_emoji}
             </span>
             <div>
               <span className="kicker">{shown.service_name}</span>
@@ -154,7 +154,7 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
             <FavoriteButton offerId={shown.id} />
             <div className="oline">
               <span className="cat-mark">
-                {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" /> : shown.service_emoji}
+                {shown.image_url || shown.service_logo_url ? <img src={assetUrl(shown.image_url || shown.service_logo_url)} alt="" loading="lazy" decoding="async" /> : shown.service_emoji}
               </span>
               <div>
                 <b>{shown.name}</b>

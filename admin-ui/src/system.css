@@ -116,3 +116,6 @@ button.nav-heading[aria-expanded="false"] svg { transform: rotate(-90deg); }
 
 /* Panels. */
 :is(.data-panel, .panel, .filter-bar, .settings-card) { border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+
+/* Shown while a page chunk loads. */
+.page-loading { min-height: 240px; display: grid; place-items: center; color: var(--muted); font-size: var(--fs-sm); }

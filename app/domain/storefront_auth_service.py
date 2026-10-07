@@ -14,6 +14,7 @@ account, so the endpoint cannot be used to discover who is a customer.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -363,10 +364,9 @@ def login(payload: dict[str, Any], client_ip: str) -> dict[str, Any]:
         raise AuthError("Email ou mot de passe incorrect.", status=401)
     _clear(keys)
     if not _is_verified(customer):
-        try:
+        # A code sent in the last minutes is still valid.
+        with contextlib.suppress(AuthError):
             _send_code_limited(customer, client_ip)
-        except AuthError:
-            pass  # A code sent in the last minutes is still valid.
         raise AuthError(
             "Confirme d'abord ton adresse email avec le code que nous venons de t'envoyer.",
             status=403,

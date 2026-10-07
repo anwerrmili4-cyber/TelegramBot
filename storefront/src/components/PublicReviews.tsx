@@ -21,7 +21,7 @@ function ServiceMark({ review, className }: { review: PublicReview; className: s
   const label = review.service_name || review.offer_name || "";
   return (
     <span className={className} aria-hidden="true">
-      {logo ? <img src={logo} alt="" /> : label.slice(0, 1) || "✦"}
+      {logo ? <img src={logo} alt="" loading="lazy" decoding="async" /> : label.slice(0, 1) || "✦"}
     </span>
   );
 }

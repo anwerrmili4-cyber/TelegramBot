@@ -1091,10 +1091,11 @@ def _provider_is_configured(provider: str) -> bool:
 
 def _raw_product_id(provider: str, raw: dict[str, Any]) -> str:
     """Return the supplier product id used to link a local offer."""
-    if provider in CANBOSO_PROVIDERS:
-        value = raw.get("_id") or raw.get("productId") or raw.get("id")
-    else:
-        value = raw.get("id")
+    value = (
+        raw.get("_id") or raw.get("productId") or raw.get("id")
+        if provider in CANBOSO_PROVIDERS
+        else raw.get("id")
+    )
     if value in (None, ""):
         return ""
     return str(value)
@@ -1102,7 +1103,7 @@ def _raw_product_id(provider: str, raw: dict[str, Any]) -> str:
 
 def _as_count(value: Any) -> int | None:
     """Parse a stock count. Zero stays zero; a missing value stays missing."""
-    if value is None or isinstance(value, bool) or isinstance(value, dict):
+    if value is None or isinstance(value, (bool, dict)):
         return None
     try:
         return int(Decimal(str(value)))
@@ -1124,10 +1125,7 @@ def _explicitly_unavailable(raw: dict[str, Any]) -> bool:
 def _explicitly_unlimited(raw: dict[str, Any]) -> bool:
     if bool(raw.get("unlimited_stock") or raw.get("unlimited")):
         return True
-    for key in ("stock", "stock_count"):
-        if key in raw and raw.get(key) in (-1, "-1"):
-            return True
-    return False
+    return any(key in raw and raw.get(key) in (-1, "-1") for key in ("stock", "stock_count"))
 
 
 def _count_from_keys(raw: dict[str, Any], *keys: str) -> int:
@@ -1522,6 +1520,39 @@ def catalog(provider: str = PROVIDER) -> dict[str, Any]:
         "used_count": used_count,
         "unused_count": len(products) - used_count,
     }
+
+
+SUPPLIER_REFRESH_IN_BACKGROUND = True
+_background_refresh_running = threading.Lock()
+_background_refresh_started_at = 0.0
+
+
+def refresh_supplier_stock_in_background() -> None:
+    """Start a supplier stock refresh without making the caller wait for it.
+
+    At most one runs at a time, and a new one starts at most every
+    ``_STOCK_REFRESH_SECONDS``, so a busy storefront never queues them up.
+    """
+    global _background_refresh_started_at
+    if not SUPPLIER_REFRESH_IN_BACKGROUND:
+        refresh_supplier_stock()
+        return
+    now = time.monotonic()
+    if now - _background_refresh_started_at < _STOCK_REFRESH_SECONDS:
+        return
+    if not _background_refresh_running.acquire(blocking=False):
+        return
+    _background_refresh_started_at = now
+
+    def run() -> None:
+        try:
+            refresh_supplier_stock()
+        except Exception:
+            log.exception("Background supplier stock refresh failed")
+        finally:
+            _background_refresh_running.release()
+
+    threading.Thread(target=run, name="supplier-stock-refresh", daemon=True).start()
 
 
 def refresh_supplier_stock(offers: list[dict[str, Any]] | None = None) -> None:
@@ -2301,7 +2332,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                 }},
                 upsert=True,
             )
-            for index, (encrypted, item_id) in enumerate(zip(encrypted_items, item_ids))
+            for index, (encrypted, item_id) in enumerate(zip(encrypted_items, item_ids, strict=True))
         ], ordered=False)
     conn.orders.update_one(
         {"id": int(order_id), "status": {"$in": ["paid", "payment_confirmed"]}},

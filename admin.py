@@ -9,7 +9,6 @@ from app.domain import warranty_service
 from config import ADMIN_ID, CURRENCY
 from i18n import TRANSLATIONS
 
-
 _BOLD_SOURCE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 _BOLD_TARGET = (
     "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
@@ -936,8 +935,15 @@ def offer_admin_keyboard(offer_id):
     service = db.get_service(off.get("service_id")) or {}
     is_method = str(service.get("name") or "").strip().lower() == "methods"
     is_bot_package = off.get("feature_key") == "bot_like_mine"
+    is_bmc_vip = db.is_bmc_vip_offer(off)
     method_media = off.get("method_media") or []
     option_buttons = []
+    if is_bmc_vip:
+        option_buttons.append(InlineKeyboardButton(
+            f"🔗 Channel links ({db.bmc_vip_link_count()})",
+            callback_data=f"adm_bmc_vip_links:{offer_id}",
+            style="primary",
+        ))
     if is_bot_package:
         option_buttons.extend([
             InlineKeyboardButton(
@@ -951,13 +957,13 @@ def offer_admin_keyboard(offer_id):
                 style="primary",
             ),
         ])
-    if is_method:
+    if is_method and not is_bmc_vip:
         option_buttons.append(InlineKeyboardButton(
             f"🎬 Method content ({len(method_media)})",
             callback_data=f"adm_method_media:{offer_id}",
             style="primary",
         ))
-    else:
+    elif not is_bmc_vip:
         option_buttons.append(InlineKeyboardButton(
             "🔐 Ajouter plusieurs comptes", callback_data=f"adm_inventory:{offer_id}"
         ))

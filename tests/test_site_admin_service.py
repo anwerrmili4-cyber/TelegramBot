@@ -606,7 +606,7 @@ def test_site_requests_stay_out_of_the_bot_workspace(mock_mongodb, site_customer
     support_service.create_ticket(42, "Bot ticket", category="other")
     site_requests_service.create_ticket(customer, {"message": "Mon compte site ne marche pas", "category": "order"})
     site_requests_service.create_ticket(customer, {"message": "Ajoutez Canva annuel svp", "category": "catalog_request"})
-    claim = site_requests_service.create_warranty(customer, {"order_id": line_id, "reason": "Le compte ne se connecte pas"})
+    claim = site_requests_service.create_warranty(customer, {"order_id": line_id, "reason": "Le compte ne se connecte pas", "proofs": [RECEIPT]})
 
     bot_tickets = dashboard_api.list_tickets({})
     assert [item["id"] for item in bot_tickets["items"]] != []
@@ -669,8 +669,8 @@ def test_warranty_history_keeps_the_refusal_and_the_replacement(mock_mongodb, si
     customer = site_customer()
     refused_order = _delivered_line(customer)
     replaced_order = _delivered_line(customer, name="Spotify 1 mois", service="Spotify")
-    refused = site_requests_service.create_warranty(customer, {"order_id": refused_order, "reason": "Le compte ne se connecte pas"})
-    replaced = site_requests_service.create_warranty(customer, {"order_id": replaced_order, "reason": "Le mot de passe a changé"})
+    refused = site_requests_service.create_warranty(customer, {"order_id": refused_order, "reason": "Le compte ne se connecte pas", "proofs": [RECEIPT]})
+    replaced = site_requests_service.create_warranty(customer, {"order_id": replaced_order, "reason": "Le mot de passe a changé", "proofs": [RECEIPT]})
 
     refused_id = refused["warranty"]["id"]
     assert db.refuse_warranty_request(refused_id, "Hors délai d'usage")

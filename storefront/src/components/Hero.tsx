@@ -243,7 +243,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
                   <li key={offer.id}>
                     <button type="button" onClick={() => onOpenOffer(offer)}>
                       <span className="pop-mark">
-                        {mark ? <img src={assetUrl(mark)} alt="" /> : offer.service_emoji}
+                        {mark ? <img src={assetUrl(mark)} alt="" decoding="async" /> : offer.service_emoji}
                       </span>
                       <span className="pop-copy">
                         <strong>{offer.name}</strong>
@@ -280,7 +280,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             return (
               <Link key={category.id} className="cat-card" to={`${ROUTES.shop}?categorie=${encodeURIComponent(category.id)}#catalogue`}>
                 <span className="cat-mark">
-                  {mark.src ? <img src={mark.src} alt="" /> : mark.emoji}
+                  {mark.src ? <img src={mark.src} alt="" loading="lazy" decoding="async" /> : mark.emoji}
                 </span>
                 <span className="go" aria-hidden="true">
                   <ArrowUpRight size={15} />

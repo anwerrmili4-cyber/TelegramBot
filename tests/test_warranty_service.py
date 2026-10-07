@@ -1,4 +1,3 @@
-import pytest
 
 import database as db
 from app.domain import warranty_service

@@ -15,15 +15,21 @@ class AsyncRuntime:
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
-    def run(self, awaitable):
-        # Only startup is locked; network waits must not serialize all callers.
+    def start(self):
         with self._start_lock:
             if self._thread is None:
                 self._thread = threading.Thread(
                     target=self._serve, name="telegram-asyncio", daemon=True,
                 )
                 self._thread.start()
-        return asyncio.run_coroutine_threadsafe(awaitable, self.loop).result()
+
+    def submit(self, awaitable):
+        self.start()
+        return asyncio.run_coroutine_threadsafe(awaitable, self.loop)
+
+    def run(self, awaitable):
+        # Only startup is locked; network waits must not serialize all callers.
+        return self.submit(awaitable).result()
 
     async def process_update(self, application, update):
         """Preserve each user's input order while other users can make progress."""

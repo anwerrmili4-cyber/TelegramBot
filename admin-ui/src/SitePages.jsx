@@ -1,32 +1,35 @@
-import InventoryPage from "./pages/InventoryPage.jsx";
-import ProductRequestsPage from "./pages/ProductRequestsPage.jsx";
-import SiteCatalogPage from "./pages/SiteCatalogPage.jsx";
-import SiteCustomersPage from "./pages/SiteCustomersPage.jsx";
-import SiteDepositsPage from "./pages/SiteDepositsPage.jsx";
-import SiteMailPage from "./pages/SiteMailPage.jsx";
-import SiteNotificationsPage from "./pages/SiteNotificationsPage.jsx";
-import SiteOrdersPage from "./pages/SiteOrdersPage.jsx";
-import SiteOverviewPage from "./pages/SiteOverviewPage.jsx";
-import SiteReviewsPage from "./pages/SiteReviewsPage.jsx";
-import SiteSettingsPage from "./pages/SiteSettingsPage.jsx";
-import SupportPage from "./pages/SupportPage.jsx";
-import WarrantiesPage from "./pages/WarrantiesPage.jsx";
+import { lazyPage, PageSuspense } from "./lazy-page.jsx";
 
 export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-inventory", "site-customers", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-settings"]);
 
+const InventoryPage = lazyPage(() => import("./pages/InventoryPage.jsx"));
+const ProductRequestsPage = lazyPage(() => import("./pages/ProductRequestsPage.jsx"));
+const SupportPage = lazyPage(() => import("./pages/SupportPage.jsx"));
+const WarrantiesPage = lazyPage(() => import("./pages/WarrantiesPage.jsx"));
+
+const PAGES = {
+  "site-overview": [lazyPage(() => import("./pages/SiteOverviewPage.jsx")), {}],
+  "site-orders": [lazyPage(() => import("./pages/SiteOrdersPage.jsx")), {}],
+  "site-deposits": [lazyPage(() => import("./pages/SiteDepositsPage.jsx")), {}],
+  "site-catalog": [lazyPage(() => import("./pages/SiteCatalogPage.jsx")), {}],
+  "site-inventory": [InventoryPage, { shared: true }],
+  "site-customers": [lazyPage(() => import("./pages/SiteCustomersPage.jsx")), {}],
+  "site-support": [SupportPage, { channel: "tn_site" }],
+  "site-product-requests": [ProductRequestsPage, { channel: "tn_site" }],
+  "site-warranties": [WarrantiesPage, { channel: "tn_site" }],
+  "site-reviews": [lazyPage(() => import("./pages/SiteReviewsPage.jsx")), {}],
+  "site-mail": [lazyPage(() => import("./pages/SiteMailPage.jsx")), {}],
+  "site-notifications": [lazyPage(() => import("./pages/SiteNotificationsPage.jsx")), {}],
+  "site-settings": [lazyPage(() => import("./pages/SiteSettingsPage.jsx")), {}],
+};
+
 export default function SitePage({ page, ...props }) {
-  if (page === "site-overview") return <SiteOverviewPage {...props} />;
-  if (page === "site-orders") return <SiteOrdersPage {...props} />;
-  if (page === "site-deposits") return <SiteDepositsPage {...props} />;
-  if (page === "site-catalog") return <SiteCatalogPage {...props} />;
-  if (page === "site-inventory") return <InventoryPage {...props} shared />;
-  if (page === "site-customers") return <SiteCustomersPage {...props} />;
-  if (page === "site-support") return <SupportPage {...props} channel="tn_site" />;
-  if (page === "site-product-requests") return <ProductRequestsPage {...props} channel="tn_site" />;
-  if (page === "site-warranties") return <WarrantiesPage {...props} channel="tn_site" />;
-  if (page === "site-reviews") return <SiteReviewsPage {...props} />;
-  if (page === "site-mail") return <SiteMailPage {...props} />;
-  if (page === "site-notifications") return <SiteNotificationsPage {...props} />;
-  if (page === "site-settings") return <SiteSettingsPage {...props} />;
-  return null;
+  const entry = PAGES[page];
+  if (!entry) return null;
+  const [Page, extra] = entry;
+  return (
+    <PageSuspense>
+      <Page {...props} {...extra} />
+    </PageSuspense>
+  );
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import logging
@@ -51,7 +52,7 @@ def _selected_categories(preferences):
     if not isinstance(selected, list):
         return set(CATEGORIES)
     chosen = {item for item in selected if isinstance(item, str) and item in CATEGORIES}
-    if _LEGACY_ALL_CATEGORIES <= chosen:
+    if chosen >= _LEGACY_ALL_CATEGORIES:
         chosen |= set(CATEGORIES)
     return chosen
 
@@ -363,7 +364,8 @@ def capture_feed(complete=True):
         return
     started = time.time_ns()
     created_at = datetime.now(UTC)
-    try:
+    # A concurrent capture may store some of these alerts first.
+    with contextlib.suppress(BulkWriteError):
         conn.admin_notification_outbox.insert_many([
             {
                 "_id": str(item["id"]),
@@ -373,9 +375,6 @@ def capture_feed(complete=True):
             }
             for index, item in enumerate(fresh)
         ], ordered=False)
-    except BulkWriteError:
-        # A concurrent capture stored some of these alerts first.
-        pass
     devices = list(conn.admin_push_devices.find({"auth_version": _auth_version()}))
     if not devices:
         return
@@ -391,10 +390,8 @@ def capture_feed(complete=True):
                     "created_at": created_at,
                 })
     if receipts:
-        try:
+        with contextlib.suppress(BulkWriteError):
             conn.admin_push_receipts.insert_many(receipts, ordered=False)
-        except BulkWriteError:
-            pass
 
 
 def deliver_pending():

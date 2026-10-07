@@ -5,9 +5,10 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 
+import pytest
+
 import admin
 import database as db
-import pytest
 
 
 def test_shell_dashboard_skips_interaction_history(mock_mongodb):

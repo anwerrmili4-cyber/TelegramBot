@@ -1,7 +1,7 @@
 """Site support replies go by email. Bot replies stay on Telegram."""
 
-from app.domain import support_service
 from api import webhook
+from app.domain import support_service
 
 
 def test_site_ticket_reply_emails_the_customer(mock_mongodb, site_customer, sent_emails):

@@ -28,6 +28,7 @@ from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
+from app.core.cache import CATALOG_PREFIX, cache
 from app.domain import (
     email_service,
     site_logo_service,
@@ -37,7 +38,6 @@ from app.domain import (
     storefront_invoice_service,
     storefront_receipt_service,
     storefront_wallet_service,
-    warranty_service,
 )
 
 CATEGORY_LABELS = {
@@ -315,11 +315,22 @@ _CATALOG_OFFER_FIELDS = {
 }
 
 
+CATALOG_CACHE_SECONDS = 5.0
+
+
 def catalog() -> dict[str, Any]:
-    """Project the bot's live MongoDB catalog into a customer-safe response."""
+    """Project the bot's live MongoDB catalog into a customer-safe response.
+
+    Supplier stock is refreshed off the request path; the stock writes it
+    makes invalidate the cached catalog, so the next view shows them.
+    """
     from app.domain import reseller_service
 
-    reseller_service.refresh_supplier_stock()
+    reseller_service.refresh_supplier_stock_in_background()
+    return cache.get_or_set(CATALOG_PREFIX + "storefront", CATALOG_CACHE_SECONDS, _build_catalog)
+
+
+def _build_catalog() -> dict[str, Any]:
     services: list[dict[str, Any]] = []
     used_categories: set[str] = set()
     flat_groups: dict[str, dict[str, Any]] = {}
@@ -552,27 +563,35 @@ def _payment_method(value: Any) -> str:
         raise StorefrontError(str(exc)) from exc
 
 
-def _transfer_reference(method: str, value: Any) -> str:
-    reference = re.sub(r"\s+", " ", str(value or "").strip())[:64]
-    if not reference:
-        return ""
-    if len(reference) < 3:
-        raise StorefrontError("Saisis la référence de la transaction indiquée sur ton reçu.")
-    key = reference.lower()
+def transfer_reference_in_use(method: str, key: str) -> bool:
+    """True while a live site order or deposit already declared this reference."""
     conn = db.get_conn()
-    reused = conn.orders.find_one({
+    return bool(conn.orders.find_one({
         "sales_channel": "tn_site",
         "payment_method": method,
         "payment_reference_key": key,
         "status": {"$ne": OrderStatus.CANCELLED},
-    }) or conn.storefront_deposits.find_one({
+    }, {"_id": 1}) or conn.storefront_deposits.find_one({
         "method": method,
         "transaction_reference_key": key,
         "status": {"$ne": storefront_wallet_service.DEPOSIT_REJECTED},
-    })
-    if reused:
+    }, {"_id": 1}))
+
+
+def _transfer_reference(method: str, value: Any) -> tuple[str, str | None]:
+    """Validate and claim a transfer reference; return it with its release token."""
+    reference = re.sub(r"\s+", " ", str(value or "").strip())[:64]
+    if not reference:
+        return "", None
+    if len(reference) < 3:
+        raise StorefrontError("Saisis la référence de la transaction indiquée sur ton reçu.")
+    key = reference.lower()
+    if transfer_reference_in_use(method, key):
         raise StorefrontError("Cette référence de transaction a déjà été utilisée.")
-    return reference
+    token = db.claim_payment_reference(method, key, lambda: transfer_reference_in_use(method, key))
+    if token is None:
+        raise StorefrontError("Cette référence de transaction a déjà été utilisée.")
+    return reference, token
 
 
 def _checkout_key(value: Any) -> str:
@@ -730,17 +749,21 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
             return _finish_saved_cart(customer_id, open_carts[-1])
 
     payment_reference = ""
+    reference_claim = None
     receipt_id = None
     if by_wallet:
         if storefront_wallet_service.balance(customer_id) < cart_total:
             raise StorefrontError("Solde insuffisant. Recharge ton portefeuille ou paie par virement.")
     else:
-        payment_reference = _transfer_reference(method, payload.get("transaction_reference"))
+        payment_reference, reference_claim = _transfer_reference(
+            method, payload.get("transaction_reference")
+        )
         try:
             receipt_id = storefront_receipt_service.store(
                 payload.get("receipt"), customer_id=customer_id, purpose="order"
             )
         except storefront_receipt_service.ReceiptError as exc:
+            db.release_payment_reference(method, payment_reference.lower(), reference_claim)
             raise StorefrontError(str(exc)) from exc
 
     tracking_token = secrets.token_urlsafe(24)
@@ -791,7 +814,13 @@ def create_order(payload: dict[str, Any], customer: dict[str, Any]) -> dict[str,
             "delivered_at": None,
         })
 
-    reference = _insert_cart(documents)
+    try:
+        reference = _insert_cart(documents)
+    except Exception:
+        if reference_claim:
+            db.release_payment_reference(method, payment_reference.lower(), reference_claim)
+        raise
+    db.bind_payment_reference(method, payment_reference.lower(), reference_claim)
     order_ids = [document["id"] for document in documents]
     items = [
         {

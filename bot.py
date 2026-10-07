@@ -21,7 +21,6 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
-    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -34,6 +33,7 @@ import admin
 import database as db
 import keyboards as kb
 from app import support_bridge
+from app.bot.media import send_cached_photo
 from app.domain import (
     affiliate_service,
     buyer_api_service,
@@ -52,10 +52,10 @@ from config import (
     BINANCE_PAY_ID,
     BOT_TOKEN,
     BYBIT_UID,
-    CLICK_REPORT_CHAT_ID,
+    CLICK_REPORT_CHAT_ID,  # noqa: F401  (read by app.bot.middlewares)
     CURRENCY,
     DEFAULT_LANG,
-    MEMBERSHIP_CACHE_SECONDS,
+    MEMBERSHIP_CACHE_SECONDS,  # noqa: F401  (read by app.bot.middlewares)
     REQUIRED_CHANNEL,
     SHOP_NAME,
     SOLANA_ALLOWED_USER_ID,
@@ -112,250 +112,16 @@ class PendingStates:
 
 PENDING = PendingStates()
 
-# Positive-only membership cache. Non-members are never cached, and the
-# explicit Verify button always performs a live Telegram check.
-_membership_cache: dict[tuple[int, str], float] = {}
-
-
-def cache_required_channel_member(user_id: int) -> None:
-    channel = str(_normalize_required_chat(REQUIRED_CHANNEL))
-    if channel and MEMBERSHIP_CACHE_SECONDS > 0:
-        _membership_cache[(int(user_id), channel)] = (
-            time.monotonic() + MEMBERSHIP_CACHE_SECONDS
-        )
-
-
-async def is_required_channel_member_cached(bot, user_id: int) -> bool:
-    """Avoid Telegram API round trips for recently verified members."""
-    channel = str(_normalize_required_chat(REQUIRED_CHANNEL))
-    key = (int(user_id), channel)
-    now = time.monotonic()
-    if _membership_cache.get(key, 0) > now:
-        return True
-    _membership_cache.pop(key, None)
-    allowed = await is_required_channel_member(bot, user_id)
-    if allowed:
-        cache_required_channel_member(user_id)
-    if len(_membership_cache) > 10_000:
-        expired = [cache_key for cache_key, expiry in _membership_cache.items() if expiry <= now]
-        for cache_key in expired:
-            _membership_cache.pop(cache_key, None)
-    return allowed
-
-async def block_non_channel_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Prevent customers from bypassing the required channel via direct commands."""
-    user = update.effective_user
-    if not user or user.id == ADMIN_ID:
-        return
-    if update.callback_query and update.callback_query.data == "verify_channel_join":
-        return
-    message_text = getattr(update.effective_message, "text", "") or ""
-    if message_text.startswith("/start"):
-        return
-    if await is_required_channel_member_cached(context.bot, user.id):
-        return
-    lang = lang_of(user.id)
-    if update.callback_query:
-        await update.callback_query.answer()
-    await update.effective_message.reply_text(
-        premium_customer_text(lang, "channel_join_required"),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb.channel_join_keyboard(lang),
-    )
-    raise ApplicationHandlerStop
-
-def _interaction_button_name(query):
-    """Return the exact visible label of a pressed inline button when available."""
-    callback_data = str(getattr(query, "data", "") or "")
-    markup = getattr(getattr(query, "message", None), "reply_markup", None)
-    for row in getattr(markup, "inline_keyboard", None) or []:
-        for button in row:
-            if str(getattr(button, "callback_data", "") or "") == callback_data:
-                label = " ".join(str(getattr(button, "text", "") or "").split())
-                if label:
-                    return label
-
-    action, _, value = callback_data.partition(":")
-    names = {
-        "home": "Main menu", "catalog": "Catalog", "catalog_request": "Request a product",
-        "lovable": "Lovable Unlimited Credit", "lovable_howto": "Lovable instructions",
-        "lovable_buy": "Lovable plans", "lovable_trial": "Lovable free trial",
-        "lovable_download": "Download Lovable extension",
-        "orders": "My orders", "account": "My account", "affiliate": "Affiliate program",
-        "affiliate_copy": "Copy referral link", "support": "Support", "language": "Language",
-        "topup": "Top up balance",
-        "topup_txid": "Verify Binance top-up", "topup_bybit": "Verify Bybit top-up",
-        "topup_bsc": "Top up with BSC",
-        "topup_polygon": "Top up with Polygon",
-        "topup_sol": "Top up with Solana",
-        "verify_channel_join": "Verify membership",
-        "paid": "Verify payment with TXID",
-        "paid_chain": "Submit blockchain TXID", "continue_pay": "Continue payment",
-        "manual_reply": "Reply to administrator",
-        "confirm_buy": "Create new order", "cancel_buy": "Cancel order",
-        "pay_wallet": "Pay with wallet", "pay_binance": "Pay with Binance Pay",
-        "pay_bybit": "Pay with Bybit Pay",
-        "pay_bsc": "Pay with USDT BSC", "pay_polygon": "Pay with USDT Polygon",
-        "orders_export": "Export orders", "rating": "Rate purchase",
-        "support_cat": "Support category", "support_order": "Support order",
-        "svc": "Open service", "off": "Open offer", "buy": "Buy now",
-        "buyq": "Select quantity", "qty_page": "Change quantity page", "tour": "Onboarding",
-    }
-    name = names.get(action) or action.replace("_", " ").strip().title() or "Unknown button"
-    return f"{name} ({value})" if value else name
-
-
-async def notify_admin_interaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send customer button clicks to the private click-report channel."""
-    user = update.effective_user
-    if not user or user.id == ADMIN_ID or not update.callback_query:
-        return
-
-    raw_name = user.full_name or user.first_name or "Unknown user"
-    display_name = html.escape(raw_name)
-    raw_username = user.username or ""
-    username = f"@{html.escape(raw_username)}" if raw_username else "Not provided"
-    profile = f'<a href="tg://user?id={user.id}">{display_name}</a>'
-    header = (
-        "<b>CUSTOMER CLICK</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Customer:</b> {profile}\n"
-        f"<b>Username:</b> {username}\n"
-        f"<b>Telegram ID:</b> <code>{user.id}</code>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-    )
-
-    media_message = None
-    if update.callback_query:
-        query = update.callback_query
-        raw_callback = str(query.data or "")
-        button_name = _interaction_button_name(query)
-        source_text = (
-            getattr(query.message, "text", None)
-            or getattr(query.message, "caption", None)
-            or ""
-        )
-        details = (
-            "<b>Interaction:</b> Button click\n"
-            f"<b>Button:</b> {html.escape(button_name[:200])}\n"
-            f"<b>Action code:</b> <code>{html.escape(raw_callback[:500])}</code>"
-        )
-        if source_text:
-            details += (
-                "\n\n<b>Screen before the click:</b>\n"
-                f"<blockquote>{html.escape(source_text[:1200])}</blockquote>"
-            )
-        interaction_type = "button"
-        interaction_action = raw_callback
-        interaction_content = button_name
-        interaction_screen = source_text
-    elif update.effective_message:
-        message = update.effective_message
-        content = message.text or message.caption or ""
-        if content:
-            interaction_type = "command" if str(content).startswith("/") else "message"
-            type_name = "Command" if interaction_type == "command" else "Text message"
-            interaction_action = str(content).split(maxsplit=1)[0] if interaction_type == "command" else ""
-            interaction_content = content
-            details = (
-                f"<b>Interaction:</b> {type_name}\n"
-                "<b>Customer sent:</b>\n"
-                f"<blockquote>{html.escape(content[:2500])}</blockquote>"
-            )
-        elif getattr(message, "photo", None):
-            details = "<b>Interaction:</b> Photo\n<b>Customer sent:</b> A photo (copied below)"
-            interaction_type, interaction_action, interaction_content = "media", "photo", "Photo"
-            media_message = message
-        elif getattr(message, "document", None):
-            document = message.document
-            filename = html.escape(str(getattr(document, "file_name", "") or "Unnamed file"))
-            details = f"<b>Interaction:</b> Document\n<b>Customer sent:</b> {filename} (copied below)"
-            interaction_type, interaction_action, interaction_content = "media", "document", filename
-            media_message = message
-        elif getattr(message, "video", None):
-            details = "<b>Interaction:</b> Video\n<b>Customer sent:</b> A video (copied below)"
-            interaction_type, interaction_action, interaction_content = "media", "video", "Video"
-            media_message = message
-        elif getattr(message, "voice", None):
-            details = "<b>Interaction:</b> Voice message\n<b>Customer sent:</b> A voice message (copied below)"
-            interaction_type, interaction_action, interaction_content = "media", "voice", "Voice message"
-            media_message = message
-        else:
-            details = "<b>Interaction:</b> Other message\n<b>Customer sent:</b> Unsupported Telegram content"
-            interaction_type, interaction_action, interaction_content = "other", "unsupported", "Unsupported content"
-        interaction_screen = ""
-    else:
-        return
-
-    try:
-        db.log_interaction(
-            user.id,
-            first_name=user.first_name or "",
-            full_name=raw_name,
-            username=raw_username,
-            interaction_type=interaction_type,
-            action=interaction_action,
-            content=interaction_content,
-            screen=interaction_screen,
-        )
-    except Exception:
-        log.exception("Unable to persist interaction from user %s", user.id)
-
-    try:
-        await context.bot.send_message(
-            CLICK_REPORT_CHAT_ID,
-            f"{header}{details}",
-            parse_mode=ParseMode.HTML,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
-        if media_message and hasattr(context.bot, "copy_message"):
-            chat = getattr(media_message, "chat", None)
-            chat_id = getattr(chat, "id", None) or getattr(media_message, "chat_id", None)
-            message_id = getattr(media_message, "message_id", None)
-            if chat_id and message_id:
-                await context.bot.copy_message(
-                    chat_id=CLICK_REPORT_CHAT_ID,
-                    from_chat_id=chat_id,
-                    message_id=message_id,
-                )
-    except Exception:
-        log.exception("Unable to notify admin about interaction from user %s", user.id)
-
-async def block_banned_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if user and user.id != ADMIN_ID and db.is_user_banned(user.id):
-        if update.callback_query:
-            await update.callback_query.answer("⛔ Accès suspendu.", show_alert=True)
-        elif update.effective_message:
-            await update.effective_message.reply_text("⛔ Votre accès à cette boutique est suspendu.")
-        raise ApplicationHandlerStop
-
-
-async def block_maintenance_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Lock the entire customer bot during maintenance while preserving admin access."""
-    user = update.effective_user
-    if not user or user.id == ADMIN_ID:
-        return
-    settings = db.shop_settings()
-    if not settings["maintenance_enabled"]:
-        return
-
-    message = settings["maintenance_message"].strip() or (
-        "The bot is temporarily under maintenance. Please try again later."
-    )
-    if update.callback_query:
-        await update.callback_query.answer("Maintenance mode is active.", show_alert=True)
-    if update.effective_message:
-        await update.effective_message.reply_text(
-            "🛠️ <b>BOT UNDER MAINTENANCE</b>\n\n"
-            f"{html.escape(message)}\n\n"
-            "Please try again later.",
-            parse_mode=ParseMode.HTML,
-        )
-    raise ApplicationHandlerStop
-
-
-
+from app.bot.middlewares import (
+    _interaction_button_name,  # noqa: F401
+    _membership_cache,  # noqa: F401
+    block_banned_users,
+    block_maintenance_users,
+    block_non_channel_members,
+    cache_required_channel_member,
+    is_required_channel_member_cached,
+    notify_admin_interaction,
+)
 
 
 def numbered_delivery_content(items):
@@ -485,10 +251,12 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     if catalog_name and not product_name.casefold().startswith(catalog_name.casefold()):
         display_name = f"{catalog_name} — {product_name}"
     display_name = " ".join(part for part in (catalog_emoji, display_name) if part)
-    description = (
-        offer.get("description_ar") if lang == "ar" and offer.get("description_ar")
-        else offer.get("description")
-    )
+    if lang == "ar" and offer.get("description_ar"):
+        description = offer.get("description_ar")
+    elif lang == "fr" and offer.get("description_fr"):
+        description = offer.get("description_fr")
+    else:
+        description = offer.get("description")
     description = (description or "").strip() or "—"
     rendered_description = render_stored_rich_text(
         description, parse_legacy_markdown=False,
@@ -1555,6 +1323,7 @@ def _run_broadcast_job(job_id):
     except Exception as exc:
         log.exception("Broadcast job %s failed", job_id)
         retry = db.fail_broadcast_job(job_id, exc) == "retry"
+        error_text = html.escape(str(exc)[:200])
         if ADMIN_ID:
             def _notify_admin_fail():
                 from telegram.request import HTTPXRequest
@@ -1564,7 +1333,7 @@ def _run_broadcast_job(job_id):
                     async with b:
                         await b.send_message(
                             chat_id=ADMIN_ID,
-                            text=f"⚠️ <b>Échec de la diffusion</b> (Job #{job_id})\n\nErreur : <code>{html.escape(str(exc)[:200])}</code>",
+                            text=f"⚠️ <b>Échec de la diffusion</b> (Job #{job_id})\n\nErreur : <code>{error_text}</code>",
                             parse_mode=ParseMode.HTML,
                         )
                 asyncio.run(_send())
@@ -1644,6 +1413,8 @@ async def _load_offer_with_live_stock(offer_id):
     offer = db.get_offer(offer_id)
     if not offer:
         return None
+    if db.is_bmc_vip_offer(offer):
+        return db.get_offer(db.ensure_bmc_vip_offer())
     await asyncio.to_thread(reseller_service.refresh_supplier_stock, [offer])
     return db.get_offer(offer.get("id", offer_id))
 
@@ -2157,6 +1928,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "adm_warranty_refuse_reason",
         "adm_warranty_replacement",
         "adm_method_media",
+        "adm_bmc_vip_links",
         "adm_bot_package_doc",
         "adm_bot_package_link",
         "manual_order_reply",
@@ -2257,17 +2029,29 @@ async def show_catalog(update, context, lang):
 
 async def show_methods(update, context, lang):
     service_id = db.ensure_methods_service()
-    offers = db.list_offers(service_id)
+    db.ensure_bmc_vip_offer()
     message = update.message or update.callback_query.message
-    if not offers:
-        await message.reply_text(
-            "🧠 <b>Methods</b>\n\nNo methods are available yet.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb.home_keyboard(lang, update.effective_user.id),
-        )
-        return
+    titles = {
+        "fr": (
+            "🧠 <b>Methods</b>\n\n"
+            "👑 <b>BMC VIP</b> est en haut : réclame toutes les méthodes, "
+            "et reçois les nouvelles chaque jour.\n\n"
+            "Ou ouvre une méthode seule :"
+        ),
+        "ar": (
+            "🧠 <b>الطرق</b>\n\n"
+            "👑 <b>BMC VIP</b> في الأعلى: احصل على كل الطرق، "
+            "والطرق الجديدة كل يوم.\n\n"
+            "أو افتح طريقة واحدة:"
+        ),
+    }
     await message.reply_text(
-        "🧠 <b>Methods</b>\n\nChoose a method to view its description and price:",
+        titles.get(lang, (
+            "🧠 <b>Methods</b>\n\n"
+            "👑 <b>BMC VIP</b> is at the top — claim every method now, "
+            "and get the new ones every day.\n\n"
+            "Or open one method:"
+        )),
         parse_mode=ParseMode.HTML,
         reply_markup=kb.offers_keyboard(lang, service_id),
     )
@@ -2931,10 +2715,12 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except (ValueError, TypeError):
             oid = raw_oid
         off = db.get_offer(oid) or db.get_offer(str(raw_oid))
+        if db.is_bmc_vip_offer(off):
+            off = db.get_offer(db.ensure_bmc_vip_offer())
         if off:
             await asyncio.to_thread(reseller_service.refresh_supplier_stock, [off])
             off = db.get_offer(off.get("id", oid))
-        if not off or not db.offer_has_stock(off):
+        if not off or (not db.offer_has_stock(off) and not db.is_bmc_vip_offer(off)):
             await q.message.reply_text(
                 premium_customer_text(lang, "out_of_stock"),
                 parse_mode=ParseMode.HTML,
@@ -2980,8 +2766,9 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_chatgpt_offer:
             try:
                 base_url = public_base_url_from_environment()
-                await q.message.reply_photo(
-                    photo=f"{base_url}/assets/chatgpt-plus-benefits.png",
+                await send_cached_photo(
+                    q.message.reply_photo,
+                    f"{base_url}/assets/chatgpt-plus-benefits.png",
                     caption="\U0001f525 *ChatGPT Plus Benefits*",
                     parse_mode=ParseMode.MARKDOWN,
                 )
@@ -3829,6 +3616,19 @@ async def handle_pending_input(update, context, lang):
             return
         await update.message.reply_text(
             f"✅ Replacement sent to the customer. Warranty request #{request_id} is complete."
+        )
+        return
+
+    if kind == "adm_bmc_vip_links" and uid == ADMIN_ID:
+        added, skipped = db.add_bmc_vip_links(text)
+        PENDING.pop(uid, None)
+        remaining = db.bmc_vip_link_count()
+        await update.message.reply_text(
+            f"✅ {added} channel link(s) added.\n"
+            f"⏭ {skipped} line(s) skipped (invalid or already stored).\n"
+            f"🔗 Links still available: {remaining}\n\n"
+            "Each link is sent to one buyer, then deleted from the bot.",
+            reply_markup=admin.offer_admin_keyboard(int(ref)),
         )
         return
 
@@ -4761,6 +4561,31 @@ async def watch_manual_delivery(bot, chat_id, order_id, message_id, lang, timeou
         _DELIVERY_WATCHERS.discard(key)
 
 
+def bmc_vip_channel_message(lang, link):
+    """Tell the buyer their private channel link. The link is already removed from stock."""
+    safe_link = html.escape(str(link or ""), quote=True)
+    texts = {
+        "fr": (
+            "✅ <b>BMC VIP est actif</b>\n\n"
+            "Voici ton lien de canal privé. Rejoins-le pour récupérer toutes les méthodes, "
+            "et les nouvelles chaque jour.\n\n"
+            f"<a href=\"{safe_link}\">{safe_link}</a>"
+        ),
+        "ar": (
+            "✅ <b>BMC VIP مفعّل</b>\n\n"
+            "هذا رابط قناتك الخاصة. انضم إليها لتحصل على كل الطرق، "
+            "والطرق الجديدة كل يوم.\n\n"
+            f"<a href=\"{safe_link}\">{safe_link}</a>"
+        ),
+    }
+    return texts.get(lang, (
+        "✅ <b>BMC VIP is active</b>\n\n"
+        "Here is your private channel link. Join it to claim every method, "
+        "and the new ones every day.\n\n"
+        f"<a href=\"{safe_link}\">{safe_link}</a>"
+    ))
+
+
 async def send_method_media(bot, customer_id, media):
     for item in media or []:
         kind = str(item.get("type") or "document")
@@ -4823,7 +4648,19 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
                 if paid_order and result["delivered_content"] == ["__method_media__"]
                 else None
             )
-            if offer and result["delivered_content"] == ["__method_media__"]:
+            vip_offer = (
+                db.get_offer(paid_order.get("offer_id"))
+                if paid_order and result.get("error_code") != "bmc_vip_link_unavailable"
+                else None
+            )
+            if db.is_bmc_vip_offer(vip_offer) and result["delivered_content"]:
+                await message.reply_text(
+                    bmc_vip_channel_message(lang, result["delivered_content"][0]),
+                    parse_mode=ParseMode.HTML,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True),
+                    reply_markup=kb.post_delivery_keyboard(lang, order_id),
+                )
+            elif offer and result["delivered_content"] == ["__method_media__"]:
                 await message.reply_text(
                     f"✅ <b>Payment confirmed</b>\n\nYour method <b>{html.escape(str(paid_order.get('offer_name') or ''))}</b> is ready. The content is attached below.",
                     parse_mode=ParseMode.HTML,
@@ -5575,6 +5412,23 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.message.reply_text(f"✅ Warranty request #{request_id} resolved: refund.")
         return
 
+    if data.startswith("adm_bmc_vip_links:"):
+        offer_id = int(data.split(":", 1)[1])
+        offer = db.get_offer(offer_id)
+        if not offer or not db.is_bmc_vip_offer(offer):
+            await q.message.reply_text("⚠️ BMC VIP offer not found.")
+            return
+        PENDING[uid] = ("adm_bmc_vip_links", offer_id)
+        await q.message.reply_text(
+            "🔗 <b>BMC VIP channel links</b>\n\n"
+            f"Available now: <b>{db.bmc_vip_link_count()}</b>\n\n"
+            "Send one Telegram channel link per line, for example:\n"
+            "<code>https://t.me/+InviteCode</code>\n\n"
+            "After a buyer pays, one link is sent to them and deleted from the bot.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     if data.startswith("adm_method_media:"):
         offer_id = int(data.split(":", 1)[1])
         offer = db.get_offer(offer_id)
@@ -6263,7 +6117,7 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         PENDING[uid] = ("adm_addoff_image", sid)
         await q.message.reply_text(
-            f"🖼 *New offer — step 1/6*\n\n"
+            "🖼 *New offer — step 1/6*\n\n"
             "Send the advertising image, or type `skip` to continue without one.",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -6617,7 +6471,7 @@ def build_app():
     request = HTTPXRequest(connect_timeout=30, read_timeout=30)
     app = Application.builder().token(BOT_TOKEN).request(request).build()
     # Report customer button clicks without consuming them, then apply global gates.
-    app.add_handler(CallbackQueryHandler(notify_admin_interaction), group=-5)
+    app.add_handler(CallbackQueryHandler(notify_admin_interaction, block=False), group=-5)
     app.add_handler(MessageHandler(filters.ALL, block_maintenance_users), group=-4)
     app.add_handler(CallbackQueryHandler(block_maintenance_users), group=-4)
     app.add_handler(MessageHandler(filters.ALL, block_banned_users), group=-3)

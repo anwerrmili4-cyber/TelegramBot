@@ -618,21 +618,20 @@ def list_customers(params: dict[str, list[str]]) -> dict[str, Any]:
     collection = conn.users
     sort = _first(params, "sort") or "newest"
     if sort in {"balance", "spent", "orders"}:
-        summaries = [_customer_summary(user) for user in collection.find(query)]
-        sort_key = {
-            "balance": "wallet_balance",
-            "spent": "total_spent",
-            "orders": "order_count",
-        }[sort]
-        summaries.sort(
-            key=lambda item: (
-                float(item.get(sort_key) or 0),
-                int(item.get("telegram_id") or 0),
-            ),
-            reverse=True,
-        )
-        total = len(summaries)
-        items = summaries[(page - 1) * per_page:page * per_page]
+        metric = _customer_sort_metric(conn, sort)
+        ids = [
+            int(row["telegram_id"])
+            for row in collection.find(query, {"telegram_id": 1, "_id": 0})
+            if row.get("telegram_id") is not None
+        ]
+        ids.sort(key=lambda user_id: (metric.get(user_id, 0.0), user_id), reverse=True)
+        total = len(ids)
+        page_ids = ids[(page - 1) * per_page:page * per_page]
+        users_by_id = {
+            int(user["telegram_id"]): user
+            for user in collection.find({"telegram_id": {"$in": page_ids}})
+        }
+        items = [_customer_summary(users_by_id[user_id]) for user_id in page_ids if user_id in users_by_id]
     else:
         total = collection.count_documents(query)
         direction = 1 if sort == "oldest" else DESCENDING
@@ -1692,6 +1691,29 @@ def list_provider_transactions(params: dict[str, list[str]]) -> dict[str, Any]:
             for provider_id in sorted(reseller_service.SUPPORTED_PROVIDERS)
         ],
         "statuses": list(PROVIDER_TRANSACTION_STATUSES),
+    }
+
+
+def _customer_sort_metric(conn: Any, sort: str) -> dict[int, float]:
+    """Rank every customer with one query instead of a full summary per user."""
+    if sort == "balance":
+        return {
+            int(row["user_id"]): round(float(row.get("balance_cents") or 0) / 100, 2)
+            for row in conn.wallets.find({}, {"user_id": 1, "balance_cents": 1, "_id": 0})
+            if row.get("user_id") is not None
+        }
+    if sort == "spent":
+        match: dict[str, Any] = {"status": {"$in": ["paid", "payment_confirmed", "delivered"]}}
+        value: dict[str, Any] = {"$sum": db.order_charge_total_expression()}
+    else:
+        match, value = {}, {"$sum": 1}
+    return {
+        int(row["_id"]): round(float(row.get("value") or 0), 2)
+        for row in conn.orders.aggregate([
+            {"$match": {**match, "user_id": {"$ne": None}}},
+            {"$group": {"_id": "$user_id", "value": value}},
+        ])
+        if isinstance(row.get("_id"), int)
     }
 
 

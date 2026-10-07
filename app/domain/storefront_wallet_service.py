@@ -210,18 +210,25 @@ def create_deposit(customer: dict[str, Any], payload: dict[str, Any]) -> dict[st
     customer_id = int(customer["id"])
     if conn.storefront_deposits.count_documents({"customer_id": customer_id, "status": DEPOSIT_PENDING}) >= MAX_PENDING_DEPOSITS:
         raise WalletError("Tu as déjà des recharges en attente. Attends leur validation avant d'en ajouter.")
-    if reference and conn.storefront_deposits.find_one({
-        "method": method,
-        "transaction_reference_key": reference.lower(),
-        "status": {"$ne": DEPOSIT_REJECTED},
-    }):
-        raise WalletError("Cette référence de transaction a déjà été déclarée.")
+    reference_claim = None
+    if reference:
+        from app.domain.storefront_service import transfer_reference_in_use
+
+        key = reference.lower()
+        if transfer_reference_in_use(method, key):
+            raise WalletError("Cette référence de transaction a déjà été déclarée.")
+        reference_claim = db.claim_payment_reference(
+            method, key, lambda: transfer_reference_in_use(method, key)
+        )
+        if reference_claim is None:
+            raise WalletError("Cette référence de transaction a déjà été déclarée.")
 
     try:
         receipt_id = storefront_receipt_service.store(
             payload.get("receipt"), customer_id=customer_id, purpose="deposit"
         )
     except storefront_receipt_service.ReceiptError as exc:
+        db.release_payment_reference(method, reference.lower(), reference_claim)
         raise WalletError(str(exc)) from exc
 
     now = int(time.time())
@@ -245,7 +252,9 @@ def create_deposit(customer: dict[str, Any], payload: dict[str, Any]) -> dict[st
     try:
         conn.storefront_deposits.insert_one(deposit)
     except DuplicateKeyError as exc:
+        db.release_payment_reference(method, reference.lower(), reference_claim)
         raise WalletError("Cette référence de transaction a déjà été déclarée.") from exc
+    db.bind_payment_reference(method, reference.lower(), reference_claim)
     db.audit_event(
         "storefront.deposit_created",
         details={"deposit_id": deposit["id"], "customer_id": customer_id, "amount_millimes": amount, "method": method},

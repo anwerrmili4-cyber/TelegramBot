@@ -1,12 +1,12 @@
 """MongoDB persistence for users, catalogue, orders, and affiliate data."""
-import contextlib
 import base64
+import contextlib
 import hashlib
 import os
 import re
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from cryptography.fernet import Fernet
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -187,7 +187,9 @@ def get_conn():
     if _db is None:
         if not MONGODB_URI:
             raise RuntimeError("HP_MONGODB_URI is required")
-        _client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=10000)
+        from app.core.db import client_options
+
+        _client = MongoClient(MONGODB_URI, **client_options())
         _db = _client[MONGODB_DB]
     return _db
 
@@ -240,6 +242,14 @@ def _next_ids(sequence, count):
     )
     end = int(row["value"])
     return list(range(end - count + 1, end + 1))
+
+
+from app.repositories.payment_references import (  # noqa: F401
+    PAYMENT_REFERENCE_CLAIM_GRACE_SECONDS,
+    bind_payment_reference,
+    claim_payment_reference,
+    release_payment_reference,
+)
 
 
 def init_db():
@@ -418,6 +428,18 @@ def init_db():
         partialFilterExpression={"notified_at": None},
     )
     db.storefront_stock_alerts.create_index([("offer_id", ASCENDING), ("notified_at", ASCENDING)])
+    db.storefront_reviews.create_index(
+        [("offer_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]
+    )
+    db.storefront_reviews.create_index([("customer_id", ASCENDING), ("created_at", DESCENDING)])
+    db.service_logos.create_index("service_id")
+    db.category_logos.create_index("logo_id")
+    db.offer_images.create_index("offer_id")
+    db.offer_videos.create_index("offer_id")
+    db.admin_push_devices.create_index("auth_version")
+    from app.core import jobs
+
+    jobs.ensure_indexes(db)
     if not schema or int(schema.get("version") or 0) < 15:
         _remove_legacy_announcement_overrides(db)
     if not schema or int(schema.get("version") or 0) < 17:
@@ -1246,6 +1268,8 @@ def offer_has_stock(offer, qty=1):
     """Return whether an offer can fulfill a quantity, including unlimited offers."""
     if not offer or int(qty or 0) < 1:
         return False
+    if is_bmc_vip_offer(offer):
+        return bmc_vip_link_count() >= int(qty)
     service = get_service(offer.get("service_id")) if offer.get("service_id") is not None else None
     if (
         str((service or {}).get("name") or "").strip().lower() == "methods"
@@ -1554,6 +1578,311 @@ def ensure_bot_like_mine_feature():
         }, "$unset": {"archived_at": ""}},
     )
     return offer_id
+
+
+BMC_VIP_FEATURE_KEY = "bmc_vip"
+BMC_VIP_EARLY_PRICE = 15.0
+BMC_VIP_REGULAR_PRICE = 25.0
+BMC_VIP_EARLY_SLOTS = 5
+BMC_VIP_SEEDED_CLAIMS = 1
+
+
+def is_bmc_vip_offer(offer):
+    """The Methods bundle that claims every method plus the daily VIP drops."""
+    return str((offer or {}).get("feature_key") or "") == BMC_VIP_FEATURE_KEY
+
+
+def _bmc_vip_money(amount):
+    return f"{float(amount):.2f}".rstrip("0").rstrip(".")
+
+
+def list_claimable_methods():
+    """Active Methods the VIP bundle delivers, excluding the bundle itself."""
+    service_id = ensure_methods_service()
+    claimable = []
+    for offer in list_offers(service_id):
+        if is_bmc_vip_offer(offer) or not offer_has_stock(offer):
+            continue
+        try:
+            price = float(offer.get("price"))
+        except (TypeError, ValueError):
+            continue
+        claimable.append({
+            "id": int(offer["id"]),
+            "name": str(offer.get("name") or "Method").strip() or "Method",
+            "price": price,
+            "method_media": list(offer.get("method_media") or []),
+        })
+    return claimable
+
+
+def bmc_vip_claim_count(offer_id):
+    """Launch spots already taken, including the one membership claimed outside the bot."""
+    now = int(time.time())
+    reserved = get_conn().orders.count_documents(customer_order_query({
+        "offer_id": int(offer_id),
+        "$or": [
+            {"status": {"$in": [
+                "paid", "payment_confirmed", "delivered",
+                "awaiting_verification", "manual_review",
+            ]}},
+            {"status": "pending_payment", "expires_at": {"$gt": now}},
+        ],
+    }))
+    return BMC_VIP_SEEDED_CLAIMS + int(reserved)
+
+
+def bmc_vip_price_for_claims(claims):
+    if int(claims) < BMC_VIP_EARLY_SLOTS:
+        return BMC_VIP_EARLY_PRICE
+    return BMC_VIP_REGULAR_PRICE
+
+
+def _bmc_vip_method_lines(methods):
+    shown = methods[:12]
+    lines = [
+        f"• {method['name']} — ${_bmc_vip_money(method['price'])}"
+        for method in shown
+    ]
+    extra = len(methods) - len(shown)
+    if extra > 0:
+        lines.append(f"• … +{extra}")
+    return "\n".join(lines)
+
+
+def _bmc_vip_descriptions(methods, total, price, claims):
+    """Explain the saving: separate prices added up, versus one VIP subscription."""
+    count = len(methods)
+    price_text = _bmc_vip_money(price)
+    total_text = _bmc_vip_money(total)
+    left = max(0, BMC_VIP_EARLY_SLOTS - int(claims))
+    method_lines = _bmc_vip_method_lines(methods)
+    if count:
+        included_en = (
+            f"Methods included today ({count}):\n{method_lines}\n\n"
+            f"Buying these one by one costs ${total_text}."
+        )
+        included_fr = (
+            f"Méthodes incluses aujourd'hui ({count}) :\n{method_lines}\n\n"
+            f"Les acheter une par une coûte ${total_text}."
+        )
+        included_ar = (
+            f"الطرق المشمولة اليوم ({count}):\n{method_lines}\n\n"
+            f"شراؤها واحدة واحدة يكلف ${total_text}."
+        )
+    else:
+        included_en = (
+            "No separate method is listed yet. "
+            "Join now and every method added after this is included."
+        )
+        included_fr = (
+            "Aucune méthode séparée n'est en ligne pour le moment. "
+            "Rejoins maintenant : chaque méthode ajoutée ensuite est incluse."
+        )
+        included_ar = (
+            "لا توجد طريقة منفصلة معروضة الآن. "
+            "انضم الآن وكل طريقة تُضاف بعد ذلك تكون مشمولة."
+        )
+    if left:
+        launch_en = (
+            f"Launch price: $15 for the first {BMC_VIP_EARLY_SLOTS} members. "
+            f"1 member already claimed a spot, so {left} places are still $15. "
+            f"After those {BMC_VIP_EARLY_SLOTS} members, the price goes up to $25."
+        )
+        launch_fr = (
+            f"Prix de lancement : 15$ pour les {BMC_VIP_EARLY_SLOTS} premiers membres. "
+            f"1 membre a déjà réclamé sa place, il reste {left} places à 15$. "
+            f"Après ces {BMC_VIP_EARLY_SLOTS} membres, le prix passe à 25$."
+        )
+        launch_ar = (
+            f"سعر الإطلاق: 15$ لأول {BMC_VIP_EARLY_SLOTS} أعضاء. "
+            f"عضو واحد حجز مكانه بالفعل، تبقّى {left} أماكن بـ 15$. "
+            f"بعد هؤلاء الأعضاء الـ {BMC_VIP_EARLY_SLOTS} يصبح السعر 25$."
+        )
+    else:
+        launch_en = (
+            f"The first {BMC_VIP_EARLY_SLOTS} members already claimed the $15 launch price. "
+            "BMC VIP is now $25."
+        )
+        launch_fr = (
+            f"Les {BMC_VIP_EARLY_SLOTS} places à 15$ sont prises. BMC VIP est maintenant à 25$."
+        )
+        launch_ar = (
+            f"أماكن الإطلاق الـ {BMC_VIP_EARLY_SLOTS} بسعر 15$ اكتملت. BMC VIP الآن بـ 25$."
+        )
+    return {
+        "en": (
+            "Join BMC VIP and claim every method with one subscription.\n\n"
+            "If you join, you get:\n"
+            "• Every method available right now, inside the BMC VIP channel\n"
+            "• Every new method we add — new methods drop in that channel every day\n"
+            "• A private channel link, sent once after payment\n"
+            "• One payment, instead of buying each method alone\n\n"
+            f"{included_en}\n"
+            f"BMC VIP is ${price_text}.\n\n"
+            f"{launch_en}\n\n"
+            "You keep every method you claim today, and the next ones are included too."
+        ),
+        "fr": (
+            "Rejoins BMC VIP et réclame toutes les méthodes avec un seul abonnement.\n\n"
+            "Si tu nous rejoins, tu obtiens :\n"
+            "• Toutes les méthodes disponibles maintenant, dans le canal BMC VIP\n"
+            "• Chaque nouvelle méthode — de nouvelles méthodes tombent dans ce canal tous les jours\n"
+            "• Un lien de canal privé, envoyé une seule fois après le paiement\n"
+            "• Un seul paiement, au lieu d'acheter chaque méthode à part\n\n"
+            f"{included_fr}\n"
+            f"BMC VIP coûte ${price_text}.\n\n"
+            f"{launch_fr}\n\n"
+            "Tu gardes toutes les méthodes réclamées aujourd'hui, et les prochaines sont incluses."
+        ),
+        "ar": (
+            "انضم إلى BMC VIP واحصل على كل الطرق باشتراك واحد.\n\n"
+            "إذا انضممت تحصل على:\n"
+            "• كل الطرق المتاحة الآن، داخل قناة BMC VIP\n"
+            "• كل طريقة جديدة — طرق جديدة في هذه القناة كل يوم\n"
+            "• رابط قناة خاص، يُرسل مرة واحدة بعد الدفع\n"
+            "• دفعة واحدة بدل شراء كل طريقة وحدها\n\n"
+            f"{included_ar}\n"
+            f"سعر BMC VIP هو ${price_text}.\n\n"
+            f"{launch_ar}\n\n"
+            "تحتفظ بكل الطرق التي تحصل عليها اليوم، والطرق القادمة مشمولة أيضاً."
+        ),
+    }
+
+
+def ensure_bmc_vip_offer():
+    """Create or refresh the top Methods offer: all methods plus daily VIP drops."""
+    service_id = ensure_methods_service()
+    conn = get_conn()
+    offer = conn.offers.find_one({"feature_key": BMC_VIP_FEATURE_KEY})
+    if not offer:
+        offer = conn.offers.find_one({
+            "service_id": service_id,
+            "name": {"$regex": r"^BMC VIP$", "$options": "i"},
+        })
+    if not offer:
+        offer_id = add_offer(
+            service_id,
+            "BMC VIP",
+            BMC_VIP_EARLY_PRICE,
+            0,
+            note="BMC VIP subscription — all current methods plus every new method.",
+            description="BMC VIP",
+            currency="USDT",
+            auto_delivery=True,
+            low_stock_threshold=0,
+            delivery_delay="All current methods now, then every new method",
+            unlimited_stock=True,
+            manual_stock=True,
+            sales_channels=["bot"],
+            period_days=0,
+            warranty_days=0,
+            name_ar="BMC VIP",
+        )
+    else:
+        offer_id = int(offer["id"])
+    methods = list_claimable_methods()
+    total = round(sum(method["price"] for method in methods), 2)
+    claims = bmc_vip_claim_count(offer_id)
+    price = bmc_vip_price_for_claims(claims)
+    descriptions = _bmc_vip_descriptions(methods, total, price, claims)
+    conn.offers.update_one(
+        {"id": offer_id},
+        {"$set": {
+            "service_id": service_id,
+            "name": "BMC VIP",
+            "name_ar": "BMC VIP",
+            "emoji": "👑",
+            "price": price,
+            "currency": "USDT",
+            "description": descriptions["en"],
+            "description_ar": descriptions["ar"],
+            "description_fr": descriptions["fr"],
+            "note": "BMC VIP subscription — all current methods plus every new method.",
+            "feature_key": BMC_VIP_FEATURE_KEY,
+            "bmc_vip_claims": claims,
+            "bmc_vip_catalog_total": total,
+            "active": 1,
+            "archived": 0,
+            "stock": bmc_vip_link_count(),
+            "unlimited_stock": False,
+            "manual_stock": False,
+            "auto_delivery": True,
+            "period_days": 0,
+            "period_value": 0,
+            "period_unit": "days",
+            "warranty_days": 0,
+            "warranty_value": 0,
+            "warranty_unit": "days",
+            "low_stock_threshold": 0,
+            "delivery_delay": "Private channel link after payment",
+            "sales_channels": ["bot"],
+        }, "$unset": {"archived_at": ""}},
+    )
+    return offer_id
+
+
+_BMC_VIP_LINK_RE = re.compile(
+    r"^(?:https?://)?(?:t\.me|telegram\.me)/[^\s]+$",
+    re.IGNORECASE,
+)
+
+
+def normalize_bmc_vip_link(value):
+    """Accept a Telegram channel link and store it with https://."""
+    text = str(value or "").strip()
+    if not _BMC_VIP_LINK_RE.fullmatch(text):
+        return ""
+    if not text.lower().startswith(("http://", "https://")):
+        text = "https://" + text
+    return text
+
+
+def bmc_vip_link_count():
+    return int(get_conn().bmc_vip_links.count_documents({}))
+
+
+def add_bmc_vip_links(raw_text):
+    """Store admin-supplied channel links. Duplicates and invalid lines are skipped."""
+    conn = get_conn()
+    now = int(time.time())
+    added = 0
+    skipped = 0
+    for line in str(raw_text or "").splitlines():
+        link = normalize_bmc_vip_link(line)
+        if not link:
+            if line.strip():
+                skipped += 1
+            continue
+        if conn.bmc_vip_links.find_one({"link": link}):
+            skipped += 1
+            continue
+        conn.bmc_vip_links.insert_one({"link": link, "created_at": now})
+        added += 1
+    offer = conn.offers.find_one({"feature_key": BMC_VIP_FEATURE_KEY}, {"id": 1})
+    if offer:
+        conn.offers.update_one(
+            {"id": int(offer["id"])},
+            {"$set": {"stock": bmc_vip_link_count(), "unlimited_stock": False}},
+        )
+    return added, skipped
+
+
+def claim_bmc_vip_link():
+    """Give one channel link to a buyer and delete it from the bot."""
+    row = get_conn().bmc_vip_links.find_one_and_delete(
+        {},
+        sort=[("created_at", ASCENDING), ("_id", ASCENDING)],
+    )
+    if not row:
+        return ""
+    offer = get_conn().offers.find_one({"feature_key": BMC_VIP_FEATURE_KEY}, {"id": 1})
+    if offer:
+        get_conn().offers.update_one(
+            {"id": int(offer["id"])},
+            {"$set": {"stock": bmc_vip_link_count(), "unlimited_stock": False}},
+        )
+    return str(row.get("link") or "")
 
 
 def update_service(
@@ -2347,37 +2676,13 @@ def shop_settings():
     return result
 
 
-def get_pending_state(user_id):
-    row = get_conn().pending_states.find_one({"user_id": user_id})
-    return (row["kind"], row["ref"]) if row else None
-
-
-def set_pending_state(user_id, state):
-    kind, ref = state
-    get_conn().pending_states.update_one(
-        {"user_id": user_id},
-        {"$set": {"kind": kind, "ref": ref, "updated_at": int(time.time())}},
-        upsert=True,
-    )
-
-
-def pop_pending_state(user_id, default=None):
-    row = get_conn().pending_states.find_one_and_delete({"user_id": user_id})
-    return (row["kind"], row["ref"]) if row else default
-
-
-def claim_update(update_id):
-    """Return False when Telegram retries an update already being processed."""
-    try:
-        get_conn().processed_updates.insert_one({"_id": update_id, "created_at": datetime.now(UTC)})
-        return True
-    except DuplicateKeyError:
-        return False
-
-
-def release_update(update_id):
-    get_conn().processed_updates.delete_one({"_id": update_id})
-
+from app.repositories.bot_state import (  # noqa: F401
+    claim_update,
+    get_pending_state,
+    pop_pending_state,
+    release_update,
+    set_pending_state,
+)
 
 _fernet_cached = None
 
@@ -2957,244 +3262,41 @@ def dashboard_data(include_history=True):
     return payload
 
 
-def create_ticket(user_id, message):
-    tid = _next_id("tickets")
-    get_conn().support_tickets.insert_one({"id": tid, "user_id": user_id, "message": message[:2000], "status": "open", "created_at": datetime.now(UTC)})
-    audit_event("ticket.created", user_id, {"ticket_id": tid})
-    return tid
-
-
-def list_tickets(status="open", limit=50):
-    return [_public(x) for x in get_conn().support_tickets.find({
-        "status": status,
-        "channel": {"$ne": "tn_site"},
-    }).sort("created_at", DESCENDING).limit(limit)]
-
-
-def get_ticket(ticket_id):
-    return _public(get_conn().support_tickets.find_one({"id": ticket_id}))
-
-
-def close_ticket(ticket_id):
-    return bool(get_conn().support_tickets.update_one({"id": ticket_id}, {"$set": {"status": "closed", "closed_at": datetime.now(UTC)}}).matched_count)
+from app.repositories.tickets import (  # noqa: F401
+    close_ticket,
+    create_ticket,
+    get_ticket,
+    list_tickets,
+)
 
 
 def list_users(limit=100):
     return [_public(x) for x in get_conn().users.find({}).sort("created_at", DESCENDING).limit(limit)]
 
 
-CATALOG_UPDATE_BROADCAST_KINDS = {
-    "stock", "restock_digest", "flash_sale", "api_flash_sale",
-    "supplier_price_update",
-}
-
-
-def list_broadcast_users(*, catalog_updates_only=False, catalog_offer_id=None):
-    """Return every active bot user eligible for private announcements."""
-    query = {
-        "telegram_id": {"$exists": True},
-        "banned": {"$ne": True},
-        "broadcast_blocked": {"$ne": True},
-    }
-    if catalog_updates_only:
-        # Missing means enabled so customers created before this option stay opted in.
-        query["catalog_notifications_enabled"] = {"$ne": False}
-        if catalog_offer_id is not None:
-            query["catalog_notification_disabled_offer_ids"] = {
-                "$ne": int(catalog_offer_id),
-            }
-    return [
-        _public(row)
-        for row in get_conn().users.find(
-            query,
-            {"telegram_id": 1, "lang": 1},
-        )
-    ]
-
-
-def create_broadcast_job(kind, payload, *, dedupe_key=""):
-    """Persist a Telegram broadcast before a background worker starts it."""
-    kind = str(kind or "")[:60]
-    payload = dict(payload or {})
-    dedupe_key = str(dedupe_key or "").strip()[:240]
-    if dedupe_key:
-        existing = get_conn().broadcast_jobs.find_one({"dedupe_key": dedupe_key})
-        if existing:
-            return _public(existing), False
-    recipient_query = {
-        "telegram_id": {"$exists": True},
-        "banned": {"$ne": True},
-        "broadcast_blocked": {"$ne": True},
-    }
-    if kind in CATALOG_UPDATE_BROADCAST_KINDS:
-        recipient_query["catalog_notifications_enabled"] = {"$ne": False}
-        offer_id = payload.get("offer_id")
-        if kind in {"api_flash_sale", "supplier_price_update"}:
-            offer_id = (payload.get("event") or {}).get("offer_id")
-        if offer_id is not None:
-            recipient_query["catalog_notification_disabled_offer_ids"] = {
-                "$ne": int(offer_id),
-            }
-    job = {
-        "id": _next_id("broadcast_jobs"),
-        "kind": kind,
-        "payload": payload,
-        "status": "queued",
-        "attempts": 0,
-        "recipient_count": get_conn().users.count_documents(recipient_query),
-        "sent_count": 0,
-        "created_at": datetime.now(UTC),
-        "updated_at": datetime.now(UTC),
-    }
-    if dedupe_key:
-        job["dedupe_key"] = dedupe_key
-    try:
-        get_conn().broadcast_jobs.insert_one(job)
-    except DuplicateKeyError:
-        existing = get_conn().broadcast_jobs.find_one({"dedupe_key": dedupe_key})
-        return _public(existing), False
-    return _public(job), True
-
-
-def claim_broadcast_job(job_id):
-    row = get_conn().broadcast_jobs.find_one_and_update(
-        {"id": int(job_id), "status": {"$in": ["queued", "retry"]}, "attempts": {"$lt": 3}},
-        {"$set": {"status": "running", "started_at": datetime.now(UTC), "updated_at": datetime.now(UTC)}, "$inc": {"attempts": 1}},
-        return_document=ReturnDocument.AFTER,
-    )
-    return _public(row)
-
-
-def complete_broadcast_job(job_id, sent_count):
-    get_conn().broadcast_jobs.update_one(
-        {"id": int(job_id)},
-        {"$set": {"status": "completed", "sent_count": int(sent_count), "completed_at": datetime.now(UTC), "updated_at": datetime.now(UTC), "error": ""}},
-    )
-
-
-def record_broadcast_message(job_id, kind, chat_id, message_id):
-    """Remember one bot-authored broadcast message so it can be deleted later."""
-    if not job_id or not chat_id or not message_id:
-        return False
-    get_conn().broadcast_messages.update_one(
-        {
-            "job_id": int(job_id),
-            "chat_id": int(chat_id),
-            "message_id": int(message_id),
-        },
-        {"$setOnInsert": {
-            "kind": str(kind or "broadcast")[:60],
-            "deleted": False,
-            "created_at": datetime.now(UTC),
-        }},
-        upsert=True,
-    )
-    return True
-
-
-def list_broadcast_messages(job_id, active_only=True):
-    query = {"job_id": int(job_id)}
-    if active_only:
-        query["deleted"] = {"$ne": True}
-    return [
-        _public(row) for row in get_conn().broadcast_messages.find(query)
-    ]
-
-
-def mark_broadcast_message_deleted(job_id, chat_id, message_id, *, error=""):
-    values = {
-        "delete_error": str(error or "")[:300],
-        "delete_attempted_at": datetime.now(UTC),
-    }
-    if not error:
-        values.update({"deleted": True, "deleted_at": datetime.now(UTC)})
-    get_conn().broadcast_messages.update_one(
-        {
-            "job_id": int(job_id),
-            "chat_id": int(chat_id),
-            "message_id": int(message_id),
-        },
-        {"$set": values},
-    )
-
-
-def get_broadcast_job(job_id):
-    return _public(get_conn().broadcast_jobs.find_one({"id": int(job_id)}))
-
-
-def set_broadcast_deletion_status(job_id, status, *, deleted_count=0, failed_count=0):
-    get_conn().broadcast_jobs.update_one(
-        {"id": int(job_id)},
-        {"$set": {
-            "deletion_status": str(status),
-            "deleted_count": int(deleted_count),
-            "delete_failed_count": int(failed_count),
-            "deletion_updated_at": datetime.now(UTC),
-        }},
-    )
-
-
-def list_broadcast_history(limit=20):
-    """Return recent customer announcements that still have tracked messages."""
-    kinds = [
-        "stock", "restock_digest", "flash_sale", "api_flash_sale",
-        "supplier_price_update", "admin_message", "maintenance",
-        "affiliate_update",
-    ]
-    jobs = get_conn().broadcast_jobs.find({
-        "kind": {"$in": kinds},
-        "status": "completed",
-    }).sort("created_at", DESCENDING).limit(max(1, int(limit) * 3))
-    history = []
-    for raw in jobs:
-        job = _public(raw)
-        total = get_conn().broadcast_messages.count_documents({"job_id": job["id"]})
-        if not total:
-            continue
-        active = get_conn().broadcast_messages.count_documents({
-            "job_id": job["id"], "deleted": {"$ne": True},
-        })
-        job["tracked_count"] = total
-        job["active_message_count"] = active
-        history.append(job)
-        if len(history) >= int(limit):
-            break
-    return history
-
-
-def fail_broadcast_job(job_id, error):
-    row = get_conn().broadcast_jobs.find_one({"id": int(job_id)}, {"attempts": 1}) or {}
-    status = "retry" if int(row.get("attempts") or 0) < 3 else "failed"
-    get_conn().broadcast_jobs.update_one(
-        {"id": int(job_id)},
-        {"$set": {"status": status, "error": str(error or "")[:500], "updated_at": datetime.now(UTC)}},
-    )
-    return status
-
-
-def pending_broadcast_jobs(limit=20):
-    # A deployment can stop while a worker is sending. Make abandoned jobs
-    # eligible for retry on the next bot startup.
-    get_conn().broadcast_jobs.update_many(
-        {"status": "running", "started_at": {"$lt": datetime.now(UTC) - timedelta(minutes=10)}},
-        {"$set": {"status": "retry", "updated_at": datetime.now(UTC)}},
-    )
-    return [
-        _public(row) for row in get_conn().broadcast_jobs.find(
-            {"status": {"$in": ["queued", "retry"]}, "attempts": {"$lt": 3}},
-        ).sort("created_at", ASCENDING).limit(max(1, int(limit)))
-    ]
-
-
-def mark_broadcast_blocked(user_id, blocked=True):
-    get_conn().users.update_one(
-        {"telegram_id": int(user_id)},
-        {"$set": {"broadcast_blocked": bool(blocked)}},
-    )
+from app.repositories.broadcasts import (  # noqa: F401
+    CATALOG_UPDATE_BROADCAST_KINDS,
+    claim_broadcast_job,
+    complete_broadcast_job,
+    create_broadcast_job,
+    fail_broadcast_job,
+    get_broadcast_job,
+    list_broadcast_history,
+    list_broadcast_messages,
+    list_broadcast_users,
+    mark_broadcast_blocked,
+    mark_broadcast_message_deleted,
+    pending_broadcast_jobs,
+    record_broadcast_message,
+    set_broadcast_deletion_status,
+)
 
 
 def set_user_banned(user_id, banned):
     result = get_conn().users.update_one({"telegram_id": user_id}, {"$set": {"banned": bool(banned)}})
+    from app.bot.middlewares import invalidate_banned
+
+    invalidate_banned(user_id)
     audit_event("user.banned" if banned else "user.unbanned", details={"user_id": user_id})
     return bool(result.matched_count)
 

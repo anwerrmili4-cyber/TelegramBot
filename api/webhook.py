@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import csv
 import gzip
@@ -29,7 +28,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
-from telegram import InputFile, Update
+from telegram import InputFile
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
@@ -38,6 +37,7 @@ from api.buyer_api_docs import openapi_document, swagger_html
 from api.dashboard import render_dashboard
 from api.public_site import render_public_site
 from app import __version__, support_bridge
+from app.bot import runtime as bot_runtime
 from app.domain import (
     admin_ai_service,
     binance_dashboard_service,
@@ -56,8 +56,8 @@ from app.domain import (
     site_settings_service,
     storefront_auth_service,
     storefront_favorite_service,
-    storefront_notification_service,
     storefront_invoice_service,
+    storefront_notification_service,
     storefront_receipt_service,
     storefront_review_service,
     storefront_service,
@@ -66,12 +66,8 @@ from app.domain import (
     wallet_service,
     warranty_service,
 )
+from app.jobs import scheduled as scheduled_jobs
 from app.web import dashboard_api, notification_service
-from bot import (
-    build_app,
-    monitor_codex_number_deadlines,
-    queue_broadcast,
-)
 from config import (
     ADMIN_ID,
     BOT_TOKEN,
@@ -83,9 +79,6 @@ from config import (
 from i18n import t
 from payment_verifier import binance_healthcheck, bybit_healthcheck
 
-_loop = asyncio.new_event_loop()
-_app = None
-_runtime_lock = threading.RLock()
 log = logging.getLogger(__name__)
 MAX_WEBHOOK_BODY_BYTES = 1_000_000
 ADMIN_UI_DIST = Path(__file__).resolve().parent.parent / "admin-ui" / "dist"
@@ -104,6 +97,17 @@ def _duration_form_values(form, prefix: str, default_days: int, *, allow_zero: b
     if value < 0 or (not allow_zero and value < 1):
         raise ValueError(f"{prefix} invalide")
     return value, unit, warranty_service.duration_to_days(value, unit)
+
+
+def _edited_duration_values(form, prefix: str, previous: dict, default_days: int, *, allow_zero: bool):
+    """An edit that does not send a duration keeps the stored value and unit."""
+    if str(form.get(f"{prefix}_value") or "").strip() or str(form.get(f"{prefix}_days") or "").strip():
+        return _duration_form_values(form, prefix, default_days, allow_zero=allow_zero)
+    days = int(previous.get(f"{prefix}_days") or default_days)
+    value, unit = previous.get(f"{prefix}_value"), previous.get(f"{prefix}_unit")
+    if value is None or not unit:
+        return days, "days", days
+    return int(value), str(unit), days
 
 
 def health_payload() -> dict:
@@ -473,19 +477,12 @@ def _legacy_public_site_html() -> str:
 
 
 def _run_async(awaitable):
-    """Serialize access to the shared Telegram asyncio event loop."""
-    with _runtime_lock:
-        return _loop.run_until_complete(awaitable)
+    """Run a Telegram coroutine on the bot loop and wait for its result."""
+    return bot_runtime.run(awaitable)
 
 
 def _application():
-    global _app
-    with _runtime_lock:
-        if _app is None:
-            candidate = build_app()
-            _run_async(candidate.initialize())
-            _app = candidate
-    return _app
+    return bot_runtime.application()
 
 
 def _email_site_ticket_reply(ticket: dict, ticket_id: int, message: str) -> None:
@@ -505,20 +502,14 @@ def _email_site_ticket_reply(ticket: dict, ticket_id: int, message: str) -> None
 
 
 def _deliver_ticket_reply(user_id: int, ticket_id: int, message: str) -> None:
-    """Send the Telegram copy outside the dashboard request latency path."""
-    def deliver() -> None:
-        try:
-            _run_async(
-                _application().bot.send_message(
-                    user_id,
-                    f"🎫 <b>Réponse du Support (Ticket #{ticket_id})</b>\n\n{html.escape(message)}",
-                    parse_mode=ParseMode.HTML,
-                )
-            )
-        except Exception:
-            log.exception("Failed to notify user about ticket reply")
+    """Queue the Telegram copy outside the dashboard request latency path."""
+    from app.jobs.handlers import queue_telegram_message
 
-    threading.Thread(target=deliver, name=f"ticket-reply-{ticket_id}", daemon=True).start()
+    queue_telegram_message(
+        user_id,
+        f"🎫 <b>Réponse du Support (Ticket #{ticket_id})</b>\n\n{html.escape(message)}",
+        parse_mode=ParseMode.HTML,
+    )
 
 
 def _notify_wallet_adjustment(result: dict, reason: str = "") -> bool:
@@ -631,7 +622,7 @@ class handler(BaseHTTPRequestHandler):
         if size <= 0 or size > max_bytes:
             raise ValueError("La pièce jointe dépasse la taille autorisée.")
         envelope = (
-            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+            f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()
             + self.rfile.read(size)
         )
         parsed = BytesParser(policy=email_policy).parsebytes(envelope)
@@ -792,102 +783,14 @@ class handler(BaseHTTPRequestHandler):
                 })
             return
 
-        if path == "/api/cron/restock":
+        if path in scheduled_jobs.JOBS:
             expected = env_value("CRON_SECRET")
             supplied = self.headers.get("Authorization", "")
             if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
-            try:
-                result = reseller_service.detect_restock_events()
-                queued_jobs = []
-                for event in result["events"]:
-                    event_source = {"window": int(time.time() // 300), "event": event}
-                    event_key = "restock:" + hashlib.sha256(
-                        json.dumps(event_source, sort_keys=True).encode()
-                    ).hexdigest()[:32]
-                    queued_jobs.append(queue_broadcast(
-                        "stock",
-                        offer_id=int(event["offer_id"]),
-                        added=max(0, int(event.get("added") or 0)),
-                        stock=max(0, int(event.get("stock") or 0)),
-                        supplier_event=event,
-                        dedupe_key=event_key,
-                    ))
-                result["queued_broadcasts"] = sum(1 for job in queued_jobs if job["queued"])
-                result["queued_recipients"] = sum(
-                    job.get("recipient_count", 0) for job in queued_jobs if job["queued"]
-                )
-                result["announced_messages"] = 0
-                db.set_setting("stock_cron_last_run_at", int(time.time()))
-                db.set_setting("stock_cron_last_status", "ok" if result["ok"] else "partial")
-                db.set_setting("stock_cron_last_checked", int(result["checked"]))
-                db.set_setting("stock_cron_last_events", len(result["events"]))
-                db.set_setting("stock_cron_last_announced", 0)
-                db.set_setting("stock_cron_last_queued", result["queued_broadcasts"])
-                self._reply(200 if result["ok"] else 207, result)
-            except Exception as exc:
-                log.exception("Automatic reseller stock check failed")
-                db.set_setting("stock_cron_last_run_at", int(time.time()))
-                db.set_setting("stock_cron_last_status", "failed")
-                self._reply(500, {"ok": False, "error": str(exc)})
-            return
-
-        if path == "/api/cron/prices":
-            expected = env_value("CRON_SECRET")
-            supplied = self.headers.get("Authorization", "")
-            if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
-                self._reply(401, {"ok": False, "error": "Unauthorized"})
-                return
-            try:
-                result = reseller_service.detect_supplier_price_changes()
-                db.set_setting("price_cron_last_run_at", int(time.time()))
-                db.set_setting("price_cron_last_status", "queueing")
-                db.set_setting("price_cron_last_checked", int(result["checked"]))
-                db.set_setting("price_cron_last_changes", len(result["changes"]))
-                db.set_setting("price_cron_last_flash_sales", len(result["flash_sales"]))
-                queued = 0
-                queued_recipients = 0
-                for event in result["changes"]:
-                    dedupe_source = {"window": int(time.time() // 300), "event": event}
-                    dedupe_key = "api-price:" + hashlib.sha256(json.dumps(dedupe_source, sort_keys=True).encode()).hexdigest()[:32]
-                    job = queue_broadcast(
-                        "api_flash_sale" if event.get("decreased") else "supplier_price_update",
-                        event=event,
-                        dedupe_key=dedupe_key,
-                    )
-                    queued += int(job["queued"])
-                    queued_recipients = max(queued_recipients, job["recipient_count"])
-                result["queued_broadcasts"] = queued
-                result["queued_recipients"] = queued_recipients
-                result["announced_messages"] = 0
-                db.set_setting("price_cron_last_status", "ok" if result["ok"] else "partial")
-                db.set_setting("price_cron_last_announced", 0)
-                db.set_setting("price_cron_last_queued", queued)
-                self._reply(200 if result["ok"] else 207, result)
-            except Exception as exc:
-                log.exception("Automatic reseller price check failed")
-                db.set_setting("price_cron_last_run_at", int(time.time()))
-                db.set_setting("price_cron_last_status", "failed")
-                self._reply(500, {"ok": False, "error": str(exc)})
-            return
-
-        if path == "/api/cron/pending-payments":
-            expected = env_value("CRON_SECRET")
-            supplied = self.headers.get("Authorization", "")
-            if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
-                self._reply(401, {"ok": False, "error": "Unauthorized"})
-                return
-            try:
-                cancelled_ids = order_service.cancel_stale_pending_orders()
-                self._reply(200, {
-                    "ok": True,
-                    "cancelled": len(cancelled_ids),
-                    "order_ids": cancelled_ids,
-                })
-            except Exception as exc:
-                log.exception("Pending-payment cancellation monitor failed")
-                self._reply(500, {"ok": False, "error": str(exc)})
+            status, result = scheduled_jobs.JOBS[path]()
+            self._reply(status, result)
             return
 
         if path == "/fr" or path.startswith("/fr/"):
@@ -1007,27 +910,6 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-
-        if path == "/api/cron/codex-deadlines":
-            expected = env_value("CRON_SECRET")
-            supplied = self.headers.get("Authorization", "")
-            if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
-                self._reply(401, {"ok": False, "error": "Unauthorized"})
-                return
-            try:
-                expired = _run_async(
-                    monitor_codex_number_deadlines(_application().bot)
-                )
-                self._reply(200, {
-                    "ok": True,
-                    "expired": len(expired),
-                    "order_ids": [int(order["id"]) for order in expired],
-                })
-            except Exception as exc:
-                log.exception("Codex acceptance deadline monitor failed")
-                self._reply(500, {"ok": False, "error": str(exc)})
-            return
-
 
         if path == "/admin-legacy" or path.startswith("/admin-legacy/") and path.removeprefix("/admin-legacy/") in admin_tabs:
             if not self._dashboard_authorized():
@@ -1995,23 +1877,22 @@ class handler(BaseHTTPRequestHandler):
                 def input_file():
                     return InputFile(io.BytesIO(upload["body"]), filename=upload["filename"])
 
-                with _runtime_lock:
-                    try:
-                        if media_kind == "image":
-                            sent = _run_async(bot.send_photo(
-                                ticket["user_id"], photo=input_file(), caption=telegram_caption,
-                                parse_mode=ParseMode.HTML,
-                            ))
-                        else:
-                            sent = _run_async(bot.send_video(
-                                ticket["user_id"], video=input_file(), caption=telegram_caption,
-                                parse_mode=ParseMode.HTML, supports_streaming=True,
-                            ))
-                    except BadRequest:
-                        sent = _run_async(bot.send_document(
-                            ticket["user_id"], document=input_file(), caption=telegram_caption,
+                try:
+                    if media_kind == "image":
+                        sent = _run_async(bot.send_photo(
+                            ticket["user_id"], photo=input_file(), caption=telegram_caption,
                             parse_mode=ParseMode.HTML,
                         ))
+                    else:
+                        sent = _run_async(bot.send_video(
+                            ticket["user_id"], video=input_file(), caption=telegram_caption,
+                            parse_mode=ParseMode.HTML, supports_streaming=True,
+                        ))
+                except BadRequest:
+                    sent = _run_async(bot.send_document(
+                        ticket["user_id"], document=input_file(), caption=telegram_caption,
+                        parse_mode=ParseMode.HTML,
+                    ))
                 media = support_bridge.message_media(sent) or {
                     "type": media_kind,
                     "file_id": "",
@@ -2070,10 +1951,7 @@ class handler(BaseHTTPRequestHandler):
             if update_id is None or not db.claim_update(update_id):
                 self._reply(200, {"ok": True, "duplicate": True})
                 return
-            with _runtime_lock:
-                app = _application()
-                update = Update.de_json(payload, app.bot)
-                _run_async(app.process_update(update))
+            bot_runtime.submit_update(payload)
             self._reply(200, {"ok": True})
         except Exception as exc:
             if "update_id" in locals() and update_id is not None:
@@ -2150,34 +2028,15 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "add_offer":
                 service_id_raw = form.get("service_id", "").strip()
-                if service_id_raw:
-                    sid = int(service_id_raw)
-                else:
-                    default_service = db.get_conn().services.find_one({"name": "Catalogue"})
-                    if default_service:
-                        sid = int(default_service["id"])
-                    else:
-                        sid = db.add_service("Catalogue", "🛒", site_enabled=False)
-                        db.audit_event("service.created", details={"service_id": sid, "name": "Catalogue"})
                 name = form["name"].strip()[:120]
                 price = float(form["price"])
-                note = form.get("note", "")[:250]
                 description = form.get("description", "").strip()[:1000]
                 auto_delivery = form.get("auto_delivery", "") == "on"
-                if service_id_raw:
-                    sid = int(service_id_raw)
-                else:
-                    default_service = db.get_conn().services.find_one({"name": "Catalogue"})
-                    if default_service:
-                        sid = int(default_service["id"])
-                    else:
-                        sid = db.add_service("Catalogue", "🛒", site_enabled=False)
-                        db.audit_event("service.created", details={"service_id": sid, "name": "Catalogue"})
-                name = form["name"].strip()[:120]
-                price = float(form["price"])
-                note = form.get("note", "")[:250]
-                description = form.get("description", "").strip()[:1000]
-                auto_delivery = form.get("auto_delivery", "") == "on"
+                initial_inventory_text = form.get("initial_inventory", "").strip()
+                initial_items = (
+                    inventory_service.parse_bulk_inventory(initial_inventory_text)
+                    if initial_inventory_text else []
+                )
                 low_stock_threshold = max(0, int(form.get("low_stock_threshold", 5)))
                 bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
                 bulk_price_raw = form.get("bulk_unit_price", "").strip()
@@ -2197,6 +2056,15 @@ class handler(BaseHTTPRequestHandler):
                 note = form.get("note", "").strip()[:250]
                 if not note or note.isdigit() or note == "0":
                     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
+                if service_id_raw:
+                    sid = int(service_id_raw)
+                else:
+                    default_service = db.get_conn().services.find_one({"name": "Catalogue"})
+                    if default_service:
+                        sid = int(default_service["id"])
+                    else:
+                        sid = db.add_service("Catalogue", "🛒", site_enabled=False)
+                        db.audit_event("service.created", details={"service_id": sid, "name": "Catalogue"})
                 oid = db.add_offer(
                     sid,
                     name,
@@ -2223,11 +2091,8 @@ class handler(BaseHTTPRequestHandler):
                 )
                 if emoji_val and sid:
                     db.update_service(sid, emoji=emoji_val)
-                initial_inventory_text = form.get("initial_inventory", "").strip()
-                if initial_inventory_text:
-                    inventory_service.add_items(
-                        oid, inventory_service.parse_bulk_inventory(initial_inventory_text),
-                    )
+                if initial_items:
+                    inventory_service.add_items(oid, initial_items)
                 db.audit_event("offer.created", details={"offer_id": oid, "name": name})
 
             elif action == "update_offer":
@@ -2238,46 +2103,63 @@ class handler(BaseHTTPRequestHandler):
                 target_service_id = int(form.get("service_id") or previous_offer["service_id"])
                 name = form["name"].strip()[:120]
                 price = None if form.get("price", "") == "" else float(form["price"])
-                bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
-                bulk_price_raw = form.get("bulk_unit_price", "").strip()
-                bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
+                bulk_sent = "bulk_quantity" in form or "bulk_unit_price" in form
+                if bulk_sent:
+                    bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
+                    bulk_price_raw = form.get("bulk_unit_price", "").strip()
+                    bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
+                else:
+                    bulk_quantity = int(previous_offer.get("bulk_quantity") or 0)
+                    bulk_unit_price = previous_offer.get("bulk_unit_price")
                 effective_price = price if price is not None else float(previous_offer.get("price") or 0)
                 if bulk_unit_price is not None and bulk_unit_price < 0:
                     raise ValueError("Le prix en gros ne peut pas être négatif")
                 if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= effective_price):
                     raise ValueError("Le prix en gros doit être inférieur au prix normal")
-                period_value, period_unit, period_days = _duration_form_values(
-                    form, "period", int(previous_offer.get("period_days") or 30), allow_zero=False,
+                period_value, period_unit, period_days = _edited_duration_values(
+                    form, "period", previous_offer, 30, allow_zero=False,
                 )
-                warranty_value, warranty_unit, warranty_days = _duration_form_values(
-                    form, "warranty", int(previous_offer.get("warranty_days") or 0), allow_zero=True,
+                warranty_value, warranty_unit, warranty_days = _edited_duration_values(
+                    form, "warranty", previous_offer, 0, allow_zero=True,
                 )
-                note = form.get("note", "").strip()[:250]
-                if not note or note.isdigit() or note == "0":
-                    note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
+                note = None
+                if "note" in form:
+                    note = form["note"].strip()[:250]
+                    if not note or note.isdigit() or note == "0":
+                        note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
+                # Fields the form does not send stay as they are.
+                sent = {}
+                if "description" in form:
+                    sent["description"] = form["description"].strip()[:1000]
+                if "sort_order" in form:
+                    sent["sort_order"] = max(0, int(form["sort_order"] or 0))
+                if "low_stock_threshold" in form:
+                    sent["low_stock_threshold"] = max(0, int(form["low_stock_threshold"] or 5))
+                if "delivery_delay" in form:
+                    sent["delivery_delay"] = form["delivery_delay"].strip()[:120]
+                if "name_ar" in form:
+                    sent["name_ar"] = form["name_ar"].strip()
+                if "description_ar" in form:
+                    sent["description_ar"] = form["description_ar"].strip()
+                if bulk_sent:
+                    sent["bulk_quantity"] = bulk_quantity
+                    sent["bulk_unit_price"] = bulk_unit_price if bulk_unit_price is not None else 0
                 db.update_offer(
                     oid,
                     service_id=target_service_id,
                     price=price,
                     name=name,
                     note=note if note else None,
-                    description=form.get("description", "").strip()[:1000],
-                    sort_order=max(0, int(form.get("sort_order", 0))),
                     auto_delivery=form.get("auto_delivery", "") == "on",
-                    low_stock_threshold=max(0, int(form.get("low_stock_threshold", 5))),
-                    delivery_delay=form.get("delivery_delay", "").strip()[:120],
                     custom_emoji_id=emoji_val or None,
-                    name_ar=form.get("name_ar", "").strip(),
-                    description_ar=form.get("description_ar", "").strip(),
                     period_days=period_days,
                     warranty_days=warranty_days,
                     period_value=period_value,
                     period_unit=period_unit,
                     warranty_value=warranty_value,
                     warranty_unit=warranty_unit,
-                    bulk_quantity=bulk_quantity,
-                    bulk_unit_price=bulk_unit_price if bulk_unit_price is not None else 0,
+                    **sent,
                 )
                 existing_offer = db.get_offer(oid)
                 if emoji_val and existing_offer and existing_offer.get("service_id"):

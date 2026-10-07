@@ -15,7 +15,7 @@ test("CatalogPage renders combined URL filters and a persisted view preference",
   globalThis.localStorage = { getItem: (key) => key === "catalog-view" ? '"list"' : null, setItem() {} };
   const vite = await createServer({ configFile: false, root: fileURLToPath(new URL("../", import.meta.url)), appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
   try {
-    const { CatalogPage } = await vite.ssrLoadModule("/src/AdminPages.jsx");
+    const { default: CatalogPage } = await vite.ssrLoadModule("/src/pages/CatalogPage.jsx");
     const markup = renderToStaticMarkup(React.createElement(CatalogPage, {
       data: {
         currency: "USDT",

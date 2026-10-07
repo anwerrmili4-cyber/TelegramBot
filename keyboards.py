@@ -583,11 +583,33 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
     return InlineKeyboardMarkup(buttons)
 
 
+def bmc_vip_button_label(lang, offer):
+    """Short top-of-menu label for the all-methods BMC VIP subscription."""
+    amount = f"{float(offer.get('price') or 0):.2f}".rstrip("0").rstrip(".")
+    labels = {
+        "fr": f"👑 BMC VIP | toutes les méthodes | ${amount}",
+        "ar": f"👑 BMC VIP | كل الطرق | ${amount}",
+    }
+    label = labels.get(lang, f"👑 BMC VIP | claim all methods | ${amount}")
+    return label[:64]
+
+
 def offers_keyboard(lang, service_id):
     buttons = []
     service = db.get_service(service_id)
     svc_emoji = (service.get("emoji") or "").strip() if service else ""
+    is_methods = str((service or {}).get("name") or "").strip().casefold() == "methods"
+    if is_methods:
+        vip = db.get_offer(db.ensure_bmc_vip_offer())
+        if vip:
+            buttons.append([InlineKeyboardButton(
+                bmc_vip_button_label(lang, vip),
+                callback_data=f"off:{vip['id']}",
+                style="success",
+            )])
     for off in sorted(db.list_offers(service_id), key=lambda item: not offer_in_stock(item)):
+        if db.is_bmc_vip_offer(off):
+            continue
         safe_offer = dict(off)
         off_name = (off.get("name") or f"Offre #{off['id']}").strip()
         clean_name = clean_button_name(off_name) or off_name
@@ -632,7 +654,8 @@ def offer_detail_keyboard(lang, offer):
         )])
     if offer.get("price") is not None and db.offer_has_stock(offer):
         buttons.append([translated_button(lang, "btn_buy", callback_data=f"buy:{offer['id']}")])
-    buttons.append([translated_button(lang, "btn_back", callback_data="catalog")])
+    back_target = "methods" if db.is_bmc_vip_offer(offer) else "catalog"
+    buttons.append([translated_button(lang, "btn_back", callback_data=back_target)])
     return InlineKeyboardMarkup(buttons)
 
 

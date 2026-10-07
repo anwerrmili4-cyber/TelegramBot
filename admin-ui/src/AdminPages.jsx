@@ -1,25 +1,27 @@
-import AiManagerPage from "./pages/AiManagerPage.jsx";
-import ActivityPage from "./pages/ActivityPage.jsx";
-import ApiProductsPage from "./pages/ApiProductsPage.jsx";
-import ProviderHistoryPage from "./pages/ProviderHistoryPage.jsx";
-import BinanceWalletPage from "./pages/BinanceWalletPage.jsx";
-import CatalogPage from "./pages/CatalogPage.jsx";
-import CustomersPage from "./pages/CustomersPage.jsx";
-import DepositsPage from "./pages/DepositsPage.jsx";
-import FinancePage from "./pages/FinancePage.jsx";
-import InteractionsPage from "./pages/InteractionsPage.jsx";
-import InventoryPage from "./pages/InventoryPage.jsx";
-import OrdersPage from "./pages/OrdersPage.jsx";
-import ProductRequestsPage from "./pages/ProductRequestsPage.jsx";
-import ResellerClientsPage from "./pages/ResellerClientsPage.jsx";
-import SettingsPage from "./pages/SettingsPage.jsx";
-import SupportPage from "./pages/SupportPage.jsx";
-import WarrantiesPage from "./pages/WarrantiesPage.jsx";
-import WithdrawalsPage from "./pages/WithdrawalsPage.jsx";
+import { lazyPage, PageSuspense } from "./lazy-page.jsx";
 
-export { CatalogPage };
 export { ActionButton, Empty, Field, FilterBar, Modal, OperationsSummary, PageHeader, Pagination, date, useRemoteList } from "./admin-kit.jsx";
-export { InventoryPage, ProductRequestsPage, SupportPage, WarrantiesPage };
+
+const PAGES = {
+  "binance-wallet": lazyPage(() => import("./pages/BinanceWalletPage.jsx")),
+  "ai-manager": lazyPage(() => import("./pages/AiManagerPage.jsx")),
+  orders: lazyPage(() => import("./pages/OrdersPage.jsx")),
+  catalog: lazyPage(() => import("./pages/CatalogPage.jsx")),
+  "api-products": lazyPage(() => import("./pages/ApiProductsPage.jsx")),
+  "provider-history": lazyPage(() => import("./pages/ProviderHistoryPage.jsx")),
+  "api-clients": lazyPage(() => import("./pages/ResellerClientsPage.jsx")),
+  inventory: lazyPage(() => import("./pages/InventoryPage.jsx")),
+  customers: lazyPage(() => import("./pages/CustomersPage.jsx")),
+  deposits: lazyPage(() => import("./pages/DepositsPage.jsx")),
+  withdrawals: lazyPage(() => import("./pages/WithdrawalsPage.jsx")),
+  warranties: lazyPage(() => import("./pages/WarrantiesPage.jsx")),
+  finance: lazyPage(() => import("./pages/FinancePage.jsx")),
+  support: lazyPage(() => import("./pages/SupportPage.jsx")),
+  "product-requests": lazyPage(() => import("./pages/ProductRequestsPage.jsx")),
+  interactions: lazyPage(() => import("./pages/InteractionsPage.jsx")),
+  activity: lazyPage(() => import("./pages/ActivityPage.jsx")),
+  settings: lazyPage(() => import("./pages/SettingsPage.jsx")),
+};
 
 export default function AdminPage({
   page,
@@ -29,24 +31,11 @@ export default function AdminPage({
   onNavigate,
   setToast,
 }) {
-  const props = { data, onAction, onHealthCheck, onNavigate, setToast };
-  if (page === "binance-wallet") return <BinanceWalletPage {...props} />;
-  if (page === "ai-manager") return <AiManagerPage {...props} />;
-  if (page === "orders") return <OrdersPage {...props} />;
-  if (page === "catalog") return <CatalogPage {...props} />;
-  if (page === "api-products") return <ApiProductsPage {...props} />;
-  if (page === "provider-history") return <ProviderHistoryPage {...props} />;
-  if (page === "api-clients") return <ResellerClientsPage {...props} />;
-  if (page === "inventory") return <InventoryPage {...props} />;
-  if (page === "customers") return <CustomersPage {...props} />;
-  if (page === "deposits") return <DepositsPage {...props} />;
-  if (page === "withdrawals") return <WithdrawalsPage {...props} />;
-  if (page === "warranties") return <WarrantiesPage {...props} />;
-  if (page === "finance") return <FinancePage {...props} />;
-  if (page === "support") return <SupportPage {...props} />;
-  if (page === "product-requests") return <ProductRequestsPage {...props} />;
-  if (page === "interactions") return <InteractionsPage {...props} />;
-  if (page === "activity") return <ActivityPage {...props} />;
-  if (page === "settings") return <SettingsPage {...props} />;
-  return null;
+  const Page = PAGES[page];
+  if (!Page) return null;
+  return (
+    <PageSuspense>
+      <Page data={data} onAction={onAction} onHealthCheck={onHealthCheck} onNavigate={onNavigate} setToast={setToast} />
+    </PageSuspense>
+  );
 }

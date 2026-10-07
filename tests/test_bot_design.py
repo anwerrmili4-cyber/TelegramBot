@@ -2,7 +2,6 @@
 
 import asyncio
 import time
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -15,6 +14,7 @@ import keyboards as kb
 from app.domain import affiliate_service, support_service
 from bot import (
     PENDING,
+    _method_announcement_text,
     admin_text_preview,
     announce_api_flash_sale,
     announce_channel_purchase,
@@ -40,7 +40,6 @@ from bot import (
     handle_pending_input,
     handle_ticket_attachment,
     monitor_codex_number_deadlines,
-    _method_announcement_text,
     notify_admin_interaction,
     notify_successful_referral,
     numbered_delivery_content,
@@ -3162,19 +3161,20 @@ def test_announcement_service_emoji_sanitizes_corrupted_emoji():
     from bot import _announcement_service_emoji
     service = {"id": 40, "emoji": "630745097360", "custom_emoji_id": "6307450973606389056"}
     token = _announcement_service_emoji(service, fallback="📦")
-    expected_hex = "📦".encode("utf-8").hex()
+    expected_hex = "📦".encode().hex()
     assert f"[[TGEMOJI:6307450973606389056:{expected_hex}]]" == token
 
 
 def test_render_custom_emoji_sanitizes_non_emoji_fallback():
     from bot import render_stored_rich_text
-    corrupted_token = f"[[TGEMOJI:6307450973606389056:{'630745097360'.encode('utf-8').hex()}]]"
+    corrupted_token = f"[[TGEMOJI:6307450973606389056:{b'630745097360'.hex()}]]"
     rendered = render_stored_rich_text(corrupted_token)
     assert '<tg-emoji emoji-id="6307450973606389056">📦</tg-emoji>' in rendered
 
 
 def test_send_broadcast_message_safe_falls_back_on_entity_error():
     from telegram.error import BadRequest
+
     from bot import _send_broadcast_message_safe
 
     mock_bot = Mock()

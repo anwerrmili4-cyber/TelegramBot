@@ -114,6 +114,24 @@ def _finalize_confirmed_payment_now(order_id: int, user_id: int, txid: str, meth
                         "updated_at": now,
                     }},
                 )
+            elif offer and db.is_bmc_vip_offer(offer):
+                link = db.claim_bmc_vip_link()
+                if not link:
+                    delivered = None
+                    result["error_code"] = "bmc_vip_link_unavailable"
+                    result["error_message"] = "No BMC VIP channel link is available."
+                else:
+                    delivered = [link]
+                    now = int(time.time())
+                    db.get_conn().orders.update_one(
+                        {"id": int(order_id)},
+                        {"$set": {
+                            "status": "delivered",
+                            "delivery_text": link,
+                            "delivered_at": now,
+                            "updated_at": now,
+                        }},
+                    )
             elif offer and offer.get("method_media"):
                 # Digital Methods offers have no finite inventory; their media
                 # package is delivered once payment is confirmed.

@@ -17,12 +17,11 @@ import json
 import logging
 import os
 import re
-import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
 from collections.abc import Sequence
+from datetime import datetime
 from html import escape
 from typing import Any
 
@@ -127,6 +126,18 @@ def _sender() -> str:
 
 
 def _post(message: dict[str, Any]) -> None:
+    try:
+        deliver(message)
+    except (urllib.error.URLError, TimeoutError, TemporaryEmailError):
+        log.exception("An email could not be sent through Resend")
+
+
+class TemporaryEmailError(RuntimeError):
+    """Resend is rate limiting or unavailable; the send may be retried."""
+
+
+def deliver(message: dict[str, Any]) -> None:
+    """Send one message. Raises on failures worth retrying, logs permanent ones."""
     api_key = _api_key()
     if not api_key:
         log.warning("RESEND_API_KEY is not set; email not sent: %s\n%s", message["subject"], message["text"])
@@ -147,9 +158,10 @@ def _post(message: dict[str, Any]) -> None:
         with urllib.request.urlopen(request, timeout=15) as response:
             response.read()
     except urllib.error.HTTPError as exc:
-        log.error("Resend rejected an email (%s): %s", exc.code, exc.read()[:500])
-    except (urllib.error.URLError, TimeoutError):
-        log.exception("An email could not be sent through Resend")
+        detail = exc.read()[:500]
+        if exc.code == 429 or exc.code >= 500:
+            raise TemporaryEmailError(f"Resend HTTP {exc.code}") from exc
+        log.error("Resend rejected an email (%s): %s", exc.code, detail)
 
 
 def _resend_json(path: str) -> dict[str, Any]:
@@ -235,7 +247,9 @@ def provider_message(email_id: str) -> dict[str, Any] | None:
 
 
 def _dispatch(message: dict[str, Any]) -> None:
-    threading.Thread(target=_post, args=(message,), daemon=True).start()
+    from app.core import jobs
+
+    jobs.dispatch("email.send", {"message": message}, fallback=lambda: _post(message))
 
 
 def _logged_name(text: str) -> str:

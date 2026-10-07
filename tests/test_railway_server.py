@@ -279,34 +279,54 @@ def test_all_three_surfaces_need_distinct_ports(monkeypatch):
         railway_server.main()
 
 
-def test_slow_restock_does_not_block_payment_scheduler(monkeypatch):
-    stopped = threading.Event()
+def test_slow_restock_does_not_block_payment_scheduler():
+    import asyncio
+
+    from app.jobs.scheduler import ScheduledJob, Scheduler
+
     release = threading.Event()
-    restock_started = threading.Event()
-    payment_checked = threading.Event()
     calls = []
 
-    class FastStop:
-        def wait(self, interval=None):
-            return stopped.wait(0.005 if interval is not None else None)
+    def slow_restock():
+        calls.append("restock")
+        release.wait(3)
+        return 200, {}
 
-    def call(_port, path, _secret):
-        calls.append(path)
-        if path == "/api/cron/restock":
-            restock_started.set()
-            release.wait(3)
-        elif path == "/api/cron/pending-payments":
-            payment_checked.set()
+    def payments():
+        calls.append("payments")
+        return 200, {}
 
-    monkeypatch.setattr(railway_server, "_call_scheduled_endpoint", call)
-    scheduler = threading.Thread(target=railway_server.scheduler_loop, args=(FastStop(), 8081))
-    scheduler.start()
-    try:
-        assert restock_started.wait(2)
-        assert payment_checked.wait(2)
-        assert calls.count("/api/cron/restock") == 1
-    finally:
-        stopped.set()
+    async def main():
+        stop = asyncio.Event()
+        scheduler = Scheduler([
+            ScheduledJob("restock", 0.01, slow_restock),
+            ScheduledJob("pending-payments", 0.01, payments),
+        ])
+        task = asyncio.create_task(scheduler.run(stop))
+        for _ in range(200):
+            if calls.count("payments") >= 3:
+                break
+            await asyncio.sleep(0.01)
+        stop.set()
         release.set()
-        scheduler.join(timeout=3)
-    assert not scheduler.is_alive()
+        await asyncio.wait_for(task, 3)
+        return scheduler
+
+    scheduler = asyncio.run(main())
+    assert calls.count("payments") >= 3
+    assert calls.count("restock") == 1
+    restock = scheduler.snapshot()[0]
+    assert restock["runs"] == 1 and restock["last_status"] == 200
+
+
+def test_scheduled_failures_are_counted():
+    import asyncio
+
+    from app.jobs.scheduler import ScheduledJob, Scheduler
+
+    def broken():
+        raise RuntimeError("supplier down")
+
+    job = ScheduledJob("prices", 60, broken)
+    asyncio.run(Scheduler([job]).run_once(job))
+    assert job.failures == 1 and job.last_status == 500

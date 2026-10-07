@@ -6,9 +6,18 @@ import base64
 import time
 
 import mongomock
+import mongomock.collection
 import pytest
 
 import database
+
+# pymongo 4.11+ passes ``sort`` to bulk UpdateOne; mongomock 4.3 predates it.
+_mongomock_add_update = mongomock.collection.BulkOperationBuilder.add_update
+if "sort" not in _mongomock_add_update.__code__.co_varnames:
+    def _add_update_ignoring_sort(self, *args, sort=None, **kwargs):
+        return _mongomock_add_update(self, *args, **kwargs)
+
+    mongomock.collection.BulkOperationBuilder.add_update = _add_update_ignoring_sort
 
 RECEIPT = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32).decode()
 
@@ -30,6 +39,24 @@ def mock_mongodb(monkeypatch):
     database.init_db()
 
     return db
+
+
+@pytest.fixture(autouse=True)
+def deterministic_runtime(monkeypatch):
+    """mongomock bypasses the driver's write listener, so tests read live data.
+
+    Supplier refreshes also run inline so no thread outlives its test.
+    """
+    from app.bot import middlewares
+    from app.core.cache import cache
+    from app.domain import reseller_service, storefront_service
+
+    cache.clear()
+    monkeypatch.setattr(storefront_service, "CATALOG_CACHE_SECONDS", 0)
+    monkeypatch.setattr(middlewares, "GUARD_CACHE_SECONDS", 0)
+    monkeypatch.setattr(reseller_service, "SUPPLIER_REFRESH_IN_BACKGROUND", False)
+    yield
+    cache.clear()
 
 
 @pytest.fixture(autouse=True)
