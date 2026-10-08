@@ -30,6 +30,90 @@ function searchTo(query: string) {
   navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
 }
 
+type ContactTone = "whatsapp" | "instagram" | "facebook";
+
+const CONTACTS: { name: string; href: string; qr: string; tone: ContactTone }[] = [
+  {
+    name: "WhatsApp",
+    href: "https://wa.me/our_blackmarket",
+    qr: "/contact/whatsapp-qr.svg",
+    tone: "whatsapp",
+  },
+  {
+    name: "Instagram",
+    href: "https://www.instagram.com/our_blackmarket/",
+    qr: "/contact/instagram-qr.png",
+    tone: "instagram",
+  },
+  {
+    name: "Facebook",
+    href: "https://www.facebook.com/people/Black-Market-TN/61594924482327/",
+    qr: "/contact/facebook-qr.svg",
+    tone: "facebook",
+  },
+];
+
+function ContactMark({ tone }: { tone: ContactTone }) {
+  if (tone === "whatsapp") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M12.04 2C6.58 2 2.15 6.4 2.15 11.83c0 1.74.46 3.44 1.34 4.94L2 22l5.39-1.4a10 10 0 0 0 4.65 1.18h.01c5.46 0 9.89-4.4 9.89-9.83C21.94 6.4 17.5 2 12.04 2zm5.76 13.9c-.24.68-1.4 1.3-1.94 1.38-.5.08-1.12.11-1.81-.11-.42-.14-.95-.31-1.64-.6-2.88-1.24-4.76-4.14-4.9-4.33-.14-.19-1.16-1.54-1.16-2.94s.73-2.08 1-2.37c.24-.26.64-.38.86-.38h.62c.2 0 .46-.04.72.55.27.62.9 2.14.98 2.3.08.15.13.34.03.54-.1.2-.15.33-.3.51-.14.17-.3.39-.43.52-.14.14-.29.3-.12.58.16.28.73 1.2 1.57 1.94 1.08.96 1.99 1.26 2.27 1.4.28.14.44.12.6-.07.17-.2.7-.81.89-1.09.19-.28.38-.23.64-.14.26.08 1.65.78 1.93.92.28.14.47.21.54.33.07.12.07.7-.17 1.38z"
+        />
+      </svg>
+    );
+  }
+  if (tone === "instagram") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="4" width="16" height="16" rx="5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="12" cy="12" r="3.4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="16.6" cy="7.5" r="1" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M14.2 21v-7.2h2.4l.36-2.8h-2.76V9.3c0-.81.22-1.36 1.38-1.36H17V5.4c-.24-.03-1.05-.1-2-.1-1.98 0-3.34 1.21-3.34 3.43v1.27H9.2v2.8h2.46V21h2.54z"
+      />
+    </svg>
+  );
+}
+
+function HeroContacts() {
+  return (
+    <aside className="hero-contacts" aria-label="Contact">
+      <header>Contact</header>
+      <div className="hero-contact-list">
+        {CONTACTS.map((item, index) => (
+          <a
+            key={item.tone}
+            className={`hero-contact is-${item.tone}`}
+            href={item.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ "--i": index } as CSSProperties}
+          >
+            <span className="hero-contact-anim">
+              <span className="hero-contact-mark">
+                <ContactMark tone={item.tone} />
+              </span>
+              <span className="hero-contact-copy">
+                <strong>{item.name}</strong>
+                <small>Scanner le code</small>
+              </span>
+              <img src={item.qr} alt="" width="148" height="148" />
+            </span>
+          </a>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 function TileNotify({ offerId }: { offerId: number }) {
   const { customer, token } = useAuth();
   const [email, setEmail] = useState("");
@@ -275,6 +359,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             </Link>
           </aside>
         ) : null}
+        <HeroContacts />
         <HeroReviewReel />
         {highlighted.length ? (
           <div className="hero-picks">

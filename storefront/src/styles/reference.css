@@ -259,6 +259,146 @@
   }
 }
 
+.hero-contacts {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: var(--ink-800);
+}
+
+.hero.has-popular .hero-contacts {
+  margin-top: 0;
+  grid-column: 1 / -1;
+}
+
+.hero-contacts header {
+  padding: 4px 8px 10px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.hero-contact-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hero-contact {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ink-700) 88%, transparent);
+  color: inherit;
+  transition:
+    transform 0.28s var(--ease-out),
+    border-color 0.28s var(--ease-out);
+}
+
+.hero-contact.is-whatsapp {
+  --contact: #25d366;
+}
+
+.hero-contact.is-instagram {
+  --contact: #e1306c;
+}
+
+.hero-contact.is-facebook {
+  --contact: #1877f2;
+}
+
+.hero-contact:hover {
+  border-color: var(--contact);
+  transform: translateY(-4px);
+}
+
+.hero-contact:focus-visible {
+  outline: 2px solid var(--contact);
+  outline-offset: 3px;
+}
+
+.hero-contact-anim {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+  padding: 10px;
+}
+
+.hero-contact-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--contact);
+  color: #fff;
+}
+
+.hero-contact-mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+.hero-contact-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.hero-contact strong {
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.hero-contact small {
+  color: var(--text-mute);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.hero-contact img {
+  grid-column: 1 / -1;
+  width: min(100%, 168px);
+  aspect-ratio: 1;
+  height: auto;
+  object-fit: contain;
+  justify-self: center;
+  margin-top: 6px;
+  border-radius: 14px;
+  background: #fff;
+}
+
+@media (min-width: 1680px) {
+  .hero {
+    position: relative;
+  }
+
+  .hero-contacts {
+    position: absolute;
+    z-index: 4;
+    top: 0;
+    right: 0;
+    width: min(220px, calc(50vw - 646px));
+    margin-top: 0;
+    transform: translateX(calc(100% + 16px));
+  }
+
+  .hero-contact-list {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-contact:hover {
+    transform: translateX(-6px);
+  }
+
+  .hero-contact img {
+    width: min(100%, 148px);
+  }
+}
+
 .hero-lead-short,
 .hero-search-go,
 .hero-picks {
@@ -1268,8 +1408,31 @@
     min-height: 40px;
   }
 
-  .hero-picks {
+  .hero-contacts {
     order: 4;
+    margin-top: 0;
+    padding: 12px;
+  }
+
+  .hero-contact-list {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+
+  .hero-contact-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hero-contact {
+    flex: 0 0 200px;
+    scroll-snap-align: start;
+  }
+
+  .hero-picks {
+    order: 5;
   }
 
   .hero-picks {

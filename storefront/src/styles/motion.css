@@ -562,6 +562,55 @@
   .hero-missing::after {
     animation: missing-sheen 2.8s var(--ease-out) 0.9s infinite;
   }
+
+  .hero-contacts {
+    animation: contact-panel 0.4s var(--ease-out) both;
+  }
+
+  .hero-contact-anim {
+    animation: contact-in 0.55s var(--ease-out) both;
+    animation-delay: calc(var(--i) * 0.14s);
+  }
+
+  .hero-contact img {
+    animation: contact-qr 0.48s var(--ease-out) both;
+    animation-delay: calc(var(--i) * 0.14s + 0.16s);
+  }
+
+  .hero-contact-mark {
+    animation: contact-bob 2.8s var(--ease-out) calc(0.8s + var(--i) * 0.18s) infinite;
+  }
+}
+
+@keyframes contact-panel {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes contact-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes contact-qr {
+  from {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+}
+
+@keyframes contact-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
 }
 
 @keyframes missing-slide {
@@ -626,6 +675,13 @@
 
   .hero-missing::after {
     content: none;
+  }
+
+  .hero-contacts,
+  .hero-contact-anim,
+  .hero-contact img,
+  .hero-contact-mark {
+    animation: none;
   }
 
   .hero-eyebrow,
