@@ -82,9 +82,11 @@ def test_one_review_email_per_cart_and_backfill_does_not_send_unless_asked(mock_
     subjects = [message["subject"] for message in sent_emails]
     assert subjects.count(f"Ton avis sur {result['reference']}") == 0
     delivered = next(item for item in sent_emails if item["subject"] == f"Ta commande {result['reference']} est livrée")
-    assert "score=1" in delivered["html"]
-    assert "score=5" in delivered["html"]
-    assert "send=1" not in delivered["html"]
+    assert 'value="1"' in delivered["html"]
+    assert 'value="5"' in delivered["html"]
+    assert 'name="comment"' in delivered["html"]
+    assert 'name="send" value="1"' in delivered["html"]
+    assert "&score=" not in delivered["html"]
     assert "Envoyer" in delivered["html"]
     assert "/api/storefront/reviews/email" in delivered["html"]
 
