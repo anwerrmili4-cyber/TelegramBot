@@ -306,7 +306,7 @@
 }
 
 .hero-contact.is-facebook {
-  --contact: #1877f2;
+  --contact: #0866ff;
 }
 
 .hero-contact:hover {
@@ -332,14 +332,17 @@
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 12px;
-  background: var(--contact);
-  color: #fff;
 }
 
-.hero-contact-mark svg {
-  width: 18px;
-  height: 18px;
+.hero-contact-mark img {
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  grid-column: auto;
+  aspect-ratio: auto;
+  object-fit: contain;
+  border-radius: 0;
+  background: transparent;
 }
 
 .hero-contact-copy {
@@ -359,7 +362,7 @@
   font-weight: 650;
 }
 
-.hero-contact img {
+.hero-contact-qr {
   grid-column: 1 / -1;
   width: min(100%, 168px);
   aspect-ratio: 1;
@@ -394,7 +397,7 @@
     transform: translateX(-6px);
   }
 
-  .hero-contact img {
+  .hero-contact-qr {
     width: min(100%, 148px);
   }
 }

@@ -572,7 +572,7 @@
     animation-delay: calc(var(--i) * 0.14s);
   }
 
-  .hero-contact img {
+  .hero-contact-qr {
     animation: contact-qr 0.48s var(--ease-out) both;
     animation-delay: calc(var(--i) * 0.14s + 0.16s);
   }
@@ -679,7 +679,7 @@
 
   .hero-contacts,
   .hero-contact-anim,
-  .hero-contact img,
+  .hero-contact-qr,
   .hero-contact-mark {
     animation: none;
   }
