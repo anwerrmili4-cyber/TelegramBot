@@ -2047,12 +2047,20 @@ class handler(BaseHTTPRequestHandler):
                     raise ValueError("Le prix en gros doit être inférieur au prix normal")
                 delivery_delay = form.get("delivery_delay", "").strip()[:120]
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
-                period_value, period_unit, period_days = _duration_form_values(
-                    form, "period", 30, allow_zero=False,
+                methods_catalog = (
+                    service_id_raw.isdigit()
+                    and db.is_methods_service(db.get_service(int(service_id_raw)))
                 )
-                warranty_value, warranty_unit, warranty_days = _duration_form_values(
-                    form, "warranty", 0, allow_zero=True,
-                )
+                if methods_catalog:
+                    period_value, period_unit, period_days = 0, "days", 0
+                    warranty_value, warranty_unit, warranty_days = 0, "days", 0
+                else:
+                    period_value, period_unit, period_days = _duration_form_values(
+                        form, "period", 30, allow_zero=False,
+                    )
+                    warranty_value, warranty_unit, warranty_days = _duration_form_values(
+                        form, "warranty", 0, allow_zero=True,
+                    )
                 note = form.get("note", "").strip()[:250]
                 if not note or note.isdigit() or note == "0":
                     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
@@ -2116,14 +2124,18 @@ class handler(BaseHTTPRequestHandler):
                     raise ValueError("Le prix en gros ne peut pas être négatif")
                 if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= effective_price):
                     raise ValueError("Le prix en gros doit être inférieur au prix normal")
-                period_value, period_unit, period_days = _edited_duration_values(
-                    form, "period", previous_offer, 30, allow_zero=False,
-                )
-                warranty_value, warranty_unit, warranty_days = _edited_duration_values(
-                    form, "warranty", previous_offer, 0, allow_zero=True,
-                )
+                if db.is_methods_service(db.get_service(target_service_id)):
+                    period_value, period_unit, period_days = 0, "days", 0
+                    warranty_value, warranty_unit, warranty_days = 0, "days", 0
+                else:
+                    period_value, period_unit, period_days = _edited_duration_values(
+                        form, "period", previous_offer, 30, allow_zero=False,
+                    )
+                    warranty_value, warranty_unit, warranty_days = _edited_duration_values(
+                        form, "warranty", previous_offer, 0, allow_zero=True,
+                    )
                 note = None
-                if "note" in form:
+                if "note" in form and not db.is_bmc_vip_offer(previous_offer):
                     note = form["note"].strip()[:250]
                     if not note or note.isdigit() or note == "0":
                         note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
@@ -2161,6 +2173,12 @@ class handler(BaseHTTPRequestHandler):
                     warranty_unit=warranty_unit,
                     **sent,
                 )
+                if (
+                    price is not None
+                    and db.is_bmc_vip_offer(previous_offer)
+                    and abs(float(price) - float(previous_offer.get("price") or 0)) > 0.001
+                ):
+                    db.set_bmc_vip_price(oid, price)
                 existing_offer = db.get_offer(oid)
                 if emoji_val and existing_offer and existing_offer.get("service_id"):
                     db.update_service(int(existing_offer["service_id"]), emoji=emoji_val)

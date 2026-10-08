@@ -131,6 +131,7 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) ->
     category = storefront_service._category(service, offer)
     active = bool(offer.get("active", 1))
     service_active = bool(service.get("active", 1))
+    methods = db.is_methods_service(service)
     site_period_days = offer.get("site_period_days")
     period_days = int(site_period_days if site_period_days is not None else 0)
     site_warranty_days = offer.get("site_warranty_days")
@@ -152,18 +153,20 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) ->
         "service_active": service_active,
         "active": active,
         "bot_price_usdt": float(offer.get("price") or 0),
+        "bot_price_editable": db.is_bmc_vip_offer(offer),
+        "hides_terms": methods,
         "stock": -1 if unlimited else max(0, int(offer.get("stock") or 0)),
         "unlimited_stock": unlimited,
         "manual_stock": bool(offer.get("manual_stock")),
         "supplier_provider": str(offer.get("supplier_provider") or ""),
         "auto_delivery": offer.get("auto_delivery") is not False,
         "delivery_delay": str(offer.get("site_delivery_delay") or ""),
-        "period_value": int(offer.get("site_period_value") or period_days or 30),
-        "period_unit": warranty_service.normalize_duration_unit(
+        "period_value": 0 if methods else int(offer.get("site_period_value") or period_days or 30),
+        "period_unit": "days" if methods else warranty_service.normalize_duration_unit(
             offer.get("site_period_unit") if offer.get("site_period_value") is not None else "days"
         ),
-        "warranty_value": int(offer.get("site_warranty_value") or warranty_days or 0),
-        "warranty_unit": warranty_service.normalize_duration_unit(
+        "warranty_value": 0 if methods else int(offer.get("site_warranty_value") or warranty_days or 0),
+        "warranty_unit": "days" if methods else warranty_service.normalize_duration_unit(
             offer.get("site_warranty_unit") if offer.get("site_warranty_value") is not None else "days"
         ),
         "tn_price_millimes": price or None,
@@ -249,12 +252,29 @@ def _catalog_status(row: dict[str, Any]) -> str:
     return "no_price"
 
 
+def _parse_vip_bot_price(offer: dict[str, Any] | None, form: dict[str, Any]) -> float | None:
+    """Read an admin USDT price for BMC VIP. Other offers keep the bot price."""
+    if not offer or not db.is_bmc_vip_offer(offer):
+        return None
+    raw = str(form.get("bot_price") if form.get("bot_price") is not None else "").strip()
+    if not raw:
+        return None
+    try:
+        amount = float(raw.replace(" ", "").replace(",", "."))
+    except ValueError as exc:
+        raise SiteAdminError("Le prix USDT doit être un nombre, par exemple 15.") from exc
+    if amount < 0 or amount > 100_000:
+        raise SiteAdminError("Le prix USDT doit être compris entre 0 et 100 000.")
+    return amount
+
+
 def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
     """Every non-archived bot offer with its storefront settings.
 
     Disabled offers and services are listed too so they can be re-enabled from
     the site space; they are simply never sold.
     """
+    db.clear_methods_terms()
     status = _first(params, "status") or "all"
     search = _first(params, "search").lower()[:80]
     service_filter = _first(params, "service_id")
@@ -285,6 +305,7 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
             "active": bool(service.get("active", 1)),
             "site_enabled": storefront_service.site_enabled(service),
             "product_categories": db.is_official_subscriptions_service(service),
+            "hides_terms": db.is_methods_service(service),
             "offers": len(offers),
             "on_sale": sum(1 for row in offers if row["on_sale"]),
         })
@@ -670,8 +691,10 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
     """Create or edit the storefront side of a shared offer.
 
     Name, description, warranty, period and visibility written here stay on
-    ``site_*`` fields. The bot's description, price, note and ``active`` flag
-    are left untouched. Stock mode is shared. A new product starts off on the bot.
+    ``site_*`` fields. The bot's description, note and ``active`` flag are left
+    untouched, except the BMC VIP USDT price, which an admin can set here.
+    Methods have no duration and no warranty. Stock mode is shared. A new
+    product starts off on the bot.
     """
     offer_id = _optional_id(form.get("offer_id"), "Offre")
     previous = db.get_offer(offer_id) if offer_id is not None else None
@@ -693,9 +716,16 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         raise SiteAdminError("Catégorie inconnue.")
 
     tn_price = _dinar_millimes(form.get("tn_price"))
-    period_value, period_unit, period_days = _duration(form, "period", 30, allow_zero=False, label="Durée")
-    warranty_value, warranty_unit, warranty_days = _duration(form, "warranty", 0, allow_zero=True, label="Garantie")
-    note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
+    vip_bot_price = _parse_vip_bot_price(previous, form)
+    methods = db.is_methods_service(service)
+    if methods:
+        period_value, period_unit, period_days = 0, "days", 0
+        warranty_value, warranty_unit, warranty_days = 0, "days", 0
+        note = "NW"
+    else:
+        period_value, period_unit, period_days = _duration(form, "period", 30, allow_zero=False, label="Durée")
+        warranty_value, warranty_unit, warranty_days = _duration(form, "warranty", 0, allow_zero=True, label="Garantie")
+        note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
     description = _site_description(form.get("site_description_fr"))
     unlimited = str(form.get("stock_mode") or "inventory") == "unlimited"
     image = None
@@ -730,6 +760,8 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         "site_remark": str(form.get("site_remark") or "").strip()[:400],
         "site_requires_info": _truthy(form.get("site_requires_info")),
     }
+    if methods:
+        fields.update(db.methods_term_values())
     category_name = str(form.get("site_category_name") or "").strip()[:120]
     unset_category = not (db.is_official_subscriptions_service(service) and category_name)
     logo_fields: dict[str, int] = {}
@@ -850,6 +882,9 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         if fields["site_video_url"] and not site_logo_service.is_uploaded_offer_video(fields["site_video_url"]):
             conn.offers.update_one({"id": offer_id}, {"$set": {"site_video_url": fields["site_video_url"]}})
         video_change = "removed"
+
+    if vip_bot_price is not None:
+        db.set_bmc_vip_price(offer_id, vip_bot_price)
 
     db.audit_event(
         "site_catalog.offer_created" if created else "site_catalog.offer_updated",

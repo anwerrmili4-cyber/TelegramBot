@@ -188,7 +188,8 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const ceiling = maxOrderable(offer);
   const blocked = !offer.available || ceiling < offer.min_quantity;
   const lockedOut = cartIsFull && !inCart;
-  const period = periodLabel(offer.period_days);
+  const showTerms = offer.show_terms !== false;
+  const period = showTerms ? periodLabel(offer.period_days) : "";
   const stockLabel = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
   const low = offer.available && offer.stock > 0 && offer.stock <= 3;
   const bar = offer.stock < 0 ? 100 : Math.max(6, Math.min(100, offer.stock * 8));
@@ -272,10 +273,12 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                 <Zap size={13} aria-hidden="true" /> Livraison immédiate
               </span>
             ) : null}
-            <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
-              {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
-              {warranty.label}
-            </span>
+            {showTerms ? (
+              <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+                {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+                {warranty.label}
+              </span>
+            ) : null}
             {offer.badge ? <span className="tag">{offer.badge}</span> : null}
           </div>
 
@@ -300,7 +303,7 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
               <DescriptionBody text={offer.description} />
             </div>
             <div className="desc-sec">
-              <span className="label-caps">Livraison et garantie</span>
+              <span className="label-caps">{showTerms ? "Livraison et garantie" : "Livraison"}</span>
               <dl className="facts">
                 <div>
                   <dt>
@@ -308,24 +311,30 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                   </dt>
                   <dd>{offer.delivery_delay || "Instantané, depuis le stock"}</dd>
                 </div>
-                <div>
-                  <dt>
-                    <Clock size={16} aria-hidden="true" /> Durée
-                  </dt>
-                  <dd>{period || "—"}</dd>
-                </div>
-                <div>
-                  <dt>
-                    <ShieldCheck size={16} aria-hidden="true" /> Garantie
-                  </dt>
-                  <dd>{warranty.label}</dd>
-                </div>
-                <div>
-                  <dt>
-                    <ShieldCheck size={16} aria-hidden="true" /> Remplacement
-                  </dt>
-                  <dd>{warranty.covered ? "Depuis la commande" : "Non couvert"}</dd>
-                </div>
+                {showTerms ? (
+                  <div>
+                    <dt>
+                      <Clock size={16} aria-hidden="true" /> Durée
+                    </dt>
+                    <dd>{period || "—"}</dd>
+                  </div>
+                ) : null}
+                {showTerms ? (
+                  <div>
+                    <dt>
+                      <ShieldCheck size={16} aria-hidden="true" /> Garantie
+                    </dt>
+                    <dd>{warranty.label}</dd>
+                  </div>
+                ) : null}
+                {showTerms ? (
+                  <div>
+                    <dt>
+                      <ShieldCheck size={16} aria-hidden="true" /> Remplacement
+                    </dt>
+                    <dd>{warranty.covered ? "Depuis la commande" : "Non couvert"}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>
                     <Package size={16} aria-hidden="true" /> Enregistré dans
@@ -440,14 +449,16 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
                     <b>Livraison · {offer.available ? "immédiate" : "indisponible"}</b>
                     <p>L'accès arrive sur ta commande dès que le paiement est confirmé.</p>
                   </div>
-                  <div>
-                    <b>Garantie · {warranty.label}</b>
-                    <p>
-                      {warranty.covered
-                        ? "La demande se fait depuis la commande."
-                        : "Vendu comme décrit. Le support reste joignable en cas de souci."}
-                    </p>
-                  </div>
+                  {showTerms ? (
+                    <div>
+                      <b>Garantie · {warranty.label}</b>
+                      <p>
+                        {warranty.covered
+                          ? "La demande se fait depuis la commande."
+                          : "Vendu comme décrit. Le support reste joignable en cas de souci."}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
                 {mustAgree ? (
                   <label className={agreeHint && !agreed ? "agree-desc is-needed" : "agree-desc"}>

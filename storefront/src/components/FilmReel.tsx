@@ -205,6 +205,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
             const active = slideIndex === current;
             const picture = offer.image_url || offer.service_logo_url;
             const deal = isDeal(offer);
+            const showTerms = offer.show_terms !== false;
             const warranty = warrantyView(offer);
             const percent = discountPercent(offer);
             const unit = deal ? offer.bulk_unit_millimes ?? offer.price_millimes : offer.price_millimes;
@@ -225,7 +226,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                 to={productPath(offer.id)}
                 style={{ "--pi": slideIndex } as CSSProperties}
                 aria-roledescription="slide"
-                aria-label={`${slideIndex + 1} sur ${count} : ${offer.name}, ${warranty.label}`}
+                aria-label={`${slideIndex + 1} sur ${count} : ${offer.name}${showTerms ? `, ${warranty.label}` : ""}`}
                 aria-hidden={active ? undefined : true}
                 tabIndex={active ? undefined : -1}
               >
@@ -246,10 +247,12 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                       <Layers size={14} aria-hidden="true" />
                       <span>{kicker}</span>
                     </span>
-                    <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
-                      {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
-                      {warranty.label}
-                    </span>
+                    {showTerms ? (
+                      <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+                        {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+                        {warranty.label}
+                      </span>
+                    ) : null}
                     <FavoriteButton compact offerId={offer.id} />
                   </div>
                   {deal ? (

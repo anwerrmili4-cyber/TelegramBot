@@ -50,16 +50,22 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
   });
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
+  const selectedService = services.find((service) => String(service.id) === String(form.service_id));
+  const hidesTerms = String(selectedService?.name || "").trim().toLowerCase() === "methods";
   const submit = async (event) => {
     event.preventDefault();
     const action = offer ? "update_offer" : "add_offer";
     const factors = { days: 1, months: 30, years: 365 };
-    const periodDays = Number(form.period_value || 0) * factors[form.period_unit];
-    const warrantyDays = Number(form.warranty_value || 0) * factors[form.warranty_unit];
+    const periodDays = hidesTerms ? 0 : Number(form.period_value || 0) * factors[form.period_unit];
+    const warrantyDays = hidesTerms ? 0 : Number(form.warranty_value || 0) * factors[form.warranty_unit];
     const payload = {
       ...form,
       period_days: periodDays,
+      period_value: hidesTerms ? 0 : form.period_value,
+      period_unit: hidesTerms ? "days" : form.period_unit,
       warranty_days: warrantyDays,
+      warranty_value: hidesTerms ? 0 : form.warranty_value,
+      warranty_unit: hidesTerms ? "days" : form.warranty_unit,
       note: warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`,
       action,
       custom_emoji_id: form.emoji,
@@ -162,22 +168,23 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
           <Field label="Description arabe" wide>
             <textarea dir="rtl" value={form.description_ar} onChange={(event) => set("description_ar", event.target.value)} placeholder="وصف المنتج بالعربية" />
           </Field>
-          <Field label="Période">
+          {!hidesTerms && <Field label="Période">
             <div className="duration-input">
               <input type="number" min="1" value={form.period_value} onChange={(event) => set("period_value", event.target.value)} required />
               <select value={form.period_unit} onChange={(event) => set("period_unit", event.target.value)}>
                 <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
               </select>
             </div>
-          </Field>
-          <Field label="Garantie (0 = NW)">
+          </Field>}
+          {!hidesTerms && <Field label="Garantie (0 = NW)">
             <div className="duration-input">
               <input type="number" min="0" value={form.warranty_value} onChange={(event) => set("warranty_value", event.target.value)} required />
               <select value={form.warranty_unit} onChange={(event) => set("warranty_unit", event.target.value)}>
                 <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
               </select>
             </div>
-          </Field>
+          </Field>}
+          {hidesTerms && <p>Les méthodes n’ont pas de durée ni de garantie. Le prix se change ici et reste celui du bot.</p>}
           {!offer && (
             <Field label="Stock initial" wide>
               <textarea

@@ -695,3 +695,66 @@ def test_warranty_history_keeps_the_refusal_and_the_replacement(mock_mongodb, si
     assert flags[refused_order]["warranty_status"] == "refused"
     assert flags[replaced_order]["replacement"] == "login: new@mail.test"
     assert flags[replaced_order]["warranty_note"] == ""
+
+
+def test_methods_have_no_duration_or_warranty_and_vip_price_is_editable(mock_mongodb):
+    service_id = db.ensure_methods_service()
+    method_id = db.add_offer(service_id, "Alpha method", 8, 0, period_days=90, warranty_days=30)
+    assert db.get_offer(method_id)["period_days"] == 0
+    assert db.get_offer(method_id)["warranty_days"] == 0
+    db.get_conn().offers.update_one(
+        {"id": method_id},
+        {"$set": {
+            "period_days": 90,
+            "warranty_days": 30,
+            "site_period_days": 90,
+            "site_warranty_days": 30,
+        }},
+    )
+
+    catalog = site_admin_service.catalog({})
+    method = next(item for item in catalog["items"] if item["id"] == method_id)
+    assert method["hides_terms"] is True
+    assert method["bot_price_editable"] is False
+    assert method["period_value"] == 0
+    assert method["warranty_value"] == 0
+    stored = db.get_offer(method_id)
+    assert stored["period_days"] == 0
+    assert stored["warranty_days"] == 0
+    assert stored["site_period_days"] == 0
+    assert stored["site_warranty_days"] == 0
+    assert next(service["hides_terms"] for service in catalog["services"] if service["id"] == service_id)
+
+    vip_id = db.ensure_bmc_vip_offer()
+    site_admin_service.save_offer({
+        "offer_id": str(vip_id),
+        "service_id": str(service_id),
+        "name": "BMC VIP",
+        "tn_price": "49",
+        "bot_price": "40",
+        "period_value": "12",
+        "period_unit": "months",
+        "warranty_value": "6",
+        "warranty_unit": "months",
+    })
+    vip = db.get_offer(db.ensure_bmc_vip_offer())
+    assert vip["price"] == 40
+    assert vip["bmc_vip_price_custom"] is True
+    assert vip["tn_price_millimes"] == 49000
+    assert vip["period_days"] == 0
+    assert vip["warranty_days"] == 0
+    assert vip["site_period_days"] == 0
+    assert vip["site_warranty_days"] == 0
+    assert "BMC VIP is $40." in vip["description"]
+
+    db.update_offer(method_id, tn_price_millimes=12000, site_enabled=True, active=1)
+    public = next(
+        item
+        for service in storefront_service.catalog()["services"]
+        for item in service["offers"]
+        if item["id"] == method_id
+    )
+    assert public["show_terms"] is False
+    assert public["period_days"] == 0
+    assert public["warranty"] == ""
+    assert public["warranty_days"] == 0

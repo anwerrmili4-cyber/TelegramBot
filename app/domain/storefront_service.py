@@ -234,6 +234,7 @@ def _site_warranty_label(offer: dict[str, Any]) -> str:
 
 def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, Any]:
     category = _category(service, offer)
+    methods = db.is_methods_service(service)
     price_millimes = _price_millimes(offer)
     unlimited = bool(offer.get("unlimited_stock"))
     stock = max(0, int(offer.get("stock") or 0))
@@ -252,9 +253,10 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "min_quantity": minimum,
         "max_quantity": max(minimum, int(offer.get("max_quantity") or 10)),
         "delivery_delay": _plain_text(delay, limit=120),
-        "period_days": _site_period_days(offer),
-        "warranty": _site_warranty_label(offer),
-        "warranty_days": _site_warranty_days(offer),
+        "period_days": 0 if methods else _site_period_days(offer),
+        "warranty": "" if methods else _site_warranty_label(offer),
+        "warranty_days": 0 if methods else _site_warranty_days(offer),
+        "show_terms": not methods,
         "featured": bool(offer.get("site_featured")),
         "badge": str(offer.get("site_badge") or "").strip()[:48],
         "image_url": _safe_image_url(offer.get("site_image_url")),
@@ -499,6 +501,7 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
         raise StorefrontError(f"« {name} » : envoie les informations demandées.")
 
     unit_millimes = _price_millimes(offer)
+    methods = db.is_methods_service(service)
     return {
         "offer_id": int(offer["id"]),
         "offer_name": name,
@@ -506,9 +509,9 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
         "quantity": quantity,
         "unit_millimes": unit_millimes,
         "total_millimes": unit_millimes * quantity,
-        "period_days": _site_period_days(offer),
-        "warranty_days": _site_warranty_days(offer),
-        "warranty": _site_warranty_label(offer),
+        "period_days": 0 if methods else _site_period_days(offer),
+        "warranty_days": 0 if methods else _site_warranty_days(offer),
+        "warranty": "" if methods else _site_warranty_label(offer),
         "customer_info": customer_info,
         "site_remark": remark,
     }

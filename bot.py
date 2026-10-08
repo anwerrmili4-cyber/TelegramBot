@@ -3945,7 +3945,10 @@ async def handle_pending_input(update, context, lang):
             price = float(text.replace(",", "."))
             if price < 0:
                 raise ValueError
-            db.update_offer(ref, price=price)
+            if db.is_bmc_vip_offer(db.get_offer(ref)):
+                db.set_bmc_vip_price(ref, price)
+            else:
+                db.update_offer(ref, price=price)
         except ValueError:
             await update.message.reply_text("⚠️ Valeur invalide. Envoyez un nombre, ex : 1.99")
             return

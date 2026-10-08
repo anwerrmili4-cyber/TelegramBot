@@ -17,6 +17,8 @@ export type Offer = {
   warranty: string;
   /** `0` means the product is sold without a warranty. */
   warranty_days?: number;
+  /** Methods are sold with no duration and no warranty. */
+  show_terms?: boolean;
   featured: boolean;
   badge: string;
   image_url: string;

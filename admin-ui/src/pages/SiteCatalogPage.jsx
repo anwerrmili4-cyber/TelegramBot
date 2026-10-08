@@ -54,9 +54,10 @@ function productForm(row, defaultServiceId) {
     site_image_url: row?.site_image_url || "",
     site_video_url: row?.site_video_url || "",
     delivery_delay: row?.delivery_delay || "Instantané après confirmation",
-    period_value: String(row?.period_value || 30),
+    bot_price: decimalInput(row?.bot_price_usdt),
+    period_value: row?.hides_terms ? "" : String(row?.period_value || 30),
     period_unit: row?.period_unit || "days",
-    warranty_value: String(row?.warranty_value ?? 0),
+    warranty_value: row?.hides_terms ? "" : String(row?.warranty_value ?? 0),
     warranty_unit: row?.warranty_unit || "days",
     stock_mode: row?.unlimited_stock ? "unlimited" : "inventory",
     initial_inventory: "",
@@ -76,6 +77,8 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
   const creating = !row;
   const externallyStocked = Boolean(row?.supplier_provider || row?.manual_stock);
   const selectedService = services.find((service) => String(service.id) === String(form.service_id));
+  const hidesTerms = Boolean(selectedService?.hides_terms);
+  const botPriceEditable = Boolean(row?.bot_price_editable);
   const suggestedMillimes = Math.round((parseDecimal(row?.bot_price_usdt) * rate * 10)) * 100;
   const [image, setImage] = useState("");
   const [removeImage, setRemoveImage] = useState(false);
@@ -152,11 +155,15 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
       site_enabled: form.site_enabled ? "1" : "0",
       site_featured: form.site_featured ? "1" : "0",
       site_requires_info: form.site_requires_info ? "1" : "0",
+      ...(hidesTerms ? { period_value: "0", period_unit: "days", warranty_value: "0", warranty_unit: "days" } : {}),
+      ...(botPriceEditable ? { bot_price: form.bot_price } : {}),
     });
   };
   return <Modal title={creating ? "Nouveau produit" : `${row.service_name} — ${row.name}`} onClose={onClose} wide>
     <form className="operation-form" onSubmit={submit}>
-      <p>Le produit est le même que dans le bot, avec le même stock et le même fournisseur. Le nom, la description, la garantie, la durée et l’état enregistrés ici restent sur le site.</p>
+      <p>{hidesTerms
+        ? "Le produit est le même que dans le bot, avec le même stock. Une méthode n’a ni durée ni garantie."
+        : "Le produit est le même que dans le bot, avec le même stock et le même fournisseur. Le nom, la description, la garantie, la durée et l’état enregistrés ici restent sur le site."}</p>
       <h3 className="site-section-title">Produit</h3>
       <div className="form-grid">
         <Field label="Service">
@@ -206,7 +213,12 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
           <input value={form.tn_price} onChange={(event) => set("tn_price", event.target.value)} inputMode="decimal" placeholder="Ex. 25,500" autoFocus={!creating} />
           {suggestedMillimes > 0 && <button type="button" className="site-link" onClick={() => set("tn_price", dinarInput(suggestedMillimes))}>Suggéré d’après le prix bot : {dinars(suggestedMillimes)}. Cela ne change pas le prix USDT.</button>}
         </Field>
-        {!creating && <Field label="Prix bot (USDT, lecture seule)"><input value={decimalInput(row.bot_price_usdt)} disabled /></Field>}
+        {!creating && (botPriceEditable
+          ? <Field label="Prix bot (USDT)">
+              <input value={form.bot_price} onChange={(event) => set("bot_price", event.target.value)} inputMode="decimal" placeholder="Ex. 15" required />
+              <small className="site-field-help">Ce prix est celui du canal VIP dans le bot. Il reste en place jusqu’au prochain changement.</small>
+            </Field>
+          : <Field label="Prix bot (USDT, lecture seule)"><input value={decimalInput(row.bot_price_usdt)} disabled /></Field>)}
       </div>
       <h3 className="site-section-title">Affichage sur le site</h3>
       <div className="form-grid">
@@ -228,17 +240,17 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
           <small className="site-field-help">Pour les produits qui ont besoin d’un email, d’un identifiant ou d’une précision. La remarque lui dit quoi envoyer.</small>
         </Field>
       </div>
-      <h3 className="site-section-title">Livraison, durée et garantie</h3>
+      <h3 className="site-section-title">{hidesTerms ? "Livraison" : "Livraison, durée et garantie"}</h3>
       <div className="form-grid">
         <Field label="Délai de livraison affiché sur le site">
           <input value={form.delivery_delay} onChange={(event) => set("delivery_delay", event.target.value)} maxLength={120} />
         </Field>
-        <Field label="Durée de l’abonnement">
+        {!hidesTerms && <Field label="Durée de l’abonnement">
           <DurationInput value={form.period_value} unit={form.period_unit} min={1} onValue={(value) => set("period_value", value)} onUnit={(value) => set("period_unit", value)} />
-        </Field>
-        <Field label="Garantie (0 = sans garantie)">
+        </Field>}
+        {!hidesTerms && <Field label="Garantie (0 = sans garantie)">
           <DurationInput value={form.warranty_value} unit={form.warranty_unit} min={0} onValue={(value) => set("warranty_value", value)} onUnit={(value) => set("warranty_unit", value)} />
-        </Field>
+        </Field>}
       </div>
       <h3 className="site-section-title">Stock</h3>
       <div className="form-grid">

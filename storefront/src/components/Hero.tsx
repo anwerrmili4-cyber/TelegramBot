@@ -166,6 +166,7 @@ function TileNotify({ offerId }: { offerId: number }) {
 
 export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen: (offer: Offer) => void; index?: number }) {
   const stock = !offer.available ? "Épuisé" : offer.stock < 0 ? "En stock" : `${offer.stock} en stock`;
+  const showTerms = offer.show_terms !== false;
   const warranty = warrantyView(offer);
   const tileRef = useRef<HTMLElement>(null);
   const [shown, setShown] = useState(false);
@@ -198,10 +199,12 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
       </button>
       <div className="prod-tile-body">
         <button type="button" className="prod-tile-copy" onClick={() => onOpen(offer)}>
-          <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
-            {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
-            {warranty.label}
-          </span>
+          {showTerms ? (
+            <span className={warrantyBadgeClass("poster-warranty", warranty.tone)}>
+              {warranty.tone === "none" ? <ShieldOff size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
+              {warranty.label}
+            </span>
+          ) : null}
         </button>
         <div className="prod-tile-line">
           <button type="button" className="prod-tile-copy" onClick={() => onOpen(offer)}>
@@ -209,7 +212,7 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
             <strong>{offer.name}</strong>
             <small>
               {stock}
-              {warranty.duration ? ` · ${warranty.duration}` : ""}
+              {showTerms && warranty.duration ? ` · ${warranty.duration}` : ""}
             </small>
           </button>
           <FavoriteButton compact icon offerId={offer.id} />

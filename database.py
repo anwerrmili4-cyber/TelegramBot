@@ -61,6 +61,60 @@ def is_official_subscriptions_service(value):
     return has_official and has_subscription
 
 
+def is_methods_service(service):
+    """The Methods catalogue, including the BMC VIP channel."""
+    name = service.get("name") if isinstance(service, dict) else service
+    return str(name or "").strip().casefold() == "methods"
+
+
+def methods_term_values():
+    """Methods are sold with no duration and no warranty."""
+    return {
+        "period_days": 0,
+        "period_value": 0,
+        "period_unit": "days",
+        "warranty_days": 0,
+        "warranty_value": 0,
+        "warranty_unit": "days",
+        "site_period_days": 0,
+        "site_period_value": 0,
+        "site_period_unit": "days",
+        "site_warranty_days": 0,
+        "site_warranty_value": 0,
+        "site_warranty_unit": "days",
+        "site_note": "NW",
+    }
+
+
+def clear_methods_terms(service_id=None):
+    """Drop any duration or warranty still stored on Methods offers."""
+    if service_id is None:
+        service = get_conn().services.find_one(
+            {"name": {"$regex": r"^methods$", "$options": "i"}},
+            {"id": 1},
+        )
+        if not service:
+            return 0
+        service_id = int(service["id"])
+    query = {
+        "service_id": int(service_id),
+        "$or": [
+            {"period_days": {"$gt": 0}},
+            {"period_value": {"$gt": 0}},
+            {"warranty_days": {"$gt": 0}},
+            {"warranty_value": {"$gt": 0}},
+            {"site_period_days": {"$gt": 0}},
+            {"site_period_value": {"$gt": 0}},
+            {"site_warranty_days": {"$gt": 0}},
+            {"site_warranty_value": {"$gt": 0}},
+        ],
+    }
+    if not get_conn().offers.count_documents(query):
+        return 0
+    result = get_conn().offers.update_many(query, {"$set": methods_term_values()})
+    return int(result.modified_count)
+
+
 def is_otp_service_name(value):
     """Return whether a service uses the legacy OTP / Codex-number flow."""
     normalized = " ".join(re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split())
@@ -1415,6 +1469,8 @@ def update_offer(
     service = get_service(effective_service_id) if existing else None
     if service and is_otp_service_name(service.get("name")):
         values.update(_otp_offer_values())
+    if service and is_methods_service(service):
+        values.update(methods_term_values())
     if values.get("active") == 1:
         values["archived"] = 0
     if values:
@@ -1475,9 +1531,9 @@ def add_service(name, emoji="", custom_emoji_id="", sales_channels=None, name_ar
 def ensure_methods_service():
     """Return the dedicated digital-methods service, creating it once if needed."""
     existing = get_conn().services.find_one({"name": {"$regex": r"^methods$", "$options": "i"}})
-    if existing:
-        return int(existing["id"])
-    return add_service("Methods", "🧠")
+    service_id = int(existing["id"]) if existing else add_service("Methods", "🧠")
+    clear_methods_terms(service_id)
+    return service_id
 
 
 BOT_LIKE_MINE_DESCRIPTION = """Launch your own professional digital-products business with a complete Telegram commerce system like BLACK MARKET.
@@ -1618,11 +1674,15 @@ def bmc_vip_price_for_claims(claims):
     return BMC_VIP_REGULAR_PRICE
 
 
-def _bmc_vip_descriptions(price, claims):
+def _bmc_vip_descriptions(price, claims, *, custom_price=False):
     """Default VIP text. It never lists the other methods or their prices."""
     price_text = _bmc_vip_money(price)
-    left = max(0, BMC_VIP_EARLY_SLOTS - int(claims))
-    if left:
+    if custom_price:
+        launch_en = launch_fr = launch_ar = ""
+        left = 0
+    else:
+        left = max(0, BMC_VIP_EARLY_SLOTS - int(claims))
+    if not custom_price and left:
         launch_en = (
             f"Launch price: $15 for the first {BMC_VIP_EARLY_SLOTS} members. "
             f"1 member already claimed a spot, so {left} places are still $15. "
@@ -1638,7 +1698,7 @@ def _bmc_vip_descriptions(price, claims):
             f"عضو واحد حجز مكانه بالفعل، تبقّى {left} أماكن بـ 15$. "
             f"بعد هؤلاء الأعضاء الـ {BMC_VIP_EARLY_SLOTS} يصبح السعر 25$."
         )
-    else:
+    elif not custom_price:
         launch_en = (
             f"The first {BMC_VIP_EARLY_SLOTS} members already claimed the $15 launch price. "
             "BMC VIP is now $25."
@@ -1649,39 +1709,47 @@ def _bmc_vip_descriptions(price, claims):
         launch_ar = (
             f"أماكن الإطلاق الـ {BMC_VIP_EARLY_SLOTS} بسعر 15$ اكتملت. BMC VIP الآن بـ 25$."
         )
+
+    def _with_launch(intro, launch, closing):
+        parts = [intro]
+        if launch:
+            parts.append(launch)
+        parts.append(closing)
+        return "\n\n".join(parts)
+
     return {
-        "en": (
+        "en": _with_launch(
             "Join BMC VIP and claim every method with one subscription.\n\n"
             "If you join, you get:\n"
             "• Every method available right now, inside the BMC VIP channel\n"
             "• Every new method we add — new methods drop in that channel every day\n"
             "• A private channel link, sent once after payment\n"
             "• One payment, instead of buying each method alone\n\n"
-            f"BMC VIP is ${price_text}.\n\n"
-            f"{launch_en}\n\n"
-            "You keep every method you claim today, and the next ones are included too."
+            f"BMC VIP is ${price_text}.",
+            launch_en,
+            "You keep every method you claim today, and the next ones are included too.",
         ),
-        "fr": (
+        "fr": _with_launch(
             "Rejoins BMC VIP et réclame toutes les méthodes avec un seul abonnement.\n\n"
             "Si tu nous rejoins, tu obtiens :\n"
             "• Toutes les méthodes disponibles maintenant, dans le canal BMC VIP\n"
             "• Chaque nouvelle méthode — de nouvelles méthodes tombent dans ce canal tous les jours\n"
             "• Un lien de canal privé, envoyé une seule fois après le paiement\n"
             "• Un seul paiement, au lieu d'acheter chaque méthode à part\n\n"
-            f"BMC VIP coûte ${price_text}.\n\n"
-            f"{launch_fr}\n\n"
-            "Tu gardes toutes les méthodes réclamées aujourd'hui, et les prochaines sont incluses."
+            f"BMC VIP coûte ${price_text}.",
+            launch_fr,
+            "Tu gardes toutes les méthodes réclamées aujourd'hui, et les prochaines sont incluses.",
         ),
-        "ar": (
+        "ar": _with_launch(
             "انضم إلى BMC VIP واحصل على كل الطرق باشتراك واحد.\n\n"
             "إذا انضممت تحصل على:\n"
             "• كل الطرق المتاحة الآن، داخل قناة BMC VIP\n"
             "• كل طريقة جديدة — طرق جديدة في هذه القناة كل يوم\n"
             "• رابط قناة خاص، يُرسل مرة واحدة بعد الدفع\n"
             "• دفعة واحدة بدل شراء كل طريقة وحدها\n\n"
-            f"سعر BMC VIP هو ${price_text}.\n\n"
-            f"{launch_ar}\n\n"
-            "تحتفظ بكل الطرق التي تحصل عليها اليوم، والطرق القادمة مشمولة أيضاً."
+            f"سعر BMC VIP هو ${price_text}.",
+            launch_ar,
+            "تحتفظ بكل الطرق التي تحصل عليها اليوم، والطرق القادمة مشمولة أيضاً.",
         ),
     }
 
@@ -1718,7 +1786,15 @@ def ensure_bmc_vip_offer():
     else:
         offer_id = int(offer["id"])
     claims = bmc_vip_claim_count(offer_id)
-    price = bmc_vip_price_for_claims(claims)
+    custom_price = bool((offer or {}).get("bmc_vip_price_custom"))
+    if custom_price:
+        try:
+            price = float((offer or {}).get("price"))
+        except (TypeError, ValueError):
+            price = bmc_vip_price_for_claims(claims)
+            custom_price = False
+    else:
+        price = bmc_vip_price_for_claims(claims)
     custom_description = bool((offer or {}).get("bmc_vip_description_custom"))
     values = {
             "service_id": service_id,
@@ -1747,7 +1823,7 @@ def ensure_bmc_vip_offer():
             "sales_channels": ["bot"],
     }
     if not custom_description:
-        descriptions = _bmc_vip_descriptions(price, claims)
+        descriptions = _bmc_vip_descriptions(price, claims, custom_price=custom_price)
         values.update({
             "description": descriptions["en"],
             "description_ar": descriptions["ar"],
@@ -1758,6 +1834,25 @@ def ensure_bmc_vip_offer():
         {"$set": values, "$unset": {"archived_at": ""}},
     )
     return offer_id
+
+
+def set_bmc_vip_price(offer_id, price):
+    """Store an admin price for BMC VIP and stop the launch ladder from replacing it."""
+    try:
+        amount = round(float(price), 2)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid price") from exc
+    if amount < 0 or amount > 100_000:
+        raise ValueError("invalid price")
+    offer = get_conn().offers.find_one({"id": int(offer_id)}, {"feature_key": 1})
+    if not is_bmc_vip_offer(offer):
+        raise ValueError("not a BMC VIP offer")
+    get_conn().offers.update_one(
+        {"id": int(offer_id)},
+        {"$set": {"price": amount, "bmc_vip_price_custom": True}},
+    )
+    ensure_bmc_vip_offer()
+    return amount
 
 
 def set_bmc_vip_custom_description(offer_id, description):
@@ -1955,6 +2050,20 @@ def add_offer(
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
     service = get_service(service_id) or {}
+    if is_methods_service(service):
+        period_days = 0
+        period_value = 0
+        period_unit = "days"
+        warranty_days = 0
+        warranty_value = 0
+        warranty_unit = "days"
+        site_period_days = 0
+        site_period_value = 0
+        site_period_unit = "days"
+        site_warranty_days = 0
+        site_warranty_value = 0
+        site_warranty_unit = "days"
+        site_note = "NW"
     special_values = _otp_offer_values() if is_otp_service_name(service.get("name")) else {}
     get_conn().offers.insert_one({
         "id": oid,

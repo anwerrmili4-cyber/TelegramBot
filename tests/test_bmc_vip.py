@@ -62,6 +62,35 @@ def test_admin_description_replaces_the_default_and_is_kept(mock_mongodb):
     assert "أماكن" not in card
 
 
+def test_admin_price_stays_after_the_launch_slots_fill(mock_mongodb):
+    vip_id = db.ensure_bmc_vip_offer()
+    db.set_bmc_vip_price(vip_id, 40)
+    now = int(time.time())
+    db.get_conn().orders.insert_many([
+        {
+            "id": index,
+            "user_id": 100 + index,
+            "offer_id": vip_id,
+            "qty": 1,
+            "status": "delivered",
+            "created_at": now,
+        }
+        for index in range(1, 6)
+    ])
+
+    vip = db.get_offer(db.ensure_bmc_vip_offer())
+
+    assert vip["price"] == 40
+    assert vip["bmc_vip_price_custom"] is True
+    assert vip["period_days"] == 0
+    assert vip["warranty_days"] == 0
+    assert vip["site_period_days"] == 0
+    assert vip["site_warranty_days"] == 0
+    assert "BMC VIP is $40." in vip["description"]
+    assert "$15" not in vip["description"]
+    assert "lancement" not in vip["description_fr"].casefold()
+
+
 def test_launch_price_becomes_25_after_five_claims(mock_mongodb):
     vip_id = db.ensure_bmc_vip_offer()
     now = int(time.time())
