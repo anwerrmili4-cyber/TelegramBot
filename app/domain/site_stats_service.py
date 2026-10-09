@@ -63,6 +63,29 @@ INTERACTION_LABELS = {
     "stock_alert": "Alerte stock",
 }
 
+# Coarse buckets computed in the browser. No user agent or referrer URL is stored.
+DEVICE_LABELS = {
+    "mobile": "Mobile",
+    "tablet": "Tablette",
+    "desktop": "Ordinateur",
+}
+SOURCE_LABELS = {
+    "direct": "Accès direct",
+    "search": "Moteurs de recherche",
+    "social": "Réseaux sociaux",
+    "referral": "Autres sites",
+}
+FUNNEL_STEPS = (
+    ("visitors", "Visiteurs"),
+    ("product", "Fiche produit vue"),
+    ("cart_add", "Ajout au panier"),
+    ("checkout", "Paiement ouvert"),
+    ("order", "Commande envoyée"),
+)
+WEEKDAY_LABELS = ("Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim")
+# The previous period must still be inside the 90-day retention to be compared.
+MAX_COMPARED_DAYS = 45
+
 
 class SiteStatsError(ValueError):
     """Raised with a French message and an HTTP status."""
@@ -190,6 +213,8 @@ def record(payload: dict[str, Any], customer_id: int | None = None) -> dict[str,
     if recent >= MAX_EVENTS_PER_MINUTE:
         raise SiteStatsError("Trop d'événements pour ce visiteur. Réessayez dans un instant.", status=429)
 
+    device = str(payload.get("device") or "").strip()
+    source = str(payload.get("source") or "").strip() if kind == "visit" else ""
     conn.storefront_events.insert_one({
         "kind": kind,
         "action": action,
@@ -198,6 +223,8 @@ def record(payload: dict[str, Any], customer_id: int | None = None) -> dict[str,
         "offer_id": offer_id,
         "visitor_id": visitor_id,
         "customer_id": account_id,
+        "device": device if device in DEVICE_LABELS else "",
+        "source": source if source in SOURCE_LABELS else "",
         "day": datetime.now(TUNIS_TZ).strftime("%Y-%m-%d"),
         "created_at": now,
         "created_at_date": datetime.fromtimestamp(now, UTC),
@@ -220,6 +247,36 @@ def _grouped(match: dict[str, Any], key: str) -> dict[Any, int]:
     ]):
         counts[row.get("_id")] = int(row.get("count") or 0)
     return counts
+
+
+def _visitors(match: dict[str, Any]) -> int:
+    return len(db.get_conn().storefront_events.distinct("visitor_id", match))
+
+
+def _period_totals(start_ts: int, end_ts: int) -> dict[str, int]:
+    span = {"created_at": {"$gte": start_ts, "$lt": end_ts}}
+    events = db.get_conn().storefront_events
+    return {
+        "visits": events.count_documents({**span, "kind": "visit"}),
+        "unique": _visitors({**span, "kind": "visit"}),
+        "interactions": events.count_documents({**span, "kind": "interaction"}),
+        "orders": events.count_documents({**span, "kind": "interaction", "action": "order"}),
+    }
+
+
+def _heatmap(window: dict[str, Any]) -> list[dict[str, Any]]:
+    """Visits per weekday and hour, on the Tunis clock."""
+    grid = [[0] * 24 for _ in WEEKDAY_LABELS]
+    cursor = db.get_conn().storefront_events.find({**window, "kind": "visit"}, {"_id": 0, "created_at": 1})
+    for row in cursor:
+        moment = datetime.fromtimestamp(int(row.get("created_at") or 0), TUNIS_TZ)
+        grid[moment.weekday()][moment.hour] += 1
+    return [{"day": label, "hours": hours} for label, hours in zip(WEEKDAY_LABELS, grid, strict=True)]
+
+
+def _labelled(counts: dict[Any, int], labels: dict[str, str]) -> list[dict[str, Any]]:
+    rows = [{"key": key, "label": label, "count": int(counts.get(key) or 0)} for key, label in labels.items()]
+    return sorted(rows, key=lambda row: -row["count"])
 
 
 def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
@@ -247,6 +304,7 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
             interactions_by_day[day] = interactions_by_day.get(day, 0) + count
 
     visitors_by_day: dict[str, int] = {}
+    days_by_visitor: dict[str, int] = {}
     for row in conn.storefront_events.aggregate([
         {"$match": {**window, "kind": "visit"}},
         {"$group": {"_id": {"day": "$day", "visitor": "$visitor_id"}}},
@@ -254,6 +312,8 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
         bucket = row.get("_id") or {}
         day = str(bucket.get("day") or "")
         visitors_by_day[day] = visitors_by_day.get(day, 0) + 1
+        visitor = str(bucket.get("visitor") or "")
+        days_by_visitor[visitor] = days_by_visitor.get(visitor, 0) + 1
 
     page_counts: dict[str, int] = {}
     for path, count in _grouped({**window, "kind": "visit"}, "path").items():
@@ -347,21 +407,58 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
         }
         for day in labels
     ]
+
+    unique = _visitors({**window, "kind": "visit"})
+    funnel_counts = {
+        "visitors": unique,
+        "product": _visitors({**window, "kind": "visit", "offer_id": {"$gt": 0}}),
+        **{
+            action: _visitors({**window, "kind": "interaction", "action": action})
+            for action in ("cart_add", "checkout", "order")
+        },
+    }
+    funnel = [{"key": key, "label": label, "visitors": funnel_counts[key]} for key, label in FUNNEL_STEPS]
+
+    source_counts = _grouped({**window, "kind": "visit", "source": {"$in": list(SOURCE_LABELS)}}, "source")
+    device_counts: dict[str, int] = {}
+    for row in conn.storefront_events.aggregate([
+        {"$match": {**window, "kind": "visit", "device": {"$in": list(DEVICE_LABELS)}}},
+        {"$group": {"_id": {"device": "$device", "visitor": "$visitor_id"}}},
+    ]):
+        device = str((row.get("_id") or {}).get("device") or "")
+        device_counts[device] = device_counts.get(device, 0) + 1
+
+    visits = sum(point["visits"] for point in daily)
+    interactions = sum(point["interactions"] for point in daily)
+    entries = sum(source_counts.values())
+    previous = None
+    if days <= MAX_COMPARED_DAYS:
+        previous = _period_totals(start_ts - days * 86400, start_ts)
+
     return {
         "ok": True,
         "summary": {
             "days": days,
             "visits_today": visits_by_day.get(today, 0),
-            "visits": sum(point["visits"] for point in daily),
+            "visits": visits,
             "unique_today": visitors_by_day.get(today, 0),
-            "unique": len(conn.storefront_events.distinct("visitor_id", {**window, "kind": "visit"})),
+            "unique": unique,
             "interactions_today": interactions_by_day.get(today, 0),
-            "interactions": sum(point["interactions"] for point in daily),
-            "live_visitors": len(conn.storefront_events.distinct(
-                "visitor_id",
+            "interactions": interactions,
+            "orders": int(action_counts.get("order") or 0),
+            "live_visitors": _visitors(
                 {"created_at": {"$gte": int(datetime.now(UTC).timestamp()) - LIVE_WINDOW_SECONDS}},
-            )),
+            ),
+            "returning": sum(1 for count in days_by_visitor.values() if count > 1),
+            "signed_in": _visitors({**window, "customer_id": {"$gt": 0}}),
+            "engaged": _visitors({**window, "kind": "interaction"}),
+            "entries": entries,
         },
+        "previous": previous,
+        "funnel": funnel,
+        "sources": _labelled(source_counts, SOURCE_LABELS),
+        "devices": _labelled(device_counts, DEVICE_LABELS),
+        "heatmap": _heatmap(window),
         "daily": daily,
         "popular_pages": popular_pages,
         "popular_products": popular_products,
