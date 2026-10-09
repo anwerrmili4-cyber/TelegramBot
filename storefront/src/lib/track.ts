@@ -33,11 +33,40 @@ const PAGES = new Set([
 
 const ACTIONS = new Set(["cart_add", "checkout", "order", "favorite", "search", "stock_alert"]);
 
+const SEARCH_HOSTS = /(^|\.)(google|bing|duckduckgo|yahoo|yandex|ecosia|qwant|baidu|brave)\./;
+const SOCIAL_HOSTS =
+  /(^|\.)(facebook|fb|instagram|messenger|whatsapp|wa|t|telegram|tiktok|twitter|x|youtube|linkedin|snapchat|pinterest|reddit|threads)\.(com|me|org|net|co)$/;
+
 let memoryVisitor = "";
 let lastVisitKey = "";
 let lastVisitAt = 0;
 let lastSearch = "";
 let lastSearchAt = 0;
+let landingSent = false;
+
+/** Only the bucket is sent, never the user agent. */
+function deviceKind(): string {
+  if (typeof window === "undefined") return "";
+  const width = window.innerWidth || 0;
+  if (width && width < 640) return "mobile";
+  if (width && width < 1024) return "tablet";
+  return "desktop";
+}
+
+/** Only the category is sent, never the referring URL. */
+function trafficSource(): string {
+  if (typeof document === "undefined") return "direct";
+  let host = "";
+  try {
+    host = document.referrer ? new URL(document.referrer).hostname.toLowerCase() : "";
+  } catch {
+    return "direct";
+  }
+  if (!host || host === window.location.hostname) return "direct";
+  if (SEARCH_HOSTS.test(host)) return "search";
+  if (SOCIAL_HOSTS.test(host)) return "social";
+  return "referral";
+}
 
 function createId(): string {
   if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") return "";
@@ -104,9 +133,13 @@ export function trackVisit(path: string): void {
   lastVisitKey = normalized;
   lastVisitAt = now;
   const product = /^\/produit\/([1-9]\d{0,8})$/.exec(normalized);
+  const landing = !landingSent;
+  landingSent = true;
   send({
     kind: "visit",
     path: normalized,
+    device: deviceKind(),
+    ...(landing ? { source: trafficSource() } : {}),
     ...(product ? { offer_id: Number(product[1]) } : {}),
   });
 }

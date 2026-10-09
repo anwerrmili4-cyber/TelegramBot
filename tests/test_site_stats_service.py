@@ -75,6 +75,66 @@ def test_visit_and_interaction_counts_are_real_events(mock_mongodb):
     assert result["recent"][0]["action_label"]
 
 
+def test_funnel_sources_devices_and_heatmap(mock_mongodb):
+    _visit("/", visitor=1, device="mobile", source="social")
+    _visit("/produit/12", visitor=1, device="mobile")
+    _visit("/", visitor=2, device="desktop", source="search")
+    _visit("/boutique", visitor=3, device="mobile", source="direct")
+    _interaction("cart_add", visitor=1, offer_id=12)
+    _interaction("checkout", visitor=1)
+    _interaction("order", visitor=1)
+    _interaction("search", visitor=2, label="spotify")
+
+    result = site_stats_service.stats({"days": ["7"]})
+
+    assert [(step["key"], step["visitors"]) for step in result["funnel"]] == [
+        ("visitors", 3), ("product", 1), ("cart_add", 1), ("checkout", 1), ("order", 1),
+    ]
+    sources = {row["key"]: row["count"] for row in result["sources"]}
+    assert sources == {"social": 1, "search": 1, "direct": 1, "referral": 0}
+    devices = {row["key"]: row["count"] for row in result["devices"]}
+    assert devices == {"mobile": 2, "desktop": 1, "tablet": 0}
+    assert len(result["heatmap"]) == 7
+    assert all(len(row["hours"]) == 24 for row in result["heatmap"])
+    assert sum(sum(row["hours"]) for row in result["heatmap"]) == 4
+    summary = result["summary"]
+    assert summary["entries"] == 3
+    assert summary["engaged"] == 2
+    assert summary["orders"] == 1
+    assert summary["returning"] == 0
+    assert result["previous"] == {"visits": 0, "unique": 0, "interactions": 0, "orders": 0}
+
+
+def test_unknown_device_and_source_are_not_stored(mock_mongodb):
+    _visit("/", device="smart-fridge", source="https://example.com/page")
+    _interaction("search", label="netflix", source="social")
+    rows = list(mock_mongodb.storefront_events.find({}, {"_id": 0, "device": 1, "source": 1}))
+    assert rows == [{"device": "", "source": ""}, {"device": "", "source": ""}]
+
+
+def test_previous_period_and_returning_visitors(mock_mongodb):
+    now = int(datetime.now(UTC).timestamp())
+    base = {"action": "page", "path": "/", "label": "", "offer_id": 0, "customer_id": None,
+            "device": "", "source": ""}
+    mock_mongodb.storefront_events.insert_many([
+        {**base, "kind": "visit", "visitor_id": _visitor(5), "day": "2000-01-01",
+         "created_at": now - 9 * 86400},
+        {**base, "kind": "visit", "visitor_id": _visitor(6), "day": "2000-01-02",
+         "created_at": now - 10 * 86400},
+    ])
+    _visit("/", visitor=7)
+    mock_mongodb.storefront_events.insert_one({
+        **base, "kind": "visit", "visitor_id": _visitor(7), "day": "2000-01-03", "created_at": now - 86400,
+        "path": "/prix",
+    })
+
+    week = site_stats_service.stats({"days": ["7"]})
+    assert week["previous"]["visits"] == 2
+    assert week["previous"]["unique"] == 2
+    assert week["summary"]["returning"] == 1
+    assert site_stats_service.stats({"days": ["90"]})["previous"] is None
+
+
 def test_identical_page_view_is_not_counted_twice(mock_mongodb):
     assert _visit("/boutique")["stored"] is True
     assert _visit("/boutique")["stored"] is False
