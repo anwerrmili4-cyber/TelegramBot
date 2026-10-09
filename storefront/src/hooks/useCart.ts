@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { clampQuantity } from "@/lib/format";
+import { trackInteraction } from "@/lib/track";
 import type { CartLine, Offer } from "@/types";
 
 const STORAGE_KEY = "blackmarket.tn.cart.v1";
@@ -80,14 +81,20 @@ export function useCart(offers: Offer[], maxLines: number): Cart {
 
   const add = useCallback(
     (offer: Offer, quantity = offer.min_quantity) => {
+      const key = String(offer.id);
+      const existing = stored[key] ?? 0;
+      if (!existing && Object.keys(stored).length >= maxLines) return;
+      const next = clampQuantity(offer, existing + quantity);
+      if (next <= existing) return;
       setStored((current) => {
-        const existing = current[String(offer.id)] ?? 0;
-        if (!existing && Object.keys(current).length >= maxLines) return current;
-        const next = clampQuantity(offer, existing + quantity);
-        return next > 0 ? { ...current, [String(offer.id)]: next } : current;
+        const currentQty = current[key] ?? 0;
+        if (!currentQty && Object.keys(current).length >= maxLines) return current;
+        const clamped = clampQuantity(offer, currentQty + quantity);
+        return clamped > 0 ? { ...current, [key]: clamped } : current;
       });
+      trackInteraction("cart_add", { offerId: offer.id, label: offer.name });
     },
-    [maxLines],
+    [maxLines, stored],
   );
 
   const place = useCallback(
@@ -96,10 +103,14 @@ export function useCart(offers: Offer[], maxLines: number): Cart {
       if (nextQuantity <= 0) return false;
       const key = String(offer.id);
       if (!(key in stored) && Object.keys(stored).length >= maxLines) return false;
+      const previous = stored[key] ?? 0;
       setStored((current) => {
         if (!(key in current) && Object.keys(current).length >= maxLines) return current;
         return { ...current, [key]: nextQuantity };
       });
+      if (nextQuantity > previous) {
+        trackInteraction("cart_add", { offerId: offer.id, label: offer.name });
+      }
       return true;
     },
     [maxLines, stored],

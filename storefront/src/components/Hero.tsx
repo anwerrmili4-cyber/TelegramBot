@@ -10,6 +10,7 @@ import { accountPath } from "@/lib/accountPath";
 import { money } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, navigate, ROUTES } from "@/lib/router";
+import { trackInteraction, trackSearch } from "@/lib/track";
 import type { Category, Offer } from "@/types";
 
 type HeroProps = {
@@ -102,6 +103,7 @@ function TileNotify({ offerId }: { offerId: number }) {
     setError("");
     try {
       const result = await requestStockAlert(offerId, address.trim(), token || undefined);
+      trackInteraction("stock_alert", { offerId });
       setDone(result.already_available ? "Déjà en stock" : "C'est noté");
     } catch (reason) {
       setError(errorMessage(reason, "Alerte impossible"));
@@ -249,6 +251,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
 
   function search(event: FormEvent) {
     event.preventDefault();
+    trackSearch(query);
     searchTo(query);
   }
 

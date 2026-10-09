@@ -9,6 +9,7 @@ import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { LoadMark } from "@/components/LoadMark";
 import { Link, ROUTES } from "@/lib/router";
+import { trackInteraction } from "@/lib/track";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import type { Offer } from "@/types";
 
@@ -45,6 +46,7 @@ function StockAlert({ offerId }: { offerId: number }) {
     setError("");
     try {
       const result = await requestStockAlert(offerId, email.trim(), token || undefined);
+      trackInteraction("stock_alert", { offerId });
       setDone(result.already_available ? "Ce produit est déjà en stock." : "C'est noté. On t'écrit dès qu'il est disponible.");
     } catch (reason) {
       setError(errorMessage(reason, "L'alerte n'a pas pu être enregistrée."));

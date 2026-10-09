@@ -1,6 +1,6 @@
 import { lazyPage, PageSuspense } from "./lazy-page.jsx";
 
-export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-inventory", "site-customers", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-settings"]);
+export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-inventory", "site-customers", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-stats", "site-settings"]);
 
 const InventoryPage = lazyPage(() => import("./pages/InventoryPage.jsx"));
 const ProductRequestsPage = lazyPage(() => import("./pages/ProductRequestsPage.jsx"));
@@ -20,6 +20,7 @@ const PAGES = {
   "site-reviews": [lazyPage(() => import("./pages/SiteReviewsPage.jsx")), {}],
   "site-mail": [lazyPage(() => import("./pages/SiteMailPage.jsx")), {}],
   "site-notifications": [lazyPage(() => import("./pages/SiteNotificationsPage.jsx")), {}],
+  "site-stats": [lazyPage(() => import("./pages/SiteStatsPage.jsx")), {}],
   "site-settings": [lazyPage(() => import("./pages/SiteSettingsPage.jsx")), {}],
 };
 

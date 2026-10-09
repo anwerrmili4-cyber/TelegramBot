@@ -54,6 +54,7 @@ from app.domain import (
     site_mail_service,
     site_orders_service,
     site_settings_service,
+    site_stats_service,
     storefront_auth_service,
     storefront_favorite_service,
     storefront_invoice_service,
@@ -300,6 +301,7 @@ STOREFRONT_AUTH_POST_PATHS = frozenset({
     "/api/storefront/auth/notifications",
     "/api/storefront/stock-alerts",
 })
+STOREFRONT_EVENT_PATH = "/api/storefront/events"
 STOREFRONT_AUTH_PATHS = STOREFRONT_AUTH_GET_PATHS | STOREFRONT_AUTH_POST_PATHS
 
 
@@ -867,7 +869,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-inventory", "catalog", "api-products", "provider-history", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-stats", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-inventory", "catalog", "api-products", "provider-history", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1289,7 +1291,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
 
-        elif path in {"/admin/api/site-overview", "/admin/api/site-catalog", "/admin/api/site-customers", "/admin/api/site-settings"}:
+        elif path in {"/admin/api/site-overview", "/admin/api/site-catalog", "/admin/api/site-customers", "/admin/api/site-settings", "/admin/api/site-stats"}:
             if not self._dashboard_authorized():
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
@@ -1300,6 +1302,8 @@ class handler(BaseHTTPRequestHandler):
                 payload = site_admin_service.catalog(query)
             elif path == "/admin/api/site-customers":
                 payload = site_admin_service.customers(query)
+            elif path == "/admin/api/site-stats":
+                payload = site_stats_service.stats(query)
             else:
                 payload = {"ok": True, **site_settings_service.get()}
             self._reply(200, payload)
@@ -1593,9 +1597,29 @@ class handler(BaseHTTPRequestHandler):
             log.exception("Storefront auth request failed: %s", path)
             self._reply(503, {"ok": False, "error": "Service momentanément indisponible."}, headers=cors)
 
+    def _handle_storefront_event(self) -> None:
+        cors = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
+        try:
+            payload = self._read_json_body(max_bytes=2_000)
+            customer_id = None
+            token = self._bearer_token()
+            if token:
+                try:
+                    customer_id = int(storefront_auth_service.customer_for_token(token)["id"])
+                except storefront_auth_service.AuthError:
+                    customer_id = None
+            self._reply(200, site_stats_service.record(payload, customer_id=customer_id), headers=cors)
+        except site_stats_service.SiteStatsError as exc:
+            self._reply(exc.status, {"ok": False, "error": str(exc)}, headers=cors)
+        except buyer_api_service.BuyerApiError as exc:
+            self._reply(exc.status, {"ok": False, "error": "Requête invalide."}, headers=cors)
+        except Exception:
+            log.exception("Storefront event failed")
+            self._reply(503, {"ok": False, "error": "Statistiques temporairement indisponibles."}, headers=cors)
+
     def do_OPTIONS(self):
         path = urlsplit(self.path).path.rstrip("/")
-        if path in STOREFRONT_AUTH_PATHS:
+        if path in STOREFRONT_AUTH_PATHS or path == STOREFRONT_EVENT_PATH:
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -1665,6 +1689,9 @@ class handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path.rstrip("/")
         if path == "/api/storefront/reviews/email":
             self._handle_email_review()
+            return
+        if path == STOREFRONT_EVENT_PATH:
+            self._handle_storefront_event()
             return
         if path in STOREFRONT_AUTH_POST_PATHS:
             self._handle_storefront_auth(path)

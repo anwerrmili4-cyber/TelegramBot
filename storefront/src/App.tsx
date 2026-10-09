@@ -14,6 +14,7 @@ import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
 import { LoadingPage } from "@/components/LoadMark";
 import { Link, navigate, productId, productPath, RouteProgress, ROUTES, usePathname } from "@/lib/router";
+import { trackInteraction, trackVisit } from "@/lib/track";
 import type { Offer } from "@/types";
 
 const ProductPage = lazy(() => import("@/components/ProductPage").then((mod) => ({ default: mod.ProductPage })));
@@ -64,6 +65,13 @@ export default function App() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const path = usePathname();
   const openedId = productId(path);
+  useEffect(() => {
+    trackVisit(path);
+  }, [path]);
+  const openCheckout = () => {
+    trackInteraction("checkout", { path });
+    setCheckoutOpen(true);
+  };
   const openProduct = (offer: Offer) => navigate(productPath(offer.id));
   const Page = PAGES[path];
   const categories = (catalog?.services ?? [])
@@ -117,7 +125,7 @@ export default function App() {
             maxLines={maxLines}
             place={(offer, quantity) => {
               if (!cart.place(offer, quantity)) return false;
-              setCheckoutOpen(true);
+              openCheckout();
               return true;
             }}
           />
@@ -140,7 +148,7 @@ export default function App() {
             onAdd={(offer, quantity) => cart.add(offer, quantity)}
             onBuyNow={(offer, quantity) => {
               if (!cart.quantityOf(offer.id)) cart.add(offer, quantity);
-              setCheckoutOpen(true);
+              openCheckout();
             }}
           />
         ) : path === ROUTES.home || path === ROUTES.shop ? (
@@ -195,7 +203,7 @@ export default function App() {
         onClose={() => setCartOpen(false)}
         onCheckout={() => {
           setCartOpen(false);
-          setCheckoutOpen(true);
+          openCheckout();
         }}
       />
 

@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
 import { toggleTheme, useTheme } from "@/lib/theme";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
+import { trackSearch } from "@/lib/track";
 import { placeSlidingPill } from "@/lib/slidingPill";
 import { accountPath } from "@/lib/accountPath";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -136,6 +137,7 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
   function submitSearch(event: FormEvent) {
     event.preventDefault();
     const term = query.trim();
+    trackSearch(term);
     closeMenus();
     navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
   }

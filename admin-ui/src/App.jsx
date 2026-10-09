@@ -7,6 +7,7 @@ import { ControlCenter, DataExplorer } from "./ControlCenter";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   Bell,
   Bot,
   Boxes,
@@ -94,6 +95,7 @@ const SITE_NAV_GROUPS = [
     { id: "site-deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
   ] },
   { label: "Administration", items: [
+    { id: "site-stats", label: "Statistiques", icon: BarChart3 },
     { id: "site-settings", label: "Paramètres", icon: Settings },
   ] },
 ];

@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   AlertTriangle,
   ArrowUpRight,
+  BarChart3,
   ClipboardList,
   ExternalLink,
   Globe2,
@@ -99,6 +100,7 @@ export default function SiteOverviewPage({ data, onNavigate }) {
             ["site-orders", ClipboardList, "Commandes", "Reçus, livraisons et refus"],
             ["site-deposits", Wallet, "Recharges", "Vérification des portefeuilles"],
             ["site-customers", Users, "Clients", "Comptes, achats et soldes"],
+            ["site-stats", BarChart3, "Statistiques", "Visites, visiteurs et interactions"],
           ].map(([page, Icon, title, text]) => <button key={page} type="button" onClick={() => onNavigate(page)}><Icon size={23} /><strong>{title}</strong><small>{text}</small><ArrowUpRight size={18} /></button>)}</div>
         </section>
       </div>

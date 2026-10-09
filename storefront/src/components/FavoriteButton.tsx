@@ -3,6 +3,7 @@ import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchFavorites, setFavorite, errorMessage } from "@/lib/api";
 import { navigate, productPath, ROUTES, withNext } from "@/lib/router";
+import { trackInteraction } from "@/lib/track";
 
 const savedIds = new Map<string, Set<number>>();
 const inflight = new Map<string, Promise<void>>();
@@ -106,6 +107,7 @@ export function FavoriteButton({ offerId, compact = false, icon = false }: Favor
       if (taps.get(offerId) !== next) return;
       taps.delete(offerId);
       remember(token, offerId, result.saved);
+      if (result.saved) trackInteraction("favorite", { offerId });
     } catch (reason) {
       if (taps.get(offerId) !== next) return;
       taps.delete(offerId);

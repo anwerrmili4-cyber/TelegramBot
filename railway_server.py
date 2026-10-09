@@ -97,6 +97,7 @@ class StorefrontHandler(webhook.handler):
     _ALLOWED_POST = frozenset({
         "/api/storefront/orders",
         "/api/storefront/reviews/email",
+        webhook.STOREFRONT_EVENT_PATH,
         *webhook.STOREFRONT_AUTH_POST_PATHS,
     })
 

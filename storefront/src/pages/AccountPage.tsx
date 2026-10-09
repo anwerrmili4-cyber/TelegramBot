@@ -26,6 +26,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { createDeposit, downloadInvoice, errorMessage, fetchFavorites, fetchNotifications, fetchMyReviews, fetchOrders, fetchProductRequests, fetchTickets, fetchWarranties, markAllNotificationsRead, markNotificationRead, openProductRequest, openTicket, openWarranty, replyToTicket, fetchWallet, requestStockAlert, resendVerificationCode, submitReview } from "@/lib/api";
 import { accessLabel, clampQuantity, dateTime, displayPhone, isValidPhone, money, normalizePhoneInput, periodLabel, plural } from "@/lib/format";
 import { accountPath } from "@/lib/accountPath";
+import { trackInteraction } from "@/lib/track";
 import { Link, navigate, productPath, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
 import { verifyEmailPath } from "@/pages/VerifyEmailPage";
@@ -927,6 +928,7 @@ function RenewAlert({ offerId }: { offerId: number }) {
     setError("");
     try {
       await requestStockAlert(offerId, email.trim(), token || undefined);
+      trackInteraction("stock_alert", { offerId });
       setDone(true);
     } catch (reason) {
       setError(errorMessage(reason, "Alerte impossible"));

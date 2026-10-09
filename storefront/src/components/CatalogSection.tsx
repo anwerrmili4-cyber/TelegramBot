@@ -5,6 +5,7 @@ import { ProductTile } from "@/components/Hero";
 import { searchable } from "@/lib/format";
 import { prefersReducedMotion, stagger, withViewTransition } from "@/lib/motion";
 import { placeSlidingPill } from "@/lib/slidingPill";
+import { trackSearch } from "@/lib/track";
 import type { Category, Offer } from "@/types";
 
 type CatalogSectionProps = {
@@ -35,6 +36,13 @@ export function CatalogSection({
     if (nextQuery) setQuery(nextQuery);
     if (nextCategory) setCategory(nextCategory);
   }, []);
+
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2) return undefined;
+    const timer = window.setTimeout(() => trackSearch(term), 800);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const visible = useMemo(() => {
     const term = searchable(query.trim());

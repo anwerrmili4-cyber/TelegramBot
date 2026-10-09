@@ -18,7 +18,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -486,6 +486,10 @@ def init_db():
         [("offer_id", ASCENDING), ("status", ASCENDING), ("created_at", DESCENDING)]
     )
     db.storefront_reviews.create_index([("customer_id", ASCENDING), ("created_at", DESCENDING)])
+    db.storefront_events.create_index("created_at_date", expireAfterSeconds=90 * 86400)
+    db.storefront_events.create_index([("created_at", DESCENDING)])
+    db.storefront_events.create_index([("kind", ASCENDING), ("created_at", DESCENDING)])
+    db.storefront_events.create_index([("visitor_id", ASCENDING), ("created_at", DESCENDING)])
     db.service_logos.create_index("service_id")
     db.category_logos.create_index("logo_id")
     db.offer_images.create_index("offer_id")

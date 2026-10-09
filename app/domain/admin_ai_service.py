@@ -293,7 +293,7 @@ def _local_database_answer(
         "support": ("support_tickets", "ticket_messages", "warranty_requests"),
         "payments": ("wallet_topups", "withdrawals", "onchain_transactions", "orders"),
         "resellers": ("reseller_products", "reseller_fulfillments", "buyer_api_purchases"),
-        "analytics": ("interaction_events", "audit_events", "broadcast_jobs"),
+        "analytics": ("interaction_events", "storefront_events", "audit_events", "broadcast_jobs"),
         "settings": ("settings", "text_overrides", "custom_buttons"),
     }
     aliases = {

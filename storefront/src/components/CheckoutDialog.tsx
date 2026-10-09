@@ -8,6 +8,7 @@ import { money, plural } from "@/lib/format";
 import { stagger } from "@/lib/motion";
 import { navigate, ROUTES, withNext } from "@/lib/router";
 import { accountPath } from "@/lib/accountPath";
+import { trackInteraction } from "@/lib/track";
 import type { Cart } from "@/hooks/useCart";
 import type { CheckoutResult, PaymentMethod } from "@/types";
 
@@ -153,6 +154,7 @@ export function CheckoutDialog({ open, cart, paymentMethods, onClose, onConfirme
       });
       setResult(created);
       setBalance(created.balance_millimes);
+      trackInteraction("order", { label: `${cart.count} articles` });
     } catch (reason) {
       handleError(reason);
       setError(errorMessage(reason, "Impossible de créer la commande."));
