@@ -4,8 +4,29 @@ import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
-import { ROUTES, navigate, usePathname, withNext } from "@/lib/router";
-import { trackVisit } from "@/lib/track";
+import { ROUTES, usePathname } from "@/lib/router";
+
+/** How long the homepage stays usable after the intro, before the window opens. */
+export const SIGNUP_BROWSE_MS = 5000;
+
+const LOCK_KEY = "bm-signup-lock";
+
+/** True once the window has opened in this tab, so a refresh does not give another free look. */
+export function signupLockPending(): boolean {
+  try {
+    return sessionStorage.getItem(LOCK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function rememberSignupLock(): void {
+  try {
+    sessionStorage.setItem(LOCK_KEY, "1");
+  } catch {
+    // The short look is offered again on the next visit.
+  }
+}
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -24,37 +45,14 @@ export function isAccountFlow(path: string): boolean {
 }
 
 /**
- * Full-screen registration window. It cannot be dismissed: there is no close
- * control, Escape does nothing, and any other address is replaced by the
- * inscription page. Login, email verification and password recovery stay
- * reachable because they are how an account is opened.
+ * Registration window over the site. It cannot be dismissed: there is no close
+ * control and Escape does nothing. Login, email verification and password
+ * recovery stay inside the window, because that is how an account is opened.
  */
 export function SignupGate() {
   const path = usePathname();
   const windowRef = useRef<HTMLDivElement>(null);
   const Page = ACCOUNT_FLOW[path] ?? RegisterPage;
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem("bm-intro-seen", "1");
-    } catch {
-      // The intro simply stays skipped for this visit.
-    }
-  }, []);
-
-  useEffect(() => {
-    trackVisit(isAccountFlow(path) ? path : ROUTES.register);
-  }, [path]);
-
-  useEffect(() => {
-    // Read the address bar, not the render path: this effect can run twice
-    // before the redirected path is rendered, and must not wrap `next` again.
-    const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
-    if (isAccountFlow(pathname)) return;
-    const here = `${pathname}${window.location.search}`;
-    const safe = here.startsWith("/") && !here.startsWith("//") ? here : ROUTES.home;
-    navigate(withNext(ROUTES.register, safe), { replace: true });
-  }, [path]);
 
   useEffect(() => {
     const root = windowRef.current;

@@ -9,7 +9,7 @@ import { PublicReviewList } from "@/components/PublicReviews";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
-import { SignupGate } from "@/components/SignupGate";
+import { SignupGate, SIGNUP_BROWSE_MS, isAccountFlow, rememberSignupLock, signupLockPending } from "@/components/SignupGate";
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
@@ -66,18 +66,44 @@ export default function App() {
 
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [introDone, setIntroDone] = useState(false);
+  const [gateOpen, setGateOpen] = useState(false);
   const path = usePathname();
-  const openedId = productId(path);
+  const showGate = gateOpen && !authLoading && !customer;
+  const scene = showGate ? ROUTES.home : path;
+  const openedId = productId(scene);
   useEffect(() => {
-    if (authLoading || !customer) return;
+    if (authLoading) return;
     trackVisit(path);
-  }, [path, authLoading, customer]);
+  }, [path, authLoading]);
+  useEffect(() => {
+    if (customer || authLoading) return;
+    if (signupLockPending()) {
+      setGateOpen(true);
+      return;
+    }
+    if (!introDone) return;
+    const timer = window.setTimeout(() => {
+      rememberSignupLock();
+      setGateOpen(true);
+    }, SIGNUP_BROWSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [customer, authLoading, introDone]);
+  useEffect(() => {
+    if (!showGate || isAccountFlow(path) || path === ROUTES.home) return;
+    navigate(ROUTES.home, { replace: true });
+  }, [showGate, path]);
+  useEffect(() => {
+    if (!showGate) return;
+    setCartOpen(false);
+    setCheckoutOpen(false);
+  }, [showGate]);
   const openCheckout = () => {
     trackInteraction("checkout", { path });
     setCheckoutOpen(true);
   };
   const openProduct = (offer: Offer) => navigate(productPath(offer.id));
-  const Page = PAGES[path];
+  const Page = PAGES[scene];
   const categories = (catalog?.services ?? [])
     .filter((service) => service.offers.length)
     .map((service) => ({ id: String(service.id), label: service.name }));
@@ -111,12 +137,11 @@ export default function App() {
     );
   }
 
-  if (!customer) return <SignupGate />;
-
   return (
-    <div className="page" id="top">
+    <div className={showGate ? "page is-signup-locked" : "page"} id="top">
+      <div className="site-scene" inert={showGate ? true : undefined}>
       <RouteProgress />
-      <IntroSplash />
+      <IntroSplash onDone={() => setIntroDone(true)} />
       {loading && !offers.length && !error ? <LoadingPage /> : null}
       <SiteHeader
         cartCount={cart.count}
@@ -128,9 +153,9 @@ export default function App() {
         onOpenCart={() => setCartOpen(true)}
       />
 
-      <main key={path} className="page-enter">
+      <main key={scene} className="page-enter">
         <Suspense fallback={<LoadingPage />}>
-        {path === ROUTES.account ? (
+        {scene === ROUTES.account ? (
           <AccountPage
             offers={offers}
             catalogLoading={loading}
@@ -145,11 +170,11 @@ export default function App() {
           />
         ) : Page ? (
           <Page />
-        ) : path === ROUTES.categories ? (
+        ) : scene === ROUTES.categories ? (
           <CategoriesPage categories={categories} offers={offers} />
-        ) : path === ROUTES.deals ? (
+        ) : scene === ROUTES.deals ? (
           <DealsPage offers={offers} onOpenOffer={openProduct} />
-        ) : path === ROUTES.prices ? (
+        ) : scene === ROUTES.prices ? (
           <PricesPage offers={offers} onOpenOffer={openProduct} />
         ) : openedId ? (
           <ProductPage
@@ -165,9 +190,9 @@ export default function App() {
               openCheckout();
             }}
           />
-        ) : path === ROUTES.home || path === ROUTES.shop ? (
+        ) : scene === ROUTES.home || scene === ROUTES.shop ? (
           <>
-            {path === ROUTES.home ? (
+            {scene === ROUTES.home ? (
               <>
                 <Hero offers={offers} categories={categories} onOpenOffer={openProduct} />
                 <PublicReviewList />
@@ -200,7 +225,7 @@ export default function App() {
       <SiteFooter />
       <MobileTabBar />
 
-      {cart.count && !cartOpen && !checkoutOpen && (path === ROUTES.home || path === ROUTES.shop) ? (
+      {cart.count && !cartOpen && !checkoutOpen && !showGate && (scene === ROUTES.home || scene === ROUTES.shop) ? (
         <button type="button" className="cart-bar" onClick={() => setCartOpen(true)}>
           <ShoppingCart size={18} aria-hidden="true" />
           <span>
@@ -228,6 +253,8 @@ export default function App() {
         onClose={() => setCheckoutOpen(false)}
         onConfirmed={cart.clear}
       />
+      </div>
+      {showGate ? <SignupGate /> : null}
     </div>
   );
 }

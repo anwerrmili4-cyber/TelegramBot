@@ -303,15 +303,29 @@ button.auth-inline-link:disabled {
 
 /* ---------- Registration gate ---------- */
 
+.page.is-signup-locked {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.page.is-signup-locked .site-scene {
+  height: 100dvh;
+  overflow: hidden;
+  filter: blur(16px);
+  transform: scale(1.04);
+  pointer-events: none;
+  user-select: none;
+}
+
 .signup-gate {
-  min-height: 100dvh;
+  position: fixed;
+  z-index: 900;
+  inset: 0;
   display: grid;
   place-items: center;
   overflow: auto;
   padding: 28px 16px 40px;
-  background:
-    radial-gradient(ellipse at 50% 0%, var(--brand-wash), transparent 58%),
-    var(--ink-900);
+  background: color-mix(in srgb, var(--ink-900) 35%, transparent);
 }
 
 .signup-window {

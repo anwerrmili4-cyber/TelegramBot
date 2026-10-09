@@ -23,7 +23,7 @@ const FAQ = [
   ["La livraison est rapide ?", "Si le produit est en stock, l'accès part par email dès que le paiement est confirmé, et reste dans Mes achats."],
   ["Il y a une garantie ?", "Quand l'offre en a une, la durée est sur la fiche. La demande se fait depuis la commande."],
   ["Comment payer ?", "Portefeuille, ou D17, Flouci, IZI et Wafa Cash avec le reçu. Le solde bouge après vérification."],
-  ["Un compte est obligatoire ?", "Oui. L'inscription s'ouvre dès l'arrivée sur le site. Sans compte, les pages ne sont pas accessibles."],
+  ["Un compte est obligatoire ?", "Oui. Après l'introduction, le site se regarde quelques secondes, puis la fenêtre d'inscription s'ouvre."],
 ];
 
 function searchTo(query: string) {

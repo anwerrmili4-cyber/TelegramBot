@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const SEEN_KEY = "bm-intro-seen";
 const NAME = "BLACKMARKET";
@@ -22,8 +22,14 @@ function markSeen() {
   }
 }
 
-export function IntroSplash() {
+export function IntroSplash({ onDone }: { onDone?: () => void }) {
   const [phase, setPhase] = useState<"playing" | "leaving" | "done">(() => (shouldPlay() ? "playing" : "done"));
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  useEffect(() => {
+    if (phase === "done") onDoneRef.current?.();
+  }, [phase]);
 
   useEffect(() => {
     if (phase !== "playing") return;
