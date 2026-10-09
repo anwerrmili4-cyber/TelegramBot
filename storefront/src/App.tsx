@@ -9,6 +9,8 @@ import { PublicReviewList } from "@/components/PublicReviews";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
+import { SignupGate } from "@/components/SignupGate";
+import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
 import { money, plural } from "@/lib/format";
@@ -57,6 +59,7 @@ const PAGES: Record<string, ComponentType | undefined> = {
 const DEFAULT_MAX_LINES = 12;
 
 export default function App() {
+  const { customer, loading: authLoading, token } = useAuth();
   const { catalog, offers, loading, error, reload } = useCatalog();
   const maxLines = catalog?.max_cart_lines ?? DEFAULT_MAX_LINES;
   const cart = useCart(offers, maxLines);
@@ -66,8 +69,9 @@ export default function App() {
   const path = usePathname();
   const openedId = productId(path);
   useEffect(() => {
+    if (authLoading || !customer) return;
     trackVisit(path);
-  }, [path]);
+  }, [path, authLoading, customer]);
   const openCheckout = () => {
     trackInteraction("checkout", { path });
     setCheckoutOpen(true);
@@ -98,6 +102,16 @@ export default function App() {
     const timer = window.setTimeout(warm, 1200);
     return () => window.clearTimeout(timer);
   }, []);
+
+  if (token && authLoading) {
+    return (
+      <div className="page">
+        <LoadingPage />
+      </div>
+    );
+  }
+
+  if (!customer) return <SignupGate />;
 
   return (
     <div className="page" id="top">

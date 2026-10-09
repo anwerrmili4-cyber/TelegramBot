@@ -15,7 +15,7 @@ export function AuthLayout({ kicker, title, intro, children, footer }: AuthLayou
       <div className="auth-card">
         <header className="auth-head">
           <span className="kicker">{kicker}</span>
-          <h1>{title}</h1>
+          <h1 id="auth-title">{title}</h1>
           {intro ? <p>{intro}</p> : null}
         </header>
         {children}

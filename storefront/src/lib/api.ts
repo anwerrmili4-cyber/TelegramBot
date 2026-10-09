@@ -153,7 +153,7 @@ export function fetchCatalogFresh(signal?: AbortSignal): Promise<Catalog> {
   return catalogFlight;
 }
 
-if (typeof window !== "undefined") void prefetchCatalog();
+if (typeof window !== "undefined") void prefetchCatalog().catch(() => undefined);
 
 export type CheckoutPayload = {
   /** `wallet`, or a transfer method id such as `d17`. */
