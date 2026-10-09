@@ -70,8 +70,8 @@ function Sparkline({ values }) {
 
 function KpiCard({ icon: Icon, label, value, format, hint, change, period, spark = [], tone = "" }) {
   return <article className={`stats-kpi ${tone}`}>
-    <header><span className="stats-kpi-icon"><Icon size={16} /></span><span>{label}</span><DeltaBadge change={change} period={period} /></header>
-    <strong><AnimatedNumber value={value} format={format} /></strong>
+    <header><span className="stats-kpi-icon"><Icon size={16} /></span><span>{label}</span></header>
+    <div className="stats-kpi-value"><strong><AnimatedNumber value={value} format={format} /></strong><DeltaBadge change={change} period={period} /></div>
     <small>{hint}</small>
     <Sparkline values={spark} />
   </article>;
@@ -295,9 +295,9 @@ export default function SiteStatsPage() {
         hint={ready ? `${formatCount(summary.unique_today)} aujourd’hui` : "Navigateurs distincts"} spark={daily.map((point) => point.visitors)} />
       <KpiCard icon={MousePointerClick} label="Interactions" value={summary.interactions} change={compare("interactions")} period={period}
         hint={ready ? `${formatCount(summary.interactions_today)} aujourd’hui` : "Paniers, recherches, favoris"} spark={daily.map((point) => point.interactions)} />
-      <KpiCard icon={PackageCheck} label="Commandes envoyées" value={summary.orders} change={compare("orders")} period={period}
+      <KpiCard icon={PackageCheck} label="Commandes" value={summary.orders} change={compare("orders")} period={period}
         hint={ready ? `${formatPercent(percent(summary.orders, summary.unique))} des visiteurs` : "Depuis le site"} tone="is-green" />
-      <KpiCard icon={Layers} label="Pages par visiteur" value={summary.unique ? summary.visits / summary.unique : 0}
+      <KpiCard icon={Layers} label="Pages / visiteur" value={summary.unique ? summary.visits / summary.unique : 0}
         format={(value) => value.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
         hint={ready && summary.entries ? `${formatCount(summary.entries)} entrées sur le site` : "Profondeur de visite"} />
       <KpiCard icon={Gauge} label="Engagement" value={percent(summary.engaged, summary.unique) || 0}
