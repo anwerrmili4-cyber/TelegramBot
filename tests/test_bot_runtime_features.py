@@ -50,9 +50,15 @@ def test_maintenance_guard_reads_settings_once_per_window(monkeypatch):
     assert settings.call_count == 1
 
 
-def test_click_report_does_not_block_the_button_handlers():
+def test_click_report_does_not_block_the_button_handlers(monkeypatch):
     import bot
+    import config
 
+    token = "123456789:" + ("A" * 35)
+    monkeypatch.setattr(config, "BOT_TOKEN", token)
+    monkeypatch.setattr(config, "ADMIN_ID", 1)
+    monkeypatch.setattr(config, "MONGODB_URI", "mongodb://127.0.0.1:27017/ci")
+    monkeypatch.setattr(bot, "BOT_TOKEN", token)
     app = bot.build_app()
     report = next(h for h in app.handlers[-5] if h.callback is middlewares.notify_admin_interaction)
     assert report.block is False

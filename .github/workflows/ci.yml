@@ -31,6 +31,19 @@ jobs:
     - name: Check compilation syntax
       run: python -m compileall . -q -x '(node_modules|dist|\.venv)'
 
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: 'npm'
+        cache-dependency-path: storefront/package-lock.json
+
+    - name: Build the storefront served by the Python tests
+      working-directory: storefront
+      run: |
+        npm ci
+        npm run build
+
     - name: Run Ruff Linter
       run: python -m ruff check .
 

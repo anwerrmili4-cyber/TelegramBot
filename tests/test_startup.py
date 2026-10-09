@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import config
 import database as db
 from api import webhook
 from api.webhook import handler, health_payload, public_site_html
@@ -88,7 +89,14 @@ def test_public_site_has_live_status_and_opt_in_notifications():
 
 
 def test_bot_application_builds_with_mock_database(mock_mongodb, monkeypatch):
+    import bot
+
     monkeypatch.setattr(db, "init_db", lambda: None)
+    token = "123456789:" + ("A" * 35)
+    monkeypatch.setattr(config, "BOT_TOKEN", token)
+    monkeypatch.setattr(config, "ADMIN_ID", 1)
+    monkeypatch.setattr(config, "MONGODB_URI", "mongodb://127.0.0.1:27017/ci")
+    monkeypatch.setattr(bot, "BOT_TOKEN", token)
 
     application = build_app()
 
