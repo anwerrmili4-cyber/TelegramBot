@@ -110,4 +110,7 @@ export const DAILY_CSV_COLUMNS = [
   ["visits", "Visites"],
   ["visitors", "Visiteurs uniques"],
   ["interactions", "Interactions"],
+  ["cart_adds", "Ajouts au panier"],
+  ["checkouts", "Paiements ouverts"],
+  ["orders", "Commandes envoyées"],
 ];

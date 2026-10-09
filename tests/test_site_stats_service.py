@@ -75,6 +75,48 @@ def test_visit_and_interaction_counts_are_real_events(mock_mongodb):
     assert result["recent"][0]["action_label"]
 
 
+def test_daily_counts_and_focus_stay_on_the_real_day(mock_mongodb):
+    _visit("/", visitor=1)
+    _visit("/boutique", visitor=1)
+    _interaction("cart_add", visitor=1, offer_id=12, path="/produit/12")
+    _interaction("order", visitor=1)
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+    yesterday_label = yesterday.astimezone(site_stats_service.TUNIS_TZ).strftime("%Y-%m-%d")
+    mock_mongodb.storefront_events.insert_one({
+        "kind": "visit",
+        "action": "page",
+        "path": "/prix",
+        "label": "",
+        "offer_id": 0,
+        "visitor_id": _visitor(8),
+        "customer_id": None,
+        "device": "",
+        "source": "direct",
+        "day": yesterday_label,
+        "created_at": int(yesterday.timestamp()),
+        "created_at_date": yesterday,
+    })
+
+    week = site_stats_service.stats({"days": ["7"]})
+    today = week["daily"][-1]
+    assert today["visits"] == 2
+    assert today["cart_adds"] == 1
+    assert today["orders"] == 1
+    assert today["checkouts"] == 0
+    assert week["focus"]["date"] == today["date"]
+    assert week["focus"]["visits"] == 2
+    assert {page["path"] for page in week["focus"]["pages"]} == {"/", "/boutique"}
+    assert week["summary"]["orders"] == 1
+
+    focused = site_stats_service.stats({"days": ["7"], "day": [yesterday_label]})
+    assert focused["focus"]["date"] == yesterday_label
+    assert focused["focus"]["visits"] == 1
+    assert focused["focus"]["orders"] == 0
+    assert [page["path"] for page in focused["focus"]["pages"]] == ["/prix"]
+    assert focused["daily"][-1]["orders"] == 1
+    assert site_stats_service.stats({"days": ["7"], "day": ["1999-01-01"]})["focus"]["date"] == today["date"]
+
+
 def test_funnel_sources_devices_and_heatmap(mock_mongodb):
     _visit("/", visitor=1, device="mobile", source="social")
     _visit("/produit/12", visitor=1, device="mobile")

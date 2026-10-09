@@ -279,6 +279,71 @@ def _labelled(counts: dict[Any, int], labels: dict[str, str]) -> list[dict[str, 
     return sorted(rows, key=lambda row: -row["count"])
 
 
+def _focus_day(params: dict[str, list[str]] | None, labels: list[str], today: str) -> str:
+    """The calendar day the admin asked for, otherwise today when it is in range."""
+    requested = _first(params or {}, "day")
+    if requested in labels:
+        return requested
+    if today in labels:
+        return today
+    return labels[-1] if labels else ""
+
+
+def _breakdown(match: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Pages, products, actions and searches counted from the events in `match`."""
+    page_counts: dict[str, int] = {}
+    for path, count in _grouped({**match, "kind": "visit"}, "path").items():
+        key = PRODUCT_PAGES_PATH if PRODUCT_PATH.fullmatch(str(path or "")) else str(path or "")
+        if not key:
+            continue
+        page_counts[key] = page_counts.get(key, 0) + count
+    pages = [
+        {"path": path, "label": page_label(path), "visits": count}
+        for path, count in sorted(page_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
+    ]
+
+    def offer_counts(extra: dict[str, Any]) -> dict[int, int]:
+        return {
+            int(offer_id): count
+            for offer_id, count in _grouped(extra, "offer_id").items()
+            if str(offer_id).isdigit() or isinstance(offer_id, int)
+        }
+
+    view_counts = offer_counts({**match, "kind": "visit", "offer_id": {"$gt": 0}})
+    cart_counts = offer_counts({**match, "kind": "interaction", "action": "cart_add", "offer_id": {"$gt": 0}})
+    offer_ids = sorted(set(view_counts) | set(cart_counts))
+    names: dict[int, str] = {}
+    if offer_ids:
+        for offer in db.get_conn().offers.find({"id": {"$in": offer_ids}}, {"id": 1, "name": 1, "site_name": 1}):
+            names[int(offer["id"])] = str(offer.get("site_name") or offer.get("name") or "").strip()
+    products = [
+        {
+            "offer_id": offer_id,
+            "name": names.get(offer_id) or f"Produit #{offer_id}",
+            "views": view_counts.get(offer_id, 0),
+            "cart_adds": cart_counts.get(offer_id, 0),
+        }
+        for offer_id in offer_ids
+    ]
+    products.sort(key=lambda item: (-item["views"], -item["cart_adds"], item["name"].casefold()))
+
+    action_counts = _grouped({**match, "kind": "interaction"}, "action")
+    actions = [
+        {"action": action, "label": label, "count": int(action_counts.get(action) or 0)}
+        for action, label in INTERACTION_LABELS.items()
+    ]
+    search_counts = _grouped(
+        {**match, "kind": "interaction", "action": "search", "label": {"$gt": ""}},
+        "label",
+    )
+    searches = [
+        {"label": str(label), "count": count}
+        for label, count in sorted(search_counts.items(), key=lambda item: (-item[1], str(item[0]).casefold()))
+        if str(label or "").strip()
+    ][:5]
+    return {"pages": pages, "products": products[:8], "actions": actions, "searches": searches}
+
+
 def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
     """Headline figures, a daily series, and the lists shown on the site admin."""
     days = _days(params)
@@ -288,10 +353,14 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
 
     visits_by_day: dict[str, int] = {}
     interactions_by_day: dict[str, int] = {}
+    orders_by_day: dict[str, int] = {}
+    carts_by_day: dict[str, int] = {}
+    checkouts_by_day: dict[str, int] = {}
+    daily_actions = {"order": orders_by_day, "cart_add": carts_by_day, "checkout": checkouts_by_day}
     for row in conn.storefront_events.aggregate([
         {"$match": window},
         {"$group": {
-            "_id": {"day": "$day", "kind": "$kind"},
+            "_id": {"day": "$day", "kind": "$kind", "action": "$action"},
             "count": {"$sum": 1},
         }},
     ]):
@@ -302,6 +371,9 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
             visits_by_day[day] = visits_by_day.get(day, 0) + count
         elif bucket.get("kind") == "interaction":
             interactions_by_day[day] = interactions_by_day.get(day, 0) + count
+            bucket_for_action = daily_actions.get(str(bucket.get("action") or ""))
+            if bucket_for_action is not None:
+                bucket_for_action[day] = bucket_for_action.get(day, 0) + count
 
     visitors_by_day: dict[str, int] = {}
     days_by_visitor: dict[str, int] = {}
@@ -315,62 +387,11 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
         visitor = str(bucket.get("visitor") or "")
         days_by_visitor[visitor] = days_by_visitor.get(visitor, 0) + 1
 
-    page_counts: dict[str, int] = {}
-    for path, count in _grouped({**window, "kind": "visit"}, "path").items():
-        key = PRODUCT_PAGES_PATH if PRODUCT_PATH.fullmatch(str(path or "")) else str(path or "")
-        if not key:
-            continue
-        page_counts[key] = page_counts.get(key, 0) + count
-    popular_pages = [
-        {"path": path, "label": page_label(path), "visits": count}
-        for path, count in sorted(page_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
-    ]
-
-    view_counts = {
-        int(offer_id): count
-        for offer_id, count in _grouped({**window, "kind": "visit", "offer_id": {"$gt": 0}}, "offer_id").items()
-        if str(offer_id).isdigit() or isinstance(offer_id, int)
-    }
-    cart_counts = {
-        int(offer_id): count
-        for offer_id, count in _grouped(
-            {**window, "kind": "interaction", "action": "cart_add", "offer_id": {"$gt": 0}},
-            "offer_id",
-        ).items()
-        if str(offer_id).isdigit() or isinstance(offer_id, int)
-    }
-    offer_ids = sorted(set(view_counts) | set(cart_counts))
-    names = {}
-    if offer_ids:
-        for offer in conn.offers.find({"id": {"$in": offer_ids}}, {"id": 1, "name": 1, "site_name": 1}):
-            names[int(offer["id"])] = str(offer.get("site_name") or offer.get("name") or "").strip()
-    popular_products = [
-        {
-            "offer_id": offer_id,
-            "name": names.get(offer_id) or f"Produit #{offer_id}",
-            "views": view_counts.get(offer_id, 0),
-            "cart_adds": cart_counts.get(offer_id, 0),
-        }
-        for offer_id in offer_ids
-    ]
-    popular_products.sort(key=lambda item: (-item["views"], -item["cart_adds"], item["name"].casefold()))
-    popular_products = popular_products[:8]
-
-    action_counts = _grouped({**window, "kind": "interaction"}, "action")
-    actions = [
-        {"action": action, "label": label, "count": int(action_counts.get(action) or 0)}
-        for action, label in INTERACTION_LABELS.items()
-    ]
-
-    search_counts = _grouped(
-        {**window, "kind": "interaction", "action": "search", "label": {"$gt": ""}},
-        "label",
-    )
-    searches = [
-        {"label": str(label), "count": count}
-        for label, count in sorted(search_counts.items(), key=lambda item: (-item[1], str(item[0]).casefold()))
-        if str(label or "").strip()
-    ][:5]
+    period_lists = _breakdown(window)
+    popular_pages = period_lists["pages"]
+    popular_products = period_lists["products"]
+    actions = period_lists["actions"]
+    searches = period_lists["searches"]
 
     recent_rows = list(
         conn.storefront_events.find(window, {"_id": 0, "visitor_id": 0, "created_at_date": 0})
@@ -404,9 +425,31 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
             "visits": visits_by_day.get(day, 0),
             "visitors": visitors_by_day.get(day, 0),
             "interactions": interactions_by_day.get(day, 0),
+            "cart_adds": carts_by_day.get(day, 0),
+            "checkouts": checkouts_by_day.get(day, 0),
+            "orders": orders_by_day.get(day, 0),
         }
         for day in labels
     ]
+    by_date = {point["date"]: point for point in daily}
+    focus_date = _focus_day(params, labels, today)
+    focus_lists = _breakdown({**window, "day": focus_date}) if focus_date else {
+        "pages": [], "products": [], "actions": [], "searches": [],
+    }
+    focus_point = by_date.get(focus_date, {})
+    focus = {
+        "date": focus_date,
+        "visits": int(focus_point.get("visits") or 0),
+        "visitors": int(focus_point.get("visitors") or 0),
+        "interactions": int(focus_point.get("interactions") or 0),
+        "cart_adds": int(focus_point.get("cart_adds") or 0),
+        "checkouts": int(focus_point.get("checkouts") or 0),
+        "orders": int(focus_point.get("orders") or 0),
+        "pages": focus_lists["pages"],
+        "products": focus_lists["products"],
+        "actions": focus_lists["actions"],
+        "searches": focus_lists["searches"],
+    }
 
     unique = _visitors({**window, "kind": "visit"})
     funnel_counts = {
@@ -445,7 +488,7 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
             "unique": unique,
             "interactions_today": interactions_by_day.get(today, 0),
             "interactions": interactions,
-            "orders": int(action_counts.get("order") or 0),
+            "orders": sum(orders_by_day.get(day, 0) for day in labels),
             "live_visitors": _visitors(
                 {"created_at": {"$gte": int(datetime.now(UTC).timestamp()) - LIVE_WINDOW_SECONDS}},
             ),
@@ -460,6 +503,7 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
         "devices": _labelled(device_counts, DEVICE_LABELS),
         "heatmap": _heatmap(window),
         "daily": daily,
+        "focus": focus,
         "popular_pages": popular_pages,
         "popular_products": popular_products,
         "actions": actions,

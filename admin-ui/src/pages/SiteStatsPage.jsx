@@ -77,22 +77,11 @@ function KpiCard({ icon: Icon, label, value, format, hint, change, period, spark
   </article>;
 }
 
-function smoothPath(points, floor) {
-  if (!points.length) return "";
-  if (points.length === 1) return `M${points[0][0]},${points[0][1]}`;
-  let path = `M${points[0][0]},${points[0][1]}`;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const [x0, y0] = points[index - 1] || points[index];
-    const [x1, y1] = points[index];
-    const [x2, y2] = points[index + 1];
-    const [x3, y3] = points[index + 2] || points[index + 1];
-    const clamp = (y) => Math.min(floor, y);
-    path += ` C${x1 + (x2 - x0) / 6},${clamp(y1 + (y2 - y0) / 6)} ${x2 - (x3 - x1) / 6},${clamp(y2 - (y3 - y1) / 6)} ${x2},${y2}`;
-  }
-  return path;
+function linePath(points) {
+  return points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
 }
 
-function TrafficChart({ daily, period }) {
+function TrafficChart({ daily, period, selected, onSelect }) {
   const [hovered, setHovered] = useState(null);
   const width = 760;
   const height = 260;
@@ -100,34 +89,25 @@ function TrafficChart({ daily, period }) {
   const plotWidth = width - box.left - box.right;
   const plotHeight = height - box.top - box.bottom;
   const floor = box.top + plotHeight;
-  const max = niceMax(Math.max(0, ...daily.flatMap((point) => [point.visits, point.visitors, point.interactions].map(Number))));
+  const max = niceMax(Math.max(0, ...daily.flatMap((point) => [point.visits, point.visitors].map(Number))));
   const band = plotWidth / Math.max(daily.length, 1);
   const x = (index) => box.left + band * index + band / 2;
   const y = (value) => floor - ((Number(value) || 0) / max) * plotHeight;
-  const visits = daily.map((point, index) => [x(index), y(point.visits)]);
   const visitors = daily.map((point, index) => [x(index), y(point.visitors)]);
-  const visitsLine = smoothPath(visits, floor);
+  const visitorLine = linePath(visitors);
   const labelEvery = Math.ceil(daily.length / 10);
-  const barWidth = Math.max(3, Math.min(14, band * 0.42));
+  const barWidth = Math.max(3, Math.min(16, band * 0.46));
   const active = hovered == null ? null : daily[hovered];
 
   return <div className="stats-chart" onMouseLeave={() => setHovered(null)}>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Visites, visiteurs et interactions sur ${period} jours`}>
-      <defs>
-        <linearGradient id="stats-visits-fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity=".32" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Visites et visiteurs réels sur ${period} jours`}>
       {[0, 0.25, 0.5, 0.75, 1].map((ratio) => <g key={ratio} className="stats-grid-line">
         <line x1={box.left} x2={width - box.right} y1={floor - ratio * plotHeight} y2={floor - ratio * plotHeight} />
         <text x={box.left - 8} y={floor - ratio * plotHeight + 4}>{formatCount(max * ratio)}</text>
       </g>)}
-      {daily.map((point, index) => <rect key={`bar-${point.date}`} className="stats-bar" style={{ animationDelay: `${Math.min(index * 18, 500)}ms` }}
-        x={x(index) - barWidth / 2} width={barWidth} y={y(point.interactions)} height={floor - y(point.interactions)} rx={Math.min(4, barWidth / 2)} />)}
-      {visits.length > 1 && <path className="stats-area" d={`${visitsLine} L${visits.at(-1)[0]},${floor} L${visits[0][0]},${floor} Z`} />}
-      <path className="stats-line" pathLength="1" d={visitsLine} />
-      <path className="stats-line is-secondary" pathLength="1" d={smoothPath(visitors, floor)} />
+      {daily.map((point, index) => <rect key={`bar-${point.date}`} className={`stats-bar${point.date === selected ? " is-selected" : ""}`} style={{ animationDelay: `${Math.min(index * 16, 480)}ms` }}
+        x={x(index) - barWidth / 2} width={barWidth} y={y(point.visits)} height={Math.max(point.visits ? 2 : 0, floor - y(point.visits))} rx={Math.min(4, barWidth / 2)} />)}
+      {visitors.length > 1 && <path className="stats-line is-secondary" pathLength="1" d={visitorLine} />}
       {daily.map((point, index) => index % labelEvery === 0 || index === daily.length - 1
         ? <text key={`label-${point.date}`} className="stats-axis" x={x(index)} y={height - 8}>{dayLabel(point.date)}</text> : null)}
       {active && <g className="stats-hover">
@@ -136,14 +116,16 @@ function TrafficChart({ daily, period }) {
         <circle cx={x(hovered)} cy={y(active.visitors)} r="4" className="is-secondary" />
       </g>}
       {daily.map((point, index) => <rect key={`hit-${point.date}`} className="stats-hit" x={box.left + band * index} y={box.top} width={band} height={plotHeight}
-        onMouseEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} tabIndex={0}
-        aria-label={`${dayLabel(point.date, "long")} : ${point.visits} visites`} />)}
+        onMouseEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)}
+        onClick={() => onSelect?.(point.date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect?.(point.date); } }}
+        tabIndex={0} aria-label={`${dayLabel(point.date, "long")} : ${point.visits} visites`} />)}
     </svg>
     {active && <div className="stats-tooltip" aria-live="polite" style={{ left: `${(x(hovered) / width) * 100}%` }} data-side={hovered > daily.length / 2 ? "left" : "right"}>
       <strong>{dayLabel(active.date, "long")}</strong>
       <span><i className="is-visits" />Visites<b>{formatCount(active.visits)}</b></span>
       <span><i className="is-visitors" />Visiteurs<b>{formatCount(active.visitors)}</b></span>
       <span><i className="is-interactions" />Interactions<b>{formatCount(active.interactions)}</b></span>
+      <span><i className="is-orders" />Commandes<b>{formatCount(active.orders)}</b></span>
     </div>}
   </div>;
 }
@@ -228,6 +210,56 @@ function RankList({ rows, value, label, detail, emptyIcon, emptyTitle, emptyText
   </li>)}</ol>;
 }
 
+const DAY_COLUMNS = [
+  ["visits", "Visites"],
+  ["visitors", "Visiteurs"],
+  ["interactions", "Interactions"],
+  ["orders", "Commandes"],
+];
+
+function DayBoard({ daily, focus, selected, onSelect }) {
+  const rows = [...daily].reverse();
+  const max = Math.max(1, ...rows.map((point) => Number(point.visits) || 0));
+  const quiet = !Number(focus.visits) && !Number(focus.interactions);
+  return <div className="stats-day-board">
+    <div className="stats-day-scroll">
+      <div className="stats-day-head" aria-hidden="true">
+        <span>Jour</span>
+        {DAY_COLUMNS.map(([, label]) => <span key={label}>{label}</span>)}
+      </div>
+      <ol className="stats-day-list">
+        {rows.map((point, index) => <li key={point.date} style={{ animationDelay: `${Math.min(index, 14) * 36}ms` }}>
+          <button type="button" className={point.date === selected ? "is-selected" : ""} aria-pressed={point.date === selected} onClick={() => onSelect(point.date)}>
+            <strong>{dayLabel(point.date, "long")}</strong>
+            {DAY_COLUMNS.map(([key]) => <b key={key}>{formatCount(point[key])}</b>)}
+            <i className="stats-day-meter" aria-hidden="true"><span style={{ "--share": (Number(point.visits) || 0) / max }} /></i>
+          </button>
+        </li>)}
+      </ol>
+    </div>
+    <aside key={focus.date || "jour"} className="stats-day-focus">
+      <header>
+        <h3>{focus.date ? dayLabel(focus.date, "long") : "Jour"}</h3>
+        <small>Compté sur les événements de ce jour</small>
+      </header>
+      <div className="stats-day-metrics">
+        {DAY_COLUMNS.map(([key, label]) => <div key={key}><span>{label}</span><strong><AnimatedNumber value={focus[key]} /></strong></div>)}
+        <div><span>Paniers</span><strong><AnimatedNumber value={focus.cart_adds} /></strong></div>
+        <div><span>Paiements</span><strong><AnimatedNumber value={focus.checkouts} /></strong></div>
+      </div>
+      {quiet ? <p className="stats-muted">Aucun événement enregistré ce jour-là.</p> : <>
+        <h4 className="stats-subtitle"><Eye size={14} />Pages du jour</h4>
+        <RankList rows={(focus.pages || []).slice(0, 5)} value={(row) => row.visits} label={(row) => row.label} detail={(row) => row.path}
+          emptyIcon={Eye} emptyTitle="Aucune page" emptyText="Pas de page vue ce jour-là." />
+        <h4 className="stats-subtitle"><ShoppingBag size={14} />Produits du jour</h4>
+        <RankList rows={(focus.products || []).slice(0, 5)} value={(row) => row.views} label={(row) => row.name}
+          detail={(row) => `${formatCount(row.cart_adds)} ajout(s) au panier`}
+          emptyIcon={ShoppingBag} emptyTitle="Aucun produit" emptyText="Pas de fiche consultée ce jour-là." />
+      </>}
+    </aside>
+  </div>;
+}
+
 function downloadDaily(daily, period) {
   const url = URL.createObjectURL(new Blob([csvDocument(DAILY_CSV_COLUMNS, daily)], { type: "text/csv;charset=utf-8" }));
   const anchor = document.createElement("a");
@@ -239,13 +271,16 @@ function downloadDaily(daily, period) {
 
 export default function SiteStatsPage() {
   const [days, setDays] = useState(30);
-  const [result, loading] = useRemoteList("/admin/api/site-stats", { days }, { refreshInterval: 30000 });
+  const [day, setDay] = useState("");
+  const [result, loading] = useRemoteList("/admin/api/site-stats", { days, day }, { refreshInterval: 30000 });
   const [updatedAt, setUpdatedAt] = useState(null);
   const [, setTick] = useState(0);
   const ready = result.ok === true;
   const summary = result.summary || {};
   const previous = result.previous || null;
   const daily = result.daily || [];
+  const focus = result.focus || {};
+  const selectedDay = focus.date || "";
   const period = ready ? summary.days || days : days;
 
   useEffect(() => { if (ready && !loading) setUpdatedAt(new Date()); }, [ready, loading, result]);
@@ -266,11 +301,11 @@ export default function SiteStatsPage() {
   return <div className="operations-page site-page stats-page">
     <PageHeader
       title="Statistiques du site"
-      description="Audience, parcours d’achat et engagement sur ourblackmarket.com, mesurés par le site lui-même, sans outil externe."
+      description="Chaque chiffre est un événement enregistré sur ourblackmarket.com. Le détail s’ouvre jour par jour, à l’heure de Tunis."
       actions={<div className="stats-actions">
         <div className="stats-period" role="group" aria-label="Période" style={{ "--index": PERIODS.indexOf(days) }}>
           <i aria-hidden="true" />
-          {PERIODS.map((value) => <button key={value} type="button" aria-pressed={days === value} onClick={() => setDays(value)}>{value} j</button>)}
+          {PERIODS.map((value) => <button key={value} type="button" aria-pressed={days === value} onClick={() => { setDays(value); setDay(""); }}>{value} j</button>)}
         </div>
         <button type="button" className="stats-export" onClick={() => downloadDaily(daily, period)} disabled={!ready || !daily.length}>
           <Download size={15} />Exporter
@@ -316,17 +351,22 @@ export default function SiteStatsPage() {
 
     <section className="site-panel stats-panel stats-traffic">
       <header>
-        <h3><Activity size={16} />Trafic sur {period} jours</h3>
+        <h3><Activity size={16} />Visites réelles par jour</h3>
         <div className="stats-legend">
           <span><i className="is-visits" />Visites</span>
           <span><i className="is-visitors" />Visiteurs</span>
-          <span><i className="is-interactions" />Interactions</span>
+          <span>Cliquez un jour</span>
         </div>
       </header>
       {!hasActivity
         ? <Empty icon={Activity} title={loading && !ready ? "Chargement des statistiques…" : "Aucune visite pour le moment"} text="Les pages vues et les actions sur le site apparaîtront ici dès qu’un visiteur navigue." />
-        : <TrafficChart key={period} daily={daily} period={period} />}
+        : <TrafficChart key={period} daily={daily} period={period} selected={selectedDay} onSelect={setDay} />}
     </section>
+
+    {hasActivity && <section className="site-panel stats-panel">
+      <header><h3><Activity size={16} />Jour par jour</h3><small>{period} jours · chiffres réels</small></header>
+      <DayBoard daily={daily} focus={focus} selected={selectedDay} onSelect={setDay} />
+    </section>}
 
     <div className="stats-row">
       <section className="site-panel stats-panel stats-span-7">
