@@ -12,7 +12,7 @@ account id. IP addresses, emails and message bodies are not stored.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import database as db
@@ -169,7 +169,7 @@ def record(payload: dict[str, Any], customer_id: int | None = None) -> dict[str,
     label = _label(payload.get("label"))
     account_id = _customer_id(customer_id)
 
-    now = int(datetime.now(timezone.utc).timestamp())
+    now = int(datetime.now(UTC).timestamp())
     conn = db.get_conn()
     if kind == "visit":
         duplicate = conn.storefront_events.find_one(
@@ -200,7 +200,7 @@ def record(payload: dict[str, Any], customer_id: int | None = None) -> dict[str,
         "customer_id": account_id,
         "day": datetime.now(TUNIS_TZ).strftime("%Y-%m-%d"),
         "created_at": now,
-        "created_at_date": datetime.fromtimestamp(now, timezone.utc),
+        "created_at_date": datetime.fromtimestamp(now, UTC),
     })
     return {"ok": True, "stored": True}
 
@@ -359,7 +359,7 @@ def stats(params: dict[str, list[str]] | None = None) -> dict[str, Any]:
             "interactions": sum(point["interactions"] for point in daily),
             "live_visitors": len(conn.storefront_events.distinct(
                 "visitor_id",
-                {"created_at": {"$gte": int(datetime.now(timezone.utc).timestamp()) - LIVE_WINDOW_SECONDS}},
+                {"created_at": {"$gte": int(datetime.now(UTC).timestamp()) - LIVE_WINDOW_SECONDS}},
             )),
         },
         "daily": daily,

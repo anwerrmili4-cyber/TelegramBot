@@ -7,7 +7,7 @@ import http.client
 import json
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from http.server import HTTPServer
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -89,7 +89,7 @@ def test_bot_interactions_are_not_site_visits(mock_mongodb):
 
 def test_old_events_stay_outside_the_window(mock_mongodb):
     _visit("/")
-    old = datetime.now(timezone.utc) - timedelta(days=40)
+    old = datetime.now(UTC) - timedelta(days=40)
     mock_mongodb.storefront_events.insert_one({
         "kind": "visit",
         "action": "page",
