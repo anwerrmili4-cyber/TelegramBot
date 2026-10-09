@@ -490,6 +490,9 @@ def init_db():
     db.storefront_events.create_index([("created_at", DESCENDING)])
     db.storefront_events.create_index([("kind", ASCENDING), ("created_at", DESCENDING)])
     db.storefront_events.create_index([("visitor_id", ASCENDING), ("created_at", DESCENDING)])
+    db.storefront_events.create_index(
+        [("visitor_id", ASCENDING), ("kind", ASCENDING), ("path", ASCENDING), ("created_at", DESCENDING)]
+    )
     db.service_logos.create_index("service_id")
     db.category_logos.create_index("logo_id")
     db.offer_images.create_index("offer_id")

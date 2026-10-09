@@ -33,6 +33,7 @@ from urllib.parse import quote, urlencode
 from pymongo.errors import DuplicateKeyError
 
 import database as db
+from app.core.cache import cache
 from app.domain import (
     email_service,
     site_requests_service,
@@ -477,9 +478,26 @@ def google_login(payload: dict[str, Any], client_ip: str = "") -> dict[str, Any]
     return _open_session(customer)
 
 
-def customer_for_token(token: Any) -> dict[str, Any]:
-    if not token:
-        raise AuthError("Connecte-toi pour continuer.", status=401)
+# A logged-in page asks for the account several times (profile, notices, favorites).
+# The same answer is reused briefly; logout and profile edits drop it at once.
+SESSION_CACHE_SECONDS = 20.0
+_SESSION_CACHE_PREFIX = "storefront-session:"
+
+
+def _session_key(token: Any) -> str:
+    return _SESSION_CACHE_PREFIX + _token_hash(token)
+
+
+def _forget_session(token: Any) -> None:
+    if token:
+        cache.invalidate(_session_key(token))
+
+
+def _forget_customer_sessions() -> None:
+    cache.invalidate(_SESSION_CACHE_PREFIX)
+
+
+def _load_customer(token: Any) -> dict[str, Any]:
     conn = db.get_conn()
     session = conn.storefront_sessions.find_one({"token_hash": _token_hash(token)})
     if not session or int(session.get("expires_at") or 0) < time.time():
@@ -488,6 +506,14 @@ def customer_for_token(token: Any) -> dict[str, Any]:
     if not customer:
         raise AuthError("Ta session a expiré. Reconnecte-toi.", status=401)
     return customer
+
+
+def customer_for_token(token: Any) -> dict[str, Any]:
+    if not token:
+        raise AuthError("Connecte-toi pour continuer.", status=401)
+    if SESSION_CACHE_SECONDS <= 0:
+        return _load_customer(token)
+    return cache.get_or_set(_session_key(token), SESSION_CACHE_SECONDS, lambda: _load_customer(token))
 
 
 def me(token: Any) -> dict[str, Any]:
@@ -500,6 +526,7 @@ def update_profile(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
     db.get_conn().storefront_customers.update_one(
         {"id": customer["id"]}, {"$set": {**changes, "updated_at": int(time.time())}}
     )
+    _forget_session(token)
     return {"ok": True, "customer": _public_customer({**customer, **changes})}
 
 
@@ -526,6 +553,7 @@ def change_password(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
     conn.storefront_sessions.delete_many(
         {"customer_id": int(customer["id"]), "token_hash": {"$ne": _token_hash(token)}}
     )
+    _forget_customer_sessions()
     conn.storefront_password_resets.delete_many({"customer_id": int(customer["id"])})
     db.audit_event("storefront.customer_password_changed", details={"customer_id": customer["id"]})
     return {"ok": True}
@@ -640,6 +668,7 @@ def open_warranty(token: Any, payload: dict[str, Any]) -> dict[str, Any]:
 def logout(token: Any) -> dict[str, Any]:
     if token:
         db.get_conn().storefront_sessions.delete_one({"token_hash": _token_hash(token)})
+        _forget_session(token)
     return {"ok": True}
 
 
@@ -685,6 +714,7 @@ def reset_password(payload: dict[str, Any]) -> dict[str, Any]:
         {"$set": {"password_hash": hash_password(password), "email_verified": True, "updated_at": int(time.time())}},
     )
     conn.storefront_sessions.delete_many({"customer_id": customer_id})
+    _forget_customer_sessions()
     conn.storefront_password_resets.delete_many({"customer_id": customer_id})
     conn.storefront_email_codes.delete_many({"customer_id": customer_id})
     db.audit_event("storefront.customer_password_reset", details={"customer_id": customer_id})

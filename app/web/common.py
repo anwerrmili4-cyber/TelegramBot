@@ -94,7 +94,9 @@ def build_app(*, surface: str, headers: dict[str, str], entry: Callable) -> Fast
         methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         include_in_schema=False,
     )
-    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
+    # Level 1 keeps JSON small enough while a burst of visitors is not stuck
+    # compressing the same catalog at the default, much slower, level.
+    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
     app.add_middleware(RequestContextMiddleware, surface=surface, headers=headers)
     return app
 

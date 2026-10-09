@@ -11,26 +11,39 @@ type CatalogState = {
 };
 
 const CACHE_KEY = "bm-catalog-v1";
+const CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+
+function catalogFrom(raw: string): Catalog | null {
+  const parsed = JSON.parse(raw) as Catalog & { savedAt?: number; catalog?: Catalog };
+  const catalog = parsed?.catalog && Array.isArray(parsed.catalog.services) ? parsed.catalog : parsed;
+  if (!catalog || !Array.isArray(catalog.services)) return null;
+  if (parsed?.savedAt && Date.now() - parsed.savedAt > CACHE_MAX_AGE_MS) return null;
+  return catalog;
+}
 
 function readCachedCatalog(): Catalog | null {
-  try {
-    const raw = sessionStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Catalog;
-    if (!parsed || !Array.isArray(parsed.services)) return null;
-    return parsed;
-  } catch {
-    return null;
+  for (const store of [sessionStorage, localStorage]) {
+    try {
+      const raw = store.getItem(CACHE_KEY);
+      if (!raw) continue;
+      const catalog = catalogFrom(raw);
+      if (catalog) return catalog;
+    } catch {
+      // A broken or private store is ignored; the network fills the page.
+    }
   }
+  return null;
 }
 
 function writeCachedCatalog(catalog: Catalog) {
-  try {
-    const raw = JSON.stringify(catalog);
-    if (raw.length > 1_500_000) return;
-    sessionStorage.setItem(CACHE_KEY, raw);
-  } catch {
-    // Private mode or a full quota: the next visit waits for the network.
+  const raw = JSON.stringify({ savedAt: Date.now(), catalog });
+  if (raw.length > 1_500_000) return;
+  for (const store of [sessionStorage, localStorage]) {
+    try {
+      store.setItem(CACHE_KEY, raw);
+    } catch {
+      // Private mode or a full quota: the page still shows this visit's data.
+    }
   }
 }
 

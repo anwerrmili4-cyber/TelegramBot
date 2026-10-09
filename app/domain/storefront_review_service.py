@@ -19,7 +19,11 @@ from pymongo.errors import DuplicateKeyError
 
 import database as db
 from app.constants import OrderStatus
+from app.core.cache import cache
 from app.domain import email_service, site_logo_service
+
+REVIEW_CACHE_SECONDS = 30.0
+_REVIEW_CACHE_PREFIX = "storefront-reviews:"
 
 _PENDING = "pending"
 _APPROVED = "approved"
@@ -237,13 +241,13 @@ def for_customer(customer_id: int) -> dict[str, Any]:
     return {"ok": True, "reviews": [_own(row) for row in rows]}
 
 
-def public_for_offer(offer_id: int) -> dict[str, Any]:
+def _forget_public_reviews() -> None:
+    cache.invalidate(_REVIEW_CACHE_PREFIX)
+
+
+def _public_for_offer(offer_id: int) -> dict[str, Any]:
     conn = db.get_conn()
     _ensure(conn)
-    try:
-        offer_id = int(offer_id)
-    except (TypeError, ValueError):
-        offer_id = 0
     rows = list(
         conn.storefront_reviews.find({"offer_id": offer_id, "status": _APPROVED}).sort("created_at", -1).limit(20)
     )
@@ -253,11 +257,31 @@ def public_for_offer(offer_id: int) -> dict[str, Any]:
     return {"ok": True, "average": average, "count": count, "reviews": reviews}
 
 
-def public_latest() -> dict[str, Any]:
+def _public_latest() -> dict[str, Any]:
     conn = db.get_conn()
     _ensure(conn)
     rows = conn.storefront_reviews.find({"status": _APPROVED}).sort("created_at", -1).limit(12)
     return {"ok": True, "reviews": [_public(row) for row in rows]}
+
+
+def public_for_offer(offer_id: int) -> dict[str, Any]:
+    try:
+        offer_id = int(offer_id)
+    except (TypeError, ValueError):
+        offer_id = 0
+    if REVIEW_CACHE_SECONDS <= 0:
+        return _public_for_offer(offer_id)
+    return cache.get_or_set(
+        f"{_REVIEW_CACHE_PREFIX}offer:{offer_id}",
+        REVIEW_CACHE_SECONDS,
+        lambda: _public_for_offer(offer_id),
+    )
+
+
+def public_latest() -> dict[str, Any]:
+    if REVIEW_CACHE_SECONDS <= 0:
+        return _public_latest()
+    return cache.get_or_set(f"{_REVIEW_CACHE_PREFIX}latest", REVIEW_CACHE_SECONDS, _public_latest)
 
 
 def _client_dossier(row: dict[str, Any]) -> dict[str, Any]:
@@ -329,6 +353,7 @@ def approve(review_id: int) -> dict[str, Any]:
         {"id": int(row["id"]), "status": _PENDING},
         {"$set": {"status": _APPROVED, "name": name, "published_at": int(time.time())}},
     )
+    _forget_public_reviews()
     return {"ok": True, "id": int(row["id"]), "status": _APPROVED}
 
 
@@ -341,6 +366,7 @@ def reject(review_id: int, note: str) -> dict[str, Any]:
         {"id": int(row["id"]), "status": _PENDING},
         {"$set": {"status": _REJECTED, "admin_note": text[:400]}},
     )
+    _forget_public_reviews()
     return {"ok": True, "id": int(row["id"]), "status": _REJECTED}
 
 
@@ -354,6 +380,7 @@ def delete(review_id: int) -> dict[str, Any]:
     if not row:
         raise ReviewError("Avis introuvable.", status=404)
     db.get_conn().storefront_reviews.delete_one({"id": review_id})
+    _forget_public_reviews()
     return {"ok": True, "id": review_id, "deleted": True}
 
 

@@ -159,6 +159,23 @@ def test_login_is_rate_limited_after_repeated_failures(sent_emails):
     assert exc.value.status == 429
 
 
+def test_a_live_session_is_not_read_from_mongo_on_every_page(sent_emails, monkeypatch):
+    monkeypatch.setattr(auth, "SESSION_CACHE_SECONDS", 30)
+    token = _register_verified(sent_emails)["token"]
+    assert auth.me(token)["customer"]["email"] == "amine@example.com"
+    calls = {"count": 0}
+    real = auth._load_customer
+
+    def counting(value):
+        calls["count"] += 1
+        return real(value)
+
+    monkeypatch.setattr(auth, "_load_customer", counting)
+    assert auth.me(token)["ok"] is True
+    assert auth.me(token)["ok"] is True
+    assert calls["count"] == 0
+
+
 def test_logout_revokes_the_session(sent_emails):
     token = _register_verified(sent_emails)["token"]
     auth.logout(token)

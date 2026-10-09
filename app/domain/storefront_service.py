@@ -317,7 +317,16 @@ _CATALOG_OFFER_FIELDS = {
 }
 
 
-CATALOG_CACHE_SECONDS = 5.0
+# Long enough that a crowd shares one build. A catalog write drops it at once.
+CATALOG_CACHE_SECONDS = 30.0
+CATALOG_BODY_KEY = CATALOG_PREFIX + "storefront-body"
+
+
+def note_catalog_view() -> None:
+    """Supplier stock refreshes off the request. A busy shop does not queue them."""
+    from app.domain import reseller_service
+
+    reseller_service.refresh_supplier_stock_in_background()
 
 
 def catalog() -> dict[str, Any]:
@@ -326,10 +335,26 @@ def catalog() -> dict[str, Any]:
     Supplier stock is refreshed off the request path; the stock writes it
     makes invalidate the cached catalog, so the next view shows them.
     """
-    from app.domain import reseller_service
-
-    reseller_service.refresh_supplier_stock_in_background()
+    note_catalog_view()
     return cache.get_or_set(CATALOG_PREFIX + "storefront", CATALOG_CACHE_SECONDS, _build_catalog)
+
+
+def catalog_body() -> bytes:
+    """The catalog as JSON bytes, built once per cache window.
+
+    A hundred visitors then share the same body instead of each waiting on
+    Mongo and a fresh serialization.
+    """
+    import orjson
+
+    note_catalog_view()
+    if CATALOG_CACHE_SECONDS <= 0:
+        return orjson.dumps(_build_catalog())
+    return cache.get_or_set(
+        CATALOG_BODY_KEY,
+        CATALOG_CACHE_SECONDS,
+        lambda: orjson.dumps(_build_catalog()),
+    )
 
 
 def _build_catalog() -> dict[str, Any]:

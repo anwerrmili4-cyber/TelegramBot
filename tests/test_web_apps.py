@@ -97,6 +97,30 @@ def test_catalog_is_native_cached_and_gzipped(storefront, mock_mongodb):
     assert len(response.json()["services"][0]["offers"]) == 30
 
 
+def test_a_burst_of_visitors_shares_one_catalog_build(storefront, mock_mongodb, monkeypatch):
+    from app.core.cache import cache
+    from app.domain import storefront_service
+
+    monkeypatch.setattr(storefront_service, "CATALOG_CACHE_SECONDS", 30)
+    cache.clear()
+    service_id = db.add_service("Spotify", "🎵", sales_channels=["bot", "tn_site"])
+    db.add_offer(service_id, "Solo", 4.0, 2, sales_channels=["bot", "tn_site"], tn_price_millimes=9000)
+    builds = {"count": 0}
+    real = storefront_service._build_catalog
+
+    def counting():
+        builds["count"] += 1
+        return real()
+
+    monkeypatch.setattr(storefront_service, "_build_catalog", counting)
+    first = storefront.get("/api/storefront/catalog")
+    second = storefront.get("/api/storefront/catalog")
+    assert first.status_code == second.status_code == 200
+    assert first.json()["services"][0]["offers"][0]["name"]
+    assert second.content == first.content
+    assert builds["count"] == 1
+
+
 def test_admin_root_redirects_and_details_need_the_cron_secret(admin, monkeypatch):
     response = admin.get("/")
     assert response.status_code == 302

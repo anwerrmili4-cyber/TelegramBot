@@ -128,7 +128,7 @@ export function OfferReviews({ offerId }: { offerId: number }) {
 
 /** One published review at a time, in the slot under the hero search. Hidden when none exist. */
 export function HeroReviewReel() {
-  const { reviews } = usePublicReviews();
+  const { reviews } = usePublicReviews(undefined, true);
   const [index, setIndex] = useState(0);
   const [reduced, setReduced] = useState(false);
   const [hidden, setHidden] = useState(false);

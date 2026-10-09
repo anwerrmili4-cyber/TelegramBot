@@ -29,6 +29,24 @@ def _delivered(customer, offer_id, reference="TN-REVIEW1", name="ChatGPT"):
     return order_id
 
 
+def test_public_reviews_are_read_once_until_they_change(mock_mongodb, monkeypatch):
+    monkeypatch.setattr(storefront_review_service, "REVIEW_CACHE_SECONDS", 30)
+    calls = {"count": 0}
+    real = storefront_review_service._public_latest
+
+    def counting():
+        calls["count"] += 1
+        return real()
+
+    monkeypatch.setattr(storefront_review_service, "_public_latest", counting)
+    assert storefront_review_service.public_latest()["reviews"] == []
+    assert storefront_review_service.public_latest()["reviews"] == []
+    assert calls["count"] == 1
+    storefront_review_service._forget_public_reviews()
+    assert storefront_review_service.public_latest()["reviews"] == []
+    assert calls["count"] == 2
+
+
 def test_submit_once_stays_hidden_until_approved(mock_mongodb, site_customer):
     customer = site_customer()
     _, offer_id = _catalog_offer()

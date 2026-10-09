@@ -28,7 +28,10 @@ _limiter: anyio.CapacityLimiter | None = None
 def _capacity() -> anyio.CapacityLimiter:
     global _limiter
     if _limiter is None:
-        _limiter = anyio.CapacityLimiter(64)
+        # One worker can hold a request for a logged-in member (account, order,
+        # page view). A hundred members at once need a slot each, with room
+        # for the requests that overlap.
+        _limiter = anyio.CapacityLimiter(160)
     return _limiter
 
 

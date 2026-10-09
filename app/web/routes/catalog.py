@@ -13,10 +13,21 @@ log = logging.getLogger(__name__)
 
 
 async def storefront_catalog(_request: Request) -> Response:
+    from app.core.cache import cache
     from app.domain import storefront_service
 
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=60",
+    }
+    found, body = cache.get(storefront_service.CATALOG_BODY_KEY)
     try:
-        payload = await run_sync(storefront_service.catalog)
+        if found:
+            # The bytes are already built. Stay on the event loop so a burst
+            # of visitors is not queued behind the thread pool.
+            storefront_service.note_catalog_view()
+        else:
+            body = await run_sync(storefront_service.catalog_body)
     except Exception:
         log.exception("Storefront catalog request failed")
         return json_response(
@@ -24,7 +35,4 @@ async def storefront_catalog(_request: Request) -> Response:
             503,
             {"Access-Control-Allow-Origin": "*"},
         )
-    return json_response(payload, headers={
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "public, max-age=60",
-    })
+    return Response(body, media_type="application/json", headers=headers)
