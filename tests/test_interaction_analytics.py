@@ -86,3 +86,78 @@ def test_interaction_analytics_groups_service_clicks_by_day(mock_mongodb):
     assert len(service_clicks["daily"]) == 2
     assert service_clicks["daily"][-1]["total"] == 2
     assert service_clicks["daily"][-1]["services"][0]["name"] == "Streaming"
+
+
+def _freeze_interaction_clock(monkeypatch, when):
+    clock = {"now": int(when)}
+    monkeypatch.setattr(db.time, "time", lambda: clock["now"])
+    return clock
+
+
+def test_one_thousand_bot_interactions_in_a_utc_day_do_not_ban(mock_mongodb, monkeypatch):
+    db.upsert_user(42, "busy", "Busy")
+    day = db.interaction_day_start(1_800_000_000)
+    _freeze_interaction_clock(monkeypatch, day + 30)
+
+    for _ in range(db.BOT_DAILY_INTERACTION_LIMIT):
+        db.log_interaction(42, interaction_type="button", action="catalog")
+
+    assert db.is_user_banned(42) is False
+    assert mock_mongodb.users.find_one({"telegram_id": 42})["username"] == "busy"
+
+
+def test_passing_one_thousand_daily_interactions_bans_until_an_admin_unbans(mock_mongodb, monkeypatch):
+    db.upsert_user(42, "robot", "Robot")
+    day = db.interaction_day_start(1_800_000_000)
+    clock = _freeze_interaction_clock(monkeypatch, day + 30)
+    for _ in range(db.BOT_DAILY_INTERACTION_LIMIT):
+        db.log_interaction(42, interaction_type="button", action="catalog")
+
+    db.log_interaction(42, interaction_type="button", action="off:9")
+
+    assert db.is_user_banned(42) is True
+    user = mock_mongodb.users.find_one({"telegram_id": 42})
+    assert user["username"] == "robot"
+    assert mock_mongodb.interaction_events.count_documents({"user_id": 42}) == 1001
+    audit = mock_mongodb.audit_events.find_one({"action": "user.banned"})
+    assert audit["details"]["reason"] == "daily_interaction_limit"
+
+    db.set_user_banned(42, False)
+    db.log_interaction(42, interaction_type="button", action="catalog")
+    assert db.is_user_banned(42) is False
+
+    clock["now"] = day + 86400 + 15
+    for _ in range(db.BOT_DAILY_INTERACTION_LIMIT + 1):
+        db.log_interaction(42, interaction_type="button", action="catalog")
+    assert db.is_user_banned(42) is True
+
+
+def test_interactions_from_the_previous_utc_day_do_not_count(mock_mongodb, monkeypatch):
+    db.upsert_user(7, "human", "Human")
+    day = db.interaction_day_start(1_800_000_000)
+    mock_mongodb.interaction_events.insert_many([
+        {
+            "user_id": 7,
+            "interaction_type": "button",
+            "action": "home",
+            "created_at": day - 10,
+        }
+        for _ in range(db.BOT_DAILY_INTERACTION_LIMIT + 5)
+    ])
+    _freeze_interaction_clock(monkeypatch, day + 20)
+
+    db.log_interaction(7, interaction_type="button", action="home")
+
+    assert db.is_user_banned(7) is False
+
+
+def test_shop_admin_is_not_auto_banned_for_daily_interactions(mock_mongodb, monkeypatch):
+    monkeypatch.setattr(db, "ADMIN_ID", 99)
+    db.upsert_user(99, "owner", "Owner")
+    day = db.interaction_day_start(1_800_000_000)
+    _freeze_interaction_clock(monkeypatch, day + 5)
+
+    for _ in range(db.BOT_DAILY_INTERACTION_LIMIT + 1):
+        db.log_interaction(99, interaction_type="button", action="adm_panel")
+
+    assert db.is_user_banned(99) is False

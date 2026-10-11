@@ -14,7 +14,7 @@ from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.domain import warranty_service
-from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
+from config import ADMIN_ID, INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 
 _client = None
 _db = None
@@ -3032,6 +3032,15 @@ def coalesce_admin_notifications():
             _capture_admin_notifications_now()
 
 
+BOT_DAILY_INTERACTION_LIMIT = 1000
+
+
+def interaction_day_start(now=None):
+    """UTC midnight bucket already used for bot interaction “today”."""
+    now = int(time.time() if now is None else now)
+    return now - (now % 86400)
+
+
 def log_interaction(
     user_id,
     *,
@@ -3064,7 +3073,31 @@ def log_interaction(
             "$inc": {"interaction_count": 1},
         },
     )
+    _ban_robotic_bot_user(int(user_id), now)
     return _public(event)
+
+
+def _ban_robotic_bot_user(user_id, now):
+    """Ban a customer once today's bot interactions pass the daily limit.
+
+    The count is this UTC day only. An admin unban waives the rest of that
+    day so the next click does not ban them again. The account stays.
+    """
+    if int(user_id) == int(ADMIN_ID):
+        return
+    day = interaction_day_start(now)
+    row = get_conn().users.find_one(
+        {"telegram_id": int(user_id)},
+        {"banned": 1, "robot_ban_waived_day": 1},
+    ) or {}
+    if row.get("banned") or row.get("robot_ban_waived_day") == day:
+        return
+    count = get_conn().interaction_events.count_documents({
+        "user_id": int(user_id),
+        "created_at": {"$gte": day, "$lt": day + 86400},
+    })
+    if count > BOT_DAILY_INTERACTION_LIMIT:
+        set_user_banned(user_id, True, reason="daily_interaction_limit")
 
 
 def interaction_analytics(days=30, limit=1000):
@@ -3525,12 +3558,19 @@ from app.repositories.broadcasts import (  # noqa: F401
 )
 
 
-def set_user_banned(user_id, banned):
-    result = get_conn().users.update_one({"telegram_id": user_id}, {"$set": {"banned": bool(banned)}})
+def set_user_banned(user_id, banned, *, reason=None):
+    values = {"banned": bool(banned)}
+    if not banned:
+        # Let an unbanned customer finish the UTC day without an immediate re-ban.
+        values["robot_ban_waived_day"] = interaction_day_start()
+    result = get_conn().users.update_one({"telegram_id": user_id}, {"$set": values})
     from app.bot.middlewares import invalidate_banned
 
     invalidate_banned(user_id)
-    audit_event("user.banned" if banned else "user.unbanned", details={"user_id": user_id})
+    details = {"user_id": user_id}
+    if reason:
+        details["reason"] = reason
+    audit_event("user.banned" if banned else "user.unbanned", details=details)
     return bool(result.matched_count)
 
 
