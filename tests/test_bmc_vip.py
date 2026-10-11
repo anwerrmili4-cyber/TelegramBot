@@ -35,6 +35,7 @@ def test_vip_button_is_first_and_hides_other_method_prices(mock_mongodb):
 
     assert keyboard.inline_keyboard[0][0].callback_data == f"off:{vip['id']}"
     assert keyboard.inline_keyboard[0][0].text == "👑 BMC VIP | claim all methods | $15"
+    assert keyboard.inline_keyboard[0][0].style == "primary"
     assert all(
         row[0].callback_data != f"off:{vip['id']}"
         for row in keyboard.inline_keyboard[1:]

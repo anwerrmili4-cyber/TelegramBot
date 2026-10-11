@@ -630,7 +630,7 @@ def offers_keyboard(lang, service_id):
             buttons.append([InlineKeyboardButton(
                 bmc_vip_button_label(lang, vip),
                 callback_data=f"off:{vip['id']}",
-                style="success",
+                style="primary",
             )])
     for off in sorted(db.list_offers(service_id), key=lambda item: not offer_in_stock(item)):
         if db.is_bmc_vip_offer(off):
