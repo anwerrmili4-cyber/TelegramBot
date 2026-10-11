@@ -49,7 +49,7 @@ export function RegisterPage() {
     <AuthLayout
       kicker="Inscription"
       title="Créer un compte"
-      intro="Un compte est nécessaire pour accéder au site. Cela prend quelques secondes, puis tu retrouves tes achats et ton portefeuille."
+      intro="Cela prend quelques secondes. Tu retrouves ensuite tes achats et ton portefeuille."
       footer={
         <>
           Déjà inscrit ? <Link to={withNext(ROUTES.login, nextPath())}>Se connecter</Link>

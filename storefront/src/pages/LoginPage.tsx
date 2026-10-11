@@ -44,7 +44,7 @@ export function LoginPage() {
     <AuthLayout
       kicker="Mon compte"
       title="Connexion"
-      intro="Connecte-toi pour accéder au site, à tes commandes et à ton portefeuille."
+      intro="Connecte-toi pour retrouver tes commandes et ton portefeuille."
       footer={
         <>
           Pas encore de compte ? <Link to={withNext(ROUTES.register, nextPath())}>Créer un compte</Link>
