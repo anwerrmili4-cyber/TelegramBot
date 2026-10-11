@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   CircleDollarSign,
@@ -6,15 +6,26 @@ import {
   X,
 } from "lucide-react";
 import { STATUS_LABELS, money, date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination, useRemoteList, OperationsSummary } from "../admin-kit.jsx";
+import { EntityLink } from "../admin-routes.js";
 
-export default function WithdrawalsPage({ onAction, data }) {
-  const initial = new URLSearchParams(window.location.search).get("withdrawal") || "";
+export default function WithdrawalsPage({ onAction, data, onNavigate }) {
+  const initial = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("withdrawal") || "";
   const [search, setSearch] = useState(initial);
-  const [status, setStatus] = useState("pending");
+  const [status, setStatus] = useState(initial ? "all" : "pending");
   const [page, setPage] = useState(1);
   const [editor, setEditor] = useState(null);
   const [note, setNote] = useState("");
   const [result, loading] = useRemoteList("/admin/api/withdrawals", { search, status, page, per_page: 25 }, { refreshInterval: 10000 });
+  useEffect(() => {
+    const openWithdrawal = (event) => {
+      if (event.detail?.page !== "withdrawals" || event.detail?.entityId == null) return;
+      setSearch(String(event.detail.entityId));
+      setStatus("all");
+      setPage(1);
+    };
+    window.addEventListener("admin:navigate", openWithdrawal);
+    return () => window.removeEventListener("admin:navigate", openWithdrawal);
+  }, []);
   const refresh = () => window.dispatchEvent(new CustomEvent("admin:data-synced"));
   const run = async (payload) => {
     const completed = await onAction(payload);
@@ -28,7 +39,7 @@ export default function WithdrawalsPage({ onAction, data }) {
     </FilterBar>
     <section className="operations-panel" aria-busy={loading}>
       {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des retraits…</div> : !result.items.length ? <Empty icon={CircleDollarSign} title="Aucun retrait" text="Les demandes envoyées depuis le bot apparaîtront ici." /> : <div className="operation-list">{result.items.map((item) => <article key={item.id} className="operation-card">
-        <header><span className="operation-icon"><CircleDollarSign size={20} /></span><div><small>Retrait #{item.id}</small><strong>{item.username ? `@${item.username}` : item.full_name || `Client ${item.user_id}`}</strong></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header>
+        <header><span className="operation-icon"><CircleDollarSign size={20} /></span><div><small><EntityLink source="withdrawals" field="withdrawal" value={item.id} onNavigate={onNavigate} title={`Ouvrir le retrait #${item.id}`}>Retrait #{item.id}</EntityLink></small><EntityLink source="withdrawals" field="customer" value={item.user_id} onNavigate={onNavigate} title="Ouvrir le profil client"><strong>{item.username ? `@${item.username}` : item.full_name || `Client ${item.user_id}`}</strong></EntityLink></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header>
         <div className="operation-amount"><strong>{money(item.amount, data.currency)}</strong><span>{item.method === "bep20" ? "USDT BEP20" : item.method || "Méthode non précisée"}</span></div>
         <dl><div><dt>Destination</dt><dd><code>{item.destination || "—"}</code></dd></div><div><dt>Demandé le</dt><dd>{date(item.created_at)}</dd></div>{item.admin_note && <div><dt>Note admin</dt><dd>{item.admin_note}</dd></div>}</dl>
         {item.status === "pending" && <footer><ActionButton icon={CheckCircle2} onClick={() => run({ action: "complete_withdrawal", withdrawal_id: item.id })}>Marquer payé</ActionButton><ActionButton icon={X} danger onClick={() => { setEditor({ type: "reject", item }); setNote(""); }}>Refuser et rembourser</ActionButton></footer>}

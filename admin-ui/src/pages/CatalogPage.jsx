@@ -24,6 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { readPreference, savePreference } from "../control-utils.js";
+import { EntityLink } from "../admin-routes.js";
 import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerIsProductOn, offerIsStockOn, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../catalog-utils.js";
 import { SERVICE_COLORS, providerLabel, money, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination } from "../admin-kit.jsx";
 
@@ -249,7 +250,12 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
   );
 }
 
-export default function CatalogPage({ data, onAction }) {
+function CatalogProvider({ provider, onNavigate }) {
+  if (!provider) return <span className="offer-provider internal"><Database size={11} />Stock interne</span>;
+  return <EntityLink source="catalog" field="supplier_provider" value={provider} onNavigate={onNavigate} className="offer-provider api" title={`Ouvrir ${providerLabel(provider)}`}><Cloud size={11} />{providerLabel(provider)}</EntityLink>;
+}
+
+export default function CatalogPage({ data, onAction, onNavigate }) {
   const initialCatalogState = useRef(null);
   if (!initialCatalogState.current) {
     const query = readCatalogQuery(typeof window === "undefined" ? "" : window.location.search);
@@ -260,6 +266,8 @@ export default function CatalogPage({ data, onAction }) {
   const initial = initialCatalogState.current;
   const [search, setSearch] = useState(initial.search);
   const [category, setCategory] = useState(initial.category);
+  const [focusedOffer, setFocusedOffer] = useState(() => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("offer") || ""));
+  const offerFocusApplied = useRef(false);
   const [searchField, setSearchField] = useState(initial.searchField);
   const [offer, setOffer] = useState(undefined);
   const [showOffer, setShowOffer] = useState(false);
@@ -355,6 +363,32 @@ export default function CatalogPage({ data, onAction }) {
     setPage(1);
   }, [search, category, searchField, statusFilter, stockFilter, sourceFilter, sortBy, pageSize]);
   useEffect(() => { if (page !== pagination.page) setPage(pagination.page); }, [page, pagination.page]);
+  useEffect(() => {
+    if (offerFocusApplied.current || !focusedOffer) return;
+    const match = (data.services || []).flatMap((service) => (service.offers || []).map((item) => ({ ...item, service_id: item.service_id ?? service.id }))).find((item) => String(item.id) === String(focusedOffer));
+    if (!match) return;
+    offerFocusApplied.current = true;
+    setCategory(String(match.service_id));
+  }, [focusedOffer, data.services]);
+  useEffect(() => {
+    const apply = (detail) => {
+      if (detail?.page !== "catalog") return;
+      const nextOffer = detail.extra?.offer || "";
+      const nextCategory = detail.extra?.category || "";
+      if (nextCategory) setCategory(String(nextCategory));
+      if (nextOffer) {
+        offerFocusApplied.current = false;
+        setFocusedOffer(String(nextOffer));
+      }
+    };
+    const onNavigateEvent = (event) => apply(event.detail);
+    window.addEventListener("admin:navigate", onNavigateEvent);
+    return () => window.removeEventListener("admin:navigate", onNavigateEvent);
+  }, []);
+  useEffect(() => {
+    if (!focusedOffer || typeof document === "undefined") return;
+    document.querySelector(`[data-offer-id="${focusedOffer}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [focusedOffer, category]);
   const toggleOfferSelection = (offerId) => setSelectedOffers((current) => {
     const next = new Set(current);
     if (next.has(offerId)) next.delete(offerId); else next.add(offerId);
@@ -468,10 +502,10 @@ export default function CatalogPage({ data, onAction }) {
                 <button type="button" className="catalog-collection-toggle" onClick={() => toggleServiceCollapse(service.id)} aria-expanded={!collapsed} aria-label={`${collapsed ? "Déplier" : "Replier"} ${service.name}`}><ChevronRight size={16} /></button>
                 <div>
                   <span className="eyebrow">Collection · {serviceOffers.length} produit(s) · {service.total_stock || 0} en stock</span>
-                  <h2>{service.name}</h2>
+                  <h2><EntityLink source="catalog" field="service" value={service.id} onNavigate={onNavigate} title={`Ouvrir ${service.name}`}>{service.name}</EntityLink></h2>
                   <div className="service-providers">
                     {providers.length ? providers.map((provider) => (
-                      <span key={provider}><Cloud size={11} />{providerLabel(provider)}</span>
+                      <CatalogProvider key={provider} provider={provider} onNavigate={onNavigate} />
                     )) : (
                       <span className="internal"><Database size={11} />Stock interne</span>
                     )}
@@ -512,7 +546,8 @@ export default function CatalogPage({ data, onAction }) {
                     <tbody>
                       {serviceOffers.map((item, index) => (
                         <tr
-                          className={`offer-row ${selectedOffers.has(item.id) ? "selected" : ""} ${dragTarget === `offer-${item.id}` ? "drag-target" : ""} ${item.active === 0 ? "inactive" : ""}`}
+                          className={`offer-row ${selectedOffers.has(item.id) ? "selected" : ""} ${dragTarget === `offer-${item.id}` ? "drag-target" : ""} ${item.active === 0 ? "inactive" : ""} ${String(focusedOffer) === String(item.id) ? "targeted" : ""}`}
+                          data-offer-id={item.id}
                           key={item.id || `${service.id}-${item.name}-${index}`}
                           onDragOver={(event) => { if (canReorder && draggedCatalogItem?.type === "offer" && Number(draggedCatalogItem.serviceId) === Number(service.id)) { event.preventDefault(); setDragTarget(`offer-${item.id}`); } }}
                           onDrop={(event) => { event.preventDefault(); dropCatalogItem("offer", item.id, service.id); }}
@@ -520,7 +555,7 @@ export default function CatalogPage({ data, onAction }) {
                           <td className="catalog-col-select"><button className="offer-select" type="button" onClick={() => toggleOfferSelection(item.id)} aria-pressed={selectedOffers.has(item.id)} aria-label={`${selectedOffers.has(item.id) ? "Désélectionner" : "Sélectionner"} ${item.name}`}>{selectedOffers.has(item.id) ? <Check size={13} /> : null}</button></td>
                           {canReorder && <td className="catalog-col-drag"><button type="button" className="catalog-drag-handle offer-drag-handle" draggable onDragStart={(event) => { event.stopPropagation(); event.dataTransfer.effectAllowed = "move"; setDraggedCatalogItem({ type: "offer", id: item.id, serviceId: service.id }); }} onDragEnd={() => { setDraggedCatalogItem(null); setDragTarget(null); }} onKeyDown={(event) => { if (["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); moveCatalogItemWithKeyboard("offer", item.id, event.key === "ArrowUp" ? -1 : 1, service.id); } }} aria-label={`Réordonner le produit ${item.name}`} title="Glisser pour réordonner"><GripVertical size={15} /></button></td>}
                           <td className="catalog-col-name">
-                            <strong>{item.name}</strong>
+                            <EntityLink source="catalog" field="offer" value={item.id} onNavigate={onNavigate} title={`Ouvrir ${item.name}`}><strong>{item.name}</strong></EntityLink>
                             {Number(item.bulk_quantity || 0) > 0 && item.bulk_unit_price != null && (
                               <small>Gros : {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}{Array.isArray(item.bulk_options) && item.bulk_options.length > 1 ? ` · ${item.bulk_options.length} options` : ""}</small>
                             )}
@@ -530,10 +565,7 @@ export default function CatalogPage({ data, onAction }) {
                             {item.unlimited_stock ? <span className="offer-stock unlimited">Illimité</span> : <span className={`offer-stock ${Number(item.stock || 0) > 0 ? "" : "empty"}`}>{item.stock || 0}</span>}
                           </td>
                           <td className="catalog-col-secondary">
-                            <span className={`offer-provider ${item.supplier_provider ? "api" : "internal"}`}>
-                              {item.supplier_provider ? <Cloud size={11} /> : <Database size={11} />}
-                              {providerLabel(item.supplier_provider)}
-                            </span>
+                            <CatalogProvider provider={item.supplier_provider} onNavigate={onNavigate} />
                           </td>
                           <td className="catalog-col-secondary"><span className="offer-channel">Bot</span></td>
                           <td><span className={`status ${item.active === 0 ? "cancelled" : "delivered"}`}>{item.active === 0 ? "Masqué" : "Visible"}</span></td>
@@ -604,10 +636,10 @@ export default function CatalogPage({ data, onAction }) {
                     const productOn = offerIsProductOn(item);
                     const stockOn = offerIsStockOn(item);
                     return (
-                      <tr className={`offer-row ${selectedOffers.has(item.id) ? "selected" : ""} ${item.active === 0 ? "inactive" : ""}`} key={`offline-${item.id}`}>
+                      <tr className={`offer-row ${selectedOffers.has(item.id) ? "selected" : ""} ${item.active === 0 ? "inactive" : ""} ${String(focusedOffer) === String(item.id) ? "targeted" : ""}`} data-offer-id={item.id} key={`offline-${item.id}`}>
                         <td className="catalog-col-select"><button className="offer-select" type="button" onClick={() => toggleOfferSelection(item.id)} aria-pressed={selectedOffers.has(item.id)} aria-label={`${selectedOffers.has(item.id) ? "Désélectionner" : "Sélectionner"} ${item.name}`}>{selectedOffers.has(item.id) ? <Check size={13} /> : null}</button></td>
                         <td className="catalog-col-name">
-                          <strong>{item.name}</strong>
+                          <EntityLink source="catalog" field="offer" value={item.id} onNavigate={onNavigate} title={`Ouvrir ${item.name}`}><strong>{item.name}</strong></EntityLink>
                           <small>{item.service_name}</small>
                         </td>
                         <td className="catalog-col-price"><strong>{money(item.price, data.currency)}</strong></td>
@@ -615,10 +647,7 @@ export default function CatalogPage({ data, onAction }) {
                           {item.unlimited_stock ? <span className="offer-stock unlimited">Illimité</span> : <span className={`offer-stock ${Number(item.stock || 0) > 0 ? "" : "empty"}`}>{item.stock || 0}</span>}
                         </td>
                         <td className="catalog-col-secondary">
-                          <span className={`offer-provider ${item.supplier_provider ? "api" : "internal"}`}>
-                            {item.supplier_provider ? <Cloud size={11} /> : <Database size={11} />}
-                            {providerLabel(item.supplier_provider)}
-                          </span>
+                          <CatalogProvider provider={item.supplier_provider} onNavigate={onNavigate} />
                         </td>
                         <td>
                           <label className="switch catalog-state-switch">

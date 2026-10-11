@@ -9,8 +9,9 @@ import {
   X,
 } from "lucide-react";
 import { STATUS_LABELS, money, date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination, useRemoteList, OperationsSummary } from "../admin-kit.jsx";
+import { EntityLink, offerIdByName } from "../admin-routes.js";
 
-export default function WarrantiesPage({ onAction, data, channel = "" }) {
+export default function WarrantiesPage({ onAction, data, onNavigate, channel = "" }) {
   const initial = new URLSearchParams(window.location.search).get("warranty") || "";
   const [search, setSearch] = useState(initial);
   const [status, setStatus] = useState("");
@@ -44,8 +45,8 @@ export default function WarrantiesPage({ onAction, data, channel = "" }) {
     </FilterBar>
     <section className="operations-panel" aria-busy={loading}>
       {loading && !result.items.length ? <div className="operation-loading"><RefreshCw className="spin" />Chargement des garanties…</div> : !result.items.length ? <Empty icon={ShieldCheck} title="Aucune garantie" text="Les demandes créées dans le bot apparaîtront ici." /> : <div className="operation-list warranty-list">{result.items.map((item) => <article key={item.id} className="operation-card">
-        <header><span className="operation-icon"><ShieldCheck size={20} /></span><div><small>Garantie #{item.id} · Commande #{item.order_id}</small><strong>{item.product}</strong></div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header>
-        <div className="warranty-customer"><span>{item.username ? `@${item.username}` : item.full_name || `Client ${item.user_id}`}</span><b>{item.days_used || 0} jour(s) utilisé(s)</b></div>
+        <header><span className="operation-icon"><ShieldCheck size={20} /></span><div><small><EntityLink source="warranties" field="warranty" value={item.id} onNavigate={onNavigate} title={`Ouvrir la garantie #${item.id}`}>Garantie #{item.id}</EntityLink> · <EntityLink source="warranties" field="order" value={item.order_id} onNavigate={onNavigate} title={`Ouvrir la commande #${item.order_id}`}>Commande #{item.order_id}</EntityLink></small>{offerIdByName(data?.services, item.product) ? <EntityLink source="warranties" field="product" value={offerIdByName(data?.services, item.product)} onNavigate={onNavigate} title={`Ouvrir ${item.product}`}><strong>{item.product}</strong></EntityLink> : <strong>{item.product}</strong>}</div><span className={`status ${item.status}`}>{STATUS_LABELS[item.status] || item.status}</span></header>
+        <div className="warranty-customer"><EntityLink source="warranties" field="customer" value={item.user_id} onNavigate={onNavigate} title="Ouvrir le profil client"><span>{item.username ? `@${item.username}` : item.full_name || `Client ${item.user_id}`}</span></EntityLink><b>{item.days_used || 0} jour(s) utilisé(s)</b></div>
         <p>{item.reason || "Aucun motif communiqué."}</p>
         <dl><div><dt>Garantie produit</dt><dd>{item.warranty}</dd></div><div><dt>Remboursement calculé</dt><dd>{site ? `${Number(item.refund_amount || 0).toLocaleString("fr-FR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} DT` : money(item.refund_amount, data.currency)}</dd></div><div><dt>Mise à jour</dt><dd>{date(item.updated_at || item.created_at)}</dd></div>{item.admin_note && <div><dt>Note admin</dt><dd>{item.admin_note}</dd></div>}</dl>
         <footer>{item.status === "pending_admin_check" && <><ActionButton icon={Check} onClick={() => run({ action: "warranty_accept", warranty_id: item.id })}>Accepter</ActionButton><ActionButton danger icon={X} onClick={() => openEditor("refuse", item)}>Refuser</ActionButton></>}{item.status === "accepted" && <><ActionButton icon={PackageCheck} onClick={() => openEditor("replacement", item)}>Remplacement</ActionButton><ActionButton secondary icon={CircleDollarSign} onClick={() => run({ action: "warranty_refund", warranty_id: item.id })}>Rembourser</ActionButton></>}{item.status === "replacement_pending" && <ActionButton icon={Send} onClick={() => openEditor("replacement", item)}>Envoyer le remplacement</ActionButton>}</footer>

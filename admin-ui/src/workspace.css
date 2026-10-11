@@ -43,8 +43,13 @@
 .catalog-collection-title .eyebrow{font-size:10px;letter-spacing:.06em;text-transform:uppercase}
 .catalog-collection-title h2{margin:0;font-size:15px;letter-spacing:-.2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .catalog-collection-title .service-providers{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
-.catalog-collection-title .service-providers>span{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent);font-size:10px}
+.catalog-collection-title .service-providers>:is(span,.entity-link){display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;color:var(--accent);background:color-mix(in srgb,var(--accent) 9%,transparent);font-size:10px}
 .catalog-collection-title .service-providers>span.internal{color:var(--muted);background:var(--line)}
+.entity-link{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:0;border:0;border-radius:6px;color:inherit;background:transparent;font:inherit;text-align:left;cursor:pointer}
+.entity-link:hover,.entity-link:focus-visible{color:var(--cyan)}
+.catalog-collection-title h2 .entity-link{font:inherit;letter-spacing:inherit}
+.catalog-offer-table .offer-row.targeted>td{background:color-mix(in srgb,var(--cyan) 8%,transparent)}
+.catalog-offer-table button.entity-link.offer-provider{cursor:pointer}
 .catalog-collection-toggle{width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;padding:0;border:1px solid var(--line);border-radius:8px;color:var(--muted);background:var(--panel);cursor:pointer;transition:transform var(--motion-fast,.15s) ease,color var(--motion-fast,.15s) ease}
 .catalog-collection-toggle svg{transition:transform 200ms var(--ease-emphasized,ease)}
 .catalog-collection:not(.collapsed) .catalog-collection-toggle svg{transform:rotate(90deg)}

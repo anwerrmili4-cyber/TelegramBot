@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, CircleDollarSign, Cloud, Database, Layers } from "lucide-react";
 import { date, PageHeader, Empty, FilterBar, Pagination, useRemoteList } from "../admin-kit.jsx";
+import { EntityLink, offerIdByName } from "../admin-routes.js";
 
 export const PROVIDER_TRANSACTION_STATUS_LABELS = {
   purchasing: "Achat en cours",
@@ -144,7 +145,7 @@ function ProviderCard({ entry, index, active, onSelect }) {
   );
 }
 
-export default function ProviderHistoryPage() {
+export default function ProviderHistoryPage({ data, onNavigate }) {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [provider, setProvider] = useState("all");
@@ -230,11 +231,11 @@ export default function ProviderHistoryPage() {
               {result.items.map((item, index) => (
                 <tr key={`${item.provider}-${item.external_order_id}`} className="ph-row" style={{ "--i": index }}>
                   <td>{date(item.created_at)}</td>
-                  <td><span className="deposit-provider">{item.provider_name || item.provider}</span></td>
-                  <td><strong>{item.order_exists && item.order_id != null ? `#${item.order_id}` : "—"}</strong></td>
+                  <td>{item.provider ? <EntityLink source="provider-history" field="provider" value={item.provider} onNavigate={onNavigate} title={`Ouvrir ${item.provider_name || item.provider}`}><span className="deposit-provider">{item.provider_name || item.provider}</span></EntityLink> : <span className="deposit-provider">—</span>}</td>
+                  <td>{item.order_exists && item.order_id != null ? <EntityLink source="provider-history" field="order" value={item.order_id} onNavigate={onNavigate} title={`Ouvrir la commande #${item.order_id}`}><strong>#{item.order_id}</strong></EntityLink> : <strong>—</strong>}</td>
                   <td>{item.external_order_id || "—"}</td>
                   <td>{item.supplier_order_id || "—"}</td>
-                  <td><div className={`provider-history-product ${item.order_exists ? "" : "deleted"}`}><strong>{item.order_exists ? item.product_name || "—" : "Commande supprimée"}</strong><small>{item.supplier_product_id || "—"}</small></div></td>
+                  <td><div className={`provider-history-product ${item.order_exists ? "" : "deleted"}`}>{item.order_exists && offerIdByName(data?.services, item.product_name) ? <EntityLink source="provider-history" field="product" value={offerIdByName(data?.services, item.product_name)} onNavigate={onNavigate} title={`Ouvrir ${item.product_name}`}><strong>{item.product_name}</strong></EntityLink> : <strong>{item.order_exists ? item.product_name || "—" : "Commande supprimée"}</strong>}<small>{item.supplier_product_id || "—"}</small></div></td>
                   <td><span className={`status ${item.status}`}>{PROVIDER_TRANSACTION_STATUS_LABELS[item.status] || item.status || "—"}</span></td>
                   <td>{item.quantity ?? "—"}</td>
                   <td><strong>{cost(item.purchase_cost_total, item.purchase_cost_currency)}</strong></td>

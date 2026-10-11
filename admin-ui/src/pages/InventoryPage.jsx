@@ -9,8 +9,9 @@ import {
   X,
 } from "lucide-react";
 import { date, PageHeader, ActionButton, Modal, Empty, FilterBar, Pagination, useRemoteList } from "../admin-kit.jsx";
+import { EntityLink } from "../admin-routes.js";
 
-export default function InventoryPage({ data, onAction, shared = false }) {
+export default function InventoryPage({ data, onAction, onNavigate, shared = false }) {
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState("all");
   const [status, setStatus] = useState("");
@@ -120,7 +121,7 @@ export default function InventoryPage({ data, onAction, shared = false }) {
               {result.items.map((item) => (
                 <tr key={item.reference_id}>
                   <td>#{item.reference_id}</td>
-                  <td>#{item.offer_id}</td>
+                  <td><EntityLink source="inventory" field="offer" value={item.offer_id} onNavigate={onNavigate} title={`Ouvrir le produit #${item.offer_id}`}>#{item.offer_id}</EntityLink></td>
                   <td>
                     <code>{item.masked_preview || "••••••"}</code>
                   </td>
@@ -130,7 +131,7 @@ export default function InventoryPage({ data, onAction, shared = false }) {
                     </span>
                   </td>
                   <td>
-                    {item.reserved_order_id || item.delivered_order_id || "—"}
+                    {(item.reserved_order_id || item.delivered_order_id) ? <EntityLink source="inventory" field="order" value={item.reserved_order_id || item.delivered_order_id} onNavigate={onNavigate} title="Ouvrir la commande">#{item.reserved_order_id || item.delivered_order_id}</EntityLink> : "—"}
                   </td>
                   <td>{date(item.created_at)}</td>
                   <td>

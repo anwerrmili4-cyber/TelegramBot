@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { STATUS_LABELS, money, orderAmount, orderCustomerName, orderCustomerReference, date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination, useRemoteList } from "../admin-kit.jsx";
+import { EntityLink } from "../admin-routes.js";
 
 function DeliveredProductDescription({ order }) {
   const [copied, setCopied] = useState(false);
@@ -92,7 +93,7 @@ function OrderDetailPage({ order, onAction, onBack, onNavigate, onReload, curren
           <section className="order-detail-card">
             <header><div><span className="eyebrow">Informations</span><h3>Détails commerciaux et techniques</h3></div></header>
             <div className="order-facts">
-              <div><span>Produit</span><strong>{order.offer_name || order.service_name || "—"}</strong></div>
+              <div><span>Produit</span>{order.offer_id ? <EntityLink source="orders" field="product" value={order.offer_id} onNavigate={onNavigate} title={`Ouvrir ${order.offer_name || "le produit"}`}><strong>{order.offer_name || order.service_name || "—"}</strong></EntityLink> : <strong>{order.offer_name || order.service_name || "—"}</strong>}</div>
               {order.status === "delivered" && <div className="wide order-product-description-detail"><DeliveredProductDescription order={order} /></div>}
               <div><span>Commande créée</span><strong>{date(order.created_at)}</strong></div>
               <div><span>ID offre</span><strong>{order.offer_id || "—"}</strong></div>
@@ -362,7 +363,7 @@ export default function OrdersPage({ data, onAction, onNavigate }) {
                     <strong>#{order.id}</strong>
                   </td>
                   {visibleColumns.includes("customer") && <td><button type="button" className="order-table-customer" onClick={(event) => { event.stopPropagation(); onNavigate("customers", order.user_id); }} title="Ouvrir le profil client"><strong>{orderCustomerName(order)} <ExternalLink size={12} /></strong><small>{orderCustomerReference(order)}</small></button></td>}
-                  {visibleColumns.includes("product") && <td><div className="order-table-product"><strong>{order.offer_name || order.service_name || "—"}</strong></div></td>}
+                  {visibleColumns.includes("product") && <td><div className="order-table-product">{order.offer_id ? <EntityLink source="orders" field="product" value={order.offer_id} onNavigate={onNavigate} title={`Ouvrir ${order.offer_name || "le produit"}`}><strong>{order.offer_name || order.service_name || "—"}</strong></EntityLink> : <strong>{order.offer_name || order.service_name || "—"}</strong>}</div></td>}
                   {visibleColumns.includes("amount") && <td>
                     <strong>{money(orderAmount(order), data.currency)}</strong>
                   </td>}

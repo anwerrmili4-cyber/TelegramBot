@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   CircleDollarSign,
@@ -9,10 +9,12 @@ import {
 } from "lucide-react";
 import { STATUS_LABELS, money, date, PageHeader, Empty, FilterBar, Pagination, useRemoteList } from "../admin-kit.jsx";
 import { shortTxid, topupCustomerName, TopupDecisionModal, DEPOSIT_PROVIDER_LABELS } from "./wallet-topups.jsx";
+import { EntityLink } from "../admin-routes.js";
 
-export default function DepositsPage({ data, onAction }) {
-  const [search, setSearch] = useState("");
-  const [searchField, setSearchField] = useState("all");
+export default function DepositsPage({ data, onAction, onNavigate }) {
+  const initialDeposit = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("deposit") || "";
+  const [search, setSearch] = useState(initialDeposit);
+  const [searchField, setSearchField] = useState(initialDeposit ? "deposit_id" : "all");
   const [status, setStatus] = useState("all");
   const [provider, setProvider] = useState("all");
   const [sort, setSort] = useState("newest");
@@ -30,6 +32,16 @@ export default function DepositsPage({ data, onAction }) {
     per_page: 25,
   });
   const summary = result.summary || {};
+  useEffect(() => {
+    const openDeposit = (event) => {
+      if (event.detail?.page !== "deposits" || event.detail?.entityId == null) return;
+      setSearchField("deposit_id");
+      setSearch(String(event.detail.entityId));
+      setPage(1);
+    };
+    window.addEventListener("admin:navigate", openDeposit);
+    return () => window.removeEventListener("admin:navigate", openDeposit);
+  }, []);
   const decide = async (topup, approved) => {
     setBusyId(topup.id);
     try {
@@ -90,8 +102,8 @@ export default function DepositsPage({ data, onAction }) {
             <tbody>
               {result.items.map((topup, index) => (
                 <tr key={topup.id ?? `${topup.txid}-${index}`}>
-                  <td><strong>{topup.id ? `#${topup.id}` : "—"}</strong></td>
-                  <td><strong>{topupCustomerName(topup)}</strong><small>{topup.user_id}</small></td>
+                  <td>{topup.id ? <EntityLink source="deposits" field="deposit" value={topup.id} onNavigate={onNavigate} title={`Ouvrir le dépôt #${topup.id}`}><strong>#{topup.id}</strong></EntityLink> : <strong>—</strong>}</td>
+                  <td>{topup.user_id ? <EntityLink source="deposits" field="customer" value={topup.user_id} onNavigate={onNavigate} title="Ouvrir le profil client"><strong>{topupCustomerName(topup)}</strong></EntityLink> : <strong>{topupCustomerName(topup)}</strong>}<small>{topup.user_id}</small></td>
                   <td><span className="deposit-provider">{DEPOSIT_PROVIDER_LABELS[topup.provider] || topup.provider}</span></td>
                   <td><strong>{money(topup.amount, topup.currency || data.currency || "USDT")}</strong></td>
                   <td>{topup.source_amount ? `${topup.source_amount} ${topup.source_currency || ""}` : "—"}</td>

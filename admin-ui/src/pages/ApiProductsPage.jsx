@@ -18,7 +18,7 @@ import {
 import { supplierMonogram, money, date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar } from "../admin-kit.jsx";
 
 export default function ApiProductsPage({ data, onAction, setToast }) {
-  const [provider, setProvider] = useState("");
+  const [provider, setProvider] = useState(() => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("provider") || ""));
   const [workspaceTab, setWorkspaceTab] = useState("catalog");
   const [providerError, setProviderError] = useState("");
   const providerRequest = useRef(0);
@@ -97,6 +97,14 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
   useEffect(() => {
     if (provider) load();
   }, [provider]);
+  useEffect(() => {
+    const openProvider = (event) => {
+      if (event.detail?.page !== "api-products" || event.detail?.entityId == null) return;
+      setProvider(String(event.detail.entityId));
+    };
+    window.addEventListener("admin:navigate", openProvider);
+    return () => window.removeEventListener("admin:navigate", openProvider);
+  }, []);
   const testAllProviders = async () => {
     const configured = providerMeta.filter((item) => item.configured);
     if (!configured.length) {

@@ -3,6 +3,7 @@ import AdminPage from "./AdminPages";
 import SitePage, { SITE_PAGE_IDS } from "./SitePages";
 import NotificationSettings, { NOTIFICATION_CATEGORIES, notificationAction } from "./NotificationSettings";
 import WorkspaceHome from "./WorkspaceHome";
+import { buildAdminQuery } from "./admin-routes.js";
 import { ControlCenter, DataExplorer } from "./ControlCenter";
 import {
   Activity,
@@ -774,33 +775,10 @@ export default function App() {
       setActivePage(page);
       setMobileOpen(false);
       const target = page === "overview" ? "/admin" : `/admin/${page}`;
-      const params = new URLSearchParams();
-      const put = (key, value) => { if (value != null && value !== "") params.set(key, String(value)); };
-      if (page === "orders" && entityId != null) put("order", entityId);
-      else if ((page === "support" || page === "site-support") && entityId != null) put("ticket", entityId);
-      else if ((page === "product-requests" || page === "site-product-requests") && entityId != null) put("request", entityId);
-      else if (page === "customers" && entityId != null) put("user", entityId);
-      else if (page === "withdrawals" && entityId != null) put("withdrawal", entityId);
-      else if ((page === "warranties" || page === "site-warranties") && entityId != null) put("warranty", entityId);
-      else if (page === "site-orders" && entityId != null) {
-        put("cart", entityId);
-        put("status", extra?.status || "all");
-        put("search", extra?.search ?? entityId);
-      } else if (page === "site-orders" && extra?.status) {
-        put("status", extra.status);
-      } else if (page === "site-customers" && entityId != null) {
-        put("customer", entityId);
-        put("search", extra?.search || "");
-      } else if (page === "site-deposits" && entityId != null) {
-        put("deposit", entityId);
-        put("status", extra?.status || "all");
-        put("search", extra?.search || "");
-      } else if (page === "site-deposits" && extra?.status) {
-        put("status", extra.status);
-      }
+      const params = buildAdminQuery(page, entityId, extra);
       const query = params.toString();
       window.history.pushState({}, "", target + (query ? `?${query}` : ""));
-      window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId } }));
+      window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId, extra } }));
     };
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (document.startViewTransition && !reduceMotion && page !== activePage) {
