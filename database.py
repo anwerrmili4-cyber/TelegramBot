@@ -19,7 +19,7 @@ from config import ADMIN_ID, INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -330,6 +330,7 @@ def init_db():
     db.offers.create_index("id", unique=True)
     db.offers.create_index([("service_id", ASCENDING), ("id", ASCENDING)])
     db.offers.create_index([("supplier_provider", ASCENDING), ("supplier_product_id", ASCENDING)])
+    db.offers.create_index("local_copy_of_offer_id", sparse=True)
     db.broadcast_jobs.create_index("id", unique=True)
     db.broadcast_jobs.create_index("dedupe_key", unique=True, sparse=True)
     db.broadcast_messages.create_index(
@@ -519,6 +520,14 @@ def init_db():
     if not schema or int(schema.get("version") or 0) < 26:
         db.drop_collection("admin_passkeys")
         db.drop_collection("admin_webauthn_challenges")
+    if not schema or int(schema.get("version") or 0) < 32:
+        copied = copy_supplier_offers_to_local(db)
+        if copied["offers_copied"]:
+            audit_event("catalog.supplier_offers_copied_local", details={
+                "offers_copied": copied["offers_copied"],
+                "services": copied["services"],
+                "service_ids": copied["service_ids"],
+            })
     if os.environ.get("HP_SEED_DEFAULT_CATALOG", "").strip().lower() in {"1", "true", "yes"}:
         _seed_catalog()
     db.schema_meta.update_one(
@@ -2327,6 +2336,68 @@ def offer_sold_count(offer_id):
     ]
     result = list(get_conn().orders.aggregate(pipeline))
     return int(result[0]["total"]) if result else 0
+
+
+def _offer_comes_from_supplier(offer):
+    """A supplier offer is one still linked to an external product API."""
+    if not isinstance(offer, dict) or offer.get("archived") == 1:
+        return False
+    if offer.get("local_copy_of_offer_id"):
+        return False
+    return bool(str(offer.get("supplier_provider") or "").strip())
+
+
+def copy_supplier_offers_to_local(conn=None):
+    """Copy each live supplier offer into an inactive local twin.
+
+    Name, description, price, duration, and the other stored customer fields
+    stay exact. The copy drops the supplier link, so the admin catalog treats
+    it as internal stock, and ``active`` is 0 so the bot does not list it.
+    The original offer is left untouched. A second run copies nothing new.
+    """
+    conn = conn or get_conn()
+    already_copied = set()
+    for row in conn.offers.find(
+        {"local_copy_of_offer_id": {"$exists": True}},
+        {"local_copy_of_offer_id": 1},
+    ):
+        try:
+            already_copied.add(int(row["local_copy_of_offer_id"]))
+        except (TypeError, ValueError):
+            continue
+    copied_ids = []
+    service_ids = set()
+    for source in conn.offers.find({
+        "archived": {"$ne": 1},
+        "supplier_provider": {"$nin": [None, ""]},
+    }):
+        if not _offer_comes_from_supplier(source):
+            continue
+        source_id = int(source["id"])
+        if source_id in already_copied:
+            continue
+        copy = {
+            key: value
+            for key, value in source.items()
+            if key not in {"_id", "otp_default", "archived_at"}
+        }
+        copy["id"] = _next_id("offers")
+        copy["active"] = 0
+        copy["archived"] = 0
+        copy["supplier_provider"] = ""
+        copy["supplier_product_id"] = ""
+        copy["local_copy_of_offer_id"] = source_id
+        conn.offers.insert_one(copy)
+        already_copied.add(source_id)
+        copied_ids.append(copy["id"])
+        if source.get("service_id") is not None:
+            service_ids.add(int(source["service_id"]))
+    return {
+        "offers_copied": len(copied_ids),
+        "offer_ids": copied_ids,
+        "services": len(service_ids),
+        "service_ids": sorted(service_ids),
+    }
 
 
 def duplicate_offer(offer_id):

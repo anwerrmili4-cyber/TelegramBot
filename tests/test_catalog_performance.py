@@ -172,3 +172,113 @@ def test_catalog_button_returns_before_supplier_refresh(mock_mongodb, monkeypatc
         query.edit_message_text.assert_awaited()
     finally:
         release.set()
+
+
+def test_supplier_offers_are_copied_as_inactive_local_twins(mock_mongodb):
+    service_id = db.add_service("ChatGPT", "🤖")
+    other_service = db.add_service("Spotify", "🎵")
+    supplier_id = db.add_offer(
+        service_id,
+        "Plus - Apple pay",
+        12.5,
+        4,
+        note="30 days",
+        description="Compte ChatGPT Plus",
+        currency="USDT",
+        delivery_delay="Instantané après confirmation",
+        photo_file_id="photo-1",
+        supplier_provider="upibot",
+        supplier_product_id="18",
+        period_days=30,
+        warranty_days=7,
+        name_ar="بلس",
+        description_ar="وصف",
+    )
+    db.update_offer(
+        supplier_id,
+        period_value=1,
+        period_unit="months",
+        warranty_value=7,
+        warranty_unit="days",
+        site_name="ChatGPT Plus",
+        site_description_fr="Le même texte",
+    )
+    local_id = db.add_offer(service_id, "Already local", 3.0, 1)
+    archived_service_offer = db.add_offer(
+        other_service, "Old API", 2.0, 1,
+        supplier_provider="mailreader", supplier_product_id="old",
+    )
+    db.archive_offer(archived_service_offer)
+    mock_mongodb.inventory.insert_one({
+        "id": 1, "offer_id": supplier_id, "status": "available", "payload": "secret",
+    })
+    mock_mongodb.reseller_products.insert_one({
+        "provider": "upibot", "product_id": "18", "local_offer_id": supplier_id,
+    })
+
+    first = db.copy_supplier_offers_to_local()
+    second = db.copy_supplier_offers_to_local()
+
+    copy = db.get_offer(first["offer_ids"][0])
+    original = db.get_offer(supplier_id)
+    panel = next(
+        item for item in db.dashboard_data(include_history=False)["services"]
+        if item["id"] == service_id
+    )
+    panel_ids = {offer["id"] for offer in panel["offers"]}
+
+    assert first["offers_copied"] == 1
+    assert first["services"] == 1
+    assert first["service_ids"] == [service_id]
+    assert second["offers_copied"] == 0
+    assert copy["name"] == original["name"] == "Plus - Apple pay"
+    assert copy["description"] == "Compte ChatGPT Plus"
+    assert copy["description_ar"] == "وصف"
+    assert copy["price"] == original["price"] == 12.5
+    assert copy["note"] == "30 days"
+    assert copy["period_days"] == 30
+    assert copy["period_value"] == 1
+    assert copy["period_unit"] == "months"
+    assert copy["warranty_days"] == 7
+    assert copy["site_description_fr"] == "Le même texte"
+    assert copy["photo_file_id"] == "photo-1"
+    assert copy["service_id"] == service_id
+    assert copy["active"] == 0
+    assert copy["supplier_provider"] == ""
+    assert copy["supplier_product_id"] == ""
+    assert copy["local_copy_of_offer_id"] == supplier_id
+    assert original["active"] == 1
+    assert original["supplier_provider"] == "upibot"
+    assert original["supplier_product_id"] == "18"
+    assert copy["id"] not in {offer["id"] for offer in db.list_catalog_offers()}
+    assert db.is_bot_visible(copy) is False
+    assert {supplier_id, local_id, copy["id"]} <= panel_ids
+    assert mock_mongodb.offers.count_documents({"local_copy_of_offer_id": {"$exists": True}}) == 1
+    assert mock_mongodb.inventory.count_documents({"offer_id": copy["id"]}) == 0
+    assert mock_mongodb.reseller_products.find_one({"product_id": "18"})["local_offer_id"] == supplier_id
+
+
+def test_startup_copies_supplier_offers_once_when_the_schema_is_older(mock_mongodb):
+    service_id = db.add_service("Netflix", "🎬")
+    supplier_id = db.add_offer(
+        service_id, "Premium", 6.0, 2,
+        description="Exact description",
+        supplier_provider="vex", supplier_product_id="sku",
+    )
+    mock_mongodb.schema_meta.update_one({"_id": "schema"}, {"$set": {"version": 31}})
+    db._schema_initialized = False
+
+    db.init_db()
+
+    copies = list(mock_mongodb.offers.find({"local_copy_of_offer_id": supplier_id}))
+    assert len(copies) == 1
+    assert copies[0]["name"] == "Premium"
+    assert copies[0]["description"] == "Exact description"
+    assert copies[0]["price"] == 6.0
+    assert copies[0]["active"] == 0
+    assert copies[0]["supplier_provider"] == ""
+    assert mock_mongodb.offers.find_one({"id": supplier_id})["supplier_provider"] == "vex"
+    assert mock_mongodb.schema_meta.find_one({"_id": "schema"})["version"] == 32
+    audit = mock_mongodb.audit_events.find_one({"action": "catalog.supplier_offers_copied_local"})
+    assert audit["details"]["offers_copied"] == 1
+    assert audit["details"]["services"] == 1
