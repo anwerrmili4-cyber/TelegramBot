@@ -97,6 +97,8 @@ def test_web_app_manifest_is_revalidated_for_ios_updates():
         assert response.headers["Cache-Control"] == "no-cache"
         assert manifest["display"] == "standalone"
         assert manifest["scope"] == "/admin"
+        assert manifest["icons"][-1]["src"].endswith("/admin-v2/app-icon-512.png")
+        assert any(icon["sizes"] == "180x180" for icon in manifest["icons"])
 
 
 def test_dashboard_uses_first_configured_reseller_provider(monkeypatch, mock_mongodb):

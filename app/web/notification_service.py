@@ -32,6 +32,62 @@ CATEGORIES = {
 _LEGACY_ALL_CATEGORIES = frozenset({
     "order", "sale", "deposit", "support", "withdrawal", "warranty", "stock", "system",
 })
+_PUSH_CATEGORY_LABELS = {
+    "order": "Commande",
+    "sale": "Vente",
+    "deposit": "Dépôt",
+    "support": "Support",
+    "product_request": "Demande",
+    "review": "Avis",
+    "withdrawal": "Retrait",
+    "warranty": "Garantie",
+    "stock": "Stock",
+    "system": "Système",
+}
+_PUSH_SEVERITY_LABELS = {
+    "error": "Critique",
+    "warning": "À traiter",
+    "success": "Confirmé",
+    "info": "Information",
+}
+_PUSH_IMAGES = {
+    "error": "push-rich-error.png",
+    "warning": "push-rich-warning.png",
+    "success": "push-rich-success.png",
+    "info": "push-rich-info.png",
+}
+_APP_ICON = "app-icon-192.png"
+
+
+def _push_presentation(item, *, private, test):
+    """Lock-screen copy. Private mode keeps the generic text; the original title and message stay otherwise."""
+    title = str(item.get("title") or "Notification").strip() or "Notification"
+    message = str(item.get("message") or "").strip()
+    if test:
+        return {
+            "title": f"Black Market · {title}",
+            "body": (message or "Ce téléphone ou PC reçoit les notifications Black Market.")[:500],
+            "image": "push-rich-test.png",
+        }
+    if private:
+        return {
+            "title": "Black Market · Nouvelle notification",
+            "body": "Ouvrez le tableau de bord pour consulter les détails.",
+            "image": "push-rich-private.png",
+        }
+    severity = str(item.get("severity") or "info")
+    if severity not in _PUSH_SEVERITY_LABELS:
+        severity = "info"
+    category = _PUSH_CATEGORY_LABELS.get(str(item.get("category") or ""), "")
+    parts = [_PUSH_SEVERITY_LABELS[severity]]
+    if category and category.casefold() not in title.casefold():
+        parts.append(category)
+    parts.append(title)
+    return {
+        "title": " · ".join(parts),
+        "body": (message or "Ouvrez le tableau de bord pour consulter les détails.")[:500],
+        "image": _PUSH_IMAGES[severity],
+    }
 
 
 class _PushSession(Session):
@@ -268,16 +324,20 @@ def _send(device, item, *, test=False):
     from pywebpush import WebPushException, webpush
     private = device.get("preferences", {}).get("private", True) and not test
     relative_url = _relative_url(item)
-    navigate = _app_origin(device.get("app_origin")) + relative_url
-    title = "Black Market · Nouvelle notification" if private else item["title"]
-    body = "Ouvrez le tableau de bord pour consulter les détails." if private else item["message"][:500]
+    origin = _app_origin(device.get("app_origin"))
+    navigate = origin + relative_url
+    shown = _push_presentation(item, private=private, test=test)
+    # iOS paints the system banner itself. Color lives in the rich image and the in-app cards.
     payload = {
         "web_push": 8030,
         "notification": {
-            "title": title,
-            "body": body,
+            "title": shown["title"],
+            "body": shown["body"],
+            "lang": "fr",
             "navigate": navigate,
             "tag": str(item["id"]),
+            "icon": f"{origin}/admin-v2/{_APP_ICON}",
+            "image": f"{origin}/admin-v2/{shown['image']}",
             "silent": False,
             "mutable": True,
             "app_badge": 1,

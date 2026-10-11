@@ -1,4 +1,4 @@
-/* Push-only worker v3: never caches private administration pages or API responses. */
+/* Push-only worker v4: never caches private administration pages or API responses. */
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 self.addEventListener("push", (event) => {
@@ -12,7 +12,7 @@ self.addEventListener("push", (event) => {
   delete options.app_badge;
   options.body ||= "Une nouvelle notification est disponible.";
   options.tag ||= "blackmarket-update";
-  options.icon ||= "/admin-v2/notification-icon-192.png";
+  options.icon ||= "/admin-v2/app-icon-192.png";
   options.data = { ...(proposed.data || {}), url: proposed.data?.url || proposed.navigate || "/admin" };
   const tasks = [self.registration.showNotification(proposed.title || "Black Market", options)];
   if ("setAppBadge" in navigator) tasks.push(navigator.setAppBadge(1));

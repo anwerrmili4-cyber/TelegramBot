@@ -47,3 +47,107 @@ html[data-admin-theme="dark"] .status.pending_payment,html[data-admin-theme="dar
 @media(max-width:1180px){.order-analytics-visible .order-analytics-grid{grid-template-columns:1fr 1fr}.order-trend-card{grid-column:1/-1}.order-detail-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.order-detail-layout{grid-template-columns:1fr}.order-action-panel{position:static}}
 @media(max-width:700px){.order-analytics-visible .order-analytics-grid{grid-template-columns:1fr;padding:10px}.order-trend-card{grid-column:auto}.order-analytics-visible>header{align-items:flex-start}.chart-key{align-items:flex-end;flex-direction:column;gap:5px}.order-detail-header{grid-template-columns:1fr auto}.order-detail-header>button{grid-column:1/-1;width:max-content}.order-detail-header h2{font-size:23px}.order-detail-summary{grid-template-columns:1fr 1fr}.order-detail-summary article{align-items:flex-start;flex-direction:column;padding:14px}.order-progress{grid-template-columns:1fr;gap:14px}.order-progress article:not(:last-child)::after{left:14px;right:auto;top:28px;bottom:-15px;width:2px;height:auto}.order-progress article>div{padding:4px 0}.order-facts{grid-template-columns:1fr 1fr;padding:11px}.order-facts>div.wide{grid-column:1/-1}.order-action-panel{padding:15px}}
 .push-diagnostics{display:grid;gap:7px;margin:10px 0;padding:11px;border:1px solid color-mix(in srgb,var(--green) 28%,var(--line));border-radius:9px;background:color-mix(in srgb,var(--green) 6%,var(--panel))}.push-diagnostics strong{font-size:11px}.push-diagnostics span{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:10px}.push-diagnostics i{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 14%,transparent)}.push-diagnostics span.error{color:var(--red)}
+
+/* Phone notification cards: category color on the icon, severity color on the rail. */
+.notifications-drawer .drawer-alerts > button {
+  --note-tone: var(--note-info);
+  --note-chip: var(--note-system);
+  align-items: flex-start;
+  border-color: color-mix(in srgb, var(--note-tone) 32%, var(--line));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--note-chip) 12%, var(--panel)) 0%, var(--panel) 64%);
+  box-shadow: inset 4px 0 0 var(--note-tone);
+}
+.notifications-drawer .drawer-alerts > button.error { --note-tone: var(--note-error); }
+.notifications-drawer .drawer-alerts > button.warning { --note-tone: var(--note-warning); }
+.notifications-drawer .drawer-alerts > button.success { --note-tone: var(--note-success); }
+.notifications-drawer .drawer-alerts > button.info { --note-tone: var(--note-info); }
+.notifications-drawer .drawer-alerts > button.cat-order { --note-chip: var(--note-order); }
+.notifications-drawer .drawer-alerts > button.cat-sale { --note-chip: var(--note-sale); }
+.notifications-drawer .drawer-alerts > button.cat-deposit { --note-chip: var(--note-deposit); }
+.notifications-drawer .drawer-alerts > button.cat-withdrawal { --note-chip: var(--note-withdrawal); }
+.notifications-drawer .drawer-alerts > button.cat-support { --note-chip: var(--note-support); }
+.notifications-drawer .drawer-alerts > button.cat-product_request { --note-chip: var(--note-product); }
+.notifications-drawer .drawer-alerts > button.cat-review { --note-chip: var(--note-review); }
+.notifications-drawer .drawer-alerts > button.cat-warranty { --note-chip: var(--note-warranty); }
+.notifications-drawer .drawer-alerts > button.cat-stock { --note-chip: var(--note-stock); }
+.notifications-drawer .drawer-alerts > button.cat-system { --note-chip: var(--note-system); }
+.notifications-drawer .drawer-alerts > button.is-unread { box-shadow: inset 4px 0 0 var(--note-tone); }
+.notifications-drawer .drawer-alerts > button > span {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  color: #fff;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--note-chip) 68%, #fff), var(--note-chip));
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--note-chip) 24%, transparent);
+}
+.notifications-drawer .drawer-alerts > button.error > span,
+.notifications-drawer .drawer-alerts > button.warning > span,
+.notifications-drawer .drawer-alerts > button.success > span { color: #fff; }
+.notifications-drawer .drawer-alerts em {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--note-tone);
+  font-size: 11px;
+  font-weight: 650;
+}
+.notifications-drawer .drawer-alerts em b {
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--note-chip);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .2px;
+}
+.notifications-drawer .drawer-alerts .unread-dot { background: var(--note-chip); box-shadow: 0 0 0 3px color-mix(in srgb, var(--note-chip) 18%, transparent); }
+.notifications-drawer .alert-summary > div.critical {
+  background: color-mix(in srgb, var(--note-error) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--note-error) 34%, var(--line));
+}
+.notifications-drawer .alert-summary > div.critical strong { color: var(--note-error); }
+.notifications-drawer .alert-summary > div.actionable {
+  background: color-mix(in srgb, var(--note-warning) 14%, var(--panel));
+  border-color: color-mix(in srgb, var(--note-warning) 36%, var(--line));
+}
+.notifications-drawer .alert-summary > div.actionable strong { color: var(--note-warning); }
+.notifications-drawer .alert-summary > div.unread {
+  background: color-mix(in srgb, var(--note-order) 12%, var(--panel));
+  border-color: color-mix(in srgb, var(--note-order) 32%, var(--line));
+}
+.notifications-drawer .alert-summary > div.unread strong { color: var(--note-order); }
+.notifications-drawer .alert-filters button.active.tone-unread {
+  color: var(--note-order);
+  border-color: color-mix(in srgb, var(--note-order) 45%, var(--line));
+  background: color-mix(in srgb, var(--note-order) 14%, var(--panel));
+}
+.notifications-drawer .alert-filters button.active.tone-urgent {
+  color: var(--note-warning);
+  border-color: color-mix(in srgb, var(--note-warning) 48%, var(--line));
+  background: color-mix(in srgb, var(--note-warning) 16%, var(--panel));
+}
+.notifications-drawer .alert-filters button.active.tone-all {
+  color: var(--note-sale);
+  border-color: color-mix(in srgb, var(--note-sale) 42%, var(--line));
+  background: color-mix(in srgb, var(--note-sale) 12%, var(--panel));
+}
+@media (max-width: 560px) {
+  .notifications-drawer .alert-summary { gap: 8px; padding-inline: 12px; }
+  .notifications-drawer .alert-summary > div { border-radius: 14px; padding: 12px 10px; }
+  .notifications-drawer .alert-summary strong { font-size: 22px; }
+  .notifications-drawer .drawer-alerts { gap: 10px; }
+  .notifications-drawer .drawer-alerts > button {
+    min-height: 108px;
+    padding: 14px 12px;
+    border-radius: 18px;
+    gap: 12px;
+  }
+  .notifications-drawer .drawer-alerts > button > span { width: 48px; height: 48px; border-radius: 16px; }
+  .notifications-drawer .drawer-alerts strong { font-size: 15px; letter-spacing: -.2px; }
+  .notifications-drawer .drawer-alerts small { font-size: 13px; line-height: 1.45; -webkit-line-clamp: 3; }
+  .notifications-drawer .drawer-alerts em,
+  .notifications-drawer .drawer-alerts em b { font-size: 11px; }
+  .toast { border-left: 5px solid var(--toast-accent); }
+}

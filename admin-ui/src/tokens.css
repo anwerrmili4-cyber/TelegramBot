@@ -90,4 +90,20 @@ html[data-admin-theme="dark"] {
   --space-8: 32px;
 
   --control-h: 40px;
+
+  /* Saturated notification colors. Same in both themes so the icon tiles stay readable. */
+  --note-order: #5b45c9;
+  --note-sale: #0f7a4d;
+  --note-deposit: #1d6fe8;
+  --note-withdrawal: #c47b12;
+  --note-support: #d4537e;
+  --note-product: #e07a2f;
+  --note-review: #b8860b;
+  --note-warranty: #0e8f8a;
+  --note-stock: #3d6bdb;
+  --note-system: #5b45c9;
+  --note-error: #c42a41;
+  --note-warning: #c47b12;
+  --note-success: #0f7a4d;
+  --note-info: #5b45c9;
 }

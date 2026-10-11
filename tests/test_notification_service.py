@@ -130,10 +130,17 @@ def test_push_payload_privacy_and_expired_subscription(monkeypatch, mock_mongodb
     assert service._send(device, event())
     assert "Client privé" not in captured[0]["data"]
     payload = json.loads(captured[0]["data"])
+    note = payload["notification"]
     assert payload["web_push"] == 8030
-    assert payload["notification"]["navigate"].endswith("/admin/orders")
-    assert payload["notification"]["data"]["url"] == "/admin/orders"
-    assert payload["notification"]["mutable"] is True
+    assert note["navigate"].endswith("/admin/orders")
+    assert note["data"]["url"] == "/admin/orders"
+    assert note["mutable"] is True
+    assert note["title"] == "Black Market · Nouvelle notification"
+    assert note["body"] == "Ouvrez le tableau de bord pour consulter les détails."
+    assert "Commande" not in note["title"]
+    assert note["lang"] == "fr"
+    assert note["icon"].endswith("/admin-v2/app-icon-192.png")
+    assert note["image"].endswith("/admin-v2/push-rich-private.png")
     assert payload["notification"]["app_badge"] == 1
     assert captured[0]["ttl"] == 86400
     assert captured[0]["headers"]["Urgency"] == "high"
@@ -244,6 +251,29 @@ def test_order_push_opens_the_full_order_page(monkeypatch, mock_mongodb):
     payload = json.loads(captured[0]["data"])["notification"]
     assert payload["navigate"].endswith("/admin/orders/598")
     assert payload["data"]["url"] == "/admin/orders/598"
+    assert payload["title"] == "À traiter · Commande"
+    assert payload["body"] == "Client privé"
+    assert payload["icon"].endswith("/admin-v2/app-icon-192.png")
+    assert payload["image"].endswith("/admin-v2/push-rich-warning.png")
+
+
+def test_push_copy_keeps_the_message_and_colors_the_rich_image():
+    item = event("sale:1", "sale", "success")
+    item["title"] = "Commande livrée"
+    item["message"] = "Commande #1 · @amina · 12.00 USDT"
+
+    shown = service._push_presentation(item, private=False, test=False)
+    hidden = service._push_presentation(item, private=True, test=False)
+    trial = service._push_presentation(item, private=True, test=True)
+
+    assert shown["title"] == "Confirmé · Vente · Commande livrée"
+    assert shown["body"] == item["message"]
+    assert shown["image"] == "push-rich-success.png"
+    assert "amina" not in hidden["title"] and "amina" not in hidden["body"]
+    assert hidden["image"] == "push-rich-private.png"
+    assert trial["title"] == "Black Market · Commande livrée"
+    assert trial["body"] == item["message"]
+    assert trial["image"] == "push-rich-test.png"
 
 
 def test_configured_admin_origin_rejects_another_origin(monkeypatch):

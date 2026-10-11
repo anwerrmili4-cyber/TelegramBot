@@ -20,7 +20,7 @@ export async function notificationAction(token, payload) {
 }
 
 const defaults = { categories: Object.keys(NOTIFICATION_CATEGORIES), urgent_only: false, private: true, pause_minutes: 0 };
-const WORKER_URL = "/admin/notification-sw.js?v=3";
+const WORKER_URL = "/admin/notification-sw.js?v=4";
 const supported = () => window.isSecureContext && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && "showNotification" in ServiceWorkerRegistration.prototype;
 const isAppleMobile = () => /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
