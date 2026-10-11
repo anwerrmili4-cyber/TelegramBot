@@ -258,6 +258,36 @@ def test_supplier_offers_are_copied_as_inactive_local_twins(mock_mongodb):
     assert mock_mongodb.reseller_products.find_one({"product_id": "18"})["local_offer_id"] == supplier_id
 
 
+def test_copy_accepts_a_database_that_rejects_boolean_tests(mock_mongodb):
+    """PyMongo databases raise NotImplementedError when used as a boolean."""
+
+    class BoolForbidden:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __bool__(self):
+            raise NotImplementedError(
+                "Database objects do not implement truth value testing or bool()."
+            )
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    service_id = db.add_service("Gemini", "✨")
+    supplier_id = db.add_offer(
+        service_id, "Pro", 4.0, 1,
+        supplier_provider="mailreader", supplier_product_id="9",
+    )
+
+    result = db.copy_supplier_offers_to_local(BoolForbidden(mock_mongodb))
+
+    assert result["offers_copied"] == 1
+    copy = mock_mongodb.offers.find_one({"local_copy_of_offer_id": supplier_id})
+    assert copy["active"] == 0
+    assert copy["supplier_provider"] == ""
+    assert mock_mongodb.offers.find_one({"id": supplier_id})["active"] == 1
+
+
 def test_startup_copies_supplier_offers_once_when_the_schema_is_older(mock_mongodb):
     service_id = db.add_service("Netflix", "🎬")
     supplier_id = db.add_offer(

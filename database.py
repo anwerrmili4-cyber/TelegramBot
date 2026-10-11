@@ -2355,7 +2355,8 @@ def copy_supplier_offers_to_local(conn=None):
     it as internal stock, and ``active`` is 0 so the bot does not list it.
     The original offer is left untouched. A second run copies nothing new.
     """
-    conn = conn or get_conn()
+    if conn is None:
+        conn = get_conn()
     already_copied = set()
     for row in conn.offers.find(
         {"local_copy_of_offer_id": {"$exists": True}},
