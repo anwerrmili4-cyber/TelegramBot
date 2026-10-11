@@ -641,6 +641,58 @@ def test_admin_service_can_configure_both_button_emojis(monkeypatch):
     assert "adm_svcsuffix:52" in callbacks
 
 
+def test_deactivated_services_and_offers_leave_the_bot_and_stay_in_admin(mock_mongodb):
+    """Deactivated means active is off. The bot hides them; the admin panel keeps them."""
+    live_service = db.add_service("ChatGPT", "🤖")
+    paused_service = db.add_service("Spotify", "🎵")
+    live_offer = db.add_offer(live_service, "Plus", 5.0, 3)
+    paused_offer = db.add_offer(live_service, "Business Slot", 9.0, 2)
+    buried_offer = db.add_offer(paused_service, "Family", 4.0, 1)
+    db.update_offer(paused_offer, active=0)
+    db.update_service(paused_service, active=0)
+
+    catalog_ids = {offer["id"] for offer in db.list_catalog_offers()}
+    customer_callbacks = [
+        button.callback_data
+        for row in kb.offers_keyboard("fr", live_service).inline_keyboard
+        for button in row
+    ]
+    paused_callbacks = [
+        button.callback_data
+        for row in kb.offers_keyboard("fr", paused_service).inline_keyboard
+        for button in row
+    ]
+    admin_services = [
+        button.callback_data
+        for row in admin.catalog_admin_keyboard().inline_keyboard
+        for button in row
+    ]
+    admin_offers = [
+        button.callback_data
+        for row in admin.service_admin_keyboard(live_service).inline_keyboard
+        for button in row
+    ]
+    panel = db.dashboard_data(include_history=False)
+    panel_service = next(item for item in panel["services"] if item["id"] == live_service)
+    panel_paused = next(item for item in panel["services"] if item["id"] == paused_service)
+
+    assert live_offer in catalog_ids
+    assert paused_offer not in catalog_ids
+    assert buried_offer not in catalog_ids
+    assert f"off:{live_offer}" in customer_callbacks
+    assert f"off:{paused_offer}" not in customer_callbacks
+    assert paused_callbacks == ["catalog"]
+    assert f"adm_svc:{live_service}" in admin_services
+    assert f"adm_svc:{paused_service}" not in admin_services
+    assert f"adm_off:{live_offer}" in admin_offers
+    assert f"adm_off:{paused_offer}" not in admin_offers
+    assert "adm_addoff:" + str(live_service) in admin_offers
+    assert {offer["id"] for offer in panel_service["offers"]} == {live_offer, paused_offer}
+    assert [offer["id"] for offer in panel_paused["offers"]] == [buried_offer]
+    assert db.get_offer(paused_offer)["active"] == 0
+    assert db.get_service(paused_service)["active"] == 0
+
+
 def test_admin_service_products_are_arranged_two_per_row(monkeypatch):
     monkeypatch.setattr(admin.db, "get_service", lambda _service_id: {
         "id": 52, "name": "Subscriptions", "active": 1,

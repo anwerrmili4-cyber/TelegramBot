@@ -1153,12 +1153,39 @@ def _prepare_service_offers(conn, service):
     return True
 
 
+def is_bot_visible(row):
+    """Return whether a service or offer still belongs in the Telegram bot.
+
+    ``active`` 0 (also false / "0" / "false") and archived rows are deactivated.
+    The records stay in the admin panel so an admin can turn them back on.
+    A missing flag stays visible, matching the rest of the live catalog.
+    """
+    if not isinstance(row, dict) or row.get("archived") == 1:
+        return False
+    return row.get("active", 1) not in (0, False, "0", "false")
+
+
+def offer_is_listed_in_bot(offer):
+    """Hide a deactivated offer, and every offer of a deactivated service.
+
+    Offers that do not name a service stay governed by their own flag. That
+    keeps purchase checks working for rows that were never attached to one.
+    """
+    if not is_bot_visible(offer):
+        return False
+    if offer.get("service_id") is None:
+        return True
+    return is_bot_visible(get_service(offer.get("service_id")))
+
+
 def list_offers(service_id, active_only=True):
     conn = get_conn()
     service = get_service(service_id)
     otp = _prepare_service_offers(conn, service)
     query = {"service_id": service_id}
     if active_only:
+        if service and not is_bot_visible(service):
+            return []
         query["active"] = 1
         query.update(_product_on_clause())
     offers = [_resolve_flash_sale(_public(x)) for x in conn.offers.find(query).sort("id", ASCENDING)]

@@ -894,7 +894,7 @@ def catalog_admin_keyboard():
         callback_data=f"adm_svc:{s['id']}",
         icon_custom_emoji_id=_safe_custom_emoji_id(s.get("custom_emoji_id")),
         style="success" if s["active"] else "danger",
-    ) for s in db.list_services(active_only=False)]
+    ) for s in db.list_services(active_only=False) if db.is_bot_visible(s)]
     rows = _two_column_rows(service_buttons)
     rows.append([
         InlineKeyboardButton("➕ Ajouter un service", callback_data="adm_addsvc"),
@@ -907,6 +907,8 @@ def service_admin_keyboard(service_id):
     svc = db.get_service(service_id)
     offer_buttons = []
     for offer in db.list_offers(service_id, active_only=False):
+        if not db.is_bot_visible(offer):
+            continue
         icon_id = _safe_custom_emoji_id(offer.get("custom_emoji_id"))
         emoji = "" if icon_id else str(offer.get("emoji") or svc.get("emoji") or "📦").strip()
         name = _button_bold(offer.get("name") or f"Offre #{offer['id']}")
