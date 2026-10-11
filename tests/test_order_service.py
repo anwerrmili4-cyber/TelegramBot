@@ -47,6 +47,47 @@ def test_bulk_unit_price_applies_at_configured_quantity(mock_mongodb):
     assert bulk["gross_total"] == 37.5
 
 
+def test_bulk_options_pick_the_highest_reached_cheaper_tier(mock_mongodb):
+    service_id = db.add_service("Streaming", "T")
+    offer_id = db.add_offer(
+        service_id, "Premium", 10.0, 30,
+        bulk_quantity=5, bulk_unit_price=8,
+        bulk_options=[
+            {"name": "Lot 5", "min_quantity": 5, "unit_price": 8},
+            {"name": "Lot 10", "min_quantity": 10, "unit_price": 6},
+        ],
+    )
+    offer = db.get_offer(offer_id)
+    below = order_service.create_order(10, offer, qty=4)
+    first = order_service.create_order(11, db.get_offer(offer_id), qty=7)
+    second = order_service.create_order(12, db.get_offer(offer_id), qty=10)
+    tied = db.resolve_bulk_unit_price({
+        "price": 10,
+        "bulk_options": [
+            {"name": "A", "min_quantity": 10, "unit_price": 9},
+            {"name": "B", "min_quantity": 10, "unit_price": 6},
+        ],
+    }, 10, 10)
+    assert below["unit_price"] == 10.0
+    assert first["unit_price"] == 8
+    assert second["unit_price"] == 6
+    assert tied == 6
+
+
+def test_product_off_and_stock_off_block_purchase(mock_mongodb):
+    service_id = db.add_service("Streaming", "T")
+    offer_id = db.add_offer(service_id, "Premium", 10.0, 5)
+    db.update_offer(offer_id, stock_enabled=False)
+    assert [offer["id"] for offer in db.list_offers(service_id)] == [offer_id]
+    assert db.offer_has_stock(db.get_offer(offer_id), 1) is False
+    with pytest.raises(ValueError):
+        order_service.create_order(10, db.get_offer(offer_id), qty=1)
+    db.update_offer(offer_id, stock_enabled=True, product_enabled=False)
+    assert db.list_offers(service_id) == []
+    with pytest.raises(ValueError):
+        order_service.create_order(11, db.get_offer(offer_id), qty=1)
+
+
 def test_preorder_does_not_use_bulk_price(mock_mongodb):
     service_id = db.add_service("Streaming", "📺")
     offer_id = db.add_offer(

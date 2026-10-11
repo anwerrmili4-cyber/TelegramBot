@@ -2065,13 +2065,7 @@ class handler(BaseHTTPRequestHandler):
                     if initial_inventory_text else []
                 )
                 low_stock_threshold = max(0, int(form.get("low_stock_threshold", 5)))
-                bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
-                bulk_price_raw = form.get("bulk_unit_price", "").strip()
-                bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
-                if bulk_unit_price is not None and bulk_unit_price < 0:
-                    raise ValueError("Le prix en gros ne peut pas être négatif")
-                if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= price):
-                    raise ValueError("Le prix en gros doit être inférieur au prix normal")
+                bulk_fields = db.bulk_fields_from_form(form, price)
                 delivery_delay = form.get("delivery_delay", "").strip()[:120]
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
                 methods_catalog = (
@@ -2121,8 +2115,9 @@ class handler(BaseHTTPRequestHandler):
                     period_unit=period_unit,
                     warranty_value=warranty_value,
                     warranty_unit=warranty_unit,
-                    bulk_quantity=bulk_quantity,
-                    bulk_unit_price=bulk_unit_price,
+                    bulk_quantity=bulk_fields["bulk_quantity"],
+                    bulk_unit_price=bulk_fields["bulk_unit_price"],
+                    bulk_options=bulk_fields.get("bulk_options"),
                 )
                 if emoji_val and sid:
                     db.update_service(sid, emoji=emoji_val)
@@ -2138,19 +2133,9 @@ class handler(BaseHTTPRequestHandler):
                 target_service_id = int(form.get("service_id") or previous_offer["service_id"])
                 name = form["name"].strip()[:120]
                 price = None if form.get("price", "") == "" else float(form["price"])
-                bulk_sent = "bulk_quantity" in form or "bulk_unit_price" in form
-                if bulk_sent:
-                    bulk_quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
-                    bulk_price_raw = form.get("bulk_unit_price", "").strip()
-                    bulk_unit_price = float(bulk_price_raw) if bulk_price_raw else None
-                else:
-                    bulk_quantity = int(previous_offer.get("bulk_quantity") or 0)
-                    bulk_unit_price = previous_offer.get("bulk_unit_price")
                 effective_price = price if price is not None else float(previous_offer.get("price") or 0)
-                if bulk_unit_price is not None and bulk_unit_price < 0:
-                    raise ValueError("Le prix en gros ne peut pas être négatif")
-                if bulk_quantity and (bulk_unit_price is None or bulk_unit_price >= effective_price):
-                    raise ValueError("Le prix en gros doit être inférieur au prix normal")
+                bulk_sent = any(key in form for key in ("bulk_options", "bulk_quantity", "bulk_unit_price"))
+                bulk_fields = db.bulk_fields_from_form(form, effective_price) if bulk_sent else None
                 if db.is_methods_service(db.get_service(target_service_id)):
                     period_value, period_unit, period_days = 0, "days", 0
                     warranty_value, warranty_unit, warranty_days = 0, "days", 0
@@ -2181,9 +2166,11 @@ class handler(BaseHTTPRequestHandler):
                     sent["name_ar"] = form["name_ar"].strip()
                 if "description_ar" in form:
                     sent["description_ar"] = form["description_ar"].strip()
-                if bulk_sent:
-                    sent["bulk_quantity"] = bulk_quantity
-                    sent["bulk_unit_price"] = bulk_unit_price if bulk_unit_price is not None else 0
+                if bulk_fields is not None:
+                    sent["bulk_quantity"] = bulk_fields["bulk_quantity"]
+                    sent["bulk_unit_price"] = 0 if bulk_fields["bulk_unit_price"] is None else bulk_fields["bulk_unit_price"]
+                    if "bulk_options" in bulk_fields:
+                        sent["bulk_options"] = bulk_fields["bulk_options"]
                 db.update_offer(
                     oid,
                     service_id=target_service_id,
@@ -2227,6 +2214,36 @@ class handler(BaseHTTPRequestHandler):
                     "reversible": True,
                     "before": {"active": int(offer["active"])},
                     "after": {"active": next_active},
+                })
+
+            elif action == "toggle_product":
+                oid = int(form["offer_id"])
+                offer = db.get_offer(oid)
+                if not offer:
+                    raise ValueError("Produit introuvable")
+                enabled = not db.product_is_enabled(offer)
+                db.update_offer(oid, product_enabled=enabled)
+                db.audit_event("offer.product_toggled", details={
+                    "offer_id": oid,
+                    "product_enabled": enabled,
+                    "reversible": True,
+                    "before": {"product_enabled": db.product_is_enabled(offer)},
+                    "after": {"product_enabled": enabled},
+                })
+
+            elif action == "toggle_stock":
+                oid = int(form["offer_id"])
+                offer = db.get_offer(oid)
+                if not offer:
+                    raise ValueError("Produit introuvable")
+                enabled = not db.stock_is_enabled(offer)
+                db.update_offer(oid, stock_enabled=enabled)
+                db.audit_event("offer.stock_toggled", details={
+                    "offer_id": oid,
+                    "stock_enabled": enabled,
+                    "reversible": True,
+                    "before": {"stock_enabled": db.stock_is_enabled(offer)},
+                    "after": {"stock_enabled": enabled},
                 })
 
             elif action == "bulk_toggle_offers":

@@ -121,6 +121,101 @@ export function paginateCatalogServices(services, page = 1, pageSize = 50) {
   return { items, page: currentPage, pages, pageSize, total };
 }
 
+function flagOn(value) {
+  return value !== false && value !== 0 && value !== "0" && value !== "false";
+}
+
+export function offerIsProductOn(offer) {
+  return flagOn(offer?.product_enabled);
+}
+
+export function offerIsStockOn(offer) {
+  return flagOn(offer?.stock_enabled);
+}
+
+export function offerIsActive(offer) {
+  return offer?.active !== 0 && offer?.active !== false && offer?.active !== "0";
+}
+
+export function offerIsOnline(offer) {
+  return offerIsProductOn(offer) && offerIsStockOn(offer) && offerIsActive(offer);
+}
+
+export function splitCatalogServices(services) {
+  const offline = [];
+  const online = [];
+  for (const service of services || []) {
+    const source = service.offers || [];
+    const offers = [];
+    for (const offer of source) {
+      if (offerIsOnline(offer)) offers.push(offer);
+      else offline.push({ ...offer, service_id: offer.service_id ?? service.id, service_name: service.name });
+    }
+    if (offers.length > 0 || source.length === 0) online.push({ ...service, offers });
+  }
+  return { online, offline };
+}
+
+export function filterOfflineOffers(offers, filter = "all") {
+  if (filter === "product_off") return (offers || []).filter((offer) => !offerIsProductOn(offer));
+  if (filter === "stock_off") return (offers || []).filter((offer) => !offerIsStockOn(offer));
+  if (filter === "inactive") return (offers || []).filter((offer) => !offerIsActive(offer));
+  return offers || [];
+}
+
+export function offlineFilterCounts(offers) {
+  const rows = offers || [];
+  return {
+    all: rows.length,
+    product_off: rows.filter((offer) => !offerIsProductOn(offer)).length,
+    stock_off: rows.filter((offer) => !offerIsStockOn(offer)).length,
+    inactive: rows.filter((offer) => !offerIsActive(offer)).length,
+  };
+}
+
+export function bulkOptionsFromOffer(offer) {
+  if (Array.isArray(offer?.bulk_options) && offer.bulk_options.length) {
+    return offer.bulk_options.map((option, index) => ({
+      name: String(option?.name || `Gros ${index + 1}`).trim(),
+      min_quantity: option?.min_quantity ?? "",
+      unit_price: option?.unit_price ?? "",
+    }));
+  }
+  const quantity = Number.parseInt(offer?.bulk_quantity, 10) || 0;
+  if (quantity > 0 && offer?.bulk_unit_price != null && offer.bulk_unit_price !== "") {
+    return [{ name: "Gros", min_quantity: quantity, unit_price: offer.bulk_unit_price }];
+  }
+  return [];
+}
+
+export function serializeBulkOptions(options, price) {
+  const regular = Number(price);
+  const cleaned = [];
+  const names = new Set();
+  for (const option of options || []) {
+    const name = String(option?.name || "").trim().slice(0, 40);
+    const quantityText = String(option?.min_quantity ?? "").trim();
+    const priceText = String(option?.unit_price ?? "").trim();
+    const unitPrice = Number(priceText);
+    if (!name) return { error: "Chaque option de gros a un nom." };
+    const key = name.toLocaleLowerCase("fr");
+    if (names.has(key)) return { error: "Deux options de gros portent le même nom." };
+    names.add(key);
+    if (!/^\d+$/.test(quantityText) || Number(quantityText) < 1) return { error: "La quantité minimum d’une option de gros est 1." };
+    if (!priceText) return { error: "Chaque option de gros a un prix unitaire." };
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) return { error: "Le prix en gros ne peut pas être négatif." };
+    if (!Number.isFinite(regular) || unitPrice >= regular) return { error: "Le prix en gros doit être inférieur au prix normal." };
+    cleaned.push({ name, min_quantity: Number(quantityText), unit_price: Math.round(unitPrice * 100) / 100 });
+  }
+  const first = cleaned[0];
+  return {
+    error: "",
+    bulk_options: JSON.stringify(cleaned),
+    bulk_quantity: first ? first.min_quantity : 0,
+    bulk_unit_price: first ? first.unit_price : "",
+  };
+}
+
 export function reorderIds(ids, draggedId, targetId) {
   const next = ids.map(Number);
   const from = next.indexOf(Number(draggedId));

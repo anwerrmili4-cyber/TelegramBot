@@ -29,14 +29,7 @@ def unit_price_for_quantity(offer: dict, qty: int, *, preorder: bool = False) ->
     regular_price = float(offer["price"])
     if preorder:
         return preorder_unit_price(regular_price)
-    try:
-        threshold = int(offer.get("bulk_quantity") or 0)
-        bulk_price = float(offer.get("bulk_unit_price"))
-    except (TypeError, ValueError):
-        return regular_price
-    if threshold > 0 and int(qty) >= threshold and 0 <= bulk_price < regular_price:
-        return round(bulk_price, 2)
-    return regular_price
+    return db.resolve_bulk_unit_price(offer, qty, regular_price)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +83,7 @@ def create_order(
     """
     if payment_method == "bybit":
         raise ValueError("Bybit payments are disabled.")
-    if not offer or offer.get("price") is None or not offer.get("active", 1):
+    if not offer or offer.get("price") is None or not offer.get("active", 1) or not db.product_is_enabled(offer):
         raise ValueError("Cette offre n'est pas disponible à l'achat.")
     if offer.get("supplier_provider") and offer.get("id") is not None:
         from app.domain import reseller_service

@@ -2,6 +2,7 @@
 import base64
 import contextlib
 import hashlib
+import json
 import os
 import re
 import threading
@@ -1159,6 +1160,7 @@ def list_offers(service_id, active_only=True):
     query = {"service_id": service_id}
     if active_only:
         query["active"] = 1
+        query.update(_product_on_clause())
     offers = [_resolve_flash_sale(_public(x)) for x in conn.offers.find(query).sort("id", ASCENDING)]
     if otp:
         values = _otp_offer_values()
@@ -1217,6 +1219,7 @@ def list_catalog_offers():
     for row in get_conn().offers.find({
         "service_id": {"$in": service_ids},
         "active": 1,
+        **_product_on_clause(),
     }):
         offer = _resolve_flash_sale(_public(row))
         service = service_by_id[offer["service_id"]]
@@ -1325,9 +1328,135 @@ def stop_flash_sale(offer_id):
     return get_offer(int(offer_id))
 
 
+_PRODUCT_OFF_VALUES = (False, 0, "0", "false")
+
+
+def _flag_enabled(value):
+    """Missing flags stay on so existing offers remain in the live catalog."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "off", "non"}
+    return bool(value)
+
+
+def product_is_enabled(offer):
+    if not isinstance(offer, dict):
+        return False
+    return _flag_enabled(offer.get("product_enabled"))
+
+
+def stock_is_enabled(offer):
+    if not isinstance(offer, dict):
+        return False
+    return _flag_enabled(offer.get("stock_enabled"))
+
+
+def _product_on_clause():
+    return {"product_enabled": {"$nin": list(_PRODUCT_OFF_VALUES)}}
+
+
+def parse_bulk_options(raw, regular_price):
+    """Validate admin-defined wholesale tiers. The first tier mirrors the legacy fields."""
+    price = float(regular_price)
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Options de gros illisibles") from exc
+    if not isinstance(raw, list):
+        raise ValueError("Options de gros illisibles")
+    if len(raw) > 12:
+        raise ValueError("Douze options de gros maximum")
+    options = []
+    names = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("Option de gros invalide")
+        name = str(item.get("name") or "").strip()[:40]
+        if not name:
+            raise ValueError("Chaque option de gros a un nom")
+        key = name.casefold()
+        if key in names:
+            raise ValueError("Deux options de gros portent le même nom")
+        names.add(key)
+        try:
+            quantity = int(str(item.get("min_quantity")).strip())
+            unit_price = round(float(item.get("unit_price")), 2)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Quantité ou prix de gros invalide") from exc
+        if quantity < 1 or quantity > 100000:
+            raise ValueError("La quantité minimum d’une option de gros est 1")
+        if unit_price < 0:
+            raise ValueError("Le prix en gros ne peut pas être négatif")
+        if unit_price >= price:
+            raise ValueError("Le prix en gros doit être inférieur au prix normal")
+        options.append({"name": name, "min_quantity": quantity, "unit_price": unit_price})
+    return options
+
+
+def bulk_fields_from_form(form, regular_price):
+    """Read either the new tier list or the legacy single tier from an admin form."""
+    price = float(regular_price)
+    if "bulk_options" in form:
+        options = parse_bulk_options(form.get("bulk_options") or "[]", price)
+        if not options:
+            return {"bulk_options": [], "bulk_quantity": 0, "bulk_unit_price": None}
+        return {
+            "bulk_options": options,
+            "bulk_quantity": int(options[0]["min_quantity"]),
+            "bulk_unit_price": float(options[0]["unit_price"]),
+        }
+    quantity = max(0, int(form.get("bulk_quantity", "0") or 0))
+    raw_price = str(form.get("bulk_unit_price", "") or "").strip()
+    unit_price = float(raw_price) if raw_price else None
+    if unit_price is not None and unit_price < 0:
+        raise ValueError("Le prix en gros ne peut pas être négatif")
+    if quantity and (unit_price is None or unit_price >= price):
+        raise ValueError("Le prix en gros doit être inférieur au prix normal")
+    return {"bulk_quantity": quantity, "bulk_unit_price": unit_price}
+
+
+def resolve_bulk_unit_price(offer, qty, regular_price):
+    """Pick the reached tier with the highest minimum quantity and a lower unit price."""
+    regular = float(regular_price)
+    try:
+        quantity = int(qty)
+    except (TypeError, ValueError):
+        return regular
+    options = offer.get("bulk_options") if isinstance(offer, dict) else None
+    if isinstance(options, list) and options:
+        candidates = options
+    else:
+        candidates = [{
+            "min_quantity": (offer or {}).get("bulk_quantity"),
+            "unit_price": (offer or {}).get("bulk_unit_price"),
+        }]
+    best = None
+    for option in candidates:
+        if not isinstance(option, dict):
+            continue
+        try:
+            threshold = int(option.get("min_quantity") or 0)
+            unit_price = float(option.get("unit_price"))
+        except (TypeError, ValueError):
+            continue
+        if threshold > 0 and quantity >= threshold and 0 <= unit_price < regular:
+            if best is None or threshold > best[0] or (threshold == best[0] and unit_price < best[1]):
+                best = (threshold, unit_price)
+    if best is None:
+        return regular
+    return round(best[1], 2)
+
+
 def offer_has_stock(offer, qty=1):
     """Return whether an offer can fulfill a quantity, including unlimited offers."""
     if not offer or int(qty or 0) < 1:
+        return False
+    if not stock_is_enabled(offer):
         return False
     if is_bmc_vip_offer(offer):
         return bmc_vip_link_count() >= int(qty)
@@ -1401,6 +1530,9 @@ def update_offer(
     site_warranty_days=None,
     site_warranty_value=None,
     site_warranty_unit=None,
+    product_enabled=None,
+    stock_enabled=None,
+    bulk_options=None,
 ):
     existing = get_conn().offers.find_one(
         {"id": offer_id}, {"service_id": 1, "stock": 1, "unlimited_stock": 1}
@@ -1469,6 +1601,9 @@ def update_offer(
             "site_warranty_days": int(site_warranty_days) if site_warranty_days is not None else None,
             "site_warranty_value": int(site_warranty_value) if site_warranty_value is not None else None,
             "site_warranty_unit": warranty_service.normalize_duration_unit(site_warranty_unit) if site_warranty_unit is not None else None,
+            "product_enabled": None if product_enabled is None else bool(product_enabled),
+            "stock_enabled": None if stock_enabled is None else bool(stock_enabled),
+            "bulk_options": None if bulk_options is None else [dict(option) for option in bulk_options],
         }.items()
         if value is not None
     }
@@ -2053,6 +2188,9 @@ def add_offer(
     site_warranty_days=None,
     site_warranty_value=None,
     site_warranty_unit=None,
+    product_enabled=True,
+    stock_enabled=True,
+    bulk_options=None,
 ):
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
@@ -2121,6 +2259,9 @@ def add_offer(
             if bulk_unit_price is not None and str(bulk_unit_price).strip() != ""
             else None
         ),
+        "product_enabled": bool(product_enabled),
+        "stock_enabled": bool(stock_enabled),
+        **({"bulk_options": [dict(option) for option in bulk_options]} if bulk_options is not None else {}),
         **({"site_enabled": bool(site_enabled)} if site_enabled is not None else {}),
         **({"site_name": str(site_name)[:160]} if site_name else {}),
         **({"site_note": str(site_note)[:250]} if site_note else {}),
@@ -2190,6 +2331,9 @@ def duplicate_offer(offer_id):
         warranty_days=source.get("warranty_days", 0),
         bulk_quantity=source.get("bulk_quantity", 0),
         bulk_unit_price=source.get("bulk_unit_price"),
+        product_enabled=product_is_enabled(source),
+        stock_enabled=stock_is_enabled(source),
+        bulk_options=source.get("bulk_options"),
         period_value=source.get("period_value"),
         period_unit=source.get("period_unit", "days"),
         warranty_value=source.get("warranty_value"),
@@ -2248,14 +2392,8 @@ def mark_order_paid(order_id, verify_method):
 
 def create_order(user_id, offer, qty):
     now = int(time.time())
-    unit = float(offer.get("price") or 0)
-    try:
-        bulk_quantity = int(offer.get("bulk_quantity") or 0)
-        bulk_unit_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and int(qty) >= bulk_quantity and 0 <= bulk_unit_price < unit:
-            unit = round(bulk_unit_price, 2)
-    except (TypeError, ValueError):
-        pass
+    regular = float(offer.get("price") or 0)
+    unit = resolve_bulk_unit_price(offer, qty, regular)
     service = get_service(offer["service_id"])
     language = get_user_lang(user_id) or "en"
     product_description = (

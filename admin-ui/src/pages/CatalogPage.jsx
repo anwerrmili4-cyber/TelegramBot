@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   Boxes,
   Check,
   ChevronLeft,
@@ -22,18 +24,18 @@ import {
   Trash2,
 } from "lucide-react";
 import { readPreference, savePreference } from "../control-utils.js";
-import { catalogQueryString, filterCatalogServices, paginateCatalogServices, readCatalogQuery, reorderIds } from "../catalog-utils.js";
+import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerIsProductOn, offerIsStockOn, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../catalog-utils.js";
 import { SERVICE_COLORS, providerLabel, money, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination } from "../admin-kit.jsx";
 
-function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both" }) {
+export function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both" }) {
   const currentChannels = offer?.sales_channels || ["bot"];
+  const [formError, setFormError] = useState("");
   const [form, setForm] = useState({
     service_id: offer?.service_id || services[0]?.id || "",
     name: offer?.name || "",
     emoji: offer?.custom_emoji_id || offer?.emoji || "",
     price: offer?.price ?? "",
-    bulk_quantity: offer?.bulk_quantity ?? 0,
-    bulk_unit_price: offer?.bulk_unit_price ?? "",
+    bulk_options: bulkOptionsFromOffer(offer),
     description: offer?.description || "",
     note: offer?.note || "",
     period_value: offer?.period_value ?? offer?.period_days ?? 30,
@@ -50,16 +52,38 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
   });
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
+  const setOption = (index, key, value) => setForm((current) => ({
+    ...current,
+    bulk_options: current.bulk_options.map((option, optionIndex) => optionIndex === index ? { ...option, [key]: value } : option),
+  }));
+  const moveOption = (index, direction) => setForm((current) => {
+    const target = index + direction;
+    if (target < 0 || target >= current.bulk_options.length) return current;
+    const bulkOptions = current.bulk_options.slice();
+    const [moved] = bulkOptions.splice(index, 1);
+    bulkOptions.splice(target, 0, moved);
+    return { ...current, bulk_options: bulkOptions };
+  });
   const selectedService = services.find((service) => String(service.id) === String(form.service_id));
   const hidesTerms = String(selectedService?.name || "").trim().toLowerCase() === "methods";
   const submit = async (event) => {
     event.preventDefault();
     const action = offer ? "update_offer" : "add_offer";
+    const bulk = serializeBulkOptions(form.bulk_options, form.price);
+    if (bulk.error) {
+      setFormError(bulk.error);
+      return;
+    }
+    setFormError("");
     const factors = { days: 1, months: 30, years: 365 };
     const periodDays = hidesTerms ? 0 : Number(form.period_value || 0) * factors[form.period_unit];
     const warrantyDays = hidesTerms ? 0 : Number(form.warranty_value || 0) * factors[form.warranty_unit];
+    const { bulk_options: _bulkOptions, ...fields } = form;
     const payload = {
-      ...form,
+      ...fields,
+      bulk_options: bulk.bulk_options,
+      bulk_quantity: bulk.bulk_quantity,
+      bulk_unit_price: bulk.bulk_unit_price,
       period_days: periodDays,
       period_value: hidesTerms ? 0 : form.period_value,
       period_unit: hidesTerms ? "days" : form.period_unit,
@@ -126,25 +150,23 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
               onChange={(event) => set("price", event.target.value)}
             />
           </Field>
-          <Field label="Quantité en gros">
-            <input
-              min="0"
-              step="1"
-              type="number"
-              value={form.bulk_quantity}
-              onChange={(event) => set("bulk_quantity", event.target.value)}
-              placeholder="0 = désactivé"
-            />
-          </Field>
-          <Field label="Prix en gros / unité">
-            <input
-              min="0"
-              step="0.01"
-              type="number"
-              value={form.bulk_unit_price}
-              onChange={(event) => set("bulk_unit_price", event.target.value)}
-              placeholder="Prix réduit par unité"
-            />
+          <Field label="Options de gros" wide>
+            <div className="bulk-option-editor">
+              {form.bulk_options.map((option, index) => (
+                <div className="bulk-option-row" key={index}>
+                  <input aria-label={`Nom de l’option ${index + 1}`} value={option.name} onChange={(event) => setOption(index, "name", event.target.value)} placeholder="Nom" />
+                  <input aria-label={`Quantité minimum ${index + 1}`} min="1" step="1" type="number" value={option.min_quantity} onChange={(event) => setOption(index, "min_quantity", event.target.value)} placeholder="Qté min." />
+                  <input aria-label={`Prix unitaire ${index + 1}`} min="0" step="0.01" type="number" value={option.unit_price} onChange={(event) => setOption(index, "unit_price", event.target.value)} placeholder="Prix / unité" />
+                  <div className="bulk-option-actions">
+                    <button type="button" aria-label={`Monter l’option ${index + 1}`} disabled={index === 0} onClick={() => moveOption(index, -1)}><ArrowUp size={14} /></button>
+                    <button type="button" aria-label={`Descendre l’option ${index + 1}`} disabled={index === form.bulk_options.length - 1} onClick={() => moveOption(index, 1)}><ArrowDown size={14} /></button>
+                    <button type="button" aria-label={`Supprimer l’option ${index + 1}`} onClick={() => setForm((current) => ({ ...current, bulk_options: current.bulk_options.filter((_, optionIndex) => optionIndex !== index) }))}><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              ))}
+              <button type="button" className="bulk-option-add" onClick={() => setForm((current) => ({ ...current, bulk_options: [...current.bulk_options, { name: "", min_quantity: "", unit_price: "" }] }))}>Ajouter une option</button>
+            </div>
+            <p className="control-caption">La première option reste le palier du bot. À l’achat, le palier retenu est la plus grande quantité atteinte, à un prix inférieur au prix normal.</p>
           </Field>
           <Field label="Seuil de stock">
             <input
@@ -213,6 +235,7 @@ function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both"
             </label>
           </Field>
         </div>
+        {formError ? <p className="form-error wide" role="alert">{formError}</p> : null}
         <div className="dialog-actions">
           <ActionButton secondary onClick={onClose} type="button">
             Annuler
@@ -262,6 +285,7 @@ export default function CatalogPage({ data, onAction }) {
   const [viewMode, setViewMode] = useState(initial.view);
   const [page, setPage] = useState(initial.page);
   const [pageSize, setPageSize] = useState(initial.pageSize);
+  const [offlineFilter, setOfflineFilter] = useState("all");
   const [collapsedServices, setCollapsedServices] = useState(new Set());
   const [draggedCatalogItem, setDraggedCatalogItem] = useState(null);
   const [dragTarget, setDragTarget] = useState(null);
@@ -311,7 +335,14 @@ export default function CatalogPage({ data, onAction }) {
   const visibleServices = filterCatalogServices(allServices, catalogFilters, providerLabel);
   const pagination = paginateCatalogServices(visibleServices, page, pageSize);
   const paginatedServices = pagination.items;
-  const visibleOfferIds = paginatedServices.flatMap((service) => (service.offers || []).map((item) => item.id));
+  const { online: onlinePage } = splitCatalogServices(paginatedServices);
+  const { offline: offlineOffers } = splitCatalogServices(visibleServices);
+  const offlineCounts = offlineFilterCounts(offlineOffers);
+  const shownOffline = filterOfflineOffers(offlineOffers, offlineFilter);
+  const visibleOfferIds = [
+    ...onlinePage.flatMap((service) => (service.offers || []).map((item) => item.id)),
+    ...shownOffline.map((item) => item.id),
+  ];
   const canReorder = sortBy === "default" && !search && statusFilter === "all" && stockFilter === "all" && sourceFilter === "all";
 
   useEffect(() => {
@@ -412,7 +443,7 @@ export default function CatalogPage({ data, onAction }) {
       </div>
       {canReorder && <div className="catalog-order-hint"><GripVertical size={15} /><span>Glissez les poignées pour réordonner. Utilisez les flèches haut/bas lorsque la poignée est sélectionnée.</span></div>}
       <div className={`catalog-react-grid catalog-table-template ${viewMode === "list" ? "catalog-list-view" : ""}`}>
-        {paginatedServices.map((service, serviceIndex) => {
+        {onlinePage.map((service, serviceIndex) => {
           const providers = [...new Set((service.offers || []).map((item) => item.supplier_provider || "").filter(Boolean))];
           const collapsed = collapsedServices.has(service.id);
           const serviceOffers = service.offers || [];
@@ -491,7 +522,7 @@ export default function CatalogPage({ data, onAction }) {
                           <td className="catalog-col-name">
                             <strong>{item.name}</strong>
                             {Number(item.bulk_quantity || 0) > 0 && item.bulk_unit_price != null && (
-                              <small>Gros : {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}</small>
+                              <small>Gros : {money(item.bulk_unit_price, data.currency)} / unité dès {item.bulk_quantity}{Array.isArray(item.bulk_options) && item.bulk_options.length > 1 ? ` · ${item.bulk_options.length} options` : ""}</small>
                             )}
                           </td>
                           <td className="catalog-col-price"><strong>{money(item.price, data.currency)}</strong></td>
@@ -539,6 +570,93 @@ export default function CatalogPage({ data, onAction }) {
           );
         })}
       </div>
+      {allOffers.length > 0 && (
+        <section className="data-panel catalog-offline" aria-label="Hors ligne">
+          <header className="catalog-offline-heading">
+            <div>
+              <span className="eyebrow">Hors ligne</span>
+              <h2>Produits retirés de la vente</h2>
+            </div>
+          </header>
+          <div className="catalog-offline-filters" role="group" aria-label="Filtres hors ligne">
+            {[["all", "Tous"], ["product_off", "Produit off"], ["stock_off", "Stock off"], ["inactive", "Désactivés"]].map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={offlineFilter === value} onClick={() => setOfflineFilter(value)}>{label} <small>{offlineCounts[value]}</small></button>
+            ))}
+          </div>
+          {shownOffline.length ? (
+            <div className="responsive-table">
+              <table className="catalog-offer-table">
+                <thead>
+                  <tr>
+                    <th className="catalog-col-select" />
+                    <th>Produit</th>
+                    <th>Prix</th>
+                    <th>Stock</th>
+                    <th className="catalog-col-secondary">Source</th>
+                    <th>Vente</th>
+                    <th>Stock ouvert</th>
+                    <th>Statut</th>
+                    <th className="catalog-col-actions" aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownOffline.map((item) => {
+                    const productOn = offerIsProductOn(item);
+                    const stockOn = offerIsStockOn(item);
+                    return (
+                      <tr className={`offer-row ${selectedOffers.has(item.id) ? "selected" : ""} ${item.active === 0 ? "inactive" : ""}`} key={`offline-${item.id}`}>
+                        <td className="catalog-col-select"><button className="offer-select" type="button" onClick={() => toggleOfferSelection(item.id)} aria-pressed={selectedOffers.has(item.id)} aria-label={`${selectedOffers.has(item.id) ? "Désélectionner" : "Sélectionner"} ${item.name}`}>{selectedOffers.has(item.id) ? <Check size={13} /> : null}</button></td>
+                        <td className="catalog-col-name">
+                          <strong>{item.name}</strong>
+                          <small>{item.service_name}</small>
+                        </td>
+                        <td className="catalog-col-price"><strong>{money(item.price, data.currency)}</strong></td>
+                        <td className="catalog-col-stock">
+                          {item.unlimited_stock ? <span className="offer-stock unlimited">Illimité</span> : <span className={`offer-stock ${Number(item.stock || 0) > 0 ? "" : "empty"}`}>{item.stock || 0}</span>}
+                        </td>
+                        <td className="catalog-col-secondary">
+                          <span className={`offer-provider ${item.supplier_provider ? "api" : "internal"}`}>
+                            {item.supplier_provider ? <Cloud size={11} /> : <Database size={11} />}
+                            {providerLabel(item.supplier_provider)}
+                          </span>
+                        </td>
+                        <td>
+                          <label className="switch catalog-state-switch">
+                            <input type="checkbox" checked={productOn} aria-label={`Produit ${productOn ? "ON" : "OFF"} · ${item.name}`} onChange={() => onAction({ action: "toggle_product", offer_id: item.id })} />
+                            <span />
+                            Produit {productOn ? "ON" : "OFF"}
+                          </label>
+                        </td>
+                        <td>
+                          <label className="switch catalog-state-switch">
+                            <input type="checkbox" checked={stockOn} aria-label={`Stock ${stockOn ? "ON" : "OFF"} · ${item.name}`} onChange={() => onAction({ action: "toggle_stock", offer_id: item.id })} />
+                            <span />
+                            Stock {stockOn ? "ON" : "OFF"}
+                          </label>
+                        </td>
+                        <td><span className={`status ${item.active === 0 ? "cancelled" : "delivered"}`}>{item.active === 0 ? "Désactivé" : "Actif"}</span></td>
+                        <td className="catalog-col-actions">
+                          <div className="offer-actions">
+                            <button title="Ajouter du stock" onClick={() => setStockOffer(item)}><Boxes size={15} /></button>
+                            <button title="Dupliquer" onClick={() => onAction({ action: "duplicate_offer", offer_id: item.id })}><Copy size={15} /></button>
+                            <button title="Modifier" onClick={() => { setOffer(item); setShowOffer(true); }}><Edit3 size={15} /></button>
+                            <button title="Activer/désactiver" onClick={() => onAction({ action: "toggle_offer", offer_id: item.id })}>
+                              {item.active === 0 ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}
+                            </button>
+                            <button className="danger" title="Supprimer le produit" onClick={() => setDeleteTarget({ type: "offer", item })}><Trash2 size={15} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="catalog-collection-empty catalog-offline-empty"><span>{offlineOffers.length ? "Aucun produit dans ce filtre." : "Aucun produit hors ligne."}</span></div>
+          )}
+        </section>
+      )}
       {pagination.total > 0 && <nav className="catalog-pagination" aria-label="Pagination du catalogue"><span>{pagination.total} produit(s) · Page {pagination.page} sur {pagination.pages}</span><label>Afficher <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label><div><button type="button" disabled={pagination.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={16} /> Précédent</button><button type="button" disabled={pagination.page >= pagination.pages} onClick={() => setPage((value) => Math.min(pagination.pages, value + 1))}>Suivant <ChevronRight size={16} /></button></div></nav>}
       {!visibleServices.length && (
         <Empty
