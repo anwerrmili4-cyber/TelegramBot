@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminPage from "./AdminPages";
 import SitePage, { SITE_PAGE_IDS } from "./SitePages";
 import NotificationSettings, { NOTIFICATION_CATEGORIES, notificationAction } from "./NotificationSettings";
+import { NotificationLineAction } from "./order-line-delivery.jsx";
 import WorkspaceHome from "./WorkspaceHome";
 import { buildAdminQuery } from "./admin-routes.js";
 import { ControlCenter, DataExplorer } from "./ControlCenter";
@@ -326,7 +327,7 @@ function SearchDialog({ data, onClose, onNavigate }) {
   );
 }
 
-function NotificationsDrawer({ token, lastSynced, error, loading, notifications = [], onClose, onDeleteAll, onMarkAllRead, onMarkRead, onNavigate, onRefresh, readIds }) {
+function NotificationsDrawer({ token, lastSynced, error, loading, notifications = [], onAction, onClose, onDeleteAll, onMarkAllRead, onMarkRead, onNavigate, onRefresh, readIds }) {
   const [filter, setFilter] = useState("unread");
   const [category, setCategory] = useState("");
   const [search, setSearch] = useState("");
@@ -370,9 +371,12 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
             const Icon = iconFor(notification);
             const read = isRead(notification);
             const categoryLabel = NOTIFICATION_CATEGORIES[notification.category] || "Alerte";
-            return <button key={notification.id} onClick={() => { onMarkRead(notification.id); onNavigate(notification.target?.page || "overview", notification.target?.entity_id, notification.target?.query); onClose(); }} className={`${notification.severity || "info"} ${read ? "is-read" : "is-unread"} cat-${notification.category || "system"}`}>
-              <span className="alert-icon"><Icon size={18} /></span><div><header><strong>{notification.title}</strong><time>{relativeDate(notification.created_at)}</time></header><small>{notification.message}</small><em><b>{categoryLabel}</b><span>{notification.actionable ? "Ouvrir et traiter" : "Voir les détails"}</span></em></div>{!read && <i className="unread-dot" aria-label="Non lue" />}<ChevronRight size={16} />
-            </button>;
+            return <article key={notification.id} className={`alert-card ${notification.severity || "info"} ${read ? "is-read" : "is-unread"} cat-${notification.category || "system"}`}>
+              <button type="button" className="alert-open" onClick={() => { onMarkRead(notification.id); onNavigate(notification.target?.page || "overview", notification.target?.entity_id, notification.target?.query); onClose(); }}>
+                <span className="alert-icon"><Icon size={18} /></span><div><header><strong>{notification.title}</strong><time>{relativeDate(notification.created_at)}</time></header><small>{notification.message}</small><em><b>{categoryLabel}</b><span>{notification.actionable ? "Ouvrir et traiter" : "Voir les détails"}</span></em></div>{!read && <i className="unread-dot" aria-label="Non lue" />}<ChevronRight size={16} />
+              </button>
+              <NotificationLineAction notification={notification} onAction={onAction} />
+            </article>;
           })}
         </div>
       </aside>
@@ -953,7 +957,7 @@ export default function App() {
         </main>
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}
-      {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
+      {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onAction={adminAction} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
       {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{(isSitePage(activePage)
           ? [["site-overview", "Accueil", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-deposits", "Dépôts", CircleDollarSign], ["site-customers", "Clients", Users]]

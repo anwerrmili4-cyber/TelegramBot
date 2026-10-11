@@ -198,11 +198,11 @@ td strong { color: var(--text); }
 .search-results { max-height: 430px; overflow-y: auto; padding: 8px; }
 .search-results > button { width: 100%; display: flex; align-items: center; gap: 12px; padding: 11px; border: 1px solid transparent; border-radius: 10px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .search-results > button:hover { border-color: color-mix(in srgb,var(--accent) 15%,transparent); background: color-mix(in srgb,var(--accent) 9%,transparent); }
-.search-results > button > span, .drawer-alerts button > span { width: 35px; height: 35px; display: grid; place-items: center; border-radius: 9px; color: var(--cyan); background: color-mix(in srgb,var(--accent) 10%,transparent); }
-.search-results > button > div, .drawer-alerts button > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.search-results > button > span, .drawer-alerts .alert-icon { width: 35px; height: 35px; display: grid; place-items: center; border-radius: 9px; color: var(--cyan); background: color-mix(in srgb,var(--accent) 10%,transparent); }
+.search-results > button > div, .drawer-alerts .alert-open > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .search-results strong, .drawer-alerts strong { font-size: 11px; }
 .search-results small, .drawer-alerts small { overflow: hidden; color: var(--muted); font-size:11px; white-space: nowrap; text-overflow: ellipsis; }
-.search-results > button > svg, .drawer-alerts button > svg { color: var(--muted); }
+.search-results > button > svg, .drawer-alerts .alert-open > svg { color: var(--muted); }
 .search-empty { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: var(--muted); text-align: center; }
 .search-empty strong { color: var(--text); font-size: 12px; }
 .search-empty span { font-size: 10px; }
@@ -214,10 +214,11 @@ td strong { color: var(--text); }
 .alert-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; padding:13px 14px 8px; }.alert-summary > div { display:grid; gap:3px; padding:10px; border:1px solid var(--line); border-radius:9px; background:var(--panel); }.alert-summary strong { font-size:15px; }.alert-summary span { color:var(--muted); font-size:10px; text-transform:uppercase; }.alert-summary .critical strong { color:var(--red); }
 .alert-filters { display:flex; gap:5px; padding:5px 14px 4px; }.alert-filters button { min-height:31px; display:flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:var(--panel); font-size:10px; cursor:pointer; }.alert-filters button.active { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 30%,transparent); background:color-mix(in srgb,var(--accent) 12%,transparent); }.alert-filters span { min-width:16px; padding:2px 4px; border-radius:5px; background:rgba(255,255,255,.06); font-size:10px; text-align:center; }
 .drawer-alerts { display: grid; gap: 8px; padding: 14px; }
-.drawer-alerts > button { width: 100%; display: flex; align-items: center; gap: 11px; padding: 12px; border: 1px solid color-mix(in srgb,var(--amber) 13%,transparent); border-radius: 11px; color: inherit; background: color-mix(in srgb,var(--amber) 4%,transparent); text-align: left; cursor: pointer; }
-.drawer-alerts > button.error { border-color: color-mix(in srgb,var(--red) 15%,transparent); background: color-mix(in srgb,var(--red) 5%,transparent); }
-.drawer-alerts > button:hover { border-color: color-mix(in srgb,var(--accent) 28%,transparent); }
-.drawer-alerts > button.error > span { color: var(--red); background: color-mix(in srgb,var(--red) 10%,transparent); }
+.drawer-alerts > .alert-card { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; border: 1px solid color-mix(in srgb,var(--amber) 13%,transparent); border-radius: 11px; color: inherit; background: color-mix(in srgb,var(--amber) 4%,transparent); text-align: left; }
+.drawer-alerts > .alert-card > .alert-open { width: 100%; display: flex; align-items: center; gap: 11px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.drawer-alerts > .alert-card.error { border-color: color-mix(in srgb,var(--red) 15%,transparent); background: color-mix(in srgb,var(--red) 5%,transparent); }
+.drawer-alerts > .alert-card:hover { border-color: color-mix(in srgb,var(--accent) 28%,transparent); }
+.drawer-alerts > .alert-card.error .alert-icon { color: var(--red); background: color-mix(in srgb,var(--red) 10%,transparent); }
 .drawer-alerts em { margin-top:2px; color:var(--accent); font-size:10px; font-style:normal; }
 
 html[data-admin-density="compact"] .content { padding-top:18px; }

@@ -551,28 +551,50 @@ def admin_update_order(
     return db.get_order(order_id)
 
 
+# Closed orders stay closed. Every other situation can be delivered from the line.
+_NOT_DELIVERABLE = frozenset({
+    str(OrderStatus.DELIVERED),
+    str(OrderStatus.CANCELLED),
+    str(OrderStatus.REFUNDED),
+    str(OrderStatus.EXPIRED),
+    "rejected",
+})
+
+
 def manual_deliver_order(order_id: int, content: str) -> dict | None:
-    """Mark an order delivered with administrator-provided content."""
+    """Mark an open order delivered with administrator-provided content.
+
+    Delivery is allowed for every status that is not already closed, so an
+    order can be fulfilled before the admin opens its dossier.
+    """
     content = content.strip()
     if not content:
         raise ValueError("Le contenu de livraison est obligatoire")
 
     conn = db.get_conn()
+    order = conn.orders.find_one({"id": order_id}, {"status": 1})
+    if not order:
+        return None
+    status = order.get("status")
+    if str(status or "") in _NOT_DELIVERABLE:
+        raise ValueError("Cette commande ne peut plus être livrée")
+
+    now = int(time.time())
     result = conn.orders.update_one(
-        {
-            "id": order_id,
-            "status": {"$in": [OrderStatus.PAID, OrderStatus.PAYMENT_CONFIRMED]},
-        },
+        {"id": order_id, "status": status},
         {
             "$set": {
                 "status": OrderStatus.DELIVERED,
                 "delivery_text": content,
-                "delivered_at": int(time.time()),
-                "updated_at": int(time.time()),
+                "delivered_at": now,
+                "updated_at": now,
             }
         },
     )
     if result.matched_count != 1:
+        current = conn.orders.find_one({"id": order_id}, {"status": 1})
+        if current and str(current.get("status") or "") in _NOT_DELIVERABLE:
+            raise ValueError("Cette commande ne peut plus être livrée")
         return None
     db.audit_event("order.manual_delivered", details={"order_id": order_id})
     # Keep asynchronous Buyer API responses in sync with manual fulfillment.
