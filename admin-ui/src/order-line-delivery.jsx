@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, PackagePlus } from "lucide-react";
 import { ActionButton, Field, Modal } from "./admin-kit.jsx";
 
@@ -27,19 +28,20 @@ function stopLineClick(event) {
 }
 
 function DeliveryDialog({ title, help, content, sending, onChange, onClose, onSubmit }) {
-  return (
+  return createPortal(
     <Modal title={title} onClose={() => !sending && onClose()}>
-      <form className="operation-form" onSubmit={onSubmit}>
+      <form className="operation-form delivery-dialog-form" onSubmit={onSubmit}>
         <p>{help}</p>
         <Field label="Contenu de livraison" wide>
           <textarea value={content} onChange={(event) => onChange(event.target.value)} placeholder="Identifiants, code ou lien à envoyer au client…" rows={4} maxLength={4000} required autoFocus />
         </Field>
-        <div className="dialog-actions">
+        <div className="dialog-actions delivery-dialog-actions">
           <ActionButton type="button" secondary disabled={sending} onClick={onClose}>Retour</ActionButton>
-          <ActionButton type="submit" icon={PackagePlus} disabled={sending || !content.trim()}>Envoyer et marquer livré</ActionButton>
+          <ActionButton type="submit" icon={PackagePlus} disabled={sending || !content.trim()}>Livrer</ActionButton>
         </div>
       </form>
-    </Modal>
+    </Modal>,
+    document.body,
   );
 }
 

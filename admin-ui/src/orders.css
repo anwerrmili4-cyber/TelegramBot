@@ -61,6 +61,9 @@
 .page-orders .kanban-order .order-line-open > footer { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
 .page-orders .kanban-order .order-line-open > div > strong { font-size: 13px; }
 .page-orders .order-line.needs-attention { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); box-shadow: inset 3px 0 var(--red); }
+.delivery-dialog-form p { margin: 0 0 12px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.delivery-dialog-actions { flex-wrap: wrap; }
+.delivery-dialog-actions .action-button { flex: 1 1 140px; min-height: 44px; white-space: normal; overflow: visible; }
 .page-orders .order-line .line-actions .action-button { width: 100%; min-height: 40px; }
 .page-orders .order-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .page-orders .order-row-actions .line-actions .action-button { width: auto; min-height: 34px; white-space: nowrap; }
