@@ -9,6 +9,12 @@ import { ROUTES, usePathname } from "@/lib/router";
 /** How long the homepage stays usable after the intro, before the window opens. */
 export const SIGNUP_BROWSE_MS = 5000;
 
+/**
+ * The forced registration window is paused. Set this back to true to require
+ * an account again after a short look at the site.
+ */
+export const SIGNUP_REQUIRED = false;
+
 const LOCK_KEY = "bm-signup-lock";
 
 /** True once the window has opened in this tab, so a refresh does not give another free look. */

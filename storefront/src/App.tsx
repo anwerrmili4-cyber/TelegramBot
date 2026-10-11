@@ -9,7 +9,7 @@ import { PublicReviewList } from "@/components/PublicReviews";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { MobileTabBar } from "@/components/MobileTabBar";
-import { SignupGate, SIGNUP_BROWSE_MS, isAccountFlow, rememberSignupLock, signupLockPending } from "@/components/SignupGate";
+import { SignupGate, SIGNUP_BROWSE_MS, SIGNUP_REQUIRED, isAccountFlow, rememberSignupLock, signupLockPending } from "@/components/SignupGate";
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
 import { useCatalog } from "@/hooks/useCatalog";
@@ -77,7 +77,7 @@ export default function App() {
     trackVisit(path);
   }, [path, authLoading]);
   useEffect(() => {
-    if (customer || authLoading) return;
+    if (!SIGNUP_REQUIRED || customer || authLoading) return;
     if (signupLockPending()) {
       setGateOpen(true);
       return;
