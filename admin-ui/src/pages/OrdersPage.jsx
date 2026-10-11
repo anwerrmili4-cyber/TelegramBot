@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { STATUS_LABELS, money, orderAmount, orderCustomerName, orderCustomerReference, date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination, useRemoteList } from "../admin-kit.jsx";
+import { canDeliverOrder, DeliverOrderButton } from "../order-line-delivery.jsx";
 
 function DeliveredProductDescription({ order }) {
   const [copied, setCopied] = useState(false);
@@ -118,7 +119,7 @@ function OrderDetailPage({ order, onAction, onBack, onNavigate, onReload, curren
           <Field label="Message au client"><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message Telegram…" /></Field>
           <ActionButton secondary icon={Send} disabled={!message.trim()} onClick={() => submit("message_customer", { message })}>Envoyer le message</ActionButton>
           <Field label="Contenu de livraison"><textarea value={delivery} onChange={(event) => setDelivery(event.target.value)} placeholder="Identifiants ou code…" /></Field>
-          <ActionButton secondary icon={PackagePlus} disabled={!delivery.trim()} onClick={() => submit("manual_deliver_order", { delivery_text: delivery })}>Livrer la commande</ActionButton>
+          <ActionButton secondary icon={PackagePlus} disabled={!canDeliverOrder(order.status) || !delivery.trim()} title={canDeliverOrder(order.status) ? "Envoyer le contenu et marquer la commande livrée" : "Cette commande est close"} onClick={() => submit("manual_deliver_order", { delivery_text: delivery })}>Livrer la commande</ActionButton>
           <div className="order-secondary-actions"><button type="button" onClick={() => submit("reset_order")}><RefreshCw size={15} />Réinitialiser</button><button type="button" onClick={() => submit("resend_delivery")}><Send size={15} />Renvoyer</button></div>
           <hr />
           <div className="order-danger-actions"><button type="button" onClick={() => requestSensitiveAction("refund_order", "Confirmer le remboursement", { reason: note || "Remboursement depuis le dashboard React" })}><CircleDollarSign size={15} />Rembourser</button><button type="button" onClick={() => requestSensitiveAction("cancel_order", "Confirmer l’annulation", { reason: note || "Annulée depuis le dashboard React" })}><X size={15} />Annuler</button></div>
@@ -342,7 +343,7 @@ export default function OrdersPage({ data, onAction, onNavigate }) {
         {viewMode === "table" && <button className="column-picker-trigger" type="button" onClick={() => setColumnsOpen(true)}><Columns3 size={14} />Colonnes</button>}
       </FilterBar>
       <section className="data-panel">
-        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <button className={order.needs_attention ? "needs-attention" : ""} key={order.id} onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche et les actions →</small></button>)}</div> : viewMode === "table" ? <div className="responsive-table">
+        {viewMode === "cards" ? <div className="mobile-order-cards">{result.items.map((order) => <article className={`order-line ${order.needs_attention ? "needs-attention" : ""}`} key={order.id}><button type="button" className="order-line-open" onClick={() => openOrder(order)}><header><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></header>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h3>{order.offer_name || order.service_name || "Produit"}</h3><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><strong>{money(orderAmount(order), data.currency)}</strong><span>{date(order.created_at)}</span></footer><small>Ouvrir la fiche →</small></button>{canDeliverOrder(order.status) && <DeliverOrderButton orderId={order.id} onAction={onAction} />}</article>)}</div> : viewMode === "table" ? <div className="responsive-table">
           <table>
             <thead>
               <tr>
@@ -372,8 +373,9 @@ export default function OrdersPage({ data, onAction, onNavigate }) {
                     </span>
                   </td>}
                   {visibleColumns.includes("date") && <td>{date(order.created_at)}</td>}
-                  <td>
-                    <button className="row-action">
+                  <td className="order-row-actions">
+                    {canDeliverOrder(order.status) && <DeliverOrderButton orderId={order.id} onAction={onAction} />}
+                    <button className="row-action" type="button" aria-label={`Ouvrir la commande #${order.id}`}>
                       <Edit3 size={15} />
                     </button>
                   </td>
@@ -381,7 +383,7 @@ export default function OrdersPage({ data, onAction, onNavigate }) {
               ))}
             </tbody>
           </table>
-        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <button className={`kanban-order ${order.needs_attention ? "needs-attention" : ""}`} onClick={() => openOrder(order)} key={order.id}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
+        </div> : <div className="orders-kanban">{kanbanColumns.map((column) => <section className={`kanban-column ${column.id}`} key={column.id}><header><div><span>{column.label}</span><small>{column.items.length} sur cette page</small></div><strong>{column.total}</strong></header><div className="kanban-cards">{column.items.map((order) => <article className={`kanban-order order-line ${order.needs_attention ? "needs-attention" : ""}`} key={order.id}><button type="button" className="order-line-open" onClick={() => openOrder(order)}><div><strong>#{order.id}</strong><span className={`status ${order.status}`}>{STATUS_LABELS[order.status] || order.status}</span></div>{order.attention_reason && <em className="order-attention">{order.attention_reason}</em>}<h4>{order.offer_name || order.service_name || "Produit"}</h4><span className="order-customer-display"><strong>{orderCustomerName(order)}</strong><small>{orderCustomerReference(order)}</small></span><footer><b>{money(orderAmount(order), data.currency)}</b><small>{date(order.created_at)}</small></footer></button>{canDeliverOrder(order.status) && <DeliverOrderButton orderId={order.id} onAction={onAction} />}</article>)}{!column.items.length && <div className="kanban-empty">Aucune commande sur cette page</div>}</div></section>)}</div>}
         {loading ? (
           <div className="table-loading">Chargement…</div>
         ) : (

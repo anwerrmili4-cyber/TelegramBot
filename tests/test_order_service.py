@@ -513,3 +513,41 @@ def test_manual_deliver_order(mock_mongodb):
     assert delivered["status"] == OrderStatus.DELIVERED
     assert delivered["delivery_text"] == "account:password"
     assert delivered["delivered_at"]
+
+
+@pytest.mark.parametrize("status", [
+    OrderStatus.PENDING_PAYMENT,
+    OrderStatus.AWAITING_VERIFICATION,
+    OrderStatus.MANUAL_REVIEW,
+    OrderStatus.PREPARING_DELIVERY,
+    OrderStatus.VERIFICATION_FAILED,
+    OrderStatus.PAID,
+    "stock_issue",
+])
+def test_manual_deliver_order_accepts_every_open_status(mock_mongodb, status):
+    conn = db.get_conn()
+    conn.orders.insert_one({"id": 780, "user_id": 123, "status": status, "delivery_text": ""})
+
+    delivered = order_service.manual_deliver_order(780, "code-ouvert")
+
+    assert delivered is not None
+    assert delivered["status"] == OrderStatus.DELIVERED
+    assert delivered["delivery_text"] == "code-ouvert"
+
+
+@pytest.mark.parametrize("status", [
+    OrderStatus.DELIVERED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REFUNDED,
+    OrderStatus.EXPIRED,
+    "rejected",
+])
+def test_manual_deliver_order_refuses_closed_status(mock_mongodb, status):
+    conn = db.get_conn()
+    conn.orders.insert_one({"id": 781, "user_id": 123, "status": status, "delivery_text": "deja"})
+
+    with pytest.raises(ValueError, match="ne peut plus être livrée"):
+        order_service.manual_deliver_order(781, "nouveau")
+
+    assert db.get_order(781)["status"] == status
+    assert db.get_order(781)["delivery_text"] == "deja"
