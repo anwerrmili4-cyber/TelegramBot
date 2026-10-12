@@ -314,6 +314,7 @@ _CATALOG_OFFER_FIELDS = {
     "flash_sale_ends_at": 1,
     "flash_sale_original_price": 1,
     "flash_sale_price": 1,
+    "stock_control_hold": 1,
 }
 
 
@@ -379,8 +380,11 @@ def _build_catalog() -> dict[str, Any]:
         # is its own category, named like the product (ChatGPT, Google AI Pro).
         flat = db.is_official_subscriptions_service(service)
         offers = []
-        # Bot ``active`` is ignored: the site sells whatever it has switched on.
+        # Bot ``active`` is ignored for ordinary offers. A duplicate supplier
+        # offer parked by stock control stays out of the public list.
         for offer in offers_by_service.get(int(service["id"]), []):
+            if offer.get("stock_control_hold") is True:
+                continue
             if not _offer_on_sale(offer):
                 continue
             public = _public_offer(service, offer)
@@ -506,7 +510,12 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
         reseller_service.refresh_supplier_stock([offer])
         offer = db.get_offer(offer_id)
     service = db.get_service(int(offer.get("service_id"))) if offer else None
-    if not offer or not service or offer.get("archived") == 1:
+    if (
+        not offer
+        or not service
+        or offer.get("archived") == 1
+        or offer.get("stock_control_hold") is True
+    ):
         raise StorefrontError("Cette offre n'est plus disponible.")
     if not _offer_on_sale(offer) or not _site_visible(service):
         raise StorefrontError("Cette offre n'est pas disponible sur le site tunisien.")

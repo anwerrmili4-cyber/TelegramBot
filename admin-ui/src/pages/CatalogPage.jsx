@@ -25,8 +25,13 @@ import {
 } from "lucide-react";
 import { readPreference, savePreference } from "../control-utils.js";
 import { EntityLink } from "../admin-routes.js";
-import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerIsProductOn, offerIsStockOn, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../catalog-utils.js";
+import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerIsProductOn, offerIsStockOn, offerListingStatus, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../catalog-utils.js";
 import { SERVICE_COLORS, providerLabel, money, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination } from "../admin-kit.jsx";
+
+function ListingStatus({ item, hiddenLabel, shownLabel }) {
+  const listing = offerListingStatus(item, hiddenLabel, shownLabel);
+  return <span className={`status ${listing.hidden ? "cancelled" : "delivered"}`} title={listing.title}>{listing.label}</span>;
+}
 
 export function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both" }) {
   const currentChannels = offer?.sales_channels || ["bot"];
@@ -568,7 +573,7 @@ export default function CatalogPage({ data, onAction, onNavigate }) {
                             <CatalogProvider provider={item.supplier_provider} onNavigate={onNavigate} />
                           </td>
                           <td className="catalog-col-secondary"><span className="offer-channel">Bot</span></td>
-                          <td><span className={`status ${item.active === 0 ? "cancelled" : "delivered"}`}>{item.active === 0 ? "Masqué" : "Visible"}</span></td>
+                          <td><ListingStatus item={item} hiddenLabel="Masqué" shownLabel="Visible" /></td>
                           <td className="catalog-col-actions">
                             <div className="offer-actions">
                               <button title="Ajouter du stock" onClick={() => setStockOffer(item)}>
@@ -663,7 +668,7 @@ export default function CatalogPage({ data, onAction, onNavigate }) {
                             Stock {stockOn ? "ON" : "OFF"}
                           </label>
                         </td>
-                        <td><span className={`status ${item.active === 0 ? "cancelled" : "delivered"}`}>{item.active === 0 ? "Désactivé" : "Actif"}</span></td>
+                        <td><ListingStatus item={item} hiddenLabel="Désactivé" shownLabel="Actif" /></td>
                         <td className="catalog-col-actions">
                           <div className="offer-actions">
                             <button title="Ajouter du stock" onClick={() => setStockOffer(item)}><Boxes size={15} /></button>

@@ -1194,6 +1194,13 @@ def _clear_missing_supplier_stock(
 
 def catalog(provider: str = PROVIDER) -> dict[str, Any]:
     """Fetch the live supplier catalog and overlay local retail selections."""
+    from app.domain.offer_stock_control import batch
+
+    with batch():
+        return _catalog(provider)
+
+
+def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
     provider = str(provider or PROVIDER).lower()
     if provider not in SUPPORTED_PROVIDERS:
         raise ValueError("Fournisseur API inconnu.")
@@ -1583,17 +1590,20 @@ def refresh_supplier_stock(offers: list[dict[str, Any]] | None = None) -> None:
     if not due:
         return
 
+    from app.domain.offer_stock_control import batch
+
     def _refresh_one(provider: str) -> None:
         try:
             catalog(provider)
         except Exception:
             log.exception("Supplier stock refresh failed for %s", provider)
 
-    if len(due) == 1:
-        _refresh_one(due[0])
-        return
-    with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
-        list(pool.map(_refresh_one, due))
+    with batch():
+        if len(due) == 1:
+            _refresh_one(due[0])
+            return
+        with ThreadPoolExecutor(max_workers=min(8, len(due))) as pool:
+            list(pool.map(_refresh_one, due))
 
 
 def detect_restock_events() -> dict[str, Any]:
@@ -1825,6 +1835,60 @@ def save_catalog_product(
     if service_emoji and service_id is not None:
         db.update_service(int(service_id), emoji=service_emoji)
 
+    from app.domain.offer_stock_control import batch_enter, batch_exit
+
+    batch_enter()
+    try:
+        saved = _write_catalog_product(
+            product,
+            provider=provider,
+            existing=existing,
+            service=service,
+            service_id=service_id,
+            retail_price=retail_price,
+            enabled=enabled,
+            service_emoji=service_emoji,
+            display_name=display_name,
+            description=description,
+            warranty=warranty,
+            period_days=period_days,
+            warranty_days=warranty_days,
+            period_value=period_value,
+            period_unit=period_unit,
+            warranty_value=warranty_value,
+            warranty_unit=warranty_unit,
+            delivery_delay=delivery_delay,
+            sort_order=sort_order,
+            low_stock_threshold=low_stock_threshold,
+        )
+    finally:
+        batch_exit()
+    return saved
+
+
+def _write_catalog_product(
+    product,
+    *,
+    provider,
+    existing,
+    service,
+    service_id,
+    retail_price,
+    enabled,
+    service_emoji,
+    display_name,
+    description,
+    warranty,
+    period_days,
+    warranty_days,
+    period_value,
+    period_unit,
+    warranty_value,
+    warranty_unit,
+    delivery_delay,
+    sort_order,
+    low_stock_threshold,
+):
     local_offer_id = existing.get("local_offer_id")
     local_offer = db.get_offer(int(local_offer_id)) if local_offer_id else None
     if local_offer:

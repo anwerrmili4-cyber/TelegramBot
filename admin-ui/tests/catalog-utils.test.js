@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../src/catalog-utils.js";
+import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerListingStatus, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../src/catalog-utils.js";
 
 const services = [{
   id: 1,
@@ -19,6 +19,14 @@ const services = [{
 }];
 
 const defaults = { search: "", category: "", searchField: "all", status: "all", stock: "all", source: "all", sort: "default" };
+
+test("a parked supplier duplicate is labelled for the admin", () => {
+  const listing = offerListingStatus({ active: 0, stock_control_hold: true }, "Désactivé", "Actif");
+  assert.equal(listing.hidden, true);
+  assert.equal(listing.label, "Autre fournisseur");
+  assert.match(listing.title, /stock/i);
+  assert.equal(offerListingStatus({ active: 1 }).label, "Visible");
+});
 
 test("catalog filters combine status, stock, source and accent-insensitive search", () => {
   assert.deepEqual(filterCatalogServices(services, { ...defaults, search: "edition", source: "api", stock: "available", status: "active" }).flatMap((service) => service.offers.map((offer) => offer.id)), [10]);

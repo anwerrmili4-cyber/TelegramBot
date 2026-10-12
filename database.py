@@ -322,7 +322,7 @@ def init_db():
     _enforce_otp_catalog_rules(db)
     schema = db.schema_meta.find_one({"_id": "schema"}, {"version": 1})
     if schema and schema.get("version") == SCHEMA_VERSION:
-        _schema_initialized = True
+        _finish_schema_init()
         return
     db.users.create_index("telegram_id", unique=True)
     db.services.create_index([("sort_order", ASCENDING), ("id", ASCENDING)])
@@ -535,7 +535,43 @@ def init_db():
         {"$set": {"version": SCHEMA_VERSION, "updated_at": int(time.time())}},
         upsert=True,
     )
+    _finish_schema_init()
+
+
+def _finish_schema_init():
+    """Correct duplicate supplier offers once, then mark the schema ready."""
+    global _schema_initialized
+    from app.domain.offer_stock_control import reconcile_same_product_offers
+
+    reconcile_same_product_offers()
     _schema_initialized = True
+
+
+def note_same_product_stock():
+    """Re-pick the in-stock offer after stock, price, or listing inputs change."""
+    from app.domain.offer_stock_control import note_offer_listing_inputs_changed
+
+    note_offer_listing_inputs_changed()
+
+
+_SAME_PRODUCT_FIELDS = frozenset({
+    "stock",
+    "unlimited_stock",
+    "price",
+    "name",
+    "period_days",
+    "period_value",
+    "period_unit",
+    "warranty_days",
+    "warranty_value",
+    "warranty_unit",
+    "supplier_provider",
+    "supplier_product_id",
+    "product_enabled",
+    "stock_enabled",
+    "active",
+    "service_id",
+})
 
 
 def _remove_legacy_announcement_overrides(conn):
@@ -1316,6 +1352,7 @@ def _resolve_flash_sale(offer):
     offer.pop("flash_sale_price", None)
     offer.pop("flash_sale_original_price", None)
     offer.pop("flash_sale_ends_at", None)
+    note_same_product_stock()
     return offer
 
 
@@ -1342,6 +1379,7 @@ def start_flash_sale(offer_id, sale_price, duration_minutes):
             "price": sale_price,
         }},
     )
+    note_same_product_stock()
     return get_offer(int(offer_id))
 
 
@@ -1361,6 +1399,7 @@ def stop_flash_sale(offer_id):
             },
         },
     )
+    note_same_product_stock()
     return get_offer(int(offer_id))
 
 
@@ -1668,6 +1707,8 @@ def update_offer(
                 {"local_offer_id": int(offer_id)},
                 {"$set": {"service_id": int(service_id), "updated_at": int(time.time())}},
             )
+        if _SAME_PRODUCT_FIELDS.intersection(values):
+            note_same_product_stock()
 
 
 def move_offer(offer_id, service_id):
@@ -2133,6 +2174,8 @@ def update_service(
     updated = bool(values and get_conn().services.update_one({"id": service_id}, {"$set": values}).matched_count)
     if updated and special_service:
         _ensure_otp_service_offer(get_conn(), service_id)
+    if updated and "active" in values:
+        note_same_product_stock()
     return updated
 
 
@@ -2147,20 +2190,27 @@ def archive_service(service_id):
         {"service_id": service_id},
         {"$set": {"active": 0, "archived": 1, "archived_at": archived_at}},
     )
+    note_same_product_stock()
 
 
 def archive_offer(offer_id):
-    return bool(get_conn().offers.update_one(
+    archived = bool(get_conn().offers.update_one(
         {"id": offer_id},
         {"$set": {"active": 0, "archived": 1, "archived_at": int(time.time())}},
     ).matched_count)
+    if archived:
+        note_same_product_stock()
+    return archived
 
 
 def unarchive_offer(offer_id):
-    return bool(get_conn().offers.update_one(
+    restored = bool(get_conn().offers.update_one(
         {"id": int(offer_id)},
         {"$set": {"active": 1, "archived": 0}, "$unset": {"archived_at": ""}},
     ).matched_count)
+    if restored:
+        note_same_product_stock()
+    return restored
 
 
 def unarchive_service(service_id):
@@ -2173,6 +2223,7 @@ def unarchive_service(service_id):
         {"service_id": int(service_id)},
         {"$set": {"active": 1, "archived": 0}, "$unset": {"archived_at": ""}},
     )
+    note_same_product_stock()
 
 
 def add_offer(
@@ -2322,6 +2373,8 @@ def add_offer(
         ),
         **special_values,
     })
+    if str(supplier_provider or "").strip():
+        note_same_product_stock()
     return oid
 
 
@@ -2442,6 +2495,7 @@ def duplicate_offer(offer_id):
 
 def decrement_stock(offer_id, qty):
     get_conn().offers.update_one({"id": offer_id}, [{"$set": {"stock": {"$max": [0, {"$subtract": ["$stock", qty]}]}}}])
+    note_same_product_stock()
 
 
 def mark_order_paid(order_id, verify_method):
@@ -2471,6 +2525,7 @@ def mark_order_paid(order_id, verify_method):
         from app.domain import storefront_notification_service
 
         storefront_notification_service.announce_stock(int(order["offer_id"]), before_stock, max(0, before_stock - qty))
+        note_same_product_stock()
     paid = db.orders.update_one(
         {"id": order_id, "status": order["status"]},
         {
@@ -2484,6 +2539,7 @@ def mark_order_paid(order_id, verify_method):
     )
     if paid.modified_count != 1 and stock_decremented:
         db.offers.update_one({"id": order["offer_id"]}, {"$inc": {"stock": order["qty"]}})
+        note_same_product_stock()
     if paid.modified_count == 1:
         _capture_admin_notifications()
     return paid.modified_count == 1
@@ -2800,6 +2856,7 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
         {"id": int(config["local_offer_id"])},
         {"$set": {"price": new_retail}},
     )
+    note_same_product_stock()
     return {
         "offer_id": int(config["local_offer_id"]),
         "previous_wholesale": previous_wholesale,
@@ -2915,11 +2972,14 @@ def save_reseller_product_config(
         },
         upsert=True,
     )
-    return _public(
+    saved = _public(
         get_conn().reseller_products.find_one(
             {"provider": str(provider), "product_id": str(product_id)}
         )
     )
+    if saved and saved.get("local_offer_id") is not None:
+        note_same_product_stock()
+    return saved
 
 
 def shop_settings():
@@ -3028,6 +3088,7 @@ def add_inventory_items(offer_id, items):
         added += 1
     if added:
         db.offers.update_one({"id": offer_id}, {"$inc": {"stock": added}})
+        note_same_product_stock()
     return added
 
 def inventory_stats(offer_id):

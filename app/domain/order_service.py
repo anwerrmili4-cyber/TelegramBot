@@ -90,6 +90,8 @@ def create_order(
 
         reseller_service.refresh_supplier_stock([offer])
         offer = db.get_offer(int(offer["id"])) or offer
+        if not offer.get("active", 1) or offer.get("stock_control_hold") is True:
+            raise ValueError("Cette offre n'est pas disponible à l'achat.")
     if not preorder and not db.offer_has_stock(offer):
         raise ValueError("Cette offre est en rupture de stock.")
     if qty < 1:
@@ -353,6 +355,7 @@ def cancel_order(order_id: int, reason: str = "") -> bool:
                 {"id": order["offer_id"]},
                 {"$inc": {"stock": order.get("qty", 1)}},
             )
+            db.note_same_product_stock()
 
     _release_reserved_inventory(conn, order_id)
     wallet_service.refund_balance(order["user_id"], order.get("wallet_amount", 0), order_id)

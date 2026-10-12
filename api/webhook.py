@@ -2262,6 +2262,7 @@ class handler(BaseHTTPRequestHandler):
                     {"id": {"$in": offer_ids}, "archived": {"$ne": 1}},
                     {"$set": {"active": active}},
                 )
+                db.note_same_product_stock()
                 db.audit_event(
                     "offer.bulk_toggled",
                     details={
@@ -2363,6 +2364,7 @@ class handler(BaseHTTPRequestHandler):
                         changes.append({"id": row["id"], "before": before, "after": after})
                 else:
                     raise ValueError("Action groupée inconnue")
+                db.note_same_product_stock()
                 db.audit_event("offer.bulk_updated", details={
                     "operation": operation,
                     "offer_ids": offer_ids,

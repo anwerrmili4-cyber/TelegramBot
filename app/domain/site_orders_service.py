@@ -254,6 +254,7 @@ def _restock(conn: Any, line: dict[str, Any]) -> None:
         qty = int(line.get("qty") or 1)
         before_stock = int(offer.get("stock") or 0)
         conn.offers.update_one({"id": line["offer_id"]}, {"$inc": {"stock": qty}})
+        db.note_same_product_stock()
         from app.domain import storefront_notification_service
 
         storefront_notification_service.announce_stock(int(line["offer_id"]), before_stock, before_stock + qty)

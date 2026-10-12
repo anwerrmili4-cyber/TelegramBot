@@ -137,6 +137,22 @@ export function offerIsActive(offer) {
   return offer?.active !== 0 && offer?.active !== false && offer?.active !== "0";
 }
 
+export function offerListingStatus(offer, hiddenLabel = "Masqué", shownLabel = "Visible") {
+  if (offer?.stock_control_hold) {
+    return {
+      hidden: true,
+      label: "Autre fournisseur",
+      title: "Même nom, durée et garantie. Masquée car hors stock, ou plus chère pour le client. Le stock passe avant le prix.",
+    };
+  }
+  const hidden = !offerIsActive(offer);
+  return {
+    hidden,
+    label: hidden ? hiddenLabel : shownLabel,
+    title: hidden ? "Masquée dans le bot" : "Visible pour les clients",
+  };
+}
+
 export function offerIsOnline(offer) {
   return offerIsProductOn(offer) && offerIsStockOn(offer) && offerIsActive(offer);
 }

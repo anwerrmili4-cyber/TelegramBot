@@ -78,6 +78,8 @@ def sync_offer_stock(offer_id: int, added: int | None = None) -> int:
         "status": InventoryStatus.AVAILABLE,
     })
     conn.offers.update_one({"id": offer_id}, {"$set": {"stock": available}})
+    if available != before:
+        db.note_same_product_stock()
     from app.domain import storefront_notification_service
 
     storefront_notification_service.announce_stock(offer_id, before, available)
