@@ -10,7 +10,7 @@ type CatalogState = {
   reload: () => void;
 };
 
-const CACHE_KEY = "bm-catalog-v1";
+const CACHE_KEY = "bm-catalog-v2";
 const CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 
 function catalogFrom(raw: string): Catalog | null {

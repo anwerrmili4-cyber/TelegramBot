@@ -123,6 +123,58 @@ def _offer_on_sale(offer: dict[str, Any]) -> bool:
     return _site_visible(offer) and _price_millimes(offer) > 0
 
 
+def _listing_identity(offer: dict[str, Any]) -> tuple[Any, ...]:
+    """The parts a customer uses to tell two cards apart.
+
+    A supplier import copied the same name, dinar price, duration, and
+    warranty onto a second offer. Those two cards are one product. A different
+    price or a different warranty stays its own card.
+    """
+    name = " ".join(_display_name(offer, "").casefold().split())
+    if not name:
+        return ("", int(offer["id"]))
+    return (
+        name,
+        _price_millimes(offer),
+        _site_period_days(offer),
+        _site_warranty_days(offer),
+    )
+
+
+def _listing_rank(offer: dict[str, Any]) -> tuple[int, int, int, int, int, int]:
+    """Prefer the offer checkout can still fulfill."""
+    linked = bool(str(offer.get("supplier_provider") or "").strip())
+    twin = offer.get("local_copy_of_offer_id") not in (None, "", 0)
+    unlimited = bool(offer.get("unlimited_stock"))
+    try:
+        stock = max(0, int(offer.get("stock") or 0))
+    except (TypeError, ValueError):
+        stock = 0
+    return (
+        1 if linked else 0,
+        0 if twin else 1,
+        1 if unlimited or stock > 0 else 0,
+        1 if offer.get("site_featured") else 0,
+        1_000_000_000 if unlimited else stock,
+        -int(offer["id"]),
+    )
+
+
+def _dedupe_offers(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one offer when the same product was stored twice."""
+    chosen: dict[tuple[Any, ...], dict[str, Any]] = {}
+    order: list[tuple[Any, ...]] = []
+    for offer in offers:
+        key = _listing_identity(offer)
+        current = chosen.get(key)
+        if current is None:
+            chosen[key] = offer
+            order.append(key)
+        elif _listing_rank(offer) > _listing_rank(current):
+            chosen[key] = offer
+    return [chosen[key] for key in order]
+
+
 def _plain_text(value: Any, *, limit: int = 700, keep_breaks: bool = False) -> str:
     text = str(value or "").replace("[[HTML]]", " ")
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
@@ -310,6 +362,8 @@ _CATALOG_OFFER_FIELDS = {
     "site_category_logo_version": 1,
     "site_remark": 1,
     "site_requires_info": 1,
+    "supplier_provider": 1,
+    "local_copy_of_offer_id": 1,
     "flash_sale_active": 1,
     "flash_sale_ends_at": 1,
     "flash_sale_original_price": 1,
@@ -381,12 +435,14 @@ def _build_catalog() -> dict[str, Any]:
         flat = db.is_official_subscriptions_service(service)
         offers = []
         # Bot ``active`` is ignored for ordinary offers. A duplicate supplier
-        # offer parked by stock control stays out of the public list.
-        for offer in offers_by_service.get(int(service["id"]), []):
-            if offer.get("stock_control_hold") is True:
-                continue
-            if not _offer_on_sale(offer):
-                continue
+        # offer parked by stock control stays out of the public list, and a
+        # second stored row of the same product would otherwise show as two cards.
+        sale_offers = _dedupe_offers([
+            offer
+            for offer in offers_by_service.get(int(service["id"]), [])
+            if offer.get("stock_control_hold") is not True and _offer_on_sale(offer)
+        ])
+        for offer in sale_offers:
             public = _public_offer(service, offer)
             used_categories.add(public["category"])
             if not flat:

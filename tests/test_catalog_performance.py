@@ -215,6 +215,7 @@ def test_supplier_offers_are_copied_as_inactive_local_twins(mock_mongodb):
     mock_mongodb.reseller_products.insert_one({
         "provider": "upibot", "product_id": "18", "local_offer_id": supplier_id,
     })
+    db.update_offer(supplier_id, site_enabled=True)
 
     first = db.copy_supplier_offers_to_local()
     second = db.copy_supplier_offers_to_local()
@@ -244,6 +245,8 @@ def test_supplier_offers_are_copied_as_inactive_local_twins(mock_mongodb):
     assert copy["photo_file_id"] == "photo-1"
     assert copy["service_id"] == service_id
     assert copy["active"] == 0
+    assert copy["site_enabled"] is False
+    assert original["site_enabled"] is True
     assert copy["supplier_provider"] == ""
     assert copy["supplier_product_id"] == ""
     assert copy["local_copy_of_offer_id"] == supplier_id
@@ -284,6 +287,7 @@ def test_copy_accepts_a_database_that_rejects_boolean_tests(mock_mongodb):
     assert result["offers_copied"] == 1
     copy = mock_mongodb.offers.find_one({"local_copy_of_offer_id": supplier_id})
     assert copy["active"] == 0
+    assert copy["site_enabled"] is False
     assert copy["supplier_provider"] == ""
     assert mock_mongodb.offers.find_one({"id": supplier_id})["active"] == 1
 

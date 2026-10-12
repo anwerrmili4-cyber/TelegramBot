@@ -2405,7 +2405,8 @@ def copy_supplier_offers_to_local(conn=None):
 
     Name, description, price, duration, and the other stored customer fields
     stay exact. The copy drops the supplier link, so the admin catalog treats
-    it as internal stock, and ``active`` is 0 so the bot does not list it.
+    it as internal stock. ``active`` is 0 and ``site_enabled`` is false, so
+    neither the bot nor the site lists it until an admin switches it on.
     The original offer is left untouched. A second run copies nothing new.
     """
     if conn is None:
@@ -2438,6 +2439,9 @@ def copy_supplier_offers_to_local(conn=None):
         copy["id"] = _next_id("offers")
         copy["active"] = 0
         copy["archived"] = 0
+        # The site follows ``site_enabled``, not the bot's ``active`` flag.
+        # Leaving the copied switch on published the twin next to the original.
+        copy["site_enabled"] = False
         copy["supplier_provider"] = ""
         copy["supplier_product_id"] = ""
         copy["local_copy_of_offer_id"] = source_id

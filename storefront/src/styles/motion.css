@@ -192,6 +192,7 @@
 /* Homepage product cards: one rise when they enter, then hover can move them. */
 @media (prefers-reduced-motion: no-preference) {
   .hero-picks .prod-tile.is-armed:not(.is-in),
+  .home-offers .prod-tile.is-armed:not(.is-in),
   .home-trends .prod-tile.is-armed:not(.is-in),
   .home-fresh .prod-tile.is-armed:not(.is-in) {
     opacity: 0;
@@ -199,6 +200,7 @@
   }
 
   .hero-picks .prod-tile.is-in,
+  .home-offers .prod-tile.is-in,
   .home-trends .prod-tile.is-in,
   .home-fresh .prod-tile.is-in {
     animation: tile-rise var(--motion-enter) var(--ease-out) backwards;
@@ -695,6 +697,7 @@
   .home-block > h2,
   .home-cats .cat-card:first-child,
   .hero-picks .prod-tile,
+  .home-offers .prod-tile,
   .home-trends .prod-tile,
   .home-fresh .prod-tile,
   .offer,
@@ -725,6 +728,7 @@
   }
 
   .hero-picks .prod-tile,
+  .home-offers .prod-tile,
   .home-trends .prod-tile,
   .home-fresh .prod-tile {
     opacity: 1;

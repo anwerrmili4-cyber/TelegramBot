@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Package, Receipt, RefreshCw, Send, Users } from "lucide-react";
 import { errorMessage, fetchTickets, openTicket, replyToTicket } from "@/lib/api";
+import { ProductTile } from "@/components/Hero";
 import { money } from "@/lib/format";
 import { Link, ROUTES, withNext } from "@/lib/router";
 import { accountPath } from "@/lib/accountPath";
@@ -54,19 +55,11 @@ export function DealsPage({ offers, onOpenOffer }: { offers: Offer[]; onOpenOffe
           ? "Les produits mis en avant dans le catalogue."
           : "Sélection des produits disponibles en ce moment."}
       </PageIntro>
-      <ul className="price-list">
-        {shown.map((offer) => (
-          <li key={offer.id}>
-            <button type="button" onClick={() => onOpenOffer(offer)}>
-              <span>
-                <strong>{offer.name}</strong>
-                <small>{offer.service_name}</small>
-              </span>
-              <b>{money(offer.price_millimes)}</b>
-            </button>
-          </li>
+      <div className="tile-grid">
+        {shown.map((offer, index) => (
+          <ProductTile key={offer.id} offer={offer} index={index} onOpen={onOpenOffer} />
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

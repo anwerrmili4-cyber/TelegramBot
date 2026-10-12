@@ -63,6 +63,64 @@ def test_official_subscriptions_become_product_categories(mock_mongodb):
     assert services[1]["offers"][0]["service_name"] == "Google AI Pro"
 
 
+def test_catalog_shows_one_card_for_a_duplicated_product(mock_mongodb):
+    service_id = db.add_service("Google AI", "✦", sales_channels=["bot", "tn_site"])
+    live = db.add_offer(
+        service_id, "Google AI Pro 18 mois", 4.0, 252,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=15_000,
+        supplier_provider="upibot", supplier_product_id="18",
+        period_days=540,
+    )
+    twin = db.add_offer(
+        service_id, "Google AI Pro 18 mois", 4.0, 489,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=15_000,
+        period_days=540,
+    )
+    db.get_conn().offers.update_one({"id": twin}, {"$set": {"local_copy_of_offer_id": live}})
+    other_duration = db.add_offer(
+        service_id, "Google AI Pro 12 mois", 20.0, 12,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=100_000,
+        period_days=365,
+    )
+    db.update_offer(
+        other_duration,
+        site_warranty_days=365,
+        site_warranty_value=12,
+        site_warranty_unit="months",
+    )
+    promo = db.add_offer(
+        service_id, "Google AI Pro 18 mois", 3.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=12_000,
+        period_days=540,
+    )
+
+    shown = storefront_service.catalog()["services"][0]["offers"]
+    ids = [offer["id"] for offer in shown]
+
+    assert ids == [live, other_duration, promo]
+
+
+def test_catalog_keeps_the_supplier_listing_when_it_is_the_second_copy(mock_mongodb):
+    service_id = db.add_service("Canva", "✦", sales_channels=["bot", "tn_site"])
+    stale = db.add_offer(
+        service_id, "Canva Pro Panel 3 ans", 15.0, 19,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=85_000,
+        period_days=1095,
+    )
+    live = db.add_offer(
+        service_id, "Canva Pro Panel 3 ans", 15.0, 21,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=85_000,
+        supplier_provider="upibot", supplier_product_id="panel",
+        period_days=1095,
+    )
+
+    shown = storefront_service.catalog()["services"][0]["offers"]
+
+    assert [offer["id"] for offer in shown] == [live]
+    assert shown[0]["stock"] == 21
+    assert stale not in {offer["id"] for offer in shown}
+
+
 def test_catalog_uses_live_mongo_offers_and_tnd(mock_mongodb):
     _, offer_id = _catalog_offer()
     result = storefront_service.catalog()

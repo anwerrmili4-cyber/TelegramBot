@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, PackageSearch, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
 import { FavoriteButton } from "@/components/FavoriteButton";
-import { FilmReel } from "@/components/FilmReel";
+import { filmOffers } from "@/components/FilmReel";
 import { HeroReviewReel } from "@/components/PublicReviews";
 import { HowItWorks } from "@/components/HowItWorks";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
@@ -247,6 +247,7 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
   const highlighted = featured.length ? featured : available;
   const popular = highlighted.slice(0, 4);
   const trending = highlighted.slice(0, 8);
+  const spotlight = filmOffers(offers, 8);
   const fresh = [...available].sort((a, b) => b.id - a.id).slice(0, 4);
 
   function search(event: FormEvent) {
@@ -378,7 +379,20 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
         </Link>
       </section>
 
-      <FilmReel offers={offers} />
+      {spotlight.length ? (
+        <section className="home-block home-offers" aria-labelledby="offers-title">
+          <h2 id="offers-title">Offres</h2>
+          <p>Les produits mis en avant, ou ceux qui sont en stock.</p>
+          <div className="tile-grid">
+            {spotlight.map((offer, index) => (
+              <ProductTile key={offer.id} offer={offer} index={index} onOpen={onOpenOffer} />
+            ))}
+          </div>
+          <Link className="home-more" to={ROUTES.deals}>
+            Voir plus
+          </Link>
+        </section>
+      ) : null}
 
       <section className="home-block home-trends" aria-labelledby="trend-title">
         <h2 id="trend-title">Tendances</h2>
