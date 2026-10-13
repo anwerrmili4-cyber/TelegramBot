@@ -6522,12 +6522,13 @@ def build_app():
     from telegram.request import HTTPXRequest
     request = HTTPXRequest(connect_timeout=30, read_timeout=30)
     app = Application.builder().token(BOT_TOKEN).request(request).build()
+    # Stop a banned customer before the click report or any feature handler runs.
+    app.add_handler(MessageHandler(filters.ALL, block_banned_users), group=-6)
+    app.add_handler(CallbackQueryHandler(block_banned_users), group=-6)
     # Report customer button clicks without consuming them, then apply global gates.
     app.add_handler(CallbackQueryHandler(notify_admin_interaction, block=False), group=-5)
     app.add_handler(MessageHandler(filters.ALL, block_maintenance_users), group=-4)
     app.add_handler(CallbackQueryHandler(block_maintenance_users), group=-4)
-    app.add_handler(MessageHandler(filters.ALL, block_banned_users), group=-3)
-    app.add_handler(CallbackQueryHandler(block_banned_users), group=-3)
     app.add_handler(MessageHandler(filters.ALL, block_non_channel_members), group=-2)
     app.add_handler(CallbackQueryHandler(block_non_channel_members), group=-2)
     app.add_handler(MessageHandler(

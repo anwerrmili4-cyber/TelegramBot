@@ -3696,6 +3696,7 @@ from app.repositories.broadcasts import (  # noqa: F401
 
 
 def set_user_banned(user_id, banned, *, reason=None):
+    user_id = int(user_id)
     values = {"banned": bool(banned)}
     if not banned:
         # Let an unbanned customer finish the UTC day without an immediate re-ban.
@@ -3712,7 +3713,8 @@ def set_user_banned(user_id, banned, *, reason=None):
 
 
 def is_user_banned(user_id):
-    row = get_conn().users.find_one({"telegram_id": user_id}, {"banned": 1})
+    """Return the same ``users.banned`` flag the admin panel shows as Bloqué."""
+    row = get_conn().users.find_one({"telegram_id": int(user_id)}, {"banned": 1})
     return bool(row and row.get("banned"))
 
 

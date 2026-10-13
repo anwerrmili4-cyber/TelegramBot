@@ -1,10 +1,11 @@
 """Update guards that run before the feature handlers.
 
-Registered in negative groups by ``bot.build_app``: interaction report (-5,
-non-blocking so a button press never waits for the report channel),
-maintenance (-4), bans (-3) and required-channel membership (-2). Shared
-settings such as ``ADMIN_ID`` are read from the ``bot`` module at call time,
-so the bot keeps a single place to configure (and patch) them.
+Registered in negative groups by ``bot.build_app``: bans (-6, before anything
+else is handled), interaction report (-5, non-blocking so a button press never
+waits for the report channel), maintenance (-4) and required-channel
+membership (-2). Shared settings such as ``ADMIN_ID`` are read from the
+``bot`` module at call time, so the bot keeps a single place to configure
+(and patch) them.
 """
 
 from __future__ import annotations
@@ -22,9 +23,10 @@ from app.core.cache import CATALOG_PREFIX, cache
 
 log = logging.getLogger("bot")
 
-# Every update passes the ban and maintenance guards; a short cache saves two
-# MongoDB round trips per update. Settings writes clear the maintenance entry
-# through the catalog write listener and bans clear their user's entry.
+# Maintenance is read on every update; a short cache saves that round trip.
+# Settings writes clear the entry through the catalog write listener.
+# The ban flag is not cached: a stored "not banned" result kept a customer
+# usable after the admin marked them Bloqué.
 GUARD_CACHE_SECONDS = 5.0
 _MAINTENANCE_KEY = CATALOG_PREFIX + "bot-maintenance"
 
@@ -40,13 +42,18 @@ def banned_cache_key(user_id) -> str:
 
 
 def invalidate_banned(user_id) -> None:
+    """Drop a leftover ban entry. The guard no longer reads this cache."""
     cache.invalidate(banned_cache_key(user_id))
 
 
 def _is_banned(user_id) -> bool:
-    return cache.get_or_set(
-        banned_cache_key(user_id), GUARD_CACHE_SECONDS, lambda: bool(_bot().db.is_user_banned(user_id)),
-    )
+    """Return the admin Bloqué flag (``users.banned``) for this Telegram id.
+
+    The result is read from the database on every update. Caching "not banned"
+    let a blocked customer through until the entry expired, including across
+    processes that never saw ``invalidate_banned``.
+    """
+    return bool(_bot().db.is_user_banned(int(user_id)))
 
 
 def _maintenance() -> tuple[bool, str]:
@@ -160,6 +167,8 @@ async def notify_admin_interaction(update: Update, context: ContextTypes.DEFAULT
     bot = _bot()
     user = update.effective_user
     if not user or user.id == bot.ADMIN_ID or not update.callback_query:
+        return
+    if _is_banned(user.id):
         return
 
     raw_name = user.full_name or user.first_name or "Unknown user"
@@ -275,14 +284,19 @@ async def notify_admin_interaction(update: Update, context: ContextTypes.DEFAULT
 
 
 async def block_banned_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reject the update before any command, button, catalog, or purchase handler."""
     bot = _bot()
     user = update.effective_user
-    if user and user.id != bot.ADMIN_ID and _is_banned(user.id):
+    if not user or user.id == bot.ADMIN_ID or not _is_banned(user.id):
+        return
+    try:
         if update.callback_query:
             await update.callback_query.answer("⛔ Accès suspendu.", show_alert=True)
         elif update.effective_message:
             await update.effective_message.reply_text("⛔ Votre accès à cette boutique est suspendu.")
-        raise ApplicationHandlerStop
+    except Exception:
+        log.exception("Unable to tell user %s that access is suspended", user.id)
+    raise ApplicationHandlerStop
 
 
 async def block_maintenance_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
