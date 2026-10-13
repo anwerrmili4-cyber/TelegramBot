@@ -481,7 +481,9 @@ def _catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
     price_tbd = t(lang, "price_tbd")
     stock_icon = db.get_text_override_icon("stock_label", lang) or None
 
-    all_offers = list(db.list_catalog_offers())
+    from app.domain.offer_stock_control import keep_best_bot_price
+
+    all_offers = keep_best_bot_price(list(db.list_catalog_offers()))
 
     # Group offers by service_id
     service_offers = {}
@@ -754,7 +756,9 @@ def warranty_resolution_keyboard(request_id):
 def profile_notifications_keyboard(lang, user_id, enabled, page=0, page_size=8):
     """Show a master switch plus paginated notification switches per product."""
     notification_key = "catalog_notifications_on" if enabled else "catalog_notifications_off"
-    offers = db.list_catalog_offers()
+    from app.domain.offer_stock_control import keep_best_bot_price
+
+    offers = keep_best_bot_price(db.list_catalog_offers())
     total_pages = max(1, (len(offers) + page_size - 1) // page_size)
     page = max(0, min(int(page), total_pages - 1))
     page_offers = offers[page * page_size:(page + 1) * page_size]

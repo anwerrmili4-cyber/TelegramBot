@@ -886,8 +886,10 @@ def top_selling_products_text(lang: str) -> str:
         "en": "🔥 <b>TOP 5 BEST-SELLING PRODUCTS</b>",
         "ar": "🔥 <b>أفضل 5 منتجات مبيعاً</b>",
     }
+    from app.domain.offer_stock_control import keep_best_bot_price
+
     ranked = []
-    for offer in db.list_catalog_offers():
+    for offer in keep_best_bot_price(db.list_catalog_offers()):
         sold = db.offer_sold_count(offer.get("id"))
         if sold > 0:
             ranked.append((sold, offer))

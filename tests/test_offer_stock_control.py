@@ -1,6 +1,7 @@
 """One in-stock offer stays listed when suppliers sell the same product."""
 
 import database as db
+import keyboards as kb
 from app.domain import offer_stock_control, storefront_service
 from app.domain.order_service import create_order
 
@@ -297,3 +298,80 @@ def test_database_startup_runs_the_sweep(mock_mongodb, monkeypatch):
     db._schema_initialized = False
     db.init_db()
     assert calls == ["sweep"]
+
+
+def test_bot_lists_the_lower_price_and_leaves_the_site_unchanged(mock_mongodb):
+    service_id = db.add_service("Capcut", "🎬", sales_channels=["bot", "tn_site"], site_enabled=True)
+    dear = _offer(
+        service_id, "vex", 4, 5,
+        name="Capcut pro", supplier_product_id="dear",
+        warranty_days=0,
+        tn_price_millimes=12000, site_enabled=True,
+    )
+    cheap = _offer(
+        service_id, "vex", 3.9, 2,
+        name="Capcut Pro", supplier_product_id="cheap",
+        tn_price_millimes=11000, site_enabled=True,
+    )
+
+    assert db.get_offer(dear)["active"] == 1
+    assert db.get_offer(cheap)["active"] == 1
+    assert db.get_offer(dear).get("stock_control_hold") is not True
+    assert [offer["id"] for offer in db.list_offers(service_id)] == [cheap]
+    assert {offer["id"] for offer in db.list_offers(service_id, active_only=False)} == {cheap, dear}
+    assert db.offer_is_listed_in_bot(db.get_offer(cheap)) is True
+    assert db.offer_is_listed_in_bot(db.get_offer(dear)) is False
+
+    callbacks = [
+        button.callback_data
+        for row in kb.offers_keyboard("en", service_id).inline_keyboard
+        for button in row
+    ]
+    assert f"off:{cheap}" in callbacks
+    assert f"off:{dear}" not in callbacks
+
+    listed = [
+        offer["id"]
+        for service in storefront_service._build_catalog()["services"]
+        for offer in service["offers"]
+    ]
+    assert set(listed) == {cheap, dear}
+
+
+def test_bot_hides_a_higher_price_even_when_the_cheaper_offer_is_out_of_stock(mock_mongodb):
+    service_id = db.add_service("Capcut", "🎬")
+    cheap = _offer(service_id, "vex", 3.9, 0, name="Capcut pro", supplier_product_id="cheap")
+    dear = _offer(service_id, "vex", 4, 8, name="Capcut pro", supplier_product_id="dear")
+
+    assert [offer["id"] for offer in db.list_offers(service_id)] == [cheap]
+    assert db.get_offer(dear)["active"] == 1
+
+
+def test_bot_catalog_hides_the_higher_price_from_another_service(mock_mongodb):
+    first = db.add_service("Capcut", "🎬")
+    second = db.add_service("Video", "🎬")
+    dear = _offer(first, "vex", 4, 3, name="Capcut pro", supplier_product_id="dear")
+    cheap = _offer(second, "vex", 3.9, 3, name="Capcut pro", supplier_product_id="cheap")
+
+    assert db.list_offers(first) == []
+    assert [offer["id"] for offer in db.list_offers(second)] == [cheap]
+    assert {offer["id"] for offer in db.list_catalog_offers()} == {dear, cheap}
+
+    callbacks = [
+        button.callback_data
+        for row in kb._catalog_offers_keyboard("en").inline_keyboard
+        for button in row
+    ]
+    assert f"off:{cheap}" in callbacks
+    assert f"off:{dear}" not in callbacks
+
+
+def test_bot_keeps_the_same_name_when_the_period_is_different(mock_mongodb):
+    service_id = db.add_service("Capcut", "🎬")
+    month = _offer(service_id, "vex", 3.9, 2, name="Capcut pro", supplier_product_id="month")
+    year = _offer(
+        service_id, "vex", 9, 2,
+        name="Capcut pro", supplier_product_id="year", period_days=365,
+    )
+
+    assert {offer["id"] for offer in db.list_offers(service_id)} == {month, year}

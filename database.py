@@ -1215,12 +1215,53 @@ def offer_is_listed_in_bot(offer):
 
     Offers that do not name a service stay governed by their own flag. That
     keeps purchase checks working for rows that were never attached to one.
+    When two bot buttons are the same product, only the lower price stays.
     """
     if not is_bot_visible(offer):
         return False
-    if offer.get("service_id") is None:
+    if offer.get("service_id") is not None and not is_bot_visible(get_service(offer.get("service_id"))):
+        return False
+    return _offer_wins_bot_price(offer)
+
+
+def _offer_wins_bot_price(offer):
+    """True when no identical bot product is cheaper than this offer."""
+    if not isinstance(offer, dict) or offer.get("feature_key"):
         return True
-    return is_bot_visible(get_service(offer.get("service_id")))
+    try:
+        offer_id = int(offer["id"])
+    except (TypeError, ValueError, KeyError):
+        return True
+    from app.domain.offer_stock_control import keep_best_bot_price
+
+    catalog = list_catalog_offers()
+    catalog_ids = {int(item["id"]) for item in catalog if item.get("id") is not None}
+    if offer_id in catalog_ids:
+        kept = {
+            int(item["id"])
+            for item in keep_best_bot_price(catalog)
+            if item.get("id") is not None
+        }
+        return offer_id in kept
+    service_id = offer.get("service_id")
+    if service_id is None:
+        return True
+    siblings = [
+        _resolve_flash_sale(_public(row))
+        for row in get_conn().offers.find({
+            "service_id": service_id,
+            "active": 1,
+            **_product_on_clause(),
+        })
+    ]
+    if not any(int(item.get("id") or 0) == offer_id for item in siblings):
+        siblings.append(offer)
+    kept = {
+        int(item["id"])
+        for item in keep_best_bot_price(siblings)
+        if item.get("id") is not None
+    }
+    return offer_id in kept
 
 
 def list_offers(service_id, active_only=True):
@@ -1238,6 +1279,27 @@ def list_offers(service_id, active_only=True):
         values = _otp_offer_values()
         for offer in offers:
             offer.update(values)
+    if active_only:
+        from app.domain.offer_stock_control import keep_best_bot_price
+
+        try:
+            current_service = int(service_id)
+        except (TypeError, ValueError):
+            current_service = None
+        others = []
+        for item in list_catalog_offers():
+            try:
+                item_service = int(item.get("service_id"))
+            except (TypeError, ValueError):
+                item_service = None
+            if current_service is None or item_service != current_service:
+                others.append(item)
+        winners = {
+            int(item["id"])
+            for item in keep_best_bot_price(others + offers)
+            if item.get("id") is not None
+        }
+        offers = [offer for offer in offers if int(offer.get("id") or 0) in winners]
     return offers
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 from collections import defaultdict
 from contextlib import contextmanager
@@ -20,6 +21,7 @@ import database as db
 from app.domain import warranty_service
 
 log = logging.getLogger(__name__)
+_BUTTON_EDGE = re.compile(r"^[^\w]+|[^\w]+$", re.UNICODE)
 
 _state_lock = threading.Lock()
 _reconcile_lock = threading.Lock()
@@ -97,6 +99,80 @@ def client_price(offer: dict[str, Any] | None) -> float | None:
     if not math.isfinite(price) or price <= 0:
         return None
     return round(price, 4)
+
+
+def displayed_bot_price(offer: dict[str, Any] | None) -> float | None:
+    """Price printed on the Telegram product button.
+
+    A wholesale tier replaces the regular price on that button when it is lower.
+    """
+    regular = client_price(offer)
+    if regular is None:
+        return None
+    try:
+        bulk_quantity = int((offer or {}).get("bulk_quantity") or 0)
+        bulk_price = float((offer or {}).get("bulk_unit_price"))
+    except (TypeError, ValueError):
+        return regular
+    if bulk_quantity > 0 and math.isfinite(bulk_price) and 0 <= bulk_price < regular:
+        return round(bulk_price, 4)
+    return regular
+
+
+def bot_listing_key(offer: dict[str, Any] | None) -> tuple[str, int] | None:
+    """Identity of one Telegram button: cleaned name and period.
+
+    Warranty and supplier are not part of the match. Two rows that both read
+    "Capcut pro | 30 days" are the same product to the customer.
+    """
+    offer = offer or {}
+    if offer.get("feature_key"):
+        return None
+    name = normalize_product_name(offer.get("name"))
+    name = _BUTTON_EDGE.sub("", name).strip()
+    name = " ".join(name.split())
+    if not name:
+        return None
+    days = duration_days(offer, "period")
+    if days <= 0:
+        days = duration_days(offer, "warranty")
+    if days <= 0:
+        days = 30
+    return (name, days)
+
+
+def keep_best_bot_price(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Leave only the lowest Telegram price for each identical product.
+
+    Rows that cost more stay stored. This filter is for the bot list and does
+    not change the site.
+    """
+    grouped: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for offer in offers:
+        key = bot_listing_key(offer)
+        if key is not None and offer.get("id") is not None:
+            grouped[key].append(offer)
+
+    drop: set[int] = set()
+    for members in grouped.values():
+        priced = [offer for offer in members if displayed_bot_price(offer) is not None]
+        if len(priced) < 2 and len(members) == len(priced):
+            continue
+        if not priced:
+            continue
+        winner = min(priced, key=lambda offer: (displayed_bot_price(offer), int(offer["id"])))
+        winner_price = displayed_bot_price(winner)
+        winner_id = int(winner["id"])
+        for offer in members:
+            offer_id = int(offer["id"])
+            if offer_id == winner_id:
+                continue
+            price = displayed_bot_price(offer)
+            if price is None or (winner_price is not None and price > winner_price):
+                drop.add(offer_id)
+    if not drop:
+        return list(offers)
+    return [offer for offer in offers if int(offer.get("id") or 0) not in drop]
 
 
 def _unlimited(offer: dict[str, Any]) -> bool:
