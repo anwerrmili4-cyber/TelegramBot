@@ -305,7 +305,6 @@ def test_bot_lists_the_lower_price_and_leaves_the_site_unchanged(mock_mongodb):
     dear = _offer(
         service_id, "vex", 4, 5,
         name="Capcut pro", supplier_product_id="dear",
-        warranty_days=0,
         tn_price_millimes=12000, site_enabled=True,
     )
     cheap = _offer(
@@ -375,3 +374,22 @@ def test_bot_keeps_the_same_name_when_the_period_is_different(mock_mongodb):
     )
 
     assert {offer["id"] for offer in db.list_offers(service_id)} == {month, year}
+
+
+def test_bot_keeps_chatgpt_plus_when_only_the_warranty_differs(mock_mongodb):
+    service_id = db.add_service("ChatGPT", "✦")
+    short_warranty = _offer(
+        service_id, "vex", 4, 3,
+        name="ChatGPT Plus", supplier_product_id="short",
+        warranty_days=7,
+    )
+    full_warranty = _offer(
+        service_id, "upibot", 6, 3,
+        name="ChatGPT Plus", supplier_product_id="full",
+        warranty_days=30,
+    )
+
+    assert db.get_offer(short_warranty)["active"] == 1
+    assert db.get_offer(full_warranty)["active"] == 1
+    assert {offer["id"] for offer in db.list_offers(service_id)} == {short_warranty, full_warranty}
+    assert db.offer_is_listed_in_bot(db.get_offer(full_warranty)) is True

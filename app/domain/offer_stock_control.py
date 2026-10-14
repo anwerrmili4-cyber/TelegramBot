@@ -119,11 +119,11 @@ def displayed_bot_price(offer: dict[str, Any] | None) -> float | None:
     return regular
 
 
-def bot_listing_key(offer: dict[str, Any] | None) -> tuple[str, int] | None:
-    """Identity of one Telegram button: cleaned name and period.
+def bot_listing_key(offer: dict[str, Any] | None) -> tuple[str, int, int] | None:
+    """Identity of one Telegram product: cleaned name, period, and warranty.
 
-    Warranty and supplier are not part of the match. Two rows that both read
-    "Capcut pro | 30 days" are the same product to the customer.
+    A different warranty is a different product, so it stays listed even when
+    the name and the duration match. The supplier is not part of the match.
     """
     offer = offer or {}
     if offer.get("feature_key"):
@@ -135,10 +135,8 @@ def bot_listing_key(offer: dict[str, Any] | None) -> tuple[str, int] | None:
         return None
     days = duration_days(offer, "period")
     if days <= 0:
-        days = duration_days(offer, "warranty")
-    if days <= 0:
         days = 30
-    return (name, days)
+    return (name, days, duration_days(offer, "warranty"))
 
 
 def keep_best_bot_price(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -147,7 +145,7 @@ def keep_best_bot_price(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
     Rows that cost more stay stored. This filter is for the bot list and does
     not change the site.
     """
-    grouped: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
     for offer in offers:
         key = bot_listing_key(offer)
         if key is not None and offer.get("id") is not None:
