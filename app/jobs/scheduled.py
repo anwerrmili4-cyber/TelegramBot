@@ -41,6 +41,7 @@ def run_restock_check() -> tuple[int, dict[str, Any]]:
             for event in result["events"]
         ]
         result["queued_broadcasts"] = sum(1 for job in queued_jobs if job["queued"])
+        result["held_broadcasts"] = sum(1 for job in queued_jobs if job.get("held"))
         result["queued_recipients"] = sum(
             job.get("recipient_count", 0) for job in queued_jobs if job["queued"]
         )
@@ -71,6 +72,7 @@ def run_price_check() -> tuple[int, dict[str, Any]]:
         db.set_setting("price_cron_last_changes", len(result["changes"]))
         db.set_setting("price_cron_last_flash_sales", len(result["flash_sales"]))
         queued = 0
+        held = 0
         queued_recipients = 0
         for event in result["changes"]:
             job = queue_broadcast(
@@ -79,8 +81,10 @@ def run_price_check() -> tuple[int, dict[str, Any]]:
                 dedupe_key=_dedupe_key("api-price:", event),
             )
             queued += int(job["queued"])
+            held += int(bool(job.get("held")))
             queued_recipients = max(queued_recipients, job["recipient_count"])
         result["queued_broadcasts"] = queued
+        result["held_broadcasts"] = held
         result["queued_recipients"] = queued_recipients
         result["announced_messages"] = 0
         db.set_setting("price_cron_last_status", "ok" if result["ok"] else "partial")

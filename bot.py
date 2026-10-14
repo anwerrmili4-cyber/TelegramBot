@@ -1027,22 +1027,31 @@ async def announce_supplier_change_admin(context, event, change_type):
     return 1
 
 
+def _offer_reaches_customers(offer):
+    from app.domain.offer_stock_control import offer_reaches_bot_customers
+
+    return offer_reaches_bot_customers(offer)
+
+
 async def announce_channel_restock(
     context, offer_id, added, stock, supplier_event=None,
 ):
-    """Broadcast a private new-stock advert to every active bot user."""
+    """Broadcast a private new-stock advert to every active bot user.
+
+    An offer the bot is not selling does not get this message. The broadcast
+    job stays stored and is sent when that offer is listed again.
+    """
     offer = db.get_offer(int(offer_id))
-    if not offer or not offer.get("active", 1):
-        return await announce_supplier_change_admin(
-            context,
-            supplier_event or {
-                "offer_id": offer_id, "added": added, "stock": stock,
-            },
-            "stock",
-        ) if supplier_event else 0
-    unlimited = bool(offer.get("unlimited_stock"))
-    if not unlimited and int(stock or 0) <= 0:
+    if not _offer_reaches_customers(offer):
         return 0
+    unlimited = bool(offer.get("unlimited_stock"))
+    if not unlimited:
+        try:
+            stock = max(0, int(offer.get("stock") or 0))
+        except (TypeError, ValueError):
+            stock = max(0, int(stock or 0))
+        if stock <= 0:
+            return 0
     if added is not None and int(added or 0) <= 0:
         return 0
     service = db.get_service(offer["service_id"]) or {}
@@ -1087,7 +1096,7 @@ async def send_new_stock_broadcast(context, offer_id, added, stock):
 async def announce_flash_sale(context, offer_id):
     """Broadcast an active flash sale privately to every active bot user."""
     offer = db.get_offer(int(offer_id))
-    if not offer or not offer.get("active", 1) or not offer.get("flash_sale_active"):
+    if not _offer_reaches_customers(offer) or not offer.get("flash_sale_active"):
         return 0
     service = db.get_service(offer["service_id"]) or {}
     remaining_seconds = max(0, int(offer["flash_sale_ends_at"]) - int(time.time()))
@@ -1132,7 +1141,9 @@ async def announce_flash_sale(context, offer_id):
 async def announce_api_flash_sale(context, event):
     """Broadcast a supplier-driven price drop without creating a temporary price."""
     offer = db.get_offer(int(event["offer_id"]))
-    if not offer or not offer.get("active", 1) or not db.offer_has_stock(offer):
+    if not _offer_reaches_customers(offer):
+        return 0
+    if not db.offer_has_stock(offer):
         return await announce_supplier_change_admin(context, event, "price")
     service = db.get_service(offer["service_id"]) or {}
     old_price = float(event["previous_price"])
@@ -1177,7 +1188,9 @@ async def announce_api_flash_sale(context, event):
 async def announce_supplier_price_update(context, event):
     """Reuse the bot's manual new-drop design after a supplier price update."""
     offer = db.get_offer(int(event["offer_id"]))
-    if not offer or not offer.get("active", 1) or not db.offer_has_stock(offer):
+    if not _offer_reaches_customers(offer):
+        return 0
+    if not db.offer_has_stock(offer):
         return await announce_supplier_change_admin(context, event, "price")
     stock = "∞" if offer.get("unlimited_stock") else max(0, int(offer.get("stock") or 0))
     return await announce_channel_restock(
@@ -1202,13 +1215,25 @@ async def broadcast_admin_message(context, source_chat_id, message_id):
 
 async def announce_restock_digest(context, events):
     """Legacy compatibility: announce every restock as its own message."""
+    from app.domain.offer_stock_control import customer_broadcast_waits
+
     sent = 0
     for event in list(events or [])[:12]:
+        payload = {
+            "offer_id": int(event.get("offer_id") or 0),
+            "added": max(0, int(event.get("added") or 0)),
+            "stock": max(0, int(event.get("stock") or 0)),
+            "supplier_event": event,
+        }
+        if payload["offer_id"] and customer_broadcast_waits("stock", payload):
+            db.park_broadcast_job("stock", payload)
+            continue
         sent += await announce_channel_restock(
             context,
-            int(event.get("offer_id") or 0),
-            max(0, int(event.get("added") or 0)),
-            max(0, int(event.get("stock") or 0)),
+            payload["offer_id"],
+            payload["added"],
+            payload["stock"],
+            event,
         )
     return sent
 
@@ -1319,7 +1344,17 @@ def _run_broadcast_job(job_id):
         job = db.claim_broadcast_job(job_id)
         if not job:
             return
+        kind = str(job.get("kind") or "")
+        payload = job.get("payload") or {}
+        if _customer_broadcast_waits(kind, payload):
+            db.hold_broadcast_job(job_id)
+            log.info("Broadcast job %s held until its product is listed in the bot", job_id)
+            return
         sent = asyncio.run(_execute_broadcast_job(job))
+        if sent == 0 and _customer_broadcast_waits(kind, payload):
+            db.hold_broadcast_job(job_id)
+            log.info("Broadcast job %s held until its product is listed in the bot", job_id)
+            return
         db.complete_broadcast_job(job_id, sent)
         log.info("Broadcast job %s completed: %s message(s)", job_id, sent)
     except Exception as exc:
@@ -1359,8 +1394,27 @@ def _submit_broadcast_job(job_id):
     return True
 
 
+def _customer_broadcast_waits(kind, payload):
+    from app.domain.offer_stock_control import customer_broadcast_waits
+
+    return customer_broadcast_waits(kind, payload)
+
+
 def queue_broadcast(kind, *, dedupe_key="", **payload):
-    """Queue a reliable broadcast and return immediately to the admin/cron."""
+    """Queue a reliable broadcast and return immediately to the admin/cron.
+
+    Catalog news for an offer the bot is not selling is kept and not sent.
+    It goes out on its own once that offer is listed again.
+    """
+    if _customer_broadcast_waits(kind, payload):
+        job = db.park_broadcast_job(kind, payload, dedupe_key=dedupe_key)
+        held = bool(job and job.get("status") == "held")
+        return {
+            "job_id": job.get("id") if job else None,
+            "queued": False,
+            "held": held,
+            "recipient_count": 0 if held else int((job or {}).get("recipient_count") or 0),
+        }
     job, created = db.create_broadcast_job(kind, payload, dedupe_key=dedupe_key)
     if job and job.get("status") in {"queued", "retry"}:
         _submit_broadcast_job(job["id"])

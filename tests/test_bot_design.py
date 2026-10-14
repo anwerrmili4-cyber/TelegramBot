@@ -839,9 +839,7 @@ def test_automatic_flash_sale_uses_common_design_without_api_mention(mock_mongod
     assert "40%" in text
 
 
-def test_inactive_supplier_restock_falls_back_to_private_admin_alert(
-    monkeypatch, mock_mongodb,
-):
+def test_inactive_supplier_restock_is_not_published(monkeypatch, mock_mongodb):
     monkeypatch.setattr("bot.ADMIN_ID", 999)
     service_id = db.add_service("Learning", "📚")
     offer_id = db.add_offer(service_id, "Coursera", 3.0, 11)
@@ -862,13 +860,9 @@ def test_inactive_supplier_restock_falls_back_to_private_admin_alert(
         },
     ))
 
-    assert sent == 1
-    call = bot_client.send_message.await_args.kwargs
-    assert call["chat_id"] == 999
-    assert "NEW DROP AVAILABLE" in call["text"]
-    assert "11" in call["text"]
-    assert "Supplier" not in call["text"]
-    assert call["reply_markup"].inline_keyboard[-1][0].callback_data == "catalog"
+    assert sent == 0
+    bot_client.send_message.assert_not_awaited()
+    assert db.get_offer(offer_id)["active"] == 0
 
 
 def test_out_of_stock_supplier_discount_uses_bot_flash_sale_design(

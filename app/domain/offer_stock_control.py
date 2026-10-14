@@ -208,6 +208,43 @@ def is_held(offer: dict[str, Any] | None) -> bool:
     return isinstance(offer, dict) and offer.get("stock_control_hold") is True
 
 
+def offer_reaches_bot_customers(offer: dict[str, Any] | None) -> bool:
+    """True when the customer bot is selling this offer.
+
+    News follows that same row. ``active`` off, ``stock_control_hold``, a
+    product switched off, a hidden service, or a higher price the bot already
+    hides all keep the announcement off the customer chat. There is no second
+    switch for news.
+    """
+    if not isinstance(offer, dict) or is_held(offer) or not db.product_is_enabled(offer):
+        return False
+    return db.offer_is_listed_in_bot(offer)
+
+
+def customer_broadcast_waits(kind: str, payload: dict[str, Any] | None) -> bool:
+    """True when this catalog broadcast must be stored instead of delivered."""
+    from app.repositories.broadcasts import (
+        CATALOG_UPDATE_BROADCAST_KINDS,
+        broadcast_offer_id,
+    )
+
+    if kind not in CATALOG_UPDATE_BROADCAST_KINDS:
+        return False
+    payload = payload or {}
+    if kind == "restock_digest":
+        events = [event for event in (payload.get("events") or []) if isinstance(event, dict)]
+        if not events:
+            return False
+        return not any(
+            offer_reaches_bot_customers(db.get_offer(event.get("offer_id")))
+            for event in events
+        )
+    offer_id = broadcast_offer_id(kind, payload)
+    if offer_id is None:
+        return False
+    return not offer_reaches_bot_customers(db.get_offer(offer_id))
+
+
 def _is_active(offer: dict[str, Any]) -> bool:
     return offer.get("active", 1) not in (0, False, "0", "false")
 
@@ -438,9 +475,54 @@ def _reconcile() -> dict[str, Any]:
             updated,
             group_count,
         )
+    _release_held_customer_announcements()
     return {
         "groups": group_count,
         "updated": updated,
         "activated": activated,
         "deactivated": deactivated,
     }
+
+
+def _held_job_is_due(job: dict[str, Any]) -> bool:
+    kind = str(job.get("kind") or "")
+    payload = job.get("payload") or {}
+    if kind == "restock_digest":
+        return any(
+            offer_reaches_bot_customers(db.get_offer(event.get("offer_id")))
+            for event in (payload.get("events") or [])
+            if isinstance(event, dict)
+        )
+    offer_id = job.get("offer_id")
+    if offer_id is None:
+        from app.repositories.broadcasts import broadcast_offer_id
+
+        offer_id = broadcast_offer_id(kind, payload)
+    if offer_id is None:
+        return False
+    return offer_reaches_bot_customers(db.get_offer(offer_id))
+
+
+def _release_held_customer_announcements() -> None:
+    """Deliver parked product news once that offer is on the customer bot again."""
+    try:
+        from app.repositories import broadcasts
+
+        held = broadcasts.list_held_broadcasts()
+        if not held:
+            return
+        released: list[int] = []
+        for job in held:
+            if not job or not _held_job_is_due(job):
+                continue
+            updated = broadcasts.release_held_broadcast(int(job["id"]))
+            if updated:
+                released.append(int(updated["id"]))
+        if not released:
+            return
+        from bot import _submit_broadcast_job
+
+        for job_id in released:
+            _submit_broadcast_job(job_id)
+    except Exception:
+        log.exception("Could not release held product announcements")
