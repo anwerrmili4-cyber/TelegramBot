@@ -2459,6 +2459,79 @@ def test_automatically_delivered_paid_order_is_notified_to_admin(
     assert notify_new_order.await_args.args[1]["id"] == 500
 
 
+def test_only_one_usdt_internal_canva_pro_asks_for_email_after_payment(
+    monkeypatch, mock_mongodb,
+):
+    monkeypatch.setattr("bot.ADMIN_ID", 999)
+    PENDING.pop(77, None)
+    service_id = db.add_service("Canva")
+    offer_id = db.add_offer(
+        service_id, "Canva Pro", 1.0, 0, unlimited_stock=True,
+    )
+    other_id = db.add_offer(
+        service_id, "Canva Pro", 4.0, 0, unlimited_stock=True,
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 880,
+        "user_id": 77,
+        "offer_id": offer_id,
+        "service_name": "Canva",
+        "offer_name": "Canva Pro",
+        "qty": 1,
+        "status": "paid",
+    })
+    mock_mongodb.orders.insert_one({
+        "id": 881,
+        "user_id": 77,
+        "offer_id": other_id,
+        "service_name": "Canva",
+        "offer_name": "Canva Pro",
+        "qty": 1,
+        "status": "paid",
+    })
+    monkeypatch.setattr("bot.admin.notify_manual_delivery_request", AsyncMock())
+    monkeypatch.setattr("bot.admin.notify_new_order", AsyncMock())
+    message = SimpleNamespace(reply_text=AsyncMock())
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
+
+    asyncio.run(send_payment_result(
+        message, context, "en", 880,
+        {"status": "confirmed_no_delivery", "affiliate": None, "loyalty": None, "delivered_content": []},
+        77,
+    ))
+
+    assert PENDING.get(77) == ("await_customer_email", 880)
+    assert message.reply_text.await_args.args[0] == "please send your mail address"
+
+    reply = SimpleNamespace(text="buyer@example.com", reply_text=AsyncMock())
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(effective_user=SimpleNamespace(id=77), message=reply),
+        context,
+        "en",
+    ))
+
+    saved = mock_mongodb.orders.find_one({"id": 880})
+    assert saved["customer_email"] == "buyer@example.com"
+    assert PENDING.get(77) is None
+    admin_call = context.bot.send_message.await_args
+    assert admin_call.args[0] == 999
+    assert "buyer@example.com" in admin_call.args[1]
+    assert reply.reply_text.await_args.args[0] == "Thank you. Your email address was sent to the admin."
+
+    PENDING.pop(77, None)
+    other_message = SimpleNamespace(reply_text=AsyncMock())
+    asyncio.run(send_payment_result(
+        other_message, context, "en", 881,
+        {"status": "confirmed_no_delivery", "affiliate": None, "loyalty": None, "delivered_content": []},
+        77,
+    ))
+    assert PENDING.get(77) is None
+    assert all(
+        call.args[0] != "please send your mail address"
+        for call in other_message.reply_text.await_args_list
+    )
+
+
 def test_manual_delivery_sends_admin_an_in_bot_reply_request(
     monkeypatch, mock_mongodb,
 ):

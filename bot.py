@@ -2021,6 +2021,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "adm_bot_package_doc",
         "adm_bot_package_link",
         "manual_order_reply",
+        "await_customer_email",
         "await_quantity",
         "catalog_request",
         "adm_setprice",
@@ -4301,6 +4302,39 @@ async def handle_pending_input(update, context, lang):
         await delete_customer_support_message(update.message)
         return
 
+    if kind == "await_customer_email":
+        order_id = int(ref)
+        order = db.get_order(order_id)
+        if not order or int(order.get("user_id") or 0) != uid:
+            PENDING.pop(uid, None)
+            await update.message.reply_text(t(lang, "not_for_you"))
+            return
+        email = text.strip()
+        if not _CUSTOMER_EMAIL_RE.fullmatch(email):
+            await update.message.reply_text("please send your mail address")
+            return
+        db.get_conn().orders.update_one(
+            {"id": order_id},
+            {"$set": {"customer_email": email, "updated_at": int(time.time())}},
+        )
+        try:
+            await context.bot.send_message(
+                ADMIN_ID,
+                "📧 <b>Customer email</b>\n\n"
+                f"Order: <b>#{order_id}</b>\n"
+                f"Customer: <code>{uid}</code>\n"
+                f"Product: <b>{html.escape(str(order.get('offer_name') or 'Canva Pro'))}</b>\n"
+                f"Email: <code>{html.escape(email)}</code>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as exc:
+            log.warning("Customer email for order #%s was not sent to the admin: %s", order_id, exc)
+            await update.message.reply_text("please send your mail address")
+            return
+        PENDING.pop(uid, None)
+        await update.message.reply_text("Thank you. Your email address was sent to the admin.")
+        return
+
     if kind == "manual_order_reply":
         order_id = int(ref)
         order = db.get_order(order_id)
@@ -4458,6 +4492,27 @@ async def handle_pending_input(update, context, lang):
 
 def is_otp_order(order):
     return bool(order and db.is_otp_service_name(order.get("service_name")))
+
+
+_CUSTOMER_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def collects_customer_email(offer):
+    """Only the 1 USDT unlimited internal Canva Pro asks for an email."""
+    if not isinstance(offer, dict):
+        return False
+    name = str(offer.get("name") or "").strip().casefold()
+    if name != "canva pro":
+        return False
+    try:
+        price = float(offer.get("price") or 0)
+    except (TypeError, ValueError):
+        return False
+    if abs(price - 1) > 0.001:
+        return False
+    if not offer.get("unlimited_stock"):
+        return False
+    return not str(offer.get("supplier_provider") or "").strip()
 
 
 async def notify_codex_acceptance_expired(bot, order):
@@ -4813,6 +4868,11 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
                 ),
                 parse_mode=ParseMode.HTML,
             )
+        if paid_order and paid_order.get("offer_id"):
+            email_offer = db.get_offer(paid_order.get("offer_id"))
+            if collects_customer_email(email_offer):
+                PENDING[uid] = ("await_customer_email", int(order_id))
+                await message.reply_text("please send your mail address")
         if otp_started:
             return
         with contextlib.suppress(Exception):
