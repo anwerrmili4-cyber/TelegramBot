@@ -266,6 +266,14 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     rendered_description = re.sub(
         r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered_description, flags=re.I,
     )
+    # Telegram collapses <blockquote expandable>, which hides the product text
+    # until the customer taps the quote. Keep the quote, but show every line.
+    rendered_description = re.sub(
+        r"<blockquote\b[^>]*>",
+        "<blockquote>",
+        rendered_description,
+        flags=re.I,
+    )
     warranty = warranty_service.offer_warranty_label(offer, lang=lang) or "NW"
     period = warranty_service.offer_period_label(offer, lang=lang)
     try:
@@ -370,6 +378,18 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         rendered = rendered.replace(token, value)
     if is_methods_catalog:
         rendered = _without_method_detail_rows(rendered)
+    rendered = re.sub(
+        r"<blockquote\b[^>]*>",
+        "<blockquote>",
+        rendered,
+        flags=re.I,
+    )
+    visible_card = html.unescape(re.sub(r"<[^>]+>", "", rendered))
+    visible_description = html.unescape(
+        re.sub(r"<[^>]+>", "", rendered_description)
+    ).strip()
+    if visible_description and visible_description != "—" and visible_description not in visible_card:
+        rendered = f"{rendered.rstrip()}\n{rendered_description}"
     return rendered
 
 

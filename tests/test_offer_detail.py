@@ -16,6 +16,25 @@ def test_offer_detail_fields_parse_admin_description():
     assert fields["mail"] == "iCloud"
 
 
+def test_collapsed_description_quote_is_shown_in_full(monkeypatch):
+    monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
+    rendered = compact_offer_text({
+        "id": 182,
+        "name": "Elevenlabs - 10k Credits",
+        "service_name": "ElevenLabs",
+        "price": 1,
+        "currency": "USDT",
+        "stock": 25,
+        "description": (
+            "[[HTML]]<blockquote expandable>Creator plan with 10k credits "
+            "and an API key.</blockquote>"
+        ),
+    }, "en")
+
+    assert "expandable" not in rendered
+    assert "Creator plan with 10k credits and an API key." in rendered
+
+
 def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
     monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 7)
     offer = {
