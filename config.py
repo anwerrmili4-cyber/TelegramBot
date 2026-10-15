@@ -210,7 +210,7 @@ SHOP_CRON_API_KEY: str = env_value("HP_SHOP_CRON_API_KEY")
 VENTEBOT_API_KEY: str = env_value("HP_VENTEBOT_API_KEY")
 VENTEBOT_API_BASE: str = normalized_http_url(first_env_value(
     "HP_VENTEBOT_API_BASE",
-    default="https://ventetelegrambotrailway-production.up.railway.app",
+    default="https://web-production-1c7b1.up.railway.app",
 ))
 
 # ---------------------------------------------------------------------------
