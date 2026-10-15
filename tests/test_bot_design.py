@@ -612,13 +612,11 @@ def test_catalog_notification_toggle_updates_preference_and_button(monkeypatch):
 
     assert db.catalog_notifications_enabled(42) is False
     markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
-    toggle = next(
-        button
+    assert all(
+        button.callback_data != "catalog_notifications_toggle"
         for row in markup.inline_keyboard
         for button in row
-        if button.callback_data == "catalog_notifications_toggle"
     )
-    assert "off" in toggle.text.lower()
 
 
 def test_service_premium_emoji_is_included_in_customized_announcement(mock_mongodb):

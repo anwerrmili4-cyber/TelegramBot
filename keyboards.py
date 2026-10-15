@@ -466,14 +466,13 @@ def catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
     )
 
 
-def _catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
+def _catalog_offers_keyboard(lang, _catalog_notifications_enabled=True):
     """Group multi-offer services and show single offers directly."""
     buttons = []
     db.preload_text_overrides(
         (
             "stock_label", "price_tbd", "catalog_request_button",
-            "catalog_notifications_on",
-            "catalog_notifications_off", "btn_refresh_short", "btn_main_menu_short",
+            "btn_refresh_short", "btn_main_menu_short",
         ),
         lang,
     )
@@ -584,19 +583,6 @@ def _catalog_offers_keyboard(lang, catalog_notifications_enabled=True):
         translated_button(
             lang, "catalog_request_button",
             callback_data="catalog_request", style="primary",
-        ),
-    ])
-    notification_key = (
-        "catalog_notifications_on"
-        if catalog_notifications_enabled
-        else "catalog_notifications_off"
-    )
-    buttons.append([
-        translated_button(
-            lang,
-            notification_key,
-            callback_data="catalog_notifications_toggle",
-            style="success" if catalog_notifications_enabled else "danger",
         ),
     ])
     buttons.append([
