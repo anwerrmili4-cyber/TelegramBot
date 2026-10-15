@@ -94,6 +94,10 @@ def test_preorder_does_not_use_bulk_price(mock_mongodb):
         service_id, "Premium", 10.0, 0,
         bulk_quantity=5, bulk_unit_price=7.5,
     )
+    mock_mongodb.offers.update_one(
+        {"id": offer_id},
+        {"$set": {"active": 1}, "$unset": {"out_of_stock_hold": ""}},
+    )
 
     order = order_service.create_order(
         12, db.get_offer(offer_id), qty=5, preorder=True,
@@ -253,13 +257,17 @@ def test_create_order_out_of_stock(mock_mongodb):
     offer_id = db.add_offer(service_id=1, name="Nitro 1 Year", price=9.99, stock=0)
     offer = db.get_offer(offer_id)
 
-    with pytest.raises(ValueError, match="rupture de stock"):
+    with pytest.raises(ValueError, match="pas disponible"):
         order_service.create_order(user_id=12345, offer=offer, qty=1)
 
 
 def test_create_preorder_adds_ten_percent_without_consuming_stock(mock_mongodb):
     db.add_service("Discord", "🎮")
     offer_id = db.add_offer(service_id=1, name="Nitro 1 Year", price=10.0, stock=0)
+    mock_mongodb.offers.update_one(
+        {"id": offer_id},
+        {"$set": {"active": 1}, "$unset": {"out_of_stock_hold": ""}},
+    )
 
     order = order_service.create_order(
         user_id=12345, offer=db.get_offer(offer_id), qty=2, preorder=True,

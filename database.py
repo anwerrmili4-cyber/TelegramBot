@@ -2435,7 +2435,9 @@ def add_offer(
         ),
         **special_values,
     })
-    if str(supplier_provider or "").strip():
+    if str(supplier_provider or "").strip() or (
+        not unlimited_stock and int(stock or 0) <= 0 and stock_enabled
+    ):
         note_same_product_stock()
     return oid
 

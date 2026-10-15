@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Settings2,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -33,6 +34,11 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
   const [usageFilter, setUsageFilter] = useState("all");
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [managing, setManaging] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [managerBusy, setManagerBusy] = useState(false);
+  const [allErrors, setAllErrors] = useState([]);
   const loadProvider = async (providerId, { showToast = false, selectCatalog = true } = {}) => {
     if (!providerId) return false;
     const requestId = selectCatalog ? ++providerRequest.current : null;
@@ -83,7 +89,43 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
       if (selectCatalog && requestId === providerRequest.current) setLoading(false);
     }
   };
-  const load = () => loadProvider(provider, { showToast: true, selectCatalog: true });
+  const loadAllProviders = async () => {
+    const configured = providerMeta.filter((item) => item.configured);
+    const requestId = ++providerRequest.current;
+    setLoading(true);
+    setCatalog(null);
+    setAllErrors([]);
+    const results = await Promise.all(configured.map(async (item) => {
+      try {
+        const response = await fetch(
+          `/admin/api/reseller-products?provider=${encodeURIComponent(item.id)}`,
+          { credentials: "same-origin", cache: "no-store" },
+        );
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "API indisponible");
+        return (payload.products || []).map((product) => ({
+          ...product,
+          provider: item.id,
+          provider_name: item.name || item.id,
+        }));
+      } catch (error) {
+        return { error: error.message, providerName: item.name || item.id };
+      }
+    }));
+    if (requestId !== providerRequest.current) return;
+    setCatalog({
+      supplier_name: "Tous les fournisseurs",
+      products: results.flatMap((result) => (Array.isArray(result) ? result : [])),
+      currency: "USDT",
+    });
+    setAllErrors(results.filter((result) => result && result.error));
+    setLoading(false);
+  };
+  const load = () => (
+    provider === "all"
+      ? loadAllProviders()
+      : loadProvider(provider, { showToast: true, selectCatalog: true })
+  );
   useEffect(() => {
     fetch("/admin/api/reseller-providers", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
@@ -95,7 +137,12 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
       .catch((error) => setProviderError(error.message));
   }, []);
   useEffect(() => {
-    if (provider) load();
+    if (!provider) return;
+    if (provider === "all") {
+      loadAllProviders();
+      return;
+    }
+    loadProvider(provider, { showToast: true, selectCatalog: true });
   }, [provider]);
   useEffect(() => {
     const openProvider = (event) => {
@@ -181,25 +228,98 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
     const haystack = searchField === "all" ? Object.values(searchable).join(" ") : searchable[searchField] || "";
     return !search || haystack.toLowerCase().includes(search.toLowerCase());
   }).sort((left, right) => Number(Boolean(right.enabled)) - Number(Boolean(left.enabled)));
+  const isAll = provider === "all";
   const activeProvider = providerMeta.find((item) => item.id === provider);
-  const supplierName = catalog?.supplier_name || activeProvider?.name || provider || "";
+  const supplierName = isAll
+    ? "Tous les fournisseurs"
+    : catalog?.supplier_name || activeProvider?.name || provider || "";
   const health = providerHealth[provider] || {};
   const connectionState = !provider
     ? ""
-    : loading || health.status === "checking"
-      ? "checking"
-      : health.status || (catalog ? "online" : "unknown");
-  const connectionLabel = {
-    online: "Catalogue synchronisé",
-    checking: "Synchronisation…",
-    offline: health.error || "Connexion interrompue",
-    unknown: "En attente de synchronisation",
-  }[connectionState] || "";
+    : isAll
+      ? (loading ? "checking" : allErrors.length ? "offline" : "online")
+      : loading || health.status === "checking"
+        ? "checking"
+        : health.status || (catalog ? "online" : "unknown");
+  const connectionLabel = isAll
+    ? {
+      online: "Tous les catalogues",
+      checking: "Synchronisation…",
+      offline: allErrors.length
+        ? `${allErrors.length} fournisseur(s) indisponible(s)`
+        : "Connexion interrompue",
+    }[connectionState] || ""
+    : {
+      online: "Catalogue synchronisé",
+      checking: "Synchronisation…",
+      offline: health.error || "Connexion interrompue",
+      unknown: "En attente de synchronisation",
+    }[connectionState] || "";
   const usageRatio = catalogProducts.length ? Math.round((usedCount / catalogProducts.length) * 100) : 0;
   const saveProduct = async (payload) => {
     const result = await onAction(payload);
-    if (result) await loadProvider(provider, { selectCatalog: true });
+    if (result) {
+      if (provider === "all") await loadAllProviders();
+      else await loadProvider(provider, { selectCatalog: true });
+    }
     return result;
+  };
+  const closeManager = () => {
+    setManaging(null);
+    setRenameValue("");
+    setConfirmDelete(false);
+  };
+  const openManager = (item) => {
+    setManaging(item);
+    setRenameValue(item.name || item.id);
+    setConfirmDelete(false);
+  };
+  const renameSupplier = async () => {
+    if (!managing) return;
+    setManagerBusy(true);
+    try {
+      const result = await onAction({
+        action: "rename_reseller",
+        provider: managing.id,
+        name: renameValue,
+      });
+      if (!result) return;
+      const nextName = result.name || renameValue.trim();
+      setProviderMeta((current) => current.map((item) => (
+        item.id === managing.id ? { ...item, name: nextName } : item
+      )));
+      setCatalog((current) => (current ? {
+        ...current,
+        supplier_name: provider === managing.id ? nextName : current.supplier_name,
+        products: (current.products || []).map((product) => (
+          product.provider === managing.id ? { ...product, provider_name: nextName } : product
+        )),
+      } : current));
+      setManaging((current) => (current ? { ...current, name: nextName } : current));
+      setToast({ title: "Fournisseur renommé", message: result.message || `${nextName} est le nouveau nom.` });
+    } finally {
+      setManagerBusy(false);
+    }
+  };
+  const deleteSupplierProducts = async () => {
+    if (!managing) return;
+    setManagerBusy(true);
+    try {
+      const result = await onAction({
+        action: "delete_reseller_products",
+        provider: managing.id,
+      });
+      if (!result) return;
+      setProviderMeta((current) => current.map((item) => (
+        item.id === managing.id ? { ...item, bot_product_count: 0 } : item
+      )));
+      closeManager();
+      if (provider === "all") await loadAllProviders();
+      else if (provider === managing.id) await loadProvider(provider, { selectCatalog: true });
+      setToast({ title: "Produits retirés du bot", message: result.message || "Les produits de cette API ont été retirés." });
+    } finally {
+      setManagerBusy(false);
+    }
   };
   return (
     <>
@@ -312,6 +432,19 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
             <div className="supplier-switcher">
               <span className="supplier-switcher-label">Fournisseurs <b>{providerMeta.length}</b></span>
               <div className="supplier-switcher-rail" role="tablist" aria-label="Fournisseurs">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={isAll}
+                className={isAll ? "active" : ""}
+                onClick={() => setProvider("all")}
+              >
+                <span className="supplier-monogram">TO</span>
+                <span className="supplier-switcher-copy">
+                  <strong>Tous</strong>
+                  <small>Tous les fournisseurs</small>
+                </span>
+              </button>
               {providerMeta.map((item) => {
                 const itemHealth = providerHealth[item.id] || {};
                 const meta = !item.configured
@@ -320,21 +453,32 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
                     ? `${itemHealth.products} produits`
                     : "Connecté";
                 return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={provider === item.id}
-                    disabled={!item.configured}
-                    className={provider === item.id ? "active" : ""}
-                    onClick={() => setProvider(item.id)}
-                  >
-                    <span className="supplier-monogram">{supplierMonogram(item.name || item.id)}</span>
-                    <span className="supplier-switcher-copy">
-                      <strong>{item.name || item.id}</strong>
-                      <small>{meta}</small>
-                    </span>
-                  </button>
+                  <div className="supplier-switcher-item" key={item.id}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={provider === item.id}
+                      disabled={!item.configured}
+                      className={provider === item.id ? "active" : ""}
+                      onClick={() => setProvider(item.id)}
+                    >
+                      <span className="supplier-monogram">{supplierMonogram(item.name || item.id)}</span>
+                      <span className="supplier-switcher-copy">
+                        <strong>{item.name || item.id}</strong>
+                        <small>{meta}</small>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="supplier-manage"
+                      aria-label={`Gérer ${item.name || item.id}`}
+                      title="Renommer ou retirer les produits"
+                      onClick={() => openManager(item)}
+                    >
+                      <Settings2 size={13} />
+                      <span>Gérer</span>
+                    </button>
+                  </div>
                 );
               })}
               {!providerMeta.length && (
@@ -342,7 +486,7 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
               )}
               </div>
             </div>
-            {provider && (
+            {(provider && !isAll) && (
               <>
                 <header className="supplier-command">
                   <div className="supplier-identity">
@@ -400,6 +544,54 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
                 </div>
               </>
             )}
+            {isAll && (
+              <>
+                <header className="supplier-command">
+                  <div className="supplier-identity">
+                    <span className="supplier-monogram lg">TO</span>
+                    <div>
+                      <strong>Tous les fournisseurs</strong>
+                      <small className={`supplier-live ${connectionState}`}>
+                        <i />
+                        {connectionLabel}
+                      </small>
+                    </div>
+                  </div>
+                  <dl className="supplier-metrics">
+                    <div>
+                      <dt>Utilisés</dt>
+                      <dd>{catalog ? usedCount : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Disponibles</dt>
+                      <dd>{catalog ? catalogProducts.length : "—"}</dd>
+                    </div>
+                  </dl>
+                </header>
+                <div className="supplier-toolbar">
+                  <div className="supplier-segments" role="group" aria-label="Classer les produits API">
+                    <button type="button" aria-pressed={usageFilter === "all"} className={usageFilter === "all" ? "active" : ""} onClick={() => setUsageFilter("all")}>
+                      Tous <b>{catalogProducts.length}</b>
+                    </button>
+                    <button type="button" aria-pressed={usageFilter === "used"} className={usageFilter === "used" ? "active" : ""} onClick={() => setUsageFilter("used")}>
+                      Utilisés <b>{usedCount}</b>
+                    </button>
+                    <button type="button" aria-pressed={usageFilter === "unused"} className={usageFilter === "unused" ? "active" : ""} onClick={() => setUsageFilter("unused")}>
+                      Non utilisés <b>{unusedCount}</b>
+                    </button>
+                  </div>
+                  <FilterBar
+                    search={search}
+                    setSearch={setSearch}
+                    searchField={searchField}
+                    setSearchField={setSearchField}
+                    options={[["all", "Tout"], ["name", "Nom du produit"], ["product_id", "ID fournisseur"], ["description", "Description"]]}
+                    resultCount={visibleProducts.length}
+                    placeholder="Nom, ID fournisseur ou description…"
+                  />
+                </div>
+              </>
+            )}
           </div>
           {!provider && (
             <div className="supplier-empty">
@@ -409,7 +601,7 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
               <ActionButton secondary onClick={() => setWorkspaceTab("connectors")}>Ouvrir les connecteurs</ActionButton>
             </div>
           )}
-          {provider && (
+          {(provider || isAll) && (
             <section className="data-panel supplier-products">
               {!!visibleProducts.length && (
                 <div className="responsive-table">
@@ -417,6 +609,7 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
                     <thead>
                       <tr>
                         <th>Produit</th>
+                        {isAll && <th>Fournisseur</th>}
                         <th className="num">Achat</th>
                         <th className="num">Vente</th>
                         <th className="num">Marge</th>
@@ -436,7 +629,7 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
                         return (
                           <tr
                             className={product.enabled ? "api-product-used" : "api-product-unused"}
-                            key={product.id}
+                            key={`${product.provider || provider}:${product.id}`}
                             onClick={() => setEditing(product)}
                           >
                             <td>
@@ -445,6 +638,7 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
                                 <small title={summary}>ID {product.id} · {summary}</small>
                               </div>
                             </td>
+                            {isAll && <td>{product.provider_name || product.provider}</td>}
                             <td className="num">{money(product.wholesale_price, product.currency)}</td>
                             <td className="num"><strong className="supplier-retail">{money(product.retail_price, product.currency)}</strong></td>
                             <td className="num">
@@ -478,7 +672,7 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
                 <Empty
                   icon={Cloud}
                   title={search || usageFilter !== "all" ? "Aucun résultat" : "Aucun produit API"}
-                  text={search || usageFilter !== "all" ? "Essayez un autre nom, identifiant ou filtre." : "Vérifiez la configuration de ce fournisseur."}
+                  text={search || usageFilter !== "all" ? "Essayez un autre nom, identifiant ou filtre." : isAll ? "Aucun catalogue fournisseur n’a renvoyé de produit." : "Vérifiez la configuration de ce fournisseur."}
                 />
               )}
             </section>
@@ -487,10 +681,46 @@ export default function ApiProductsPage({ data, onAction, setToast }) {
       )}
       {workspaceTab === "keys" && <BuyerKeys setToast={setToast} writeToken={data.dashboard_write_token} />}
       {workspaceTab === "connectors" && <CustomExternalApis setToast={setToast} writeToken={data.dashboard_write_token} />}
+      {managing && (
+        <Modal title={`Gérer ${managing.name || managing.id}`} onClose={closeManager}>
+          {confirmDelete ? (
+            <>
+              <div className="delete-confirmation">
+                <span><Trash2 size={22} /></span>
+                <div>
+                  <h4>Retirer les produits {managing.name || managing.id} du bot ?</h4>
+                  <p>
+                    {Number(managing.bot_product_count) > 0
+                      ? `${Number(managing.bot_product_count)} produit(s) publié(s) depuis cette API seront retirés de la boutique.`
+                      : "Tous les produits publiés depuis cette API seront retirés de la boutique."}
+                    {" "}Le fournisseur reste connecté. Vous pourrez les republier ensuite.
+                  </p>
+                </div>
+              </div>
+              <div className="dialog-actions">
+                <ActionButton secondary onClick={() => setConfirmDelete(false)} disabled={managerBusy}>Annuler</ActionButton>
+                <ActionButton danger icon={Trash2} disabled={managerBusy} onClick={deleteSupplierProducts}>Supprimer du bot</ActionButton>
+              </div>
+            </>
+          ) : (
+            <>
+              <Field label="Nom affiché" wide>
+                <input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} maxLength={80} />
+              </Field>
+              <p className="control-caption">Ce nom remplace « {managing.default_name || managing.name} » sur cette ligne.</p>
+              <div className="dialog-actions wrap">
+                <ActionButton secondary onClick={closeManager}>Fermer</ActionButton>
+                <ActionButton icon={Check} disabled={managerBusy || !renameValue.trim()} onClick={renameSupplier}>Renommer</ActionButton>
+                <ActionButton danger icon={Trash2} disabled={managerBusy} onClick={() => setConfirmDelete(true)}>Supprimer les produits</ActionButton>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
       {editing && (
         <ApiProductEditor
           product={editing}
-          provider={provider}
+          provider={editing.provider || provider}
           services={data.services || []}
           onAction={saveProduct}
           onClose={() => setEditing(null)}

@@ -142,7 +142,69 @@ class ResellerOrderNotCreatedError(ResellerApiError):
 def provider_display_name(provider: str) -> str:
     """Return the public supplier name used in admin messages."""
     normalized = str(provider or "").strip().lower()
+    custom = _display_name_overrides().get(normalized)
+    if custom:
+        return custom
     return PROVIDER_DISPLAY_NAMES.get(normalized, normalized or "Fournisseur inconnu")
+
+
+_DISPLAY_NAME_SETTING = "reseller_display_names"
+
+
+def _display_name_overrides() -> dict[str, str]:
+    raw = db.get_setting(_DISPLAY_NAME_SETTING, "")
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        str(key).strip().lower(): str(value).strip()[:80]
+        for key, value in parsed.items()
+        if str(value or "").strip()
+    }
+
+
+def rename_provider(provider: str, name: str) -> str:
+    """Store the name shown for one supplier. The API connection stays the same."""
+    normalized = str(provider or "").strip().lower()
+    if normalized not in SUPPORTED_PROVIDERS:
+        raise ValueError("Fournisseur inconnu.")
+    cleaned = " ".join(str(name or "").split())[:80]
+    if not cleaned:
+        raise ValueError("Indiquez un nom.")
+    overrides = _display_name_overrides()
+    default_name = PROVIDER_DISPLAY_NAMES.get(normalized, normalized)
+    if cleaned.casefold() == default_name.casefold():
+        overrides.pop(normalized, None)
+    else:
+        overrides[normalized] = cleaned
+    db.set_setting(_DISPLAY_NAME_SETTING, json.dumps(overrides, ensure_ascii=False))
+    return cleaned
+
+
+def remove_provider_products(provider: str) -> dict[str, int]:
+    """Remove every bot product that was published from one supplier API."""
+    normalized = str(provider or "").strip().lower()
+    if normalized not in SUPPORTED_PROVIDERS:
+        raise ValueError("Fournisseur inconnu.")
+    now = int(time.time())
+    offers = db.get_conn().offers.update_many(
+        {"supplier_provider": normalized, "archived": {"$ne": 1}},
+        {"$set": {"active": 0, "archived": 1, "archived_at": now}},
+    )
+    configs = db.get_conn().reseller_products.update_many(
+        {"provider": normalized, "enabled": True},
+        {"$set": {"enabled": False, "updated_at": now}},
+    )
+    removed = int(offers.modified_count)
+    if removed:
+        db.note_same_product_stock()
+    return {
+        "removed": removed,
+        "unpublished": int(configs.modified_count),
+    }
 
 
 def provider_bot_username(provider: str) -> str:
@@ -975,9 +1037,24 @@ def _safwantiger_request_json(
     return payload
 
 
+def _published_offer_counts() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in db.get_conn().offers.aggregate([
+        {"$match": {
+            "supplier_provider": {"$nin": [None, ""]},
+            "archived": {"$ne": 1},
+        }},
+        {"$group": {"_id": "$supplier_provider", "count": {"$sum": 1}}},
+    ]):
+        counts[str(row.get("_id") or "")] = int(row.get("count") or 0)
+    return counts
+
+
 def provider_summaries() -> list[dict[str, Any]]:
     """Return safe provider metadata without exposing credentials."""
-    return [
+    overrides = _display_name_overrides()
+    published = _published_offer_counts()
+    summaries = [
         {
             "id": PROVIDER,
             "name": "MailReader",
@@ -1066,6 +1143,11 @@ def provider_summaries() -> list[dict[str, Any]]:
             "documentation_url": f"{SAFWANTIGER_API_BASE}/api",
         },
     ]
+    for item in summaries:
+        item["default_name"] = item["name"]
+        item["name"] = overrides.get(item["id"], item["name"])
+        item["bot_product_count"] = published.get(item["id"], 0)
+    return summaries
 
 
 def _provider_is_configured(provider: str) -> bool:

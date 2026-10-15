@@ -537,13 +537,13 @@ def test_official_subscriptions_appear_in_the_catalog(mock_mongodb):
     assert detail.inline_keyboard[-1][0].callback_data == "catalog"
 
 
-def test_out_of_stock_items_sink_below_available_ones(mock_mongodb):
+def test_out_of_stock_offers_leave_the_bot_catalog(mock_mongodb):
     empty_service = db.add_service("Empty group", "📦")
     db.add_offer(empty_service, "Empty A", 3.0, 0)
     db.add_offer(empty_service, "Empty B", 3.0, 0)
     full_service = db.add_service("Full group", "📦")
     db.add_offer(full_service, "Full A", 3.0, 0)
-    db.add_offer(full_service, "Full B", 3.0, 2)
+    full_offer = db.add_offer(full_service, "Full B", 3.0, 2)
     sold_out_single = db.add_offer(db.add_service("Single sold out", "📦"), "Sold out", 2.0, 0)
     unlimited_single = db.add_offer(
         db.add_service("Single unlimited", "📦"), "Unlimited", 2.0, 0, unlimited_stock=True,
@@ -557,13 +557,16 @@ def test_out_of_stock_items_sink_below_available_ones(mock_mongodb):
         for row in kb.catalog_offers_keyboard("en").inline_keyboard
         for button in row
     ]
-    assert callbacks.index(f"svc:{full_service}") < callbacks.index(f"svc:{empty_service}")
-    assert callbacks.index(f"off:{unlimited_single}") < callbacks.index(f"off:{sold_out_single}")
+    assert f"svc:{empty_service}" not in callbacks
+    assert f"off:{sold_out_single}" not in callbacks
+    assert f"off:{unlimited_single}" in callbacks
+    assert f"off:{full_offer}" in callbacks
 
     official_callbacks = [
         row[0].callback_data for row in kb.offers_keyboard("en", official_id).inline_keyboard
     ]
-    assert official_callbacks[:2] == [f"off:{official_full}", f"off:{official_empty}"]
+    assert f"off:{official_full}" in official_callbacks
+    assert f"off:{official_empty}" not in official_callbacks
 
 
 def test_home_hides_official_subscriptions_without_active_offers(mock_mongodb):

@@ -86,6 +86,9 @@ def test_out_of_stock_offer_is_replaced_by_the_next_in_stock_price(mock_mongodb)
     db.update_offer(dear, stock=0)
     assert [offer["id"] for offer in db.list_offers(service_id)] == []
     assert db.get_offer(cheap)["active"] == 0
+    assert db.get_offer(cheap)["out_of_stock_hold"] is True
+    assert db.get_offer(mid).get("out_of_stock_hold") is not True
+    assert db.get_offer(dear)["active"] == 0
     assert mock_mongodb.offers.count_documents({"name": "ChatGPT Plus"}) == 3
 
 
@@ -100,13 +103,37 @@ def test_same_supplier_or_different_warranty_is_left_alone(mock_mongodb):
     assert db.get_offer(other_warranty)["active"] == 1
 
 
-def test_a_single_out_of_stock_offer_is_not_deactivated(mock_mongodb):
+def test_a_single_out_of_stock_offer_leaves_the_bot_until_stock_returns(mock_mongodb):
     service_id = db.add_service("Design", "✦")
     offer_id = _offer(service_id, "vex", 4, 0)
 
     offer = db.get_offer(offer_id)
-    assert offer["active"] == 1
+    assert offer["active"] == 0
+    assert offer["out_of_stock_hold"] is True
     assert offer.get("stock_control_hold") is not True
+    assert db.list_offers(service_id) == []
+
+    db.update_offer(offer_id, stock=3)
+    restored = db.get_offer(offer_id)
+    assert restored["active"] == 1
+    assert restored.get("out_of_stock_hold") is not True
+    assert [item["id"] for item in db.list_offers(service_id)] == [offer_id]
+
+
+def test_internal_stock_returns_the_offer_to_the_bot(mock_mongodb):
+    service_id = db.add_service("Design", "✦")
+    offer_id = db.add_offer(service_id, "Canva Pro", 1, 0)
+
+    parked = db.get_offer(offer_id)
+    assert parked["active"] == 0
+    assert parked["out_of_stock_hold"] is True
+    assert db.list_offers(service_id) == []
+
+    db.update_offer(offer_id, stock=2)
+    restored = db.get_offer(offer_id)
+    assert restored["active"] == 1
+    assert restored.get("out_of_stock_hold") is not True
+    assert [item["id"] for item in db.list_offers(service_id)] == [offer_id]
 
 
 def test_equal_client_prices_keep_the_offer_already_listed(mock_mongodb):
@@ -337,13 +364,14 @@ def test_bot_lists_the_lower_price_and_leaves_the_site_unchanged(mock_mongodb):
     assert set(listed) == {cheap, dear}
 
 
-def test_bot_hides_a_higher_price_even_when_the_cheaper_offer_is_out_of_stock(mock_mongodb):
+def test_an_out_of_stock_cheaper_offer_leaves_the_in_stock_price_on_the_bot(mock_mongodb):
     service_id = db.add_service("Capcut", "🎬")
     cheap = _offer(service_id, "vex", 3.9, 0, name="Capcut pro", supplier_product_id="cheap")
     dear = _offer(service_id, "vex", 4, 8, name="Capcut pro", supplier_product_id="dear")
 
-    assert [offer["id"] for offer in db.list_offers(service_id)] == [cheap]
-    assert db.get_offer(dear)["active"] == 1
+    assert db.get_offer(cheap)["active"] == 0
+    assert db.get_offer(cheap)["out_of_stock_hold"] is True
+    assert [offer["id"] for offer in db.list_offers(service_id)] == [dear]
 
 
 def test_bot_catalog_hides_the_higher_price_from_another_service(mock_mongodb):

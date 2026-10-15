@@ -2968,6 +2968,41 @@ class handler(BaseHTTPRequestHandler):
                     db.set_text_override("offer_stock_announcement", "en", ann_restock)
                 db.audit_event("settings.updated")
 
+            elif action == "rename_reseller":
+                provider = form.get("provider", "").strip().lower()
+                name = reseller_service.rename_provider(provider, form.get("name", ""))
+                db.audit_event(
+                    "reseller.renamed",
+                    details={"provider": provider, "name": name},
+                )
+                self._reply(200, {
+                    "ok": True,
+                    "provider": provider,
+                    "name": name,
+                    "message": f"Fournisseur renommé : {name}.",
+                })
+                return
+
+            elif action == "delete_reseller_products":
+                provider = form.get("provider", "").strip().lower()
+                result = reseller_service.remove_provider_products(provider)
+                db.audit_event(
+                    "reseller.products_removed",
+                    details={"provider": provider, **result},
+                )
+                removed = result["removed"]
+                self._reply(200, {
+                    "ok": True,
+                    "provider": provider,
+                    **result,
+                    "message": (
+                        f"{removed} produit(s) retiré(s) du bot."
+                        if removed
+                        else "Ce fournisseur n’avait aucun produit publié dans le bot."
+                    ),
+                })
+                return
+
             elif action == "save_reseller_product":
                 provider = form.get("provider", reseller_service.PROVIDER).strip().lower()
                 product_id = form.get("product_id", "").strip()

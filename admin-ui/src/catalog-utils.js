@@ -138,6 +138,13 @@ export function offerIsActive(offer) {
 }
 
 export function offerListingStatus(offer, hiddenLabel = "Masqué", shownLabel = "Visible") {
+  if (offer?.out_of_stock_hold) {
+    return {
+      hidden: true,
+      label: "Hors stock",
+      title: "Ce produit doit être actif dans le bot, mais son stock est à zéro.",
+    };
+  }
   if (offer?.stock_control_hold) {
     return {
       hidden: true,
@@ -172,10 +179,15 @@ export function splitCatalogServices(services) {
   return { online, offline };
 }
 
+export function offerIsOutOfStockListing(offer) {
+  return offer?.out_of_stock_hold === true;
+}
+
 export function filterOfflineOffers(offers, filter = "all") {
   if (filter === "product_off") return (offers || []).filter((offer) => !offerIsProductOn(offer));
   if (filter === "stock_off") return (offers || []).filter((offer) => !offerIsStockOn(offer));
-  if (filter === "inactive") return (offers || []).filter((offer) => !offerIsActive(offer));
+  if (filter === "inactive") return (offers || []).filter((offer) => !offerIsActive(offer) && !offerIsOutOfStockListing(offer));
+  if (filter === "out_of_stock") return (offers || []).filter((offer) => offerIsOutOfStockListing(offer));
   return offers || [];
 }
 
@@ -185,7 +197,8 @@ export function offlineFilterCounts(offers) {
     all: rows.length,
     product_off: rows.filter((offer) => !offerIsProductOn(offer)).length,
     stock_off: rows.filter((offer) => !offerIsStockOn(offer)).length,
-    inactive: rows.filter((offer) => !offerIsActive(offer)).length,
+    inactive: rows.filter((offer) => !offerIsActive(offer) && !offerIsOutOfStockListing(offer)).length,
+    out_of_stock: rows.filter((offer) => offerIsOutOfStockListing(offer)).length,
   };
 }
 

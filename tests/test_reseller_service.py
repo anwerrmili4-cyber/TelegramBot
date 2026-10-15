@@ -1960,3 +1960,32 @@ def test_purchase_is_refused_when_the_supplier_just_ran_out(monkeypatch, mock_mo
     assert db.get_offer(offer_id)["stock"] == 0
     reseller_service._stock_refreshed_at.clear()
 
+
+def test_renamed_supplier_can_have_its_bot_products_removed(mock_mongodb):
+    service_id = db.add_service("Canva")
+    offer_id = db.add_offer(
+        service_id, "Canva Pro", 1.0, 3, supplier_provider="vex", supplier_product_id="9",
+    )
+    db.save_reseller_product_config(
+        "vex", "9",
+        name="Canva Pro", wholesale_price=0.4, currency="USDT",
+        retail_price=1.0, enabled=True, service_id=service_id, local_offer_id=offer_id,
+    )
+
+    assert reseller_service.rename_provider("vex", "Vex Shop") == "Vex Shop"
+    assert reseller_service.provider_display_name("vex") == "Vex Shop"
+    summary = next(item for item in reseller_service.provider_summaries() if item["id"] == "vex")
+    assert summary["name"] == "Vex Shop"
+    assert summary["default_name"] == "VEX Reseller"
+    assert summary["bot_product_count"] == 1
+
+    removed = reseller_service.remove_provider_products("vex")
+    assert removed["removed"] == 1
+    offer = db.get_offer(offer_id)
+    assert offer["active"] == 0
+    assert offer["archived"] == 1
+    config = mock_mongodb.reseller_products.find_one({"provider": "vex", "product_id": "9"})
+    assert config["enabled"] is False
+    summary = next(item for item in reseller_service.provider_summaries() if item["id"] == "vex")
+    assert summary["bot_product_count"] == 0
+

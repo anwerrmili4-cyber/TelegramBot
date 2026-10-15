@@ -50,6 +50,7 @@ _OFFER_FIELDS = {
     "stock_enabled": 1,
     "local_copy_of_offer_id": 1,
     "stock_control_hold": 1,
+    "out_of_stock_hold": 1,
     "feature_key": 1,
 }
 
@@ -204,6 +205,11 @@ def offer_in_stock(offer: dict[str, Any] | None) -> bool:
 def is_held(offer: dict[str, Any] | None) -> bool:
     """True when this offer was parked in favour of another supplier."""
     return isinstance(offer, dict) and offer.get("stock_control_hold") is True
+
+
+def is_out_of_stock_hold(offer: dict[str, Any] | None) -> bool:
+    """True when this offer should be on the bot, but its stock is empty."""
+    return isinstance(offer, dict) and offer.get("out_of_stock_hold") is True
 
 
 def offer_reaches_bot_customers(offer: dict[str, Any] | None) -> bool:
@@ -366,9 +372,17 @@ def _winner(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
     return min(available, key=sort_key)
 
 
-def _apply(conn, offer: dict[str, Any], *, active: int, hold: bool) -> bool:
+def _apply(
+    conn,
+    offer: dict[str, Any],
+    *,
+    active: int,
+    hold: bool,
+    out_of_stock: bool = False,
+) -> bool:
     current_hold = is_held(offer)
-    if offer.get("active") == active and current_hold == hold:
+    current_empty = is_out_of_stock_hold(offer)
+    if offer.get("active") == active and current_hold == hold and current_empty == out_of_stock:
         return False
     update: dict[str, Any] = {"$set": {"active": active}}
     if active == 1:
@@ -378,13 +392,46 @@ def _apply(conn, offer: dict[str, Any], *, active: int, hold: bool) -> bool:
         update["$set"]["stock_control_hold"] = True
     else:
         update.setdefault("$unset", {})["stock_control_hold"] = ""
+    if out_of_stock:
+        update["$set"]["out_of_stock_hold"] = True
+    else:
+        update.setdefault("$unset", {})["out_of_stock_hold"] = ""
     conn.offers.update_one({"id": int(offer["id"])}, update)
     offer["active"] = active
     if hold:
         offer["stock_control_hold"] = True
     else:
         offer.pop("stock_control_hold", None)
+    if out_of_stock:
+        offer["out_of_stock_hold"] = True
+    else:
+        offer.pop("out_of_stock_hold", None)
     return True
+
+
+def _empty_listing(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The offer that should be on the bot when every copy is out of stock."""
+    waiting = [
+        offer for offer in offers
+        if db.product_is_enabled(offer)
+        and db.stock_is_enabled(offer)
+        and not _unlimited(offer)
+        and not offer_in_stock(offer)
+        and client_price(offer) is not None
+    ]
+    if not waiting:
+        return None
+    return min(waiting, key=lambda offer: (client_price(offer) or 0, int(offer["id"])))
+
+
+def _service_ok(offer: dict[str, Any], services: dict[int, dict[str, Any]]) -> bool:
+    if offer.get("service_id") is None:
+        return True
+    try:
+        service_id = int(offer["service_id"])
+    except (TypeError, ValueError):
+        return False
+    return _service_is_sellable(services.get(service_id), missing_service=service_id not in services)
 
 
 def _reconcile() -> dict[str, Any]:
@@ -415,14 +462,27 @@ def _reconcile() -> dict[str, Any]:
             continue
         group_count += 1
         winner = _winner(members)
+        empty = None if winner else _empty_listing(members)
         winner_id = int(winner["id"]) if winner else None
+        empty_id = int(empty["id"]) if empty else None
         for offer in members:
             offer_id = int(offer["id"])
             qualifying_ids.add(offer_id)
-            is_winner = offer_id == winner_id
-            if not _apply(conn, offer, active=1 if is_winner else 0, hold=not is_winner):
+            if winner_id is not None:
+                is_winner = offer_id == winner_id
+                changed = _apply(
+                    conn, offer, active=1 if is_winner else 0, hold=not is_winner, out_of_stock=False,
+                )
+                listed = is_winner
+            else:
+                is_empty = offer_id == empty_id
+                changed = _apply(
+                    conn, offer, active=0, hold=not is_empty, out_of_stock=is_empty,
+                )
+                listed = False
+            if not changed:
                 continue
-            if is_winner:
+            if listed:
                 activated.append(offer_id)
             else:
                 deactivated.append(offer_id)
@@ -465,6 +525,29 @@ def _reconcile() -> dict[str, Any]:
                 activated.append(offer_id)
             else:
                 deactivated.append(offer_id)
+
+    for offer in offers:
+        if offer.get("archived") == 1 or offer.get("local_copy_of_offer_id") or offer.get("feature_key"):
+            continue
+        try:
+            offer_id = int(offer["id"])
+        except (TypeError, ValueError):
+            continue
+        if offer_id in qualifying_ids or is_held(offer) or published.get(offer_id) is False:
+            continue
+        if not db.product_is_enabled(offer) or not _service_ok(offer, services):
+            continue
+        empty = (
+            db.stock_is_enabled(offer)
+            and not _unlimited(offer)
+            and not offer_in_stock(offer)
+        )
+        if empty and (_is_active(offer) or is_out_of_stock_hold(offer)):
+            if _apply(conn, offer, active=0, hold=False, out_of_stock=True):
+                deactivated.append(offer_id)
+        elif is_out_of_stock_hold(offer) and offer_in_stock(offer):
+            if _apply(conn, offer, active=1, hold=False, out_of_stock=False):
+                activated.append(offer_id)
 
     updated = len(activated) + len(deactivated)
     if updated:

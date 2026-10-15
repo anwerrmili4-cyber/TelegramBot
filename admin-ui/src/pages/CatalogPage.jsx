@@ -616,7 +616,7 @@ export default function CatalogPage({ data, onAction, onNavigate }) {
             </div>
           </header>
           <div className="catalog-offline-filters" role="group" aria-label="Filtres hors ligne">
-            {[["all", "Tous"], ["product_off", "Produit off"], ["stock_off", "Stock off"], ["inactive", "Désactivés"]].map(([value, label]) => (
+            {[["all", "Tous"], ["product_off", "Produit off"], ["stock_off", "Stock off"], ["inactive", "Désactivés"], ["out_of_stock", "OUT OF STOCK"]].map(([value, label]) => (
               <button key={value} type="button" aria-pressed={offlineFilter === value} onClick={() => setOfflineFilter(value)}>{label} <small>{offlineCounts[value]}</small></button>
             ))}
           </div>

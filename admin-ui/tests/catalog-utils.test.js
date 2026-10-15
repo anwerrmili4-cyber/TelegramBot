@@ -70,10 +70,15 @@ test("live catalog keeps only online products and offline rows stay unique", () 
   const { online, offline } = splitCatalogServices(catalog);
   assert.deepEqual(online.map((service) => [service.name, service.offers.map((offer) => offer.id)]), [["Figma", [1]], ["Empty", []]]);
   assert.deepEqual(offline.map((offer) => offer.id), [2, 3, 4]);
-  assert.deepEqual(offlineFilterCounts(offline), { all: 3, product_off: 2, stock_off: 2, inactive: 1 });
+  assert.deepEqual(offlineFilterCounts(offline), { all: 3, product_off: 2, stock_off: 2, inactive: 1, out_of_stock: 0 });
   assert.deepEqual(filterOfflineOffers(offline, "product_off").map((offer) => offer.id), [3, 4]);
   assert.deepEqual(filterOfflineOffers(offline, "stock_off").map((offer) => offer.id), [2, 4]);
   assert.deepEqual(filterOfflineOffers(offline, "inactive").map((offer) => offer.id), [4]);
+  const withEmpty = [...offline, { id: 5, name: "Waiting", active: 0, product_enabled: true, stock_enabled: true, stock: 0, out_of_stock_hold: true }];
+  assert.deepEqual(filterOfflineOffers(withEmpty, "out_of_stock").map((offer) => offer.id), [5]);
+  assert.equal(offlineFilterCounts(withEmpty).out_of_stock, 1);
+  assert.deepEqual(filterOfflineOffers(withEmpty, "inactive").map((offer) => offer.id), [4]);
+  assert.equal(offerListingStatus({ active: 0, out_of_stock_hold: true }, "Désactivé", "Actif").label, "Hors stock");
 });
 
 test("legacy bulk fields reopen as one option and extra tiers stay first-mirrored", () => {

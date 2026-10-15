@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, ArrowUpRight, Boxes, ClipboardList, Database, Download, Headphones, RefreshCw, Search, ShieldCheck, Star, Wallet } from "lucide-react";
+import { Activity, ArrowUpRight, Boxes, ClipboardList, Cloud, Database, Download, Headphones, RefreshCw, Search, ShieldCheck, Star, Wallet } from "lucide-react";
 import { csvDocument, getAdminJson, readPreference, savePreference } from "./control-utils";
 
 const RESOURCES = {
@@ -59,11 +59,12 @@ function HealthCard({ label, path }) {
 export function ControlCenter({ data, onNavigate, phone = false }) {
   const summary = data.summary || {};
   const [favorites, setFavorites] = useState(() => {
+    const pages = new Set(["orders", "inventory", "customers", "deposits", "support", "api-products"]);
     const saved = readPreference("control-favorites", ["orders", "inventory", "support"]);
-    return Array.isArray(saved) ? saved.filter((key) => Object.values(RESOURCES).some((r) => r.page === key)) : ["orders", "inventory", "support"];
+    return Array.isArray(saved) ? saved.filter((key) => pages.has(key)) : ["orders", "inventory", "support"];
   });
   const [notice, setNotice] = useState("");
-  const shortcuts = [["orders", "Commandes", ClipboardList], ["inventory", "Inventaire", Boxes], ["customers", "Clients", Database], ["deposits", "Dépôts", Wallet], ["support", "Support", Headphones]];
+  const shortcuts = [["orders", "Commandes", ClipboardList], ["inventory", "Inventaire", Boxes], ["customers", "Clients", Database], ["deposits", "Dépôts", Wallet], ["support", "Support", Headphones], ["api-products", "Fournisseurs", Cloud]];
   const queues = [["orders", "Commandes en attente", summary.pending_orders], ["support", "Tickets ouverts", summary.open_tickets], ["inventory", "Offres à stock faible", summary.low_stock_offers]];
   return <div className="control-center"><div className="page-heading"><div><h2>{phone ? "Espace mobile" : "Centre de contrôle"}</h2><p>{phone ? "Les mêmes données et actions, pensées pour le tactile." : "Priorités, accès favoris et diagnostics des connexions."}</p></div></div><div className="control-queues">{queues.map(([page, label, count]) => <button key={page} onClick={() => onNavigate(page)}><span>{label}</span><strong>{count ?? "—"}</strong><ArrowUpRight size={18} /></button>)}</div><section className="control-section"><header><h3>Accès favoris</h3><span>Personnalisez avec l’étoile</span></header><div className="control-shortcuts">{[...shortcuts].sort((a, b) => Number(favorites.includes(b[0])) - Number(favorites.includes(a[0]))).map(([page, label, Icon]) => <article key={page}><button onClick={() => onNavigate(page)}><Icon size={24} /><span>{label}</span><ArrowUpRight size={17} /></button><button className="favorite-toggle" aria-label={`${favorites.includes(page) ? "Retirer" : "Ajouter"} ${label} des favoris`} aria-pressed={favorites.includes(page)} onClick={() => { const next = favorites.includes(page) ? favorites.filter((key) => key !== page) : [...favorites, page]; setFavorites(next); setNotice(savePreference("control-favorites", next) ? "" : "Préférence non enregistrée sur cet appareil."); }}><Star size={16} fill={favorites.includes(page) ? "currentColor" : "none"} /></button></article>)}</div>{notice && <p role="status">{notice}</p>}</section><section className="control-section"><header><h3>Connexions & diagnostics</h3><span>Lecture seule · aucun webhook modifié</span></header><div className="health-grid"><HealthCard label="Telegram" path="/admin/api/telegram-health" /><HealthCard label="Binance" path="/admin/api/binance-health" /><HealthCard label="Bybit" path="/admin/api/bybit-health" /></div></section><button className="control-explore" onClick={() => onNavigate("data-explorer")}><Database size={22} /><span><strong>Explorer les données métier</strong><small>Filtres serveur, pagination et export de la page affichée</small></span><ArrowUpRight size={20} /></button>{phone && <details className="phone-help"><summary>Utiliser ce panneau sur iPhone</summary><p>Dans Safari, ouvrez Partager puis « Sur l’écran d’accueil ». Les actions nécessitent une connexion réseau. Après une interruption, vérifiez l’état de synchronisation avant de poursuivre.</p></details>}</div>;
 }
