@@ -17,6 +17,8 @@ import {
   X,
 } from "lucide-react";
 import { supplierMonogram, money, date, PageHeader, ActionButton, Modal, Field, Empty, FilterBar } from "../admin-kit.jsx";
+import { servicesByName } from "../catalog-utils.js";
+import { ExistingCatalogNames } from "./CatalogPage.jsx";
 
 export default function ApiProductsPage({ data, onAction, setToast }) {
   const [provider, setProvider] = useState(() => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("provider") || ""));
@@ -1005,7 +1007,9 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
   const [newServiceName, setNewServiceName] = useState("");
   const [newServiceEmoji, setNewServiceEmoji] = useState("📦");
   const [creatingSvc, setCreatingSvc] = useState(false);
+  const orderedServices = servicesByName(services);
   const isNewService = form.service_id === "__new__";
+  const selectedService = orderedServices.find((service) => String(service.id) === String(form.service_id));
   const set = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
 
@@ -1100,7 +1104,7 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
             value={form.service_id}
             onChange={(event) => set("service_id", event.target.value)}
           >
-            {services.map((service) => (
+            {orderedServices.map((service) => (
               <option key={service.id} value={service.id}>
                 {service.name}
               </option>
@@ -1109,6 +1113,7 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
             <option value="__new__">＋ Nouvelle catégorie…</option>
           </select>
         </Field>
+        {!isNewService && <ExistingCatalogNames service={selectedService} onUseName={(name) => set("display_name", name)} />}
         {!isNewService && (
           <Field label="Emoji / Icône">
             <input

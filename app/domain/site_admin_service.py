@@ -307,6 +307,10 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
             "product_categories": db.is_official_subscriptions_service(service),
             "hides_terms": db.is_methods_service(service),
             "offers": len(offers),
+            "product_names": sorted(
+                {str(row.get("name") or "").strip() for row in offers if str(row.get("name") or "").strip()},
+                key=str.casefold,
+            ),
             "on_sale": sum(1 for row in offers if row["on_sale"]),
         })
         rows.extend(offers)

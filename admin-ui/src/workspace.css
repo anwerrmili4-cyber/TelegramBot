@@ -105,6 +105,10 @@
 .catalog-collection button:focus-visible{outline:2px solid var(--catalog-accent,var(--cyan));outline-offset:3px}
 @media(max-width:760px){.catalog-collection-heading{align-items:flex-start;flex-direction:column}.catalog-collection-heading .catalog-service-actions{align-self:flex-end}.catalog-offer-table .catalog-col-name{min-width:140px}}
 @media(prefers-reduced-motion:reduce){.catalog-collection,.catalog-collection-toggle,.catalog-collection-toggle svg{transition:none}}
+.catalog-existing-names{display:flex;flex-wrap:wrap;gap:6px;max-height:148px;margin:0;padding:0;overflow:auto;list-style:none}
+.catalog-existing-names button{min-height:28px;padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--panel-soft);color:var(--text);font-size:12px;line-height:1.3;cursor:pointer;text-align:left}
+.catalog-existing-names button:hover,.catalog-existing-names button:focus-visible{border-color:color-mix(in srgb,var(--accent) 48%,var(--line));outline:none}
+.catalog-existing-hint{color:var(--muted);font-size:11px;font-weight:500;letter-spacing:0;text-transform:none}
 .catalog-product-settings{margin-top:18px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel-soft)}
 .catalog-product-settings summary{cursor:pointer;font-weight:600;line-height:1.6}
 .catalog-product-settings[open]>.form-grid{animation:catalog-card-enter 180ms ease both}

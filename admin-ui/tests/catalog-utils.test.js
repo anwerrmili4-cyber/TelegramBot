@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerListingStatus, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../src/catalog-utils.js";
+import { bulkOptionsFromOffer, catalogProductNames, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerListingStatus, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, servicesByName, splitCatalogServices } from "../src/catalog-utils.js";
 
 const services = [{
   id: 1,
@@ -19,6 +19,20 @@ const services = [{
 }];
 
 const defaults = { search: "", category: "", searchField: "all", status: "all", stock: "all", source: "all", sort: "default" };
+
+test("catalog names are alphabetical and list the products already saved there", () => {
+  assert.deepEqual(servicesByName([{ id: 2, name: "Zoom" }, { id: 1, name: "canva" }, { id: 3, name: "Éducation" }]).map((service) => service.name), ["canva", "Éducation", "Zoom"]);
+  assert.deepEqual(catalogProductNames({
+    offers: [
+      { id: 2, name: "Pro 1 mois" },
+      { id: 3, name: "pro 1 mois" },
+      { id: 4, name: "Éducation" },
+      { id: 5, name: "Archivé", archived: 1 },
+      { id: 6, name: "  " },
+    ],
+  }), ["Éducation", "Pro 1 mois"]);
+  assert.deepEqual(catalogProductNames({ offers: 2, product_names: ["Zoom", "Alpha"] }), ["Alpha", "Zoom"]);
+});
 
 test("a parked supplier duplicate is labelled for the admin", () => {
   const listing = offerListingStatus({ active: 0, stock_control_hold: true }, "Désactivé", "Actif");

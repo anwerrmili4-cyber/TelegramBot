@@ -245,6 +245,36 @@ export function serializeBulkOptions(options, price) {
   };
 }
 
+const NAME_ORDER = { sensitivity: "base", numeric: true };
+
+export function servicesByName(services) {
+  return [...(services || [])].sort((left, right) =>
+    String(left?.name || "").localeCompare(String(right?.name || ""), "fr", NAME_ORDER),
+  );
+}
+
+export function catalogProductNames(service) {
+  const seen = new Set();
+  const names = [];
+  const add = (name) => {
+    const cleaned = String(name || "").trim();
+    const key = cleaned.toLocaleLowerCase("fr");
+    if (!cleaned || seen.has(key)) return;
+    seen.add(key);
+    names.push(cleaned);
+  };
+  if (Array.isArray(service?.offers)) {
+    for (const offer of service.offers) {
+      if (offer?.archived === 1 || offer?.archived === true) continue;
+      add(offer?.name);
+    }
+  } else if (Array.isArray(service?.product_names)) {
+    for (const name of service.product_names) add(name);
+  }
+  names.sort((left, right) => left.localeCompare(right, "fr", NAME_ORDER));
+  return names;
+}
+
 export function reorderIds(ids, draggedId, targetId) {
   const next = ids.map(Number);
   const from = next.indexOf(Number(draggedId));

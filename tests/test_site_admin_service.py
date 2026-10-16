@@ -723,7 +723,9 @@ def test_methods_have_no_duration_or_warranty_and_vip_price_is_editable(mock_mon
     assert stored["warranty_days"] == 0
     assert stored["site_period_days"] == 0
     assert stored["site_warranty_days"] == 0
-    assert next(service["hides_terms"] for service in catalog["services"] if service["id"] == service_id)
+    methods = next(service for service in catalog["services"] if service["id"] == service_id)
+    assert methods["hides_terms"] is True
+    assert methods["product_names"] == ["Alpha method"]
 
     vip_id = db.ensure_bmc_vip_offer()
     site_admin_service.save_offer({

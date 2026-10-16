@@ -25,8 +25,30 @@ import {
 } from "lucide-react";
 import { readPreference, savePreference } from "../control-utils.js";
 import { EntityLink } from "../admin-routes.js";
-import { bulkOptionsFromOffer, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerIsProductOn, offerIsStockOn, offerListingStatus, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, splitCatalogServices } from "../catalog-utils.js";
+import { bulkOptionsFromOffer, catalogProductNames, catalogQueryString, filterCatalogServices, filterOfflineOffers, offerIsProductOn, offerIsStockOn, offerListingStatus, offlineFilterCounts, paginateCatalogServices, readCatalogQuery, reorderIds, serializeBulkOptions, servicesByName, splitCatalogServices } from "../catalog-utils.js";
 import { SERVICE_COLORS, providerLabel, money, PageHeader, ActionButton, Modal, Field, Empty, FilterBar, Pagination } from "../admin-kit.jsx";
+
+export function ExistingCatalogNames({ service, onUseName }) {
+  if (!service) return null;
+  const names = catalogProductNames(service);
+  return (
+    <div className="field wide catalog-existing">
+      <span>Produits déjà dans {service.name}</span>
+      {names.length ? (
+        <ul className="catalog-existing-names" aria-label={`Produits déjà dans ${service.name}, de A à Z`}>
+          {names.map((name) => (
+            <li key={name}>
+              <button type="button" onClick={() => onUseName?.(name)}>{name}</button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="catalog-existing-hint">Aucun produit dans ce catalogue.</p>
+      )}
+      {names.length > 0 && <small className="catalog-existing-hint">Classés de A à Z. Cliquez un nom pour le réutiliser.</small>}
+    </div>
+  );
+}
 
 function ListingStatus({ item, hiddenLabel, shownLabel }) {
   const listing = offerListingStatus(item, hiddenLabel, shownLabel);
@@ -70,7 +92,8 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
     bulkOptions.splice(target, 0, moved);
     return { ...current, bulk_options: bulkOptions };
   });
-  const selectedService = services.find((service) => String(service.id) === String(form.service_id));
+  const orderedServices = servicesByName(services);
+  const selectedService = orderedServices.find((service) => String(service.id) === String(form.service_id));
   const hidesTerms = String(selectedService?.name || "").trim().toLowerCase() === "methods";
   const submit = async (event) => {
     event.preventDefault();
@@ -119,13 +142,14 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
               value={form.service_id}
               onChange={(event) => set("service_id", event.target.value)}
             >
-              {services.map((service) => (
+              {orderedServices.map((service) => (
                 <option value={service.id} key={service.id}>
                   {service.name}
                 </option>
               ))}
             </select>
           </Field>
+          <ExistingCatalogNames service={selectedService} onUseName={(name) => set("name", name)} />
           <Field label="Nom">
             <input
               required

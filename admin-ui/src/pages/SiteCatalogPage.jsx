@@ -24,6 +24,8 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { PageHeader, ActionButton, Modal, Field, Empty, FilterBar, useRemoteList } from "../admin-kit.jsx";
+import { servicesByName } from "../catalog-utils.js";
+import { ExistingCatalogNames } from "./CatalogPage.jsx";
 import { CATALOG_STATUS, dinars, dinarInput, catalogStatus, refreshLists } from "../site-format.jsx";
 
 const DURATION_UNITS = [["days", "Jours"], ["months", "Mois"], ["years", "Années"]];
@@ -76,7 +78,8 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const creating = !row;
   const externallyStocked = Boolean(row?.supplier_provider || row?.manual_stock);
-  const selectedService = services.find((service) => String(service.id) === String(form.service_id));
+  const orderedServices = servicesByName(services);
+  const selectedService = orderedServices.find((service) => String(service.id) === String(form.service_id));
   const hidesTerms = Boolean(selectedService?.hides_terms);
   const botPriceEditable = Boolean(row?.bot_price_editable);
   const suggestedMillimes = Math.round((parseDecimal(row?.bot_price_usdt) * rate * 10)) * 100;
@@ -168,10 +171,11 @@ function ProductEditor({ row, services, rate, defaultServiceId, busy, onClose, o
       <div className="form-grid">
         <Field label="Service">
           <select value={form.service_id} onChange={(event) => set("service_id", event.target.value)} required>
-            {services.map((service) => <option key={service.id} value={service.id}>{service.emoji} {service.name}{service.active ? "" : " (désactivé)"}</option>)}
+            {orderedServices.map((service) => <option key={service.id} value={service.id}>{service.emoji} {service.name}{service.active ? "" : " (désactivé)"}</option>)}
           </select>
           <small className="site-field-help">Changer le service déplace le produit dans cette catégorie sur le site.</small>
         </Field>
+        <ExistingCatalogNames service={selectedService} onUseName={(name) => set("name", name)} />
         {selectedService?.product_categories && <Field label="Nom de la catégorie">
           <input value={form.site_category_name} onChange={(event) => set("site_category_name", event.target.value)} maxLength={120} placeholder="Ex. ChatGPT, Google AI Pro" />
           <small className="site-field-help">Vide = le nom du produit. Ce nom est la catégorie affichée sur le site.</small>

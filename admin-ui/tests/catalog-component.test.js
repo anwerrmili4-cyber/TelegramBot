@@ -97,6 +97,22 @@ test("offline products stay in one Hors ligne row and bulk options reopen", asyn
       onAction: async () => true,
       onClose() {},
     }));
+    const named = renderToStaticMarkup(React.createElement(page.OfferForm, {
+      services: [
+        { id: 2, name: "Zoom", offers: [{ id: 3, name: "Teams" }] },
+        { id: 1, name: "Canva", offers: [{ id: 9, name: "Éducation" }, { id: 8, name: "Pro 1 mois" }, { id: 11, name: "Archivé", archived: 1 }] },
+      ],
+      offer: { id: 4, service_id: 1, name: "Pack", price: 12 },
+      onAction: async () => true,
+      onClose() {},
+    }));
+    const canvaAt = named.indexOf(">Canva<");
+    const zoomAt = named.indexOf(">Zoom<");
+    assert.ok(canvaAt > 0 && canvaAt < zoomAt);
+    assert.match(named, /Produits déjà dans Canva/);
+    assert.match(named, />Éducation</);
+    assert.match(named, />Pro 1 mois</);
+    assert.doesNotMatch(named, />Teams<|>Archivé</);
     assert.match(legacy, /value="Gros"/);
     assert.match(legacy, /value="5"/);
     assert.match(legacy, /value="2.5"/);
