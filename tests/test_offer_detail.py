@@ -175,7 +175,60 @@ def test_methods_card_hides_duration_warranty_and_stock_with_premium_icons(
     assert "Warranty:" not in preview
     assert "Stock:" not in preview
     assert "Price: <b>3.50</b> <b>USDT</b>" in preview
-    assert "Full instructions" in preview
+    assert "💬 Description: Full instructions" in preview
+    assert "Description:\n" not in preview
+    assert "Description:</b>\n" not in preview
+
+
+def test_methods_description_stays_with_its_label_and_bmc_vip_drops_term_suffix(
+    monkeypatch, mock_mongodb,
+):
+    monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
+    template = (
+        "[[HTML]]<b>{name}</b> | {period} | {warranty}\n"
+        "Price: {price} {currency}\n"
+        "💬 Description:\n{description}"
+    )
+    bot.db.set_text_override("offer_card_template", "en", template)
+    description = (
+        "[[HTML]]✅ METHODS Available\n"
+        "<blockquote>Amazon Prime 6 months</blockquote>"
+    )
+    shared = {
+        "price": 15,
+        "currency": "USDT",
+        "stock": 1,
+        "period_days": 30,
+        "warranty_days": 0,
+        "service_name": "Methods",
+        "description": description,
+    }
+
+    vip = compact_offer_text({
+        "id": 11,
+        "name": "BMC VIP",
+        "feature_key": "bmc_vip",
+        **shared,
+    }, "en")
+    other = compact_offer_text({
+        "id": 12,
+        "name": "PaysafeCard Playstore",
+        **shared,
+        "price": 3.5,
+        "description": "[[HTML]]Card steps",
+    }, "en")
+
+    assert "Methods — BMC VIP" in vip
+    assert "| 30 days |" not in vip
+    assert "| <b>30 days</b> |" not in vip
+    assert "<b>NW</b>" not in vip
+    assert "Price: <b>15.00</b>" in vip
+    assert "💬 Description: ✅ METHODS Available" in vip
+    assert "Description:\n" not in vip
+    assert "<blockquote>Amazon Prime 6 months</blockquote>" in vip
+    assert "PaysafeCard Playstore" in other
+    assert "| <b>30 days</b> | <b>NW</b>" in other
+    assert "💬 Description: Card steps" in other
 
 
 def test_bulk_row_uses_editable_components_and_hides_when_disabled(monkeypatch, mock_mongodb):

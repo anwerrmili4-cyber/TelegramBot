@@ -343,11 +343,15 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             if "{bulk_price}" not in line and "{bulk_quantity}" not in line
         )
     if is_methods_catalog:
+        # Stock rows never belong on a Methods card. A duration/warranty
+        # suffix that shares the product title stays, except for BMC VIP,
+        # which drops that suffix after the card is rendered.
         protected_template = "\n".join(
             line for line in protected_template.splitlines()
-            if not any(
-                placeholder in line
-                for placeholder in ("{stock}", "{sold}", "{warranty}")
+            if "{stock}" not in line and "{sold}" not in line
+            and not (
+                "{warranty}" in line
+                and not any(token in line for token in ("{name}", "{product_name}", "{catalog_name}"))
             )
         )
     # The complete emoji/catalog/product title is always bold. Remove legacy
@@ -390,6 +394,10 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     ).strip()
     if visible_description and visible_description != "—" and visible_description not in visible_card:
         rendered = f"{rendered.rstrip()}\n{rendered_description}"
+    if is_methods_catalog:
+        rendered = _join_methods_description_title(rendered)
+        if _is_bmc_vip_product(offer):
+            rendered = _strip_bmc_vip_term_suffix(rendered)
     return rendered
 
 
@@ -836,6 +844,113 @@ def _without_method_detail_rows(text):
     ).strip()
 
 
+_DESCRIPTION_LABEL_RE = re.compile(r"^(?:description|الوصف)\s*:?\s*$", re.IGNORECASE)
+_BMC_DURATION_WORD = (
+    r"days?|day|j|jours?|mois|months?|ans?|years?|ann[eé]es?|an|"
+    r"يوم|أيام|شهر|أشهر|اشهر|سنة|سنوات"
+)
+_BMC_TERM_VALUE = rf"(?:NW|FW|\d+\s*(?:{_BMC_DURATION_WORD}))"
+
+
+def _visible_message_line(line):
+    visible = html.unescape(re.sub(r"<[^>]+>", "", str(line or ""))).strip()
+    return re.sub(r"^[^0-9A-Za-zÀ-ÖØ-öø-ÿ\u0600-\u06ff]+", "", visible).strip()
+
+
+def _line_is_description_label(line):
+    """True when a Methods line is only the Description label, with no text yet."""
+    return bool(_DESCRIPTION_LABEL_RE.match(_visible_message_line(line)))
+
+
+def _line_opens_blockquote(line):
+    return bool(re.match(r"\s*<blockquote\b", str(line or ""), re.I))
+
+
+def _join_methods_description_title(text):
+    """Put the Description label and its opening text on the same line.
+
+    The word Description stays intact. The product list under it, including a
+    blockquote, stays on the following lines.
+    """
+    lines = str(text or "").splitlines()
+    joined = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if _line_is_description_label(line):
+            follower = index + 1
+            while follower < len(lines) and not lines[follower].strip():
+                follower += 1
+            if follower < len(lines) and not _line_opens_blockquote(lines[follower]):
+                line = f"{line.rstrip()} {lines[follower].strip()}"
+                index = follower
+        joined.append(line)
+        index += 1
+    return "\n".join(joined)
+
+
+def _split_description_title(description):
+    """Keep the first description line with the label and the list below it."""
+    description = str(description or "").strip()
+    if not description:
+        return "", ""
+    block = re.search(r"<blockquote\b", description, re.I)
+    if block and block.start() == 0:
+        return "", description
+    if block:
+        head = description[:block.start()].strip()
+        tail = description[block.start():].strip()
+    else:
+        head, separator, tail = description.partition("\n")
+        head = head.strip()
+        tail = tail.strip() if separator else ""
+    return re.sub(r"\s+", " ", head), tail
+
+
+def _methods_description_row(lang, description):
+    """One-line Methods description title, then the included-product list."""
+    label = {"fr": "Description", "ar": "الوصف"}.get(lang, "Description")
+    label_html = f"💬 <b>{label}:</b>"
+    head, tail = _split_description_title(description)
+    if head:
+        row = f"{label_html} {head}"
+        return f"{row}\n{tail}" if tail else row
+    if tail:
+        return f"{label_html}\n{tail}"
+    return ""
+
+
+def _is_bmc_vip_product(offer):
+    offer = offer or {}
+    if str(offer.get("feature_key") or "") == getattr(db, "BMC_VIP_FEATURE_KEY", "bmc_vip"):
+        return True
+    return str(offer.get("name") or "").strip().casefold() == "bmc vip"
+
+
+def _wrapped_bmc_term(group):
+    return (
+        rf"\s*\|\s*(?:<(?P<{group}>[A-Za-z][\w-]*)\b[^>]*>\s*)?"
+        rf"{_BMC_TERM_VALUE}"
+        rf"(?({group})\s*</(?P={group})>)"
+    )
+
+
+_BMC_VIP_TERM_SUFFIX = re.compile(
+    _wrapped_bmc_term("tag_a") + _wrapped_bmc_term("tag_b"),
+    re.IGNORECASE,
+)
+
+
+def _strip_bmc_vip_term_suffix(text):
+    """Remove a ``| 30 days | NW`` suffix from the BMC VIP title only."""
+    return "\n".join(
+        _BMC_VIP_TERM_SUFFIX.sub("", line)
+        if "bmc vip" in _visible_message_line(line).casefold()
+        else line
+        for line in str(text or "").splitlines()
+    )
+
+
 def _method_announcement_description(value):
     """Render a method description without leaking HTML source into adverts.
 
@@ -870,20 +985,33 @@ def _method_announcement_text(text, service, offer=None, lang="en"):
         else (offer or {}).get("description")
     )
     description = _method_announcement_description(raw_description)
-    label = {"fr": "Description", "ar": "الوصف"}.get(lang, "Description")
-    description_row = f"💬 <b>{label}:</b> {description}" if description else ""
+    description_row = _methods_description_row(lang, description)
+    head, tail = _split_description_title(description)
+    head_visible = html.unescape(re.sub(r"<[^>]+>", "", head)).strip()
+    visible_text = html.unescape(re.sub(r"<[^>]+>", "", str(text or "")))
+    # The customized Methods template may already contain the opening line.
+    # Keep that line and don't add a second copy of the same title.
+    inserted = bool(head_visible) and head_visible in visible_text
     rows = []
-    inserted = False
     for line in str(text or "").splitlines():
         if _is_method_detail_row(line):
             if description_row and not inserted:
-                rows.append(description_row)
+                rows.extend(description_row.splitlines())
                 inserted = True
+            continue
+        if description_row and not inserted and _line_is_description_label(line):
+            rows.extend(description_row.splitlines())
+            inserted = True
             continue
         rows.append(line)
     if description_row and not inserted:
-        rows.append(description_row)
-    return "\n".join(rows)
+        rows.extend(description_row.splitlines())
+    rendered = _join_methods_description_title("\n".join(rows))
+    if tail and tail not in rendered:
+        rendered = f"{rendered.rstrip()}\n{tail}"
+    if _is_bmc_vip_product(offer):
+        rendered = _strip_bmc_vip_term_suffix(rendered)
+    return rendered
 
 
 def _is_methods_offer(offer):

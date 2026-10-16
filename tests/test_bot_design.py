@@ -1667,6 +1667,51 @@ def test_methods_announcement_strips_legacy_html_but_keeps_premium_description_e
     assert "<code>legacy-wrapper</code>" not in rendered
 
 
+def test_bmc_vip_methods_announcement_drops_term_suffix_and_keeps_description_on_one_line():
+    text = (
+        "💰 <b>MAKE MONEY</b>\n"
+        "🧠 Methods — BMC VIP | 30 days | NW\n"
+        "❌ Old price : 20.00 USDT\n"
+        "🟢 Flash price : 15.00 USDT\n"
+        "⏳ Ends in : 24h 1m\n"
+        "💬 <b>Description:</b>\n"
+        "✅ METHODS Available"
+    )
+    other = (
+        "🧠 Methods — PaysafeCard | 30 days | NW\n"
+        "❌ Old price : 4.00 USDT\n"
+        "💬 <b>Description:</b>\n"
+        "Card steps"
+    )
+    description = (
+        "[[HTML]]✅ METHODS Available\n"
+        "<blockquote>Amazon Prime 6 months</blockquote>"
+    )
+
+    rendered = _method_announcement_text(
+        text,
+        {"name": "Methods"},
+        {"name": "BMC VIP", "feature_key": "bmc_vip", "description": description},
+    )
+    kept = _method_announcement_text(
+        other,
+        {"name": "Methods"},
+        {"name": "PaysafeCard", "description": "Card steps"},
+    )
+
+    assert "Methods — BMC VIP" in rendered
+    assert "| 30 days | NW" not in rendered
+    assert "20.00 USDT" in rendered
+    assert "15.00 USDT" in rendered
+    assert "24h 1m" in rendered
+    description_line = next(line for line in rendered.splitlines() if "Description" in line)
+    assert description_line == "💬 <b>Description:</b> ✅ METHODS Available"
+    assert "Descript\n" not in rendered
+    assert "<blockquote>Amazon Prime 6 months</blockquote>" in rendered
+    assert "PaysafeCard | 30 days | NW" in kept
+    assert "💬 <b>Description:</b> Card steps" in kept
+
+
 def test_methods_announcement_removes_unmarked_html_source():
     rendered = _method_announcement_text(
         "📅 Period: 30 Days\n🛡 Warranty: Full",
