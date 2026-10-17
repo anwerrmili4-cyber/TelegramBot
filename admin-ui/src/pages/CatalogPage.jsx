@@ -35,17 +35,19 @@ export function ExistingCatalogNames({ service, onUseName }) {
     <div className="field wide catalog-existing">
       <span>Produits déjà dans {service.name}</span>
       {names.length ? (
-        <ul className="catalog-existing-names" aria-label={`Produits déjà dans ${service.name}, de A à Z`}>
-          {names.map((name) => (
-            <li key={name}>
-              <button type="button" onClick={() => onUseName?.(name)}>{name}</button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="catalog-existing-hint">Aucun produit dans ce catalogue.</p>
-      )}
-      {names.length > 0 && <small className="catalog-existing-hint">Classés de A à Z. Cliquez un nom pour le réutiliser.</small>}
+          <ul className="catalog-existing-names" aria-label={`Produits déjà dans ${service.name}, de A à Z`}>
+            {names.map((name) => (
+              <li key={name}>
+                {onUseName
+                  ? <button type="button" onClick={() => onUseName(name)}>{name}</button>
+                  : <span>{name}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="catalog-existing-hint">Aucun produit dans ce catalogue.</p>
+        )}
+        {names.length > 0 && <small className="catalog-existing-hint">{onUseName ? "Classés de A à Z. Cliquez un nom pour le réutiliser." : "Classés de A à Z."}</small>}
     </div>
   );
 }

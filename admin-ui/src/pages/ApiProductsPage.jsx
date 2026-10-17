@@ -1113,7 +1113,7 @@ function ApiProductEditor({ product, provider, services, onAction, onClose }) {
             <option value="__new__">＋ Nouvelle catégorie…</option>
           </select>
         </Field>
-        {!isNewService && <ExistingCatalogNames service={selectedService} onUseName={(name) => set("display_name", name)} />}
+        {!isNewService && <ExistingCatalogNames service={selectedService} />}
         {!isNewService && (
           <Field label="Emoji / Icône">
             <input

@@ -116,6 +116,15 @@ test("offline products stay in one Hors ligne row and bulk options reopen", asyn
     assert.match(legacy, /value="Gros"/);
     assert.match(legacy, /value="5"/);
     assert.match(legacy, /value="2.5"/);
+    const listed = renderToStaticMarkup(React.createElement(page.ExistingCatalogNames, {
+      service: { id: 4, name: "Cursor", offers: [{ name: "Gamma Pro" }, { name: "Alpha" }] },
+    }));
+    const alphaAt = listed.indexOf(">Alpha<");
+    const gammaAt = listed.indexOf(">Gamma Pro<");
+    assert.match(listed, /Produits déjà dans Cursor/);
+    assert.ok(alphaAt > 0 && alphaAt < gammaAt);
+    assert.doesNotMatch(listed, /<button|réutiliser/);
+    assert.match(listed, /Classés de A à Z\./);
   } finally {
     await vite.close();
     if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
