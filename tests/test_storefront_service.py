@@ -104,6 +104,30 @@ def test_catalog_shows_one_card_for_a_duplicated_product(mock_mongodb):
     assert shown[1]["price_millimes"] == 12_000
 
 
+def test_catalog_shows_the_in_stock_copy_when_the_bot_parked_it(mock_mongodb):
+    service_id = db.add_service("Capcut", "✦", sales_channels=["bot", "tn_site"])
+    sold_out = db.add_offer(
+        service_id, "Capcut pro 1 mois", 3.66, 0,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=20_000,
+        period_days=30, site_enabled=True,
+        supplier_provider="upibot", supplier_product_id="capcut-empty",
+    )
+    stocked = db.add_offer(
+        service_id, "Capcut pro 1 mois", 3.6, 44,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=20_000,
+        period_days=30, site_enabled=True,
+        supplier_provider="vex", supplier_product_id="capcut-live",
+    )
+    db.get_conn().offers.update_one({"id": stocked}, {"$set": {"stock_control_hold": True, "active": 0}})
+
+    shown = storefront_service.catalog()["services"][0]["offers"]
+
+    assert [offer["id"] for offer in shown] == [stocked]
+    assert shown[0]["stock"] == 44
+    assert shown[0]["available"] is True
+    assert sold_out not in {offer["id"] for offer in shown}
+
+
 def test_catalog_prefers_stock_over_a_cheaper_sold_out_copy(mock_mongodb):
     service_id = db.add_service("Canva", "✦", sales_channels=["bot", "tn_site"])
     db.add_offer(

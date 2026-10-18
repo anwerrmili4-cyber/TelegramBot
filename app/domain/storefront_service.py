@@ -441,16 +441,16 @@ def _catalog_sources() -> tuple[list[dict[str, Any]], dict[int, list[dict[str, A
 def listed_offers() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """The cards a customer sees: one per product, in stock, at the lowest price.
 
-    The same rule as the Telegram catalog. A parked duplicate stays hidden.
-    Among the copies that remain, stock beats price, and the lowest dinar
-    price wins. When every copy is sold out, the cheapest one stays so the
-    customer can still ask to be told when it returns.
+    The same rule as the Telegram catalog. A copy the bot parked still competes,
+    because that parked copy can be the one that actually has stock. Stock beats
+    price, and the lowest dinar price wins. When every copy is sold out, the
+    cheapest one stays so the customer can still ask to be told when it returns.
     """
     visible, offers_by_service = _catalog_sources()
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for service in visible:
         for offer in offers_by_service.get(int(service["id"]), []):
-            if offer.get("stock_control_hold") is True or not _offer_on_sale(offer):
+            if not _offer_on_sale(offer):
                 continue
             rows.append((service, offer))
     winners = {
@@ -544,7 +544,6 @@ def public_offer(offer_id: int) -> dict[str, Any] | None:
     if (
         not service
         or not _site_visible(service)
-        or offer.get("stock_control_hold") is True
         or not _offer_on_sale(offer)
         or not _offer_is_listed(offer_id)
     ):
@@ -608,12 +607,7 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
         reseller_service.refresh_supplier_stock([offer])
         offer = db.get_offer(offer_id)
     service = db.get_service(int(offer.get("service_id"))) if offer else None
-    if (
-        not offer
-        or not service
-        or offer.get("archived") == 1
-        or offer.get("stock_control_hold") is True
-    ):
+    if not offer or not service or offer.get("archived") == 1:
         raise StorefrontError("Cette offre n'est plus disponible.")
     if not _offer_on_sale(offer) or not _site_visible(service):
         raise StorefrontError("Cette offre n'est pas disponible sur le site tunisien.")
