@@ -1,4 +1,5 @@
-import { useEffect, useState, useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
+import { forwardRef, useEffect, useState, useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from "react";
+import { scrollAfterNavigate, scrollToElement } from "@/components/motion/SmoothScroll";
 
 export const ROUTES = {
   home: "/",
@@ -94,13 +95,13 @@ export function navigate(to: string, { replace = false } = {}) {
     window.history.pushState(null, "", to);
   }
   window.dispatchEvent(new Event(NAVIGATE_EVENT));
-  if (!to.includes("#")) window.scrollTo({ top: 0 });
+  scrollAfterNavigate(to);
 }
 
 type LinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { to: string };
 
 /** An anchor that changes route without reloading the page. */
-export function Link({ to, onClick, ...rest }: LinkProps) {
+export const Link = forwardRef<HTMLAnchorElement, LinkProps>(function Link({ to, onClick, ...rest }, ref) {
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
     if (
@@ -114,13 +115,16 @@ export function Link({ to, onClick, ...rest }: LinkProps) {
       return;
     }
     const [path, hash] = to.split("#");
-    // Let the browser scroll to an anchor on the page already shown.
-    if (hash !== undefined && (path || "/") === currentPath()) return;
+    // Same-page anchors go through Lenis. A native jump is overwritten while a smooth scroll is in flight.
+    if (hash !== undefined && (path || "/") === currentPath()) {
+      const node = document.getElementById(hash);
+      if (!node) return;
+      event.preventDefault();
+      scrollToElement(node);
+      return;
+    }
     event.preventDefault();
     navigate(to);
-    if (hash) {
-      requestAnimationFrame(() => document.getElementById(hash)?.scrollIntoView());
-    }
   }
-  return <a href={to} onClick={handleClick} {...rest} />;
-}
+  return <a ref={ref} href={to} onClick={handleClick} {...rest} />;
+});

@@ -28,6 +28,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { money } from "@/lib/format";
 import { toggleTheme, useTheme } from "@/lib/theme";
+import StarBorder from "@/components/bits/StarBorder.jsx";
 import { Link, navigate, ROUTES, usePathname } from "@/lib/router";
 import { trackSearch } from "@/lib/track";
 import { placeSlidingPill } from "@/lib/slidingPill";
@@ -427,9 +428,26 @@ export function SiteHeader({ cartCount, cartTotalMillimes, categories, onOpenCar
               <LogIn size={16} aria-hidden="true" />
               <span>Connexion</span>
             </Link>
-            <Link className="button button-primary header-signup" to={ROUTES.register}>
+            <StarBorder
+              as={Link}
+              to={ROUTES.register}
+              className="button button-primary header-signup"
+              color="#9ec1ff"
+              trailColor="#1a73ff"
+              backgroundColor="transparent"
+              textColor="#ffffff"
+              borderColor="rgba(255,255,255,0.28)"
+              radius={999}
+              thickness={1.25}
+              duration={7}
+              glow={0.35}
+              stars={1}
+              trailLength={0.2}
+              hover="brighten"
+              sparkle={false}
+            >
               Inscription
-            </Link>
+            </StarBorder>
           </>
         )}
 

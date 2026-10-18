@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import CountUp from "@/components/bits/CountUp.jsx";
 import { assetUrl, fetchReviews, errorMessage } from "@/lib/api";
 import type { PublicReview } from "@/types";
 
@@ -116,7 +117,16 @@ export function OfferReviews({ offerId }: { offerId: number }) {
         <>
           {count > 0 ? (
             <p className="review-summary">
-              {average.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} / 5 · {count} avis
+              <span className="stat-slot">
+                <span className="stat-sizer" aria-hidden="true">{average.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                <CountUp to={average} decimals={1} decimalSeparator="," duration={1} className="stat-count" />
+              </span>
+              {" / 5 · "}
+              <span className="stat-slot">
+                <span className="stat-sizer" aria-hidden="true">{count}</span>
+                <CountUp to={count} duration={0.9} className="stat-count" />
+              </span>
+              {" avis"}
             </p>
           ) : null}
           <ReviewCards reviews={reviews} />

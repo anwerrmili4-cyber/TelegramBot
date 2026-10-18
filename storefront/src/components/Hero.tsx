@@ -1,6 +1,12 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ArrowRight, ArrowUpRight, PackageSearch, Search, ShieldCheck, ShieldOff, Sparkles } from "lucide-react";
+import BlurText from "@/components/bits/BlurText.jsx";
+import CountUp from "@/components/bits/CountUp.jsx";
+import StarBorder from "@/components/bits/StarBorder.jsx";
+
+const LightRays = lazy(() => import("@/components/bits/LightRays.jsx"));
 import { FavoriteButton } from "@/components/FavoriteButton";
+import { useHomeReveals } from "@/components/motion/useHomeReveals";
 import { filmOffers } from "@/components/FilmReel";
 import { HeroReviewReel } from "@/components/PublicReviews";
 import { HowItWorks } from "@/components/HowItWorks";
@@ -25,6 +31,10 @@ const FAQ = [
   ["Comment payer ?", "Portefeuille, ou D17, Flouci, IZI et Wafa Cash avec le reçu. Le solde bouge après vérification."],
   ["Un compte est obligatoire ?", "Oui. Après l'introduction, le site se regarde quelques secondes, puis la fenêtre d'inscription s'ouvre."],
 ];
+
+function spotlightSafe(offers: Offer[]) {
+  return offers.filter((offer) => offer.featured || offer.available).length;
+}
 
 function searchTo(query: string) {
   const term = query.trim();
@@ -240,8 +250,31 @@ function categoryMark(offers: Offer[], categoryId: string) {
   return { src: "", emoji: inCategory.find((offer) => offer.service_emoji)?.service_emoji ?? "" };
 }
 
+function useHeroMotion() {
+  const [desktop, setDesktop] = useState(true);
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const width = window.matchMedia("(max-width: 760px)");
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => {
+      setDesktop(!width.matches);
+      setReduced(motion.matches);
+    };
+    apply();
+    width.addEventListener("change", apply);
+    motion.addEventListener("change", apply);
+    return () => {
+      width.removeEventListener("change", apply);
+      motion.removeEventListener("change", apply);
+    };
+  }, []);
+  return { desktop, reduced };
+}
+
 export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
   const [query, setQuery] = useState("");
+  const { desktop, reduced } = useHeroMotion();
+  const homeRef = useHomeReveals(`${categories.length}:${spotlightSafe(offers)}`);
   const available = offers.filter((offer) => offer.available);
   const featured = offers.filter((offer) => offer.featured);
   const highlighted = featured.length ? featured : available;
@@ -257,14 +290,64 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
   }
 
   return (
-    <>
+    <div className="home-stage" ref={homeRef}>
       <section className={popular.length ? "hero has-popular" : "hero"} aria-labelledby="hero-title">
         <div className="hero-card">
+          <div className="hero-rays" aria-hidden="true">
+            {reduced ? null : (
+              <Suspense fallback={null}>
+              <LightRays
+                raysOrigin="top-left"
+                raysColor="#1a73ff"
+                raysSpeed={desktop ? 0.45 : 0.28}
+                lightSpread={0.55}
+                rayLength={2.1}
+                rayDensity={desktop ? 0.72 : 0.45}
+                glow={0.28}
+                haze={0.12}
+                intensity={desktop ? 0.42 : 0.24}
+                followMouse={desktop}
+                mouseInfluence={0.06}
+                cursorShadow={false}
+                clickPulse={false}
+                noiseAmount={0}
+                intro
+                opacity={0.72}
+                maxDevicePixelRatio={desktop ? 1.5 : 1}
+              />
+              </Suspense>
+            )}
+          </div>
           <span className="hero-eyebrow">
             <Sparkles size={14} aria-hidden="true" /> Livraison immédiate · 24/7
           </span>
-          <h1 id="hero-title">
-            BlackMarket <em>livré en secondes.</em>
+          <h1 id="hero-title" className="hero-title">
+            <BlurText
+              as="span"
+              className="hero-blur"
+              text="BlackMarket"
+              animateBy="words"
+              direction="bottom"
+              blur={8}
+              distance={16}
+              delay={60}
+              stepDuration={0.42}
+              trigger="load"
+            />{" "}
+            <em>
+              <BlurText
+                as="span"
+                className="hero-blur"
+                text="livré en secondes."
+                animateBy="words"
+                direction="bottom"
+                blur={8}
+                distance={16}
+                delay={110}
+                stepDuration={0.42}
+                trigger="load"
+              />
+            </em>
           </h1>
           <p className="hero-lead">
             <span className="hero-lead-long">
@@ -368,7 +451,11 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
                 </span>
                 <strong>{category.label}</strong>
                 <small>
-                  {count} produit{count > 1 ? "s" : ""}
+                  <span className="stat-slot">
+                    <span className="stat-sizer" aria-hidden="true">{count}</span>
+                    <CountUp to={count} duration={0.9} className="stat-count" />
+                  </span>
+                  {` produit${count > 1 ? "s" : ""}`}
                 </small>
               </Link>
             );
@@ -445,14 +532,31 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
           <p>Parcours le catalogue, paie en dinar, et retrouve tes accès dans ton compte.</p>
         </div>
         <div>
-          <Link className="button button-primary" to={ROUTES.shop}>
+          <StarBorder
+            as={Link}
+            to={ROUTES.shop}
+            className="button button-primary"
+            color="#9ec1ff"
+            trailColor="#1a73ff"
+            backgroundColor="transparent"
+            textColor="#ffffff"
+            borderColor="rgba(255,255,255,0.28)"
+            radius={999}
+            thickness={1.25}
+            duration={7}
+            glow={0.4}
+            stars={1}
+            trailLength={0.22}
+            hover="brighten"
+            sparkle={false}
+          >
             Voir la boutique
-          </Link>
+          </StarBorder>
           <Link className="button button-ghost" to={ROUTES.register}>
             Créer un compte
           </Link>
         </div>
       </section>
-    </>
+    </div>
   );
 }

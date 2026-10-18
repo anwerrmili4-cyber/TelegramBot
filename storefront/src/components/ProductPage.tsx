@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { LoadMark } from "@/components/LoadMark";
+import { scrollToElement } from "@/components/motion/SmoothScroll";
 import { Link, ROUTES } from "@/lib/router";
 import { trackInteraction } from "@/lib/track";
 import { FavoriteButton } from "@/components/FavoriteButton";
@@ -202,7 +203,8 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
   const mustAgree = product.description.trim().length > 0;
 
   function showDescription() {
-    document.getElementById("product-desc")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const node = document.getElementById("product-desc");
+    if (node) scrollToElement(node, { block: "center" });
   }
 
   function buy(action: "add" | "now") {
