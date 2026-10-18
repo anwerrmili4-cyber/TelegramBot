@@ -124,16 +124,21 @@ def _offer_on_sale(offer: dict[str, Any]) -> bool:
 
 
 def _listing_identity(offer: dict[str, Any]) -> tuple[Any, ...]:
-    """One customer-facing product: name, duration, and warranty.
+    """One card: the same name, dinar price, duration, and warranty.
 
-    The supplier and the price are not part of the match. The same product
-    sold twice stays one card, and a different duration or warranty stays
-    its own card. This is the same identity the Telegram catalog uses.
+    A different price or a different warranty stays its own card. When two
+    rows match on all four, the copy that is out of stock is dropped as soon
+    as another copy can still be bought.
     """
     name = " ".join(_display_name(offer, "").casefold().split())
     if not name:
         return ("", int(offer["id"]))
-    return (name, _site_period_days(offer), _site_warranty_days(offer))
+    return (
+        name,
+        _price_millimes(offer),
+        _site_period_days(offer),
+        _site_warranty_days(offer),
+    )
 
 
 def _in_stock(offer: dict[str, Any]) -> bool:
@@ -439,12 +444,12 @@ def _catalog_sources() -> tuple[list[dict[str, Any]], dict[int, list[dict[str, A
 
 
 def listed_offers() -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    """The cards a customer sees: one per product, in stock, at the lowest price.
+    """The cards a customer sees.
 
-    The same rule as the Telegram catalog. A copy the bot parked still competes,
-    because that parked copy can be the one that actually has stock. Stock beats
-    price, and the lowest dinar price wins. When every copy is sold out, the
-    cheapest one stays so the customer can still ask to be told when it returns.
+    Rows with the same name, dinar price, duration, and warranty are one
+    product. The out-of-stock copy is left out while another copy is in stock.
+    A copy the bot parked still competes, because that parked copy can be the
+    one that actually has stock.
     """
     visible, offers_by_service = _catalog_sources()
     rows: list[tuple[dict[str, Any], dict[str, Any]]] = []

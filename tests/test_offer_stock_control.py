@@ -220,7 +220,7 @@ def test_site_and_bot_list_only_the_active_offer_while_admin_keeps_both(mock_mon
         for service in storefront_service.catalog()["services"]
         for offer in service["offers"]
     ]
-    assert listed == [cheap]
+    assert set(listed) == {cheap, dear}
     assert [offer["id"] for offer in db.list_offers(service_id)] == [cheap]
     panel = [
         offer["id"]
@@ -230,12 +230,7 @@ def test_site_and_bot_list_only_the_active_offer_while_admin_keeps_both(mock_mon
     ]
     assert set(panel) == {cheap, dear}
 
-    try:
-        storefront_service._resolved_line(dear, 1)
-    except storefront_service.StorefrontError as exc:
-        assert "plus disponible" in str(exc)
-    else:
-        raise AssertionError("the dearer supplier offer was still sold on the site")
+    assert storefront_service._resolved_line(dear, 1)["unit_millimes"] == 15000
 
     user_id = db.get_conn().users.insert_one({"telegram_id": 4242, "lang": "en"}).inserted_id
     # create_order reads the offer, not the user document id.
@@ -361,7 +356,7 @@ def test_bot_and_site_list_the_lower_price(mock_mongodb):
         for service in storefront_service._build_catalog()["services"]
         for offer in service["offers"]
     ]
-    assert listed == [cheap]
+    assert set(listed) == {cheap, dear}
 
 
 def test_an_out_of_stock_cheaper_offer_leaves_the_in_stock_price_on_the_bot(mock_mongodb):
