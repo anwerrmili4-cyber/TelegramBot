@@ -97,7 +97,91 @@ def test_catalog_shows_one_card_for_a_duplicated_product(mock_mongodb):
     shown = storefront_service.catalog()["services"][0]["offers"]
     ids = [offer["id"] for offer in shown]
 
-    assert ids == [live, other_duration, promo]
+    # The 18-month copies are one product. The cheaper one is in stock, so it
+    # is the only card. A different duration stays beside it, in catalog order.
+    assert ids == [other_duration, promo]
+    assert live not in ids
+    assert shown[1]["price_millimes"] == 12_000
+
+
+def test_catalog_prefers_stock_over_a_cheaper_sold_out_copy(mock_mongodb):
+    service_id = db.add_service("Canva", "✦", sales_channels=["bot", "tn_site"])
+    db.add_offer(
+        service_id, "Canva Pro 1 an", 4.0, 0,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=10_000,
+        period_days=365,
+    )
+    dear = db.add_offer(
+        service_id, "Canva Pro 1 an", 6.0, 8,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=18_000,
+        supplier_provider="upibot", supplier_product_id="canva-1",
+        period_days=365,
+    )
+
+    shown = storefront_service.catalog()["services"][0]["offers"]
+
+    assert [offer["id"] for offer in shown] == [dear]
+    assert shown[0]["price_millimes"] == 18_000
+    assert shown[0]["stock"] == 8
+
+
+def test_catalog_keeps_the_cheapest_card_when_the_product_is_sold_out(mock_mongodb):
+    service_id = db.add_service("Canva", "✦", sales_channels=["bot", "tn_site"])
+    cheap = db.add_offer(
+        service_id, "Canva Pro 1 an", 4.0, 0,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=10_000,
+        period_days=365, site_enabled=True,
+    )
+    db.add_offer(
+        service_id, "Canva Pro 1 an", 6.0, 0,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=18_000,
+        period_days=365, site_enabled=True,
+    )
+
+    shown = storefront_service.catalog()["services"][0]["offers"]
+
+    assert [offer["id"] for offer in shown] == [cheap]
+    assert shown[0]["available"] is False
+
+
+def test_catalog_keeps_a_different_warranty_as_its_own_card(mock_mongodb):
+    service_id = db.add_service("Canva", "✦", sales_channels=["bot", "tn_site"])
+    plain = db.add_offer(
+        service_id, "Canva Pro 1 an", 4.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=20_000,
+        period_days=365,
+    )
+    covered = db.add_offer(
+        service_id, "Canva Pro 1 an", 5.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=28_000,
+        period_days=365,
+    )
+    db.update_offer(covered, site_warranty_days=365, site_warranty_value=12, site_warranty_unit="months")
+
+    shown = storefront_service.catalog()["services"][0]["offers"]
+
+    assert [offer["id"] for offer in shown] == [plain, covered]
+
+
+def test_the_dearer_copy_cannot_be_bought_once_the_cheaper_one_is_listed(mock_mongodb, customer):
+    service_id = db.add_service("Canva", "✦", sales_channels=["bot", "tn_site"])
+    cheap = db.add_offer(
+        service_id, "Canva Pro 1 an", 4.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=10_000,
+        period_days=365,
+    )
+    dear = db.add_offer(
+        service_id, "Canva Pro 1 an", 6.0, 4,
+        sales_channels=["bot", "tn_site"], tn_price_millimes=18_000,
+        period_days=365,
+    )
+
+    assert storefront_service.public_offer(dear) is None
+    assert storefront_service.public_offer(cheap)["price_millimes"] == 10_000
+    with pytest.raises(storefront_service.StorefrontError, match="plus disponible"):
+        _create(customer, items=[{"offer_id": dear, "quantity": 1}])
+    created = _create(customer, items=[{"offer_id": cheap, "quantity": 1}])
+    assert created["items"][0]["unit_millimes"] == 10_000
 
 
 def test_catalog_keeps_the_supplier_listing_when_it_is_the_second_copy(mock_mongodb):

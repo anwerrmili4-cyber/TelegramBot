@@ -327,7 +327,7 @@ def test_database_startup_runs_the_sweep(mock_mongodb, monkeypatch):
     assert calls == ["sweep"]
 
 
-def test_bot_lists_the_lower_price_and_leaves_the_site_unchanged(mock_mongodb):
+def test_bot_and_site_list_the_lower_price(mock_mongodb):
     service_id = db.add_service("Capcut", "🎬", sales_channels=["bot", "tn_site"], site_enabled=True)
     dear = _offer(
         service_id, "vex", 4, 5,
@@ -361,7 +361,7 @@ def test_bot_lists_the_lower_price_and_leaves_the_site_unchanged(mock_mongodb):
         for service in storefront_service._build_catalog()["services"]
         for offer in service["offers"]
     ]
-    assert set(listed) == {cheap, dear}
+    assert listed == [cheap]
 
 
 def test_an_out_of_stock_cheaper_offer_leaves_the_in_stock_price_on_the_bot(mock_mongodb):

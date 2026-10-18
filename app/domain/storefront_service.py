@@ -124,25 +124,34 @@ def _offer_on_sale(offer: dict[str, Any]) -> bool:
 
 
 def _listing_identity(offer: dict[str, Any]) -> tuple[Any, ...]:
-    """The parts a customer uses to tell two cards apart.
+    """One customer-facing product: name, duration, and warranty.
 
-    A supplier import copied the same name, dinar price, duration, and
-    warranty onto a second offer. Those two cards are one product. A different
-    price or a different warranty stays its own card.
+    The supplier and the price are not part of the match. The same product
+    sold twice stays one card, and a different duration or warranty stays
+    its own card. This is the same identity the Telegram catalog uses.
     """
     name = " ".join(_display_name(offer, "").casefold().split())
     if not name:
         return ("", int(offer["id"]))
-    return (
-        name,
-        _price_millimes(offer),
-        _site_period_days(offer),
-        _site_warranty_days(offer),
-    )
+    return (name, _site_period_days(offer), _site_warranty_days(offer))
 
 
-def _listing_rank(offer: dict[str, Any]) -> tuple[int, int, int, int, int, int]:
-    """Prefer the offer checkout can still fulfill."""
+def _in_stock(offer: dict[str, Any]) -> bool:
+    if offer.get("unlimited_stock"):
+        return True
+    try:
+        return int(offer.get("stock") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _listing_rank(offer: dict[str, Any]) -> tuple[int, int, int, int, int, int, int]:
+    """Stock wins, then the lowest dinar price, then the copy checkout can fulfill.
+
+    A cheaper copy that is sold out loses to a dearer copy that can still be
+    delivered. When the price and the stock are the same, the supplier listing
+    stays, because that is the row checkout can refill.
+    """
     linked = bool(str(offer.get("supplier_provider") or "").strip())
     twin = offer.get("local_copy_of_offer_id") not in (None, "", 0)
     unlimited = bool(offer.get("unlimited_stock"))
@@ -151,9 +160,10 @@ def _listing_rank(offer: dict[str, Any]) -> tuple[int, int, int, int, int, int]:
     except (TypeError, ValueError):
         stock = 0
     return (
+        1 if _in_stock(offer) else 0,
+        -_price_millimes(offer),
         1 if linked else 0,
         0 if twin else 1,
-        1 if unlimited or stock > 0 else 0,
         1 if offer.get("site_featured") else 0,
         1_000_000_000 if unlimited else stock,
         -int(offer["id"]),
@@ -412,42 +422,59 @@ def catalog_body() -> bytes:
     )
 
 
-def _build_catalog() -> dict[str, Any]:
-    services: list[dict[str, Any]] = []
-    used_categories: set[str] = set()
-    flat_groups: dict[str, dict[str, Any]] = {}
+def _catalog_sources() -> tuple[list[dict[str, Any]], dict[int, list[dict[str, Any]]]]:
+    """Every site-visible service and its offers, in one offer query."""
     visible = [
         service
         for service in db.sort_for_site(db.list_services(active_only=False))
         if _site_visible(service)
     ]
-    # One offer query for the whole shop. A query per category made the first
-    # page wait on a round trip for every service.
     offers_by_service = db.list_offers_for_services(
         visible,
         active_only=False,
         include_archived=True,
         projection=_CATALOG_OFFER_FIELDS,
     )
+    return visible, offers_by_service
+
+
+def listed_offers() -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """The cards a customer sees: one per product, in stock, at the lowest price.
+
+    The same rule as the Telegram catalog. A parked duplicate stays hidden.
+    Among the copies that remain, stock beats price, and the lowest dinar
+    price wins. When every copy is sold out, the cheapest one stays so the
+    customer can still ask to be told when it returns.
+    """
+    visible, offers_by_service = _catalog_sources()
+    rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for service in visible:
+        for offer in offers_by_service.get(int(service["id"]), []):
+            if offer.get("stock_control_hold") is True or not _offer_on_sale(offer):
+                continue
+            rows.append((service, offer))
+    winners = {
+        int(offer["id"])
+        for offer in _dedupe_offers([offer for _service, offer in rows])
+    }
+    return [(service, offer) for service, offer in rows if int(offer["id"]) in winners]
+
+
+def _offer_is_listed(offer_id: int) -> bool:
+    return any(int(offer["id"]) == int(offer_id) for _service, offer in listed_offers())
+
+
+def _build_catalog() -> dict[str, Any]:
+    services: list[dict[str, Any]] = []
+    used_categories: set[str] = set()
+    flat_groups: dict[str, dict[str, Any]] = {}
+    service_groups: dict[int, dict[str, Any]] = {}
+    for service, offer in listed_offers():
         # Official subscriptions is only a bot folder. On the site each product
         # is its own category, named like the product (ChatGPT, Google AI Pro).
-        flat = db.is_official_subscriptions_service(service)
-        offers = []
-        # Bot ``active`` is ignored for ordinary offers. A duplicate supplier
-        # offer parked by stock control stays out of the public list, and a
-        # second stored row of the same product would otherwise show as two cards.
-        sale_offers = _dedupe_offers([
-            offer
-            for offer in offers_by_service.get(int(service["id"]), [])
-            if offer.get("stock_control_hold") is not True and _offer_on_sale(offer)
-        ])
-        for offer in sale_offers:
-            public = _public_offer(service, offer)
-            used_categories.add(public["category"])
-            if not flat:
-                offers.append(public)
-                continue
+        public = _public_offer(service, offer)
+        used_categories.add(public["category"])
+        if db.is_official_subscriptions_service(service):
             label = _product_category_label(offer)
             public["service_name"] = label
             emoji = str(offer.get("emoji") or public["service_emoji"] or "✦").strip()[:8]
@@ -473,14 +500,23 @@ def _build_catalog() -> dict[str, Any]:
                 group["logo_url"] = category_logo
             public["service_id"] = group["id"]
             group["offers"].append(public)
-        if offers:
-            services.append({
+            continue
+        group = service_groups.get(int(service["id"]))
+        if group is None:
+            group = {
                 "id": int(service["id"]),
                 "name": _display_name(service, "Service")[:120],
                 "emoji": str(service.get("emoji") or "✦")[:8],
                 "logo_url": site_logo_service.logo_url(service),
-                "offers": offers,
-            })
+                "offers": [],
+            }
+            service_groups[int(service["id"])] = group
+            services.append(group)
+        group["offers"].append(public)
+    for group in services:
+        # Sold-out cards sink under the ones that can still be bought. The
+        # order inside each group stays the catalog order.
+        group["offers"].sort(key=lambda item: not item.get("available"))
     return {
         "ok": True,
         "currency": "TND",
@@ -496,7 +532,7 @@ def _build_catalog() -> dict[str, Any]:
 
 
 def public_offer(offer_id: int) -> dict[str, Any] | None:
-    """One customer-safe product, without building the whole catalog."""
+    """One customer-safe product that the catalog is actually showing."""
     try:
         offer_id = int(offer_id)
     except (TypeError, ValueError):
@@ -505,7 +541,13 @@ def public_offer(offer_id: int) -> dict[str, Any] | None:
     if not offer:
         return None
     service = db.get_service(int(offer.get("service_id") or 0))
-    if not service or not _site_visible(service) or not _offer_on_sale(offer):
+    if (
+        not service
+        or not _site_visible(service)
+        or offer.get("stock_control_hold") is True
+        or not _offer_on_sale(offer)
+        or not _offer_is_listed(offer_id)
+    ):
         return None
     public = _public_offer(service, offer)
     if not db.is_official_subscriptions_service(service):
@@ -575,6 +617,8 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
         raise StorefrontError("Cette offre n'est plus disponible.")
     if not _offer_on_sale(offer) or not _site_visible(service):
         raise StorefrontError("Cette offre n'est pas disponible sur le site tunisien.")
+    if not _offer_is_listed(int(offer["id"])):
+        raise StorefrontError("Cette offre n'est plus disponible.")
 
     name = _display_name(offer, "Offre")[:200]
     minimum = max(1, int(offer.get("min_quantity") or 1))
