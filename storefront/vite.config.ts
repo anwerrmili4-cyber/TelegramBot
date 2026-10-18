@@ -29,7 +29,7 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    sourcemap: true,
+    sourcemap: process.env.GENERATE_SOURCEMAP === "true",
     rollupOptions: {
       output: {
         manualChunks: vendorChunk,

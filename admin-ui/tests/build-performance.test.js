@@ -25,13 +25,24 @@ test("admin and storefront builds define explicit vendor chunk groups", async ()
 });
 
 test("both production builds enforce the JavaScript chunk budget", async () => {
-  const [adminPackage, storefrontPackage, budgetScript] = await Promise.all([
+  const [adminPackage, storefrontPackage, budgetScript, dockerfile] = await Promise.all([
     source("admin-ui/package.json"),
     source("storefront/package.json"),
     source("scripts/check-js-bundle-size.mjs"),
+    source("Dockerfile"),
   ]);
 
   assert.match(adminPackage, /check-js-bundle-size/);
   assert.match(storefrontPackage, /check-js-bundle-size/);
   assert.match(budgetScript, /500/);
+  assert.equal(
+    dockerfile.match(/COPY scripts\/check-js-bundle-size\.mjs \/build\/scripts\/check-js-bundle-size\.mjs/g)?.length,
+    2,
+  );
+});
+
+test("storefront production source maps are opt-in to keep container builds memory-safe", async () => {
+  const storefrontConfig = await source("storefront/vite.config.ts");
+
+  assert.match(storefrontConfig, /sourcemap:\s*process\.env\.GENERATE_SOURCEMAP === ["']true["']/);
 });

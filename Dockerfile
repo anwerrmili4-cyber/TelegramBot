@@ -3,6 +3,7 @@ WORKDIR /build/admin-ui
 COPY admin-ui/package.json admin-ui/package-lock.json ./
 RUN npm ci
 COPY admin-ui/ ./
+COPY scripts/check-js-bundle-size.mjs /build/scripts/check-js-bundle-size.mjs
 RUN npm run build
 
 # The storefront is served from its own domain by StorefrontHandler, so it
@@ -12,6 +13,7 @@ WORKDIR /build/storefront
 COPY storefront/package.json storefront/package-lock.json ./
 RUN npm ci
 COPY storefront/ ./
+COPY scripts/check-js-bundle-size.mjs /build/scripts/check-js-bundle-size.mjs
 RUN npm run build
 
 FROM python:3.12-slim
