@@ -1,10 +1,11 @@
-import { useEffect, useRef, type ComponentType } from "react";
-import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
-import { LoginPage } from "@/pages/LoginPage";
-import { RegisterPage } from "@/pages/RegisterPage";
-import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
-import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
+import { lazy, Suspense, useEffect, useRef, type ComponentType } from "react";
 import { ROUTES, usePathname } from "@/lib/router";
+
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage").then((mod) => ({ default: mod.ForgotPasswordPage })));
+const LoginPage = lazy(() => import("@/pages/LoginPage").then((mod) => ({ default: mod.LoginPage })));
+const RegisterPage = lazy(() => import("@/pages/RegisterPage").then((mod) => ({ default: mod.RegisterPage })));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage").then((mod) => ({ default: mod.ResetPasswordPage })));
+const VerifyEmailPage = lazy(() => import("@/pages/VerifyEmailPage").then((mod) => ({ default: mod.VerifyEmailPage })));
 
 /** How long the homepage stays usable after the intro, before the window opens. */
 export const SIGNUP_BROWSE_MS = 5000;
@@ -106,7 +107,9 @@ export function SignupGate() {
             <span>Tunisie</span>
           </div>
         </div>
-        <Page />
+        <Suspense fallback={null}>
+          <Page />
+        </Suspense>
       </div>
     </div>
   );

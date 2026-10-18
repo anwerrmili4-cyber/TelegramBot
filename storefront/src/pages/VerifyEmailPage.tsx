@@ -7,12 +7,6 @@ import { AuthLayout } from "@/pages/AuthLayout";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-export function verifyEmailPath(email: string, next?: string): string {
-  const query = new URLSearchParams({ email });
-  if (next) query.set("next", next);
-  return `${ROUTES.verifyEmail}?${query}`;
-}
-
 export function VerifyEmailPage() {
   const { verifyEmail } = useAuth();
   const [email] = useState(() => new URLSearchParams(window.location.search).get("email") ?? "");

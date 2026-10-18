@@ -7,6 +7,34 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "react-vendor",
+              test: /node_modules[\\/](?:react(?:-dom)?|scheduler)[\\/]/,
+              priority: 30,
+            },
+            {
+              name: "animation-vendor",
+              test: /node_modules[\\/](?:@gsap[\\/]react|gsap|lenis|motion(?:-dom|-utils)?)[\\/]/,
+              priority: 20,
+            },
+            {
+              name: "icons-vendor",
+              test: /node_modules[\\/]lucide-react[\\/]/,
+              priority: 10,
+            },
+            {
+              name: "vendor",
+              test: /node_modules/,
+              maxSize: 200_000,
+            },
+          ],
+        },
+      },
+    },
   },
   server: {
     proxy: {

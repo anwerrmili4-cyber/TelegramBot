@@ -1,6 +1,7 @@
 import { Component, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import SmoothScroll from "./components/motion/SmoothScroll";
 import "./tokens.css";
 import "./styles.css";
 import "./premium.css";
@@ -48,7 +49,9 @@ class AppErrorBoundary extends Component {
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <AppErrorBoundary>
-      <App />
+      <SmoothScroll>
+        <App />
+      </SmoothScroll>
     </AppErrorBoundary>
   </StrictMode>,
 );

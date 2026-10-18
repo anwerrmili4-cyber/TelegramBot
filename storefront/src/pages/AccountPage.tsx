@@ -29,7 +29,7 @@ import { accountPath } from "@/lib/accountPath";
 import { trackInteraction } from "@/lib/track";
 import { Link, navigate, productPath, ROUTES, withNext } from "@/lib/router";
 import { MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
-import { verifyEmailPath } from "@/pages/VerifyEmailPage";
+import { verifyEmailPath } from "@/lib/verifyEmailPath";
 import type { AccountOrder, AccountOrderItem, AccountOrders, AccountReview, AccountTicket, AccountWarranty, CartStatus, Deposit, Favorite, Offer, SiteNotification, Wallet } from "@/types";
 
 export { accountPath };

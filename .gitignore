@@ -10,6 +10,8 @@ __pycache__/
 .env*
 outputs/**/node_modules/
 admin-ui/node_modules/
+admin-ui/test-results/
+admin-ui/playwright-report/
 storefront-ui/node_modules/
 storefront/node_modules/
 customer-site/node_modules/

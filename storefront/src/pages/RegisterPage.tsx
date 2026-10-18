@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { errorMessage } from "@/lib/api";
 import { Link, navigate, nextPath, ROUTES, withNext } from "@/lib/router";
 import { AuthLayout, EMAIL_PATTERN, MIN_PASSWORD_LENGTH, PasswordField } from "@/pages/AuthLayout";
-import { verifyEmailPath } from "@/pages/VerifyEmailPage";
+import { verifyEmailPath } from "@/lib/verifyEmailPath";
 
 export function RegisterPage() {
   const { register } = useAuth();

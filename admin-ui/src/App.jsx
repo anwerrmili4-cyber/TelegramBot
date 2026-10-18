@@ -6,6 +6,7 @@ import { NotificationLineAction } from "./order-line-delivery.jsx";
 import WorkspaceHome from "./WorkspaceHome";
 import { buildAdminQuery } from "./admin-routes.js";
 import { ControlCenter, DataExplorer } from "./ControlCenter";
+import { useAdminReveals } from "./components/motion/useAdminReveals.js";
 import {
   Activity,
   AlertTriangle,
@@ -574,6 +575,7 @@ export default function App() {
   const [actionConfirmation, setActionConfirmation] = useState(null);
   const [density, setDensity] = useState(window.localStorage.getItem("admin-density") === "compact" ? "compact" : "comfortable");
   const [theme, setTheme] = useState(window.localStorage.getItem("admin-theme") === "dark" ? "dark" : "light");
+  const contentRef = useAdminReveals(`${activePage}:${loading}:${Boolean(data)}`);
   const dataRequestRef = useRef(null);
   const lastSyncRef = useRef(0);
   const pendingActionsRef = useRef(new Set());
@@ -951,7 +953,7 @@ export default function App() {
       <div className={`main-shell page-${activePage}`}>
         <Header activePage={activePage} alertCount={alertCount} busyAction={busyAction} density={density} isRefreshing={refreshing || pendingActionCount > 0} onLogout={logout} onMenu={() => setMobileOpen(true)} onNotifications={() => setNotificationsOpen(true)} onRefresh={async () => { await loadData(true); await loadNotifications(true); }} onRepairTelegram={() => runHealthCheck("telegram-repair")} onSearch={() => setSearchOpen(true)} onTestBinance={() => runHealthCheck("binance")} onToggleDensity={() => setDensity((current) => { const next = current === "compact" ? "comfortable" : "compact"; window.localStorage.setItem("admin-density", next); return next; })} onToggleTheme={() => setTheme((current) => { const next = current === "dark" ? "light" : "dark"; window.localStorage.setItem("admin-theme", next); return next; })} theme={theme} />
         <div className={`sync-status ${syncError ? "has-error" : ""}`} role="status"><span>{syncError || (lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")}` : "Connexion au panneau…")}</span>{syncError && <button onClick={() => loadData(true)}>Réessayer</button>}</div>
-        <main className={`content page-${activePage}`} id="main-content">
+        <main ref={contentRef} className={`content page-${activePage}`} id="main-content">
           {data?.preview_mode && <p className="preview-notice" role="status">Prévisualisation locale · données fictives · aucune écriture réelle</p>}
           {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message="La session administrateur n’a pas pu être restaurée." onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : isSitePage(activePage) ? <><p className="site-done" role="status" hidden={siteDone == null}><CheckCheck size={18} /><span><strong>Terminé.</strong>{siteDone ? ` ${siteDone}` : ""}</span></p><SitePage key={activePage} page={activePage} data={data} onAction={adminAction} onNavigate={navigate} setToast={setToast} /></> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
         </main>

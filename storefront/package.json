@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc --build && vite build",
+    "build": "tsc --build && vite build && node ../scripts/check-js-bundle-size.mjs dist",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
