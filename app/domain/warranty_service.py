@@ -96,6 +96,8 @@ def has_full_warranty(item: dict[str, Any] | None) -> bool:
 def offer_warranty_label(offer: dict[str, Any] | None, lang: str = "en") -> str:
     """Return the warranty text stored on an offer (0 -> NW)."""
     offer = offer or {}
+    if offer.get("warranty_visible") is False:
+        return ""
     if has_full_warranty(offer):
         return "FW"
     return format_warranty(
@@ -118,6 +120,8 @@ def order_warranty_label(order: dict[str, Any] | None, lang: str = "en") -> str:
 def offer_period_label(offer: dict[str, Any] | None, lang: str = "en") -> str:
     """Return the product period using months/years when configured."""
     offer = offer or {}
+    if offer.get("period_visible") is False:
+        return ""
     value = offer.get("period_value")
     unit = offer.get("period_unit", "days")
     if value is None:

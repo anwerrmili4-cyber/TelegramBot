@@ -116,6 +116,16 @@ test("offline products stay in one Hors ligne row and bulk options reopen", asyn
     assert.match(legacy, /value="Gros"/);
     assert.match(legacy, /value="5"/);
     assert.match(legacy, /value="2.5"/);
+    const fresh = renderToStaticMarkup(React.createElement(page.OfferForm, {
+      services: [{ id: 1, name: "Figma" }],
+      onAction: async () => true,
+      onClose() {},
+    }));
+    assert.match(fresh, /Période \(optionnelle\)/);
+    assert.match(fresh, /Garantie \(optionnelle\)/);
+    assert.match(fresh, /aria-label="Durée du produit \(optionnelle\)"[^>]*value=""/);
+    assert.match(fresh, /aria-label="Garantie du produit \(optionnelle\)"[^>]*value=""/);
+    assert.doesNotMatch(fresh, /aria-label="(?:Durée|Garantie) du produit \(optionnelle\)"[^>]*required/);
     const listed = renderToStaticMarkup(React.createElement(page.ExistingCatalogNames, {
       service: { id: 4, name: "Cursor", offers: [{ name: "Gamma Pro" }, { name: "Alpha" }] },
     }));

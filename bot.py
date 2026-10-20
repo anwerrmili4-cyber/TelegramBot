@@ -274,7 +274,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         rendered_description,
         flags=re.I,
     )
-    warranty = warranty_service.offer_warranty_label(offer, lang=lang) or "NW"
+    warranty = warranty_service.offer_warranty_label(offer, lang=lang)
     period = warranty_service.offer_period_label(offer, lang=lang)
     try:
         raw_price = offer.get("price")
@@ -320,7 +320,15 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     tokens = {}
     protected_template = str(template)
     is_methods_catalog = catalog_name.casefold() == "methods"
-    if "{period}" not in protected_template and not is_methods_catalog:
+    if offer.get("period_visible") is False:
+        protected_template = "\n".join(
+            line for line in protected_template.splitlines() if "{period}" not in line
+        )
+    if offer.get("warranty_visible") is False:
+        protected_template = "\n".join(
+            line for line in protected_template.splitlines() if "{warranty}" not in line
+        )
+    if "{period}" not in protected_template and not is_methods_catalog and offer.get("period_visible") is not False:
         period_label = {"fr": "PÉRIODE", "ar": "المدة"}.get(lang, "PERIOD")
         period_row = (
             f"📅 <b>{period_label}:</b> {{period}}"

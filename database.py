@@ -74,9 +74,11 @@ def methods_term_values():
         "period_days": 0,
         "period_value": 0,
         "period_unit": "days",
+        "period_visible": False,
         "warranty_days": 0,
         "warranty_value": 0,
         "warranty_unit": "days",
+        "warranty_visible": False,
         "site_period_days": 0,
         "site_period_value": 0,
         "site_period_unit": "days",
@@ -562,9 +564,11 @@ _SAME_PRODUCT_FIELDS = frozenset({
     "period_days",
     "period_value",
     "period_unit",
+    "period_visible",
     "warranty_days",
     "warranty_value",
     "warranty_unit",
+    "warranty_visible",
     "supplier_provider",
     "supplier_product_id",
     "product_enabled",
@@ -1670,6 +1674,8 @@ def update_offer(
     product_enabled=None,
     stock_enabled=None,
     bulk_options=None,
+    period_visible=None,
+    warranty_visible=None,
 ):
     existing = get_conn().offers.find_one(
         {"id": offer_id}, {"service_id": 1, "stock": 1, "unlimited_stock": 1}
@@ -1726,8 +1732,10 @@ def update_offer(
             "bulk_unit_price": float(bulk_unit_price) if bulk_unit_price is not None else None,
             "period_value": int(period_value) if period_value is not None else None,
             "period_unit": warranty_service.normalize_duration_unit(period_unit) if period_unit is not None else None,
+            "period_visible": None if period_visible is None else bool(period_visible),
             "warranty_value": int(warranty_value) if warranty_value is not None else None,
             "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit) if warranty_unit is not None else None,
+            "warranty_visible": None if warranty_visible is None else bool(warranty_visible),
             "site_name": site_name,
             "site_note": site_note,
             "site_delivery_delay": site_delivery_delay,
@@ -2340,6 +2348,8 @@ def add_offer(
     product_enabled=True,
     stock_enabled=True,
     bulk_options=None,
+    period_visible=True,
+    warranty_visible=True,
 ):
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
@@ -2348,9 +2358,11 @@ def add_offer(
         period_days = 0
         period_value = 0
         period_unit = "days"
+        period_visible = False
         warranty_days = 0
         warranty_value = 0
         warranty_unit = "days"
+        warranty_visible = False
         site_period_days = 0
         site_period_value = 0
         site_period_unit = "days"
@@ -2400,8 +2412,10 @@ def add_offer(
             else (30 if period_days is None else period_days)
         ),
         "period_unit": warranty_service.normalize_duration_unit(period_unit),
+        "period_visible": bool(period_visible),
         "warranty_value": int(warranty_value if warranty_value is not None else (warranty_days or 0)),
         "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit),
+        "warranty_visible": bool(warranty_visible),
         "bulk_quantity": max(0, int(bulk_quantity or 0)),
         "bulk_unit_price": (
             round(float(bulk_unit_price), 2)
@@ -2556,8 +2570,10 @@ def duplicate_offer(offer_id):
         bulk_options=source.get("bulk_options"),
         period_value=source.get("period_value"),
         period_unit=source.get("period_unit", "days"),
+        period_visible=source.get("period_visible", True),
         warranty_value=source.get("warranty_value"),
         warranty_unit=source.get("warranty_unit", "days"),
+        warranty_visible=source.get("warranty_visible", True),
     )
 
 

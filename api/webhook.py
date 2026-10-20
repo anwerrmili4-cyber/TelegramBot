@@ -111,6 +111,30 @@ def _edited_duration_values(form, prefix: str, previous: dict, default_days: int
     return int(value), str(unit), days
 
 
+def _optional_duration_form_values(form, prefix: str, *, allow_zero: bool):
+    """Read an optional bot term and retain whether the admin supplied it."""
+    raw_value = form.get(f"{prefix}_value")
+    if raw_value is None or not str(raw_value).strip():
+        return 0, "days", 0, False
+    value, unit, days = _duration_form_values(form, prefix, 0, allow_zero=allow_zero)
+    return value, unit, days, True
+
+
+def _edited_optional_duration_values(
+    form, prefix: str, previous: dict, default_days: int, *, allow_zero: bool,
+):
+    """A submitted blank clears a bot term; an omitted field preserves it."""
+    if f"{prefix}_value" in form:
+        return _optional_duration_form_values(form, prefix, allow_zero=allow_zero)
+    if f"{prefix}_days" in form:
+        value, unit, days = _duration_form_values(form, prefix, 0, allow_zero=allow_zero)
+        return value, unit, days, True
+    value, unit, days = _edited_duration_values(
+        form, prefix, previous, default_days, allow_zero=allow_zero,
+    )
+    return value, unit, days, previous.get(f"{prefix}_visible") is not False
+
+
 def health_payload() -> dict:
     """Return a public, non-sensitive health response."""
     return {
@@ -2075,15 +2099,18 @@ class handler(BaseHTTPRequestHandler):
                 if methods_catalog:
                     period_value, period_unit, period_days = 0, "days", 0
                     warranty_value, warranty_unit, warranty_days = 0, "days", 0
+                    period_visible = warranty_visible = False
                 else:
-                    period_value, period_unit, period_days = _duration_form_values(
-                        form, "period", 30, allow_zero=False,
+                    period_value, period_unit, period_days, period_visible = _optional_duration_form_values(
+                        form, "period", allow_zero=False,
                     )
-                    warranty_value, warranty_unit, warranty_days = _duration_form_values(
-                        form, "warranty", 0, allow_zero=True,
+                    warranty_value, warranty_unit, warranty_days, warranty_visible = _optional_duration_form_values(
+                        form, "warranty", allow_zero=True,
                     )
                 note = form.get("note", "").strip()[:250]
-                if not note or note.isdigit() or note == "0":
+                if not warranty_visible:
+                    note = ""
+                elif not note or note.isdigit() or note == "0":
                     note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
                 if service_id_raw:
                     sid = int(service_id_raw)
@@ -2113,8 +2140,10 @@ class handler(BaseHTTPRequestHandler):
                     warranty_days=warranty_days,
                     period_value=period_value,
                     period_unit=period_unit,
+                    period_visible=period_visible,
                     warranty_value=warranty_value,
                     warranty_unit=warranty_unit,
+                    warranty_visible=warranty_visible,
                     bulk_quantity=bulk_fields["bulk_quantity"],
                     bulk_unit_price=bulk_fields["bulk_unit_price"],
                     bulk_options=bulk_fields.get("bulk_options"),
@@ -2139,17 +2168,20 @@ class handler(BaseHTTPRequestHandler):
                 if db.is_methods_service(db.get_service(target_service_id)):
                     period_value, period_unit, period_days = 0, "days", 0
                     warranty_value, warranty_unit, warranty_days = 0, "days", 0
+                    period_visible = warranty_visible = False
                 else:
-                    period_value, period_unit, period_days = _edited_duration_values(
+                    period_value, period_unit, period_days, period_visible = _edited_optional_duration_values(
                         form, "period", previous_offer, 30, allow_zero=False,
                     )
-                    warranty_value, warranty_unit, warranty_days = _edited_duration_values(
+                    warranty_value, warranty_unit, warranty_days, warranty_visible = _edited_optional_duration_values(
                         form, "warranty", previous_offer, 0, allow_zero=True,
                     )
                 note = None
                 if "note" in form and not db.is_bmc_vip_offer(previous_offer):
                     note = form["note"].strip()[:250]
-                    if not note or note.isdigit() or note == "0":
+                    if not warranty_visible:
+                        note = ""
+                    elif not note or note.isdigit() or note == "0":
                         note = "NW" if warranty_days == 0 else warranty_service.format_duration(warranty_value, warranty_unit)
                 emoji_val = form.get("custom_emoji_id", form.get("emoji", "")).strip()
                 # Fields the form does not send stay as they are.
@@ -2176,15 +2208,17 @@ class handler(BaseHTTPRequestHandler):
                     service_id=target_service_id,
                     price=price,
                     name=name,
-                    note=note if note else None,
+                    note=note,
                     auto_delivery=form.get("auto_delivery", "") == "on",
                     custom_emoji_id=emoji_val or None,
                     period_days=period_days,
                     warranty_days=warranty_days,
                     period_value=period_value,
                     period_unit=period_unit,
+                    period_visible=period_visible,
                     warranty_value=warranty_value,
                     warranty_unit=warranty_unit,
+                    warranty_visible=warranty_visible,
                     **sent,
                 )
                 if (

@@ -613,6 +613,63 @@ def test_invalid_initial_inventory_does_not_create_a_catalog_item(monkeypatch, m
     assert mock_mongodb.services.count_documents({"name": "Catalogue"}) == 0
 
 
+def test_bot_catalog_accepts_products_without_duration_or_warranty(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
+    service_id = database_module.add_service("Custom services", "🧩")
+
+    with running_server() as base_url:
+        result = _catalog_action(base_url, webhook_module.dashboard_write_token(), {
+            "action": "add_offer",
+            "service_id": str(service_id),
+            "name": "No fixed term",
+            "price": "4",
+            "period_value": "",
+            "period_unit": "days",
+            "warranty_value": "",
+            "warranty_unit": "days",
+        })
+
+    assert result["ok"] is True
+    saved = mock_mongodb.offers.find_one({"name": "No fixed term"})
+    assert saved["period_days"] == 0
+    assert saved["period_value"] == 0
+    assert saved["period_visible"] is False
+    assert saved["warranty_days"] == 0
+    assert saved["warranty_value"] == 0
+    assert saved["warranty_visible"] is False
+    assert saved["note"] == ""
+
+
+def test_bot_catalog_can_clear_existing_terms_but_keeps_zero_as_explicit_nw(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
+    service_id = database_module.add_service("Editable services", "🧩")
+    offer_id = database_module.add_offer(
+        service_id, "Existing term", 4, 0,
+        period_days=30, period_value=30, warranty_days=0, warranty_value=0,
+    )
+
+    with running_server() as base_url:
+        _catalog_action(base_url, webhook_module.dashboard_write_token(), {
+            "action": "update_offer",
+            "offer_id": str(offer_id),
+            "service_id": str(service_id),
+            "name": "Existing term",
+            "price": "4",
+            "period_value": "",
+            "period_unit": "days",
+            "warranty_value": "0",
+            "warranty_unit": "days",
+            "note": "NW",
+        })
+
+    saved = database_module.get_offer(offer_id)
+    assert saved["period_days"] == 0
+    assert saved["period_visible"] is False
+    assert saved["warranty_days"] == 0
+    assert saved["warranty_visible"] is True
+    assert saved["note"] == "NW"
+
+
 def test_catalog_name_edit_preserves_legacy_and_advanced_settings(monkeypatch, mock_mongodb):
     monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
     sid = database_module.add_service("Legacy", "")

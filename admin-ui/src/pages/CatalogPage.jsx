@@ -59,6 +59,12 @@ function ListingStatus({ item, hiddenLabel, shownLabel }) {
 
 export function OfferForm({ services, offer, onAction, onClose, defaultChannel = "both" }) {
   const currentChannels = offer?.sales_channels || ["bot"];
+  const initialPeriodValue = !offer || offer.period_visible === false
+    ? ""
+    : (offer.period_value ?? offer.period_days ?? 30);
+  const initialWarrantyValue = !offer || offer.warranty_visible === false
+    ? ""
+    : (offer.warranty_value ?? offer.warranty_days ?? (offer.note === "NW" ? 0 : (Number((offer.note || "").match(/\d+/)?.[0]) || 0)));
   const [formError, setFormError] = useState("");
   const [form, setForm] = useState({
     service_id: offer?.service_id || services[0]?.id || "",
@@ -68,9 +74,9 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
     bulk_options: bulkOptionsFromOffer(offer),
     description: offer?.description || "",
     note: offer?.note || "",
-    period_value: offer?.period_value ?? offer?.period_days ?? 30,
+    period_value: initialPeriodValue,
     period_unit: offer?.period_unit || "days",
-    warranty_value: offer?.warranty_value ?? offer?.warranty_days ?? (offer?.note === "NW" ? 0 : (Number((offer?.note || "").match(/\d+/)?.[0]) || 0)),
+    warranty_value: initialWarrantyValue,
     warranty_unit: offer?.warranty_unit || "days",
     delivery_delay: offer?.delivery_delay || "Instantané après confirmation",
     low_stock_threshold: offer?.low_stock_threshold ?? 5,
@@ -107,8 +113,10 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
     }
     setFormError("");
     const factors = { days: 1, months: 30, years: 365 };
-    const periodDays = hidesTerms ? 0 : Number(form.period_value || 0) * factors[form.period_unit];
-    const warrantyDays = hidesTerms ? 0 : Number(form.warranty_value || 0) * factors[form.warranty_unit];
+    const periodConfigured = !hidesTerms && String(form.period_value).trim() !== "";
+    const warrantyConfigured = !hidesTerms && String(form.warranty_value).trim() !== "";
+    const periodDays = periodConfigured ? Number(form.period_value) * factors[form.period_unit] : 0;
+    const warrantyDays = warrantyConfigured ? Number(form.warranty_value) * factors[form.warranty_unit] : 0;
     const { bulk_options: _bulkOptions, ...fields } = form;
     const payload = {
       ...fields,
@@ -116,12 +124,12 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
       bulk_quantity: bulk.bulk_quantity,
       bulk_unit_price: bulk.bulk_unit_price,
       period_days: periodDays,
-      period_value: hidesTerms ? 0 : form.period_value,
+      period_value: periodConfigured ? form.period_value : "",
       period_unit: hidesTerms ? "days" : form.period_unit,
       warranty_days: warrantyDays,
-      warranty_value: hidesTerms ? 0 : form.warranty_value,
+      warranty_value: warrantyConfigured ? form.warranty_value : "",
       warranty_unit: hidesTerms ? "days" : form.warranty_unit,
-      note: warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`,
+      note: !warrantyConfigured ? "" : (warrantyDays === 0 ? "NW" : `${form.warranty_value} ${form.warranty_unit}`),
       action,
       custom_emoji_id: form.emoji,
       ...(offer
@@ -222,17 +230,17 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
           <Field label="Description arabe" wide>
             <textarea dir="rtl" value={form.description_ar} onChange={(event) => set("description_ar", event.target.value)} placeholder="وصف المنتج بالعربية" />
           </Field>
-          {!hidesTerms && <Field label="Période">
+          {!hidesTerms && <Field label="Période (optionnelle)">
             <div className="duration-input">
-              <input type="number" min="1" value={form.period_value} onChange={(event) => set("period_value", event.target.value)} required />
+              <input aria-label="Durée du produit (optionnelle)" type="number" min="1" value={form.period_value} onChange={(event) => set("period_value", event.target.value)} placeholder="Non affichée" />
               <select value={form.period_unit} onChange={(event) => set("period_unit", event.target.value)}>
                 <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
               </select>
             </div>
           </Field>}
-          {!hidesTerms && <Field label="Garantie (0 = NW)">
+          {!hidesTerms && <Field label="Garantie (optionnelle)">
             <div className="duration-input">
-              <input type="number" min="0" value={form.warranty_value} onChange={(event) => set("warranty_value", event.target.value)} required />
+              <input aria-label="Garantie du produit (optionnelle)" type="number" min="0" value={form.warranty_value} onChange={(event) => set("warranty_value", event.target.value)} placeholder="Vide = non affichée, 0 = NW" />
               <select value={form.warranty_unit} onChange={(event) => set("warranty_unit", event.target.value)}>
                 <option value="days">Jours</option><option value="months">Mois</option><option value="years">Années</option>
               </select>
