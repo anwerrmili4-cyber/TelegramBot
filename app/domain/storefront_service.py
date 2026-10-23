@@ -609,9 +609,19 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
 
     offer = db.get_offer(offer_id)
     if offer and offer.get("supplier_provider"):
-        reseller_service.refresh_supplier_stock([offer])
+        # A supplier timeout must not turn a paid transfer into a generic outage.
+        # The last saved stock is what the catalog was already selling.
+        try:
+            reseller_service.refresh_supplier_stock([offer])
+        except Exception:
+            log.exception("Supplier stock refresh failed during checkout for offer %s", offer_id)
         offer = db.get_offer(offer_id)
-    service = db.get_service(int(offer.get("service_id"))) if offer else None
+    service = None
+    if offer is not None:
+        try:
+            service = db.get_service(int(offer.get("service_id")))
+        except (TypeError, ValueError):
+            service = None
     if not offer or not service or offer.get("archived") == 1:
         raise StorefrontError("Cette offre n'est plus disponible.")
     if not _offer_on_sale(offer) or not _site_visible(service):

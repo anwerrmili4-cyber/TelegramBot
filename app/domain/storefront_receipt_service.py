@@ -1,7 +1,9 @@
 """Payment receipt screenshots uploaded by storefront customers.
 
 A receipt arrives as a ``data:`` URL inside the JSON body and is stored in
-private object storage when configured, with legacy MongoDB support.
+private object storage when that storage is configured and accepts the file.
+If the bucket is missing or rejects the upload, the image stays in MongoDB
+so the checkout can still be recorded.
 Only PNG, JPEG and WebP are kept, and the declared type
 must match the file's own signature so nothing else can be served back to the
 admin as an image.
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import re
 import time
 from typing import Any
@@ -19,6 +22,8 @@ from bson.binary import Binary
 
 import database as db
 from app.domain import receipt_object_storage
+
+log = logging.getLogger(__name__)
 
 MAX_RECEIPT_BYTES = 2_500_000
 # Base64 grows the file by a third; the JSON envelope adds little on top.
@@ -59,12 +64,34 @@ def store(data_url: Any, *, customer_id: int, purpose: str) -> int:
         "size": len(data),
         "created_at": int(time.time()),
     }
-    if receipt_object_storage.configured():
-        row.update(receipt_object_storage.upload(data, content_type))
-    else:
-        row["data"] = Binary(data)
-    db.get_conn().storefront_receipts.insert_one(row)
+    row.update(_storage_fields(data, content_type))
+    try:
+        db.get_conn().storefront_receipts.insert_one(row)
+    except Exception as exc:
+        log.exception("Could not save payment receipt for customer %s", customer_id)
+        raise ReceiptError("Le reçu n'a pas pu être enregistré. Réessaie dans un instant.") from exc
     return receipt_id
+
+
+def _storage_fields(data: bytes, content_type: str) -> dict:
+    """Store the image privately when object storage is usable.
+
+    A missing or broken bucket must not reject a transfer the customer has
+    already paid. The database copy is the same path used when storage is off,
+    and it never records an object key for a file that was not uploaded.
+    """
+    try:
+        ready = receipt_object_storage.configured()
+    except RuntimeError:
+        log.warning("Private receipt storage is incomplete; saving the image in the database")
+        return {"data": Binary(data)}
+    if not ready:
+        return {"data": Binary(data)}
+    try:
+        return receipt_object_storage.upload(data, content_type)
+    except Exception:
+        log.exception("Private receipt storage rejected the image; saving it in the database")
+        return {"data": Binary(data)}
 
 
 def load(receipt_id: Any) -> tuple[bytes, str] | None:

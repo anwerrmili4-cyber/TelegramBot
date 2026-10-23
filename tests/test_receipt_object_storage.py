@@ -48,13 +48,27 @@ def test_corrupted_object_is_rejected(private_bucket):
         storage.read(metadata)
 
 
-def test_failed_upload_does_not_save_receipt(private_bucket, mock_mongodb, monkeypatch):
-    def fail(*args):
+def test_failed_upload_keeps_the_image_in_the_database(private_bucket, mock_mongodb, monkeypatch, caplog):
+    def fail(*args, **kwargs):
         raise RuntimeError("storage unavailable")
     monkeypatch.setattr(storage, "upload", fail)
-    with pytest.raises(RuntimeError):
-        receipts.store(UPLOAD, customer_id=4, purpose="order")
-    assert mock_mongodb.storefront_receipts.count_documents({}) == 0
+    with caplog.at_level("ERROR"):
+        receipt_id = receipts.store(UPLOAD, customer_id=4, purpose="order")
+    row = mock_mongodb.storefront_receipts.find_one({"id": receipt_id})
+    assert "object_key" not in row
+    assert bytes(row["data"]) == IMAGE
+    assert receipts.load(receipt_id) == (IMAGE, "image/png")
+    assert "saving it in the database" in caplog.text
+
+
+def test_incomplete_storage_configuration_still_saves_the_receipt(monkeypatch, mock_mongodb, caplog):
+    monkeypatch.setenv("HP_RECEIPT_S3_BUCKET", "private-receipts")
+    with caplog.at_level("WARNING"):
+        receipt_id = receipts.store(UPLOAD, customer_id=4, purpose="order")
+    row = mock_mongodb.storefront_receipts.find_one({"id": receipt_id})
+    assert "object_key" not in row
+    assert receipts.load(receipt_id) == (IMAGE, "image/png")
+    assert "incomplete" in caplog.text
 
 
 def test_legacy_receipt_remains_readable(mock_mongodb):

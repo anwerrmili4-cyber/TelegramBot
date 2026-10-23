@@ -333,6 +333,59 @@ def test_runtime_settings_change_payment_methods_and_their_details(mock_mongodb,
     assert storefront_service.suggested_price_millimes({"price": 6.0}) == 19800
 
 
+def test_transfer_checkout_survives_private_storage_failure(mock_mongodb, customer, monkeypatch):
+    from app.domain import receipt_object_storage as storage
+    from app.domain import storefront_receipt_service
+
+    for name, value in {
+        "BUCKET": "private-receipts",
+        "ENDPOINT": "https://storage.example.com",
+        "ACCESS_KEY_ID": "test-key",
+        "SECRET_ACCESS_KEY": "test-secret",
+    }.items():
+        monkeypatch.setenv("HP_RECEIPT_S3_" + name, value)
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(storage, "upload", fail)
+    _, offer_id = _catalog_offer(millimes=160000)
+    result = _create(
+        customer,
+        items=[{"offer_id": offer_id, "quantity": 1}],
+        transaction_reference="",
+    )
+
+    assert result["status"] == "to_verify"
+    assert result["total_millimes"] == 160000
+    order = db.get_order(result["order_ids"][0])
+    assert storefront_receipt_service.load(order["receipt_id"])[1] == "image/png"
+
+
+def test_checkout_ignores_a_supplier_stock_refresh_failure(mock_mongodb, customer, monkeypatch):
+    _, offer_id = _catalog_offer()
+    db.get_conn().offers.update_one({"id": offer_id}, {"$set": {"supplier_provider": "shamekh"}})
+
+    def boom(offers=None):
+        raise RuntimeError("supplier down")
+
+    monkeypatch.setattr("app.domain.reseller_service.refresh_supplier_stock", boom)
+    result = _create(
+        customer,
+        items=[{"offer_id": offer_id, "quantity": 1}],
+        transaction_reference="",
+    )
+    assert result["status"] == "to_verify"
+
+
+def test_checkout_rejects_an_offer_whose_service_cannot_be_read(mock_mongodb, customer):
+    _, offer_id = _catalog_offer()
+    db.get_conn().offers.update_one({"id": offer_id}, {"$unset": {"service_id": ""}})
+    with pytest.raises(storefront_service.StorefrontError, match="plus disponible"):
+        _create(customer, items=[{"offer_id": offer_id, "quantity": 1}], transaction_reference="")
+    assert mock_mongodb.orders.count_documents({}) == 0
+
+
 def test_transfer_cart_stores_one_order_per_line_with_the_receipt(mock_mongodb, customer):
     _, first = _catalog_offer(millimes=25000)
     _, second = _catalog_offer(name="Canva Pro", millimes=12500, service="Canva")
