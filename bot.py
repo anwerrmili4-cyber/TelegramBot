@@ -1620,22 +1620,25 @@ async def announce_channel_purchase(context, order_id):
 async def safely_announce_channel_purchase(context, order_id):
     return False
 
-async def _load_offer_with_live_stock(offer_id):
-    """Re-read one offer after its supplier stock has been refreshed."""
+async def _load_offer_with_live_stock(offer_id, *, wait_for_refresh=True):
+    """Refresh before purchase checks; browsing uses the last saved stock."""
     offer = db.get_offer(offer_id)
     if not offer or not db.offer_is_listed_in_bot(offer):
         return None
     if db.is_bmc_vip_offer(offer):
         offer = db.get_offer(db.ensure_bmc_vip_offer())
         return offer if db.offer_is_listed_in_bot(offer) else None
-    await asyncio.to_thread(reseller_service.refresh_supplier_stock, [offer])
-    offer = db.get_offer(offer.get("id", offer_id))
+    if wait_for_refresh:
+        await asyncio.to_thread(reseller_service.refresh_supplier_stock, [offer])
+        offer = db.get_offer(offer.get("id", offer_id))
+    else:
+        reseller_service.refresh_supplier_stock_in_background()
     return offer if db.offer_is_listed_in_bot(offer) else None
 
 
 async def show_deep_link_offer(update, lang, offer_id):
     """Open one channel-advertised offer safely in the customer's private chat."""
-    offer = await _load_offer_with_live_stock(int(offer_id))
+    offer = await _load_offer_with_live_stock(int(offer_id), wait_for_refresh=False)
     if not offer or not db.offer_is_listed_in_bot(offer) or not db.offer_has_stock(offer):
         await update.message.reply_text(
             premium_customer_text(lang, "out_of_stock"),
@@ -1672,8 +1675,7 @@ async def show_service_offers(update, context, lang, service_id):
         return
 
     offers = db.list_offers(int(service_id))
-    await asyncio.to_thread(reseller_service.refresh_supplier_stock, offers)
-    offers = db.list_offers(int(service_id))
+    reseller_service.refresh_supplier_stock_in_background()
     if len(offers) == 1:
         await show_deep_link_offer(update, lang, offers[0]["id"])
         return
@@ -2947,8 +2949,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         offers = db.list_offers(sid)
-        await asyncio.to_thread(reseller_service.refresh_supplier_stock, offers)
-        offers = db.list_offers(sid)
+        reseller_service.refresh_supplier_stock_in_background()
         if len(offers) == 1:
             # Continue through the regular offer-detail branch below so old
             # service buttons and links also skip the redundant catalogue.
@@ -2974,8 +2975,7 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if db.is_bmc_vip_offer(off):
             off = db.get_offer(db.ensure_bmc_vip_offer())
         if off and db.offer_is_listed_in_bot(off):
-            await asyncio.to_thread(reseller_service.refresh_supplier_stock, [off])
-            off = db.get_offer(off.get("id", oid))
+            reseller_service.refresh_supplier_stock_in_background()
         else:
             off = None
         if not off or not db.offer_is_listed_in_bot(off) or (not db.offer_has_stock(off) and not db.is_bmc_vip_offer(off)):
