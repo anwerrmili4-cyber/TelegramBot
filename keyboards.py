@@ -268,12 +268,21 @@ def support_keyboard(lang):
 
 
 def ticket_conversation_keyboard(lang, ticket_id):
+    reply_label = {
+        "fr": "Reply to Support",
+        "en": "Reply to Support",
+        "ar": "الرد على الدعم",
+    }.get(lang, "Reply to Support")
     close_label = {
         "fr": "Close Ticket",
         "en": "Close Ticket",
-        "ar": "Close Ticket",
+        "ar": "إغلاق التذكرة",
     }.get(lang, "Close Ticket")
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            reply_label,
+            callback_data=f"ticket_reply:{int(ticket_id)}",
+        )],
         [InlineKeyboardButton(
             close_label,
             callback_data=f"ticket_close:{int(ticket_id)}",

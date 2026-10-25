@@ -101,7 +101,7 @@ def test_admin_channel_reply_is_delivered_to_linked_customer(mock_mongodb):
     call = bot_client.send_message.await_args
     assert call.args[0] == 42
     assert "Hello, I can help you." in call.args[1]
-    assert call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "ticket_close:1"
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "ticket_reply:1"
     messages = support_service.get_messages(ticket["id"])
     assert messages[-1]["sender_type"] == "admin"
     assert messages[-1]["content"] == "Hello, I can help you."

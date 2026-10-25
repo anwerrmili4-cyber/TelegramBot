@@ -23,23 +23,40 @@ def send_email(payload: dict[str, Any]) -> None:
 @jobs.handler("telegram.send_message")
 def send_telegram_message(payload: dict[str, Any]) -> None:
     """Send a customer message; blocked chats and bad requests are not retried."""
+    from telegram import InlineKeyboardMarkup
     from telegram.error import BadRequest, Forbidden
 
     from app.bot import runtime as bot_runtime
 
     bot = bot_runtime.application().bot
+    reply_markup = None
+    if payload.get("reply_markup"):
+        reply_markup = InlineKeyboardMarkup.de_json(payload["reply_markup"], bot)
+    send_kwargs = {"parse_mode": payload.get("parse_mode")}
+    if reply_markup is not None:
+        send_kwargs["reply_markup"] = reply_markup
     try:
         bot_runtime.run(bot.send_message(
             payload["chat_id"],
             payload["text"],
-            parse_mode=payload.get("parse_mode"),
+            **send_kwargs,
         ))
     except (Forbidden, BadRequest) as exc:
         log.warning("telegram_message_dropped chat_id=%s reason=%s", payload["chat_id"], exc)
 
 
-def queue_telegram_message(chat_id: int, text: str, *, parse_mode: str | None = None) -> None:
+def queue_telegram_message(
+    chat_id: int,
+    text: str,
+    *,
+    parse_mode: str | None = None,
+    reply_markup: Any = None,
+) -> None:
     payload = {"chat_id": int(chat_id), "text": text, "parse_mode": parse_mode}
+    if reply_markup is not None:
+        payload["reply_markup"] = (
+            reply_markup.to_dict() if hasattr(reply_markup, "to_dict") else reply_markup
+        )
     jobs.dispatch(
         "telegram.send_message",
         payload,

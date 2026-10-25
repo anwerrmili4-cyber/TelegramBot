@@ -2518,6 +2518,23 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.audit_event("order.rated", actor_id=uid, details={"order_id": int(order_id), "score": int(score)})
         await q.edit_message_text(t(lang, "rating_thanks", score=score))
         return
+    if data.startswith("ticket_reply:"):
+        ticket_id = int(data.split(":", 1)[1])
+        ticket = support_service.get_ticket(ticket_id)
+        if (
+            not ticket
+            or int(ticket.get("user_id") or 0) != uid
+            or ticket.get("status") in {"closed", "resolved"}
+        ):
+            await q.answer(t(lang, "ticket_unavailable"), show_alert=True)
+            return
+        PENDING[uid] = ("ticket_message", ticket_id)
+        await q.message.reply_text(
+            f"<b>{support_bridge.ticket_reference(ticket_id)}</b>\n\n"
+            f"{t(lang, 'support_prompt')}",
+            parse_mode=ParseMode.HTML,
+        )
+        return
     if data.startswith("ticket_close:"):
         ticket_id = int(data.split(":", 1)[1])
         ticket = support_service.get_ticket(ticket_id)

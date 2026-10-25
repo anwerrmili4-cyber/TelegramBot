@@ -285,3 +285,24 @@ def test_ticket_reply_is_queued_when_the_runner_is_active(monkeypatch, mock_mong
     assert job["payload"]["chat_id"] == 42
     assert "Ticket #7" in job["payload"]["text"]
     assert "&lt;b&gt;Bonjour&lt;/b&gt;" in job["payload"]["text"]
+    assert job["payload"]["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "ticket_reply:7"
+
+
+def test_telegram_job_restores_queued_inline_keyboard(monkeypatch):
+    send = AsyncMock()
+    _fake_bot_runtime(monkeypatch, send)
+
+    handlers.send_telegram_message({
+        "chat_id": 5,
+        "text": "Support replied",
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [[{
+                "text": "Reply to Support",
+                "callback_data": "ticket_reply:7",
+            }]],
+        },
+    })
+
+    call = send.await_args
+    assert call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "ticket_reply:7"

@@ -1312,6 +1312,7 @@ def test_adobe_creative_cloud_button_falls_back_to_service_icon(monkeypatch):
 def test_ticket_conversation_keyboard_can_close_or_go_home():
     keyboard = kb.ticket_conversation_keyboard("en", 17)
 
-    assert keyboard.inline_keyboard[0][0].callback_data == "ticket_close:17"
-    assert keyboard.inline_keyboard[0][0].style == "danger"
-    assert keyboard.inline_keyboard[1][0].callback_data == "home"
+    assert keyboard.inline_keyboard[0][0].callback_data == "ticket_reply:17"
+    assert keyboard.inline_keyboard[1][0].callback_data == "ticket_close:17"
+    assert keyboard.inline_keyboard[1][0].style == "danger"
+    assert keyboard.inline_keyboard[2][0].callback_data == "home"

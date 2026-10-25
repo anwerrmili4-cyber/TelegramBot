@@ -33,6 +33,7 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
 import database as db
+import keyboards as kb
 from api.buyer_api_docs import openapi_document, swagger_html
 from api.dashboard import render_dashboard
 from api.public_site import render_public_site
@@ -535,6 +536,9 @@ def _deliver_ticket_reply(user_id: int, ticket_id: int, message: str) -> None:
         user_id,
         f"🎫 <b>Réponse du Support (Ticket #{ticket_id})</b>\n\n{html.escape(message)}",
         parse_mode=ParseMode.HTML,
+        reply_markup=kb.ticket_conversation_keyboard(
+            db.get_user_lang(user_id) or "en", ticket_id,
+        ),
     )
 
 

@@ -3360,6 +3360,26 @@ def test_customer_can_close_active_support_ticket(monkeypatch, mock_mongodb):
     close_notice.assert_awaited_once()
 
 
+def test_customer_can_reply_from_support_notification(monkeypatch, mock_mongodb):
+    ticket = support_service.create_ticket(42, "Help", category="other")
+    query = SimpleNamespace(
+        data=f"ticket_reply:{ticket['id']}",
+        from_user=SimpleNamespace(id=42),
+        message=SimpleNamespace(reply_text=AsyncMock()),
+        answer=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(
+        SimpleNamespace(callback_query=query),
+        SimpleNamespace(bot=SimpleNamespace()),
+    ))
+
+    assert PENDING.get(42) == ("ticket_message", ticket["id"])
+    query.message.reply_text.assert_awaited_once()
+    assert f"TKT-{ticket['id']:06d}" in query.message.reply_text.await_args.args[0]
+
+
 def test_attachment_can_create_the_first_ticket_message(mock_mongodb):
     PENDING[42] = ("support", "other")
     user = SimpleNamespace(
