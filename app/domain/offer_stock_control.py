@@ -545,9 +545,12 @@ def _reconcile() -> dict[str, Any]:
         if empty and (_is_active(offer) or is_out_of_stock_hold(offer)):
             if _apply(conn, offer, active=0, hold=False, out_of_stock=True):
                 deactivated.append(offer_id)
-        elif is_out_of_stock_hold(offer) and offer_in_stock(offer):
-            if _apply(conn, offer, active=1, hold=False, out_of_stock=False):
-                activated.append(offer_id)
+        elif (
+            is_out_of_stock_hold(offer)
+            and offer_in_stock(offer)
+            and _apply(conn, offer, active=1, hold=False, out_of_stock=False)
+        ):
+            activated.append(offer_id)
 
     updated = len(activated) + len(deactivated)
     if updated:

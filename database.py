@@ -1585,9 +1585,13 @@ def resolve_bulk_unit_price(offer, qty, regular_price):
             unit_price = float(option.get("unit_price"))
         except (TypeError, ValueError):
             continue
-        if threshold > 0 and quantity >= threshold and 0 <= unit_price < regular:
-            if best is None or threshold > best[0] or (threshold == best[0] and unit_price < best[1]):
-                best = (threshold, unit_price)
+        if (
+            threshold > 0
+            and quantity >= threshold
+            and 0 <= unit_price < regular
+            and (best is None or threshold > best[0] or (threshold == best[0] and unit_price < best[1]))
+        ):
+            best = (threshold, unit_price)
     if best is None:
         return regular
     return round(best[1], 2)
