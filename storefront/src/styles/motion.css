@@ -565,21 +565,21 @@
     animation: missing-sheen 2.8s var(--ease-out) 0.9s infinite;
   }
 
-  .hero-contacts {
+  .footer-contacts {
     animation: contact-panel 0.4s var(--ease-out) both;
   }
 
-  .hero-contact-anim {
+  .footer-contact {
     animation: contact-in 0.55s var(--ease-out) both;
     animation-delay: calc(var(--i) * 0.14s);
   }
 
-  .hero-contact-qr {
+  .footer-contact-qr {
     animation: contact-qr 0.48s var(--ease-out) both;
     animation-delay: calc(var(--i) * 0.14s + 0.16s);
   }
 
-  .hero-contact-mark {
+  .footer-contact-mark {
     animation: contact-bob 2.8s var(--ease-out) calc(0.8s + var(--i) * 0.18s) infinite;
   }
 }
@@ -679,10 +679,10 @@
     content: none;
   }
 
-  .hero-contacts,
-  .hero-contact-anim,
-  .hero-contact-qr,
-  .hero-contact-mark {
+  .footer-contacts,
+  .footer-contact,
+  .footer-contact-qr,
+  .footer-contact-mark {
     animation: none;
   }
 

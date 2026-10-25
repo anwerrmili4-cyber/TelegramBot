@@ -41,64 +41,6 @@ function searchTo(query: string) {
   navigate(`${ROUTES.shop}${term ? `?q=${encodeURIComponent(term)}` : ""}#catalogue`);
 }
 
-type ContactTone = "whatsapp" | "instagram" | "facebook";
-
-const CONTACTS: { name: string; href: string; qr: string; tone: ContactTone }[] = [
-  {
-    name: "WhatsApp",
-    href: "https://wa.me/our_blackmarket",
-    qr: "/contact/whatsapp-qr.svg",
-    tone: "whatsapp",
-  },
-  {
-    name: "Instagram",
-    href: "https://www.instagram.com/our_blackmarket/",
-    qr: "/contact/instagram-qr.png",
-    tone: "instagram",
-  },
-  {
-    name: "Facebook",
-    href: "https://www.facebook.com/people/Black-Market-TN/61594924482327/",
-    qr: "/contact/facebook-qr.svg",
-    tone: "facebook",
-  },
-];
-
-function ContactMark({ tone }: { tone: ContactTone }) {
-  return <img src={`/contact/${tone}.svg`} alt="" width="36" height="36" />;
-}
-
-function HeroContacts() {
-  return (
-    <aside className="hero-contacts" aria-label="Contact">
-      <header>Contact</header>
-      <div className="hero-contact-list">
-        {CONTACTS.map((item, index) => (
-          <a
-            key={item.tone}
-            className={`hero-contact is-${item.tone}`}
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ "--i": index } as CSSProperties}
-          >
-            <span className="hero-contact-anim">
-              <span className="hero-contact-mark">
-                <ContactMark tone={item.tone} />
-              </span>
-              <span className="hero-contact-copy">
-                <strong>{item.name}</strong>
-                <small>Scanner le code</small>
-              </span>
-              <img className="hero-contact-qr" src={item.qr} alt="" width="148" height="148" />
-            </span>
-          </a>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
 function TileNotify({ offerId }: { offerId: number }) {
   const { customer, token } = useAuth();
   const [email, setEmail] = useState("");
@@ -423,7 +365,6 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
             </Link>
           </aside>
         ) : null}
-        <HeroContacts />
         <HeroReviewReel />
         {highlighted.length ? (
           <div className="hero-picks">

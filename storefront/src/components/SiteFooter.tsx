@@ -1,4 +1,5 @@
 import { Link, ROUTES } from "@/lib/router";
+import { FooterContacts } from "@/components/FooterContacts";
 
 const COLUMNS = [
   {
@@ -55,6 +56,7 @@ export function SiteFooter() {
           </ul>
         </nav>
       ))}
+      <FooterContacts />
     </footer>
   );
 }

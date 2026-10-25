@@ -40,7 +40,13 @@
   --page: min(1220px, 100% - 2 * var(--gutter));
   --gutter: 24px;
 
-  --font-display: Inter, "Segoe UI", system-ui, sans-serif;
+  /* Mobile bottom stack. The tab bar is fixed, so anything else pinned to the
+     bottom edge measures off these instead of hard-coding a matching offset. */
+  --tabbar-inset: 10px;
+  --tabbar-height: 58px;
+  --tabbar-space: 0px;
+
+  --font-display: "Inter Tight", Inter, "Segoe UI", system-ui, sans-serif;
   --font-body: Inter, "Segoe UI", system-ui, sans-serif;
 
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
