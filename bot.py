@@ -33,7 +33,28 @@ import admin
 import database as db
 import keyboards as kb
 from app import support_bridge
+from app.bot import customer_text as _customer_text
+from app.bot import delivery_presentation as _delivery_presentation
+from app.bot import home_presentation as _home_presentation
+from app.bot import methods_presentation as _methods_presentation
+from app.bot import offer_cards as _offer_cards
+from app.bot import order_history as _order_history
+from app.bot import order_rules as _order_rules
+from app.bot import order_warranty as _order_warranty
+from app.bot import payment_presentation as _payment_presentation
+from app.bot import supplier_incidents as _supplier_incidents
+from app.bot import support_presentation as _support_presentation
+from app.bot import text_previews as _text_previews
 from app.bot.media import send_cached_photo
+from app.bot.presentation import (
+    _is_single_emoji,
+    custom_emoji_from_message,
+    custom_emojis_from_message,  # noqa: F401  (compatibility export)
+    render_stored_rich_text,  # noqa: F401  (compatibility export)
+    rich_text_from_message,
+    text_with_custom_emoji_tokens,
+    text_without_custom_emojis,
+)
 from app.domain import (
     affiliate_service,
     buyer_api_service,
@@ -69,6 +90,49 @@ from config import (
 )
 from i18n import TRANSLATIONS, status_label, t
 
+_is_bmc_vip_product = _methods_presentation.is_bmc_vip_product
+_is_method_detail_row = _methods_presentation.is_method_detail_row
+_join_methods_description_title = _methods_presentation.join_methods_description_title
+_line_is_description_label = _methods_presentation.line_is_description_label
+_line_opens_blockquote = _methods_presentation.line_opens_blockquote
+_method_announcement_description = _methods_presentation.method_announcement_description
+_method_announcement_text = _methods_presentation.method_announcement_text
+_methods_description_row = _methods_presentation.methods_description_row
+_split_description_title = _methods_presentation.split_description_title
+_strip_bmc_vip_term_suffix = _methods_presentation.strip_bmc_vip_term_suffix
+_visible_message_line = _methods_presentation.visible_message_line
+_without_method_detail_rows = _methods_presentation.without_method_detail_rows
+OFFER_CARD_TEMPLATE_VARIABLES = _offer_cards.OFFER_CARD_TEMPLATE_VARIABLES
+compact_offer_text = _offer_cards.compact_offer_text
+decompose_legacy_bulk_line = _offer_cards.decompose_legacy_bulk_line
+decomposed_bulk_price_template = _offer_cards.decomposed_bulk_price_template
+offer_detail_fields = _offer_cards.offer_detail_fields
+parse_duration_input = _offer_cards.parse_duration_input
+order_service_groups = _order_history.order_service_groups
+orders_text_export = _order_history.orders_text_export
+_CUSTOMER_EMAIL_RE = _order_rules.CUSTOMER_EMAIL_RE
+collects_customer_email = _order_rules.collects_customer_email
+is_otp_order = _order_rules.is_otp_order
+order_delivery_timestamp = _order_warranty.order_delivery_timestamp
+product_period_days = _order_warranty.product_period_days
+product_warranty_days = _order_warranty.product_warranty_days
+warranty_days_used = _order_warranty.warranty_days_used
+onchain_payment_screen = _payment_presentation.onchain_payment_screen
+topup_onchain_screen = _payment_presentation.topup_onchain_screen
+topup_provider_screen = _payment_presentation.topup_provider_screen
+ticket_conversation_text = _support_presentation.ticket_conversation_text
+supplier_delivery_problem_text = _supplier_incidents.supplier_delivery_problem_text
+premium_customer_text = _customer_text.premium_customer_text
+bmc_vip_channel_message = _delivery_presentation.bmc_vip_channel_message
+manual_delivery_waiting_text = _delivery_presentation.manual_delivery_waiting_text
+numbered_delivery_content = _delivery_presentation.numbered_delivery_content
+top_selling_products_text = _home_presentation.top_selling_products_text
+welcome_home_text = _home_presentation.welcome_home_text
+TERMS_OF_SERVICE_URL = _text_previews.TERMS_OF_SERVICE_URL
+_preview_link_placeholders = _text_previews.preview_link_placeholders
+admin_text_preview = _text_previews.admin_text_preview
+render_admin_text_preview = _text_previews.render_admin_text_preview
+
 _handlers = [logging.StreamHandler()]
 if not os.environ.get("VERCEL") and not os.environ.get("RAILWAY_ENVIRONMENT_ID"):
     os.makedirs("logs", exist_ok=True)
@@ -84,10 +148,6 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 BROADCAST_BATCH_SIZE = max(1, min(20, int(os.environ.get("HP_BROADCAST_BATCH_SIZE", "15"))))
 BROADCAST_BATCH_DELAY = max(0.25, float(os.environ.get("HP_BROADCAST_BATCH_DELAY", "0.55")))
-TERMS_OF_SERVICE_URL = os.environ.get(
-    "HP_TERMS_OF_SERVICE_URL",
-    "https://bot.ourblackmarket.com/terms",
-).strip()
 _broadcast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="telegram-broadcast")
 _submitted_broadcast_jobs: set[int] = set()
 _broadcast_jobs_lock = threading.Lock()
@@ -124,15 +184,6 @@ from app.bot.middlewares import (
 )
 
 
-def numbered_delivery_content(items):
-    """Number delivered accounts while preserving their exact content."""
-    cleaned = []
-    for item in items or []:
-        value = inventory_service.clean_delivery_value(item)
-        if value:
-            cleaned.append(value)
-    return "\n\n".join(f"{index}.\n{value}" for index, value in enumerate(cleaned, start=1))
-
 def lang_of(user_id):
     lang = db.get_user_lang(user_id) or DEFAULT_LANG
     return lang if lang in {"en", "ar"} else "en"
@@ -159,472 +210,8 @@ async def notify_successful_referral(context, referrer_id):
     )
 
 
-def offer_detail_fields(description: str, note: str) -> dict[str, str]:
-    fields = {
-        "note": note or "Full warranty",
-        "duration": "30 Days",
-        "mail": "Included",
-        "access": "Ready-made account",
-        "description": "",
-    }
-    remaining = []
-    aliases = {
-        "warranty": "note",
-        "duration": "duration",
-        "mail": "mail",
-        "email": "mail",
-        "access": "access",
-        "type": "access",
-    }
-    for raw_line in (description or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        if ":" in line:
-            key, value = [part.strip() for part in line.split(":", 1)]
-            normalized = key.lower().replace(" ", "_")
-            target = aliases.get(normalized)
-            if target and value:
-                fields[target] = value
-                continue
-        remaining.append(line)
-    fields["description"] = "\n".join(f"\u2022 {item}" for item in remaining)
-    if not fields["description"]:
-        fields["description"] = "\U0001f525 Premium benefits included"
-    return fields
 
 
-def parse_duration_input(value: str, *, allow_zero: bool = False) -> tuple[int, str, int]:
-    """Parse durations such as ``30``, ``3 months`` or ``2 years``."""
-    match = re.fullmatch(r"\s*(\d+)\s*([\w\u0600-\u06fféû]*)\s*", str(value or ""), re.I)
-    if not match:
-        raise ValueError("invalid duration")
-    amount = int(match.group(1))
-    if amount < 0 or (not allow_zero and amount < 1):
-        raise ValueError("invalid duration")
-    raw_unit = match.group(2).lower()
-    month_units = {"m", "mo", "month", "months", "mois", "شهر", "أشهر", "اشهر"}
-    year_units = {"y", "yr", "year", "years", "an", "ans", "année", "années", "سنة", "سنوات"}
-    unit = "months" if raw_unit in month_units else "years" if raw_unit in year_units else "days"
-    return amount, unit, warranty_service.duration_to_days(amount, unit)
-
-
-def decomposed_bulk_price_template(lang: str = "en") -> str:
-    """Return the editable bulk-price row used by product card templates."""
-    labels = {"fr": "PRIX EN GROS", "en": "BULK PRICE", "ar": "سعر الجملة"}
-    return (
-        f"📦 *{labels.get(lang, labels['en'])}:* "
-        "{bulk_price} {currency} × {bulk_quantity}+"
-    )
-
-
-def decompose_legacy_bulk_line(template: str, lang: str = "en") -> str:
-    """Upgrade the retired all-in-one bulk placeholder into editable fields."""
-    return str(template).replace(
-        "{bulk_price_line}", f"{decomposed_bulk_price_template(lang)}\n",
-    )
-
-
-def compact_offer_text(offer: dict, lang: str) -> str:
-    """Build the compact public offer card used with or without an image."""
-    service = None
-    if not offer.get("service_name") and offer.get("service_id") is not None:
-        service = db.get_service(offer.get("service_id"))
-    catalog_name = str(
-        offer.get("service_name_ar") if lang == "ar" and offer.get("service_name_ar")
-        else offer.get("service_name")
-        or ((service or {}).get("name_ar") if lang == "ar" else "")
-        or (service or {}).get("name")
-        or ""
-    ).strip()
-    catalog_emoji = str(
-        offer.get("service_emoji")
-        or (service or {}).get("emoji")
-        or offer.get("emoji")
-        or "📦"
-    ).strip()
-    product_name = str(
-        offer.get("name_ar") if lang == "ar" and offer.get("name_ar")
-        else offer.get("name") or ""
-    ).strip()
-    display_name = product_name
-    if catalog_name and not product_name.casefold().startswith(catalog_name.casefold()):
-        display_name = f"{catalog_name} — {product_name}"
-    display_name = " ".join(part for part in (catalog_emoji, display_name) if part)
-    if lang == "ar" and offer.get("description_ar"):
-        description = offer.get("description_ar")
-    elif lang == "fr" and offer.get("description_fr"):
-        description = offer.get("description_fr")
-    else:
-        description = offer.get("description")
-    description = (description or "").strip() or "—"
-    rendered_description = render_stored_rich_text(
-        description, parse_legacy_markdown=False,
-    )
-    # Product descriptions are prose, not source code. Older saved content may
-    # contain code/pre wrappers that Telegram renders in blue monospace.
-    rendered_description = re.sub(
-        r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered_description, flags=re.I,
-    )
-    # Telegram collapses <blockquote expandable>, which hides the product text
-    # until the customer taps the quote. Keep the quote, but show every line.
-    rendered_description = re.sub(
-        r"<blockquote\b[^>]*>",
-        "<blockquote>",
-        rendered_description,
-        flags=re.I,
-    )
-    warranty = warranty_service.offer_warranty_label(offer, lang=lang)
-    period = warranty_service.offer_period_label(offer, lang=lang)
-    try:
-        raw_price = offer.get("price")
-        price = "—" if raw_price is None or str(raw_price).strip() == "" else f"{float(raw_price):.2f}"
-    except (TypeError, ValueError):
-        price = str(offer.get("price") or "—")
-    sold = db.offer_sold_count(offer.get("id", 0))
-    currency = str(offer.get("currency") or CURRENCY)
-    stock_val = "∞" if offer.get("unlimited_stock") else int(offer.get("stock") or 0)
-    bulk_enabled = False
-    bulk_quantity = 0
-    bulk_price = 0.0
-    try:
-        bulk_quantity = int(offer.get("bulk_quantity") or 0)
-        bulk_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and 0 <= bulk_price < float(offer.get("price")):
-            bulk_enabled = True
-    except (TypeError, ValueError):
-        pass
-    template = db.get_text_override("offer_card_template", lang)
-    if not template:
-        template = (
-            TRANSLATIONS.get("offer_card_template", {}).get(lang)
-            or TRANSLATIONS["offer_card_template"]["en"]
-        )
-    replacements = {
-        "name": f"<b>{html.escape(display_name)}</b>",
-        "catalog_name": html.escape(catalog_name),
-        "catalog_emoji": html.escape(catalog_emoji),
-        "product_name": html.escape(product_name),
-        "price": f"<b>{html.escape(str(price))}</b>",
-        "currency": f"<b>{html.escape(currency)}</b>",
-        "stock": f"<b>{html.escape(str(stock_val))}</b>",
-        "sold": f"<b>{html.escape(str(sold))}</b>",
-        "period": f"<b>{html.escape(str(period))}</b>",
-        "warranty": f"<b>{html.escape(str(warranty)[:120])}</b>",
-        "description": rendered_description,
-        "bulk_price": f"<b>{bulk_price:.2f}</b>",
-        "bulk_quantity": f"<b>{bulk_quantity}</b>",
-    }
-    # Protect placeholders while parsing Telegram/legacy formatting. Otherwise
-    # underscores in names such as ``{bulk_price_line}`` look like italics.
-    tokens = {}
-    protected_template = str(template)
-    is_methods_catalog = catalog_name.casefold() == "methods"
-    if offer.get("period_visible") is False:
-        protected_template = "\n".join(
-            line for line in protected_template.splitlines() if "{period}" not in line
-        )
-    if offer.get("warranty_visible") is False:
-        protected_template = "\n".join(
-            line for line in protected_template.splitlines() if "{warranty}" not in line
-        )
-    if "{period}" not in protected_template and not is_methods_catalog and offer.get("period_visible") is not False:
-        period_label = {"fr": "PÉRIODE", "ar": "المدة"}.get(lang, "PERIOD")
-        period_row = (
-            f"📅 <b>{period_label}:</b> {{period}}"
-            if protected_template.startswith(("[[HTML]]", "[HTML]"))
-            else f"📅 *{period_label}:* {{period}}"
-        )
-        template_lines = protected_template.splitlines()
-        price_index = next(
-            (index for index, line in enumerate(template_lines) if "{price}" in line),
-            0,
-        )
-        template_lines.insert(price_index + 1, period_row)
-        protected_template = "\n".join(template_lines)
-    if bulk_enabled:
-        protected_template = decompose_legacy_bulk_line(protected_template, lang)
-    else:
-        protected_template = protected_template.replace("{bulk_price_line}", "")
-        protected_template = "\n".join(
-            line for line in protected_template.splitlines()
-            if "{bulk_price}" not in line and "{bulk_quantity}" not in line
-        )
-    if is_methods_catalog:
-        # Stock rows never belong on a Methods card. A duration/warranty
-        # suffix that shares the product title stays, except for BMC VIP,
-        # which drops that suffix after the card is rendered.
-        protected_template = "\n".join(
-            line for line in protected_template.splitlines()
-            if "{stock}" not in line and "{sold}" not in line
-            and not (
-                "{warranty}" in line
-                and not any(token in line for token in ("{name}", "{product_name}", "{catalog_name}"))
-            )
-        )
-    # The complete emoji/catalog/product title is always bold. Remove legacy
-    # wrappers around {name} before injecting the canonical bold title.
-    for wrapped_name in (
-        "<b>{name}</b>", "<strong>{name}</strong>", "<code>{name}</code>",
-        "**{name}**", "*{name}*", "`{name}`",
-    ):
-        protected_template = protected_template.replace(wrapped_name, "{name}")
-    value_placeholders = "price|currency|stock|sold|warranty|bulk_price|bulk_quantity"
-    # Old customized templates may wrap values in Telegram's monospace/code
-    # style. Remove only code wrappers containing response-value variables so
-    # the new regular bold typeface is applied consistently.
-    protected_template = re.sub(
-        rf"<code>([^<]*(?:\{{(?:{value_placeholders})\}})[^<]*)</code>",
-        r"\1", protected_template, flags=re.I,
-    )
-    protected_template = re.sub(
-        rf"`([^`\n]*(?:\{{(?:{value_placeholders})\}})[^`\n]*)`",
-        r"\1", protected_template,
-    )
-    for index, (key, value) in enumerate(replacements.items()):
-        token = f"OFCARDTOKEN{index}X"
-        protected_template = protected_template.replace(f"{{{key}}}", token)
-        tokens[token] = value
-    rendered = render_stored_rich_text(protected_template)
-    for token, value in tokens.items():
-        rendered = rendered.replace(token, value)
-    if is_methods_catalog:
-        rendered = _without_method_detail_rows(rendered)
-    rendered = re.sub(
-        r"<blockquote\b[^>]*>",
-        "<blockquote>",
-        rendered,
-        flags=re.I,
-    )
-    visible_card = html.unescape(re.sub(r"<[^>]+>", "", rendered))
-    visible_description = html.unescape(
-        re.sub(r"<[^>]+>", "", rendered_description)
-    ).strip()
-    if visible_description and visible_description != "—" and visible_description not in visible_card:
-        rendered = f"{rendered.rstrip()}\n{rendered_description}"
-    if is_methods_catalog:
-        rendered = _join_methods_description_title(rendered)
-        if _is_bmc_vip_product(offer):
-            rendered = _strip_bmc_vip_term_suffix(rendered)
-    return rendered
-
-
-OFFER_CARD_TEMPLATE_VARIABLES = (
-    "name", "catalog_name", "catalog_emoji", "product_name", "price", "currency", "stock", "sold", "warranty", "description",
-    "period", "bulk_price", "bulk_quantity",
-)
-
-
-def _preview_link_placeholders(value: str) -> str:
-    """Telegram rejects the whole message when a link points to ``{variable}``."""
-    def real_url(match):
-        url = TERMS_OF_SERVICE_URL if match.group(2) == "terms_url" else "https://t.me"
-        return f"href={match.group(1)}{html.escape(url, quote=True)}{match.group(1)}"
-
-    return re.sub(r"href=([\"'])\{(\w+)\}\1", real_url, str(value or ""))
-
-
-def render_admin_text_preview(key: str, value: str, lang: str = "en") -> str:
-    """Render editor previews without treating template underscores as Markdown."""
-    value = _preview_link_placeholders(value)
-    if key != "offer_card_template":
-        return render_stored_rich_text(value)
-    protected = decompose_legacy_bulk_line(value, lang)
-    for wrapped_name in (
-        "<b>{name}</b>", "<strong>{name}</strong>", "<code>{name}</code>",
-        "**{name}**", "*{name}*", "`{name}`",
-    ):
-        protected = protected.replace(wrapped_name, "{name}")
-    value_placeholders = "price|currency|stock|sold|warranty|bulk_price|bulk_quantity"
-    protected = re.sub(
-        rf"<code>([^<]*(?:\{{(?:{value_placeholders})\}})[^<]*)</code>",
-        r"\1", protected, flags=re.I,
-    )
-    protected = re.sub(
-        rf"`([^`\n]*(?:\{{(?:{value_placeholders})\}})[^`\n]*)`",
-        r"\1", protected,
-    )
-    tokens = {}
-    for index, variable in enumerate(OFFER_CARD_TEMPLATE_VARIABLES):
-        token = f"OFCARDPREVIEWTOKEN{index}X"
-        protected = protected.replace(f"{{{variable}}}", token)
-        if variable == "name":
-            placeholder = "<b>{catalog_emoji} {catalog_name} — {product_name}</b>"
-        elif variable in {
-            "catalog_name", "catalog_emoji", "product_name", "price", "currency",
-            "stock", "sold", "period", "warranty", "bulk_price", "bulk_quantity",
-        }:
-            placeholder = f"<b>{{{variable}}}</b>"
-        elif variable == "description":
-            placeholder = "{description}"
-        else:
-            placeholder = f"<code>{{{variable}}}</code>"
-        tokens[token] = placeholder
-    rendered = render_stored_rich_text(protected)
-    for token, placeholder in tokens.items():
-        rendered = rendered.replace(token, placeholder)
-    return rendered
-
-
-def admin_text_preview(key: str) -> str:
-    en_current = db.get_text_override(key, "en") or TRANSLATIONS.get(key, {}).get("en") or "—"
-    ar_current = db.get_text_override(key, "ar") or TRANSLATIONS.get(key, {}).get("ar") or "—"
-    rendered_en = render_admin_text_preview(key, en_current, "en")
-    rendered_ar = render_admin_text_preview(key, ar_current, "ar")
-    return (
-        f"✏️ <b>{html.escape(key)}</b>\n\n"
-        f"🇬🇧 <b>English Preview :</b>\n{rendered_en}\n\n"
-        f"🇸🇦 <b>Arabic Preview :</b>\n{rendered_ar}\n\n"
-        "Choisissez la langue pour modifier ce texte :"
-    )
-
-
-def custom_emojis_from_message(message):
-    """Extract every unique Premium custom emoji from entities or a sticker."""
-    found = []
-    entities = list(getattr(message, "entities", None) or [])
-    entities.extend(getattr(message, "caption_entities", None) or [])
-    for entity in entities:
-        entity_type = getattr(getattr(entity, "type", None), "value", getattr(entity, "type", None))
-        emoji_id = getattr(entity, "custom_emoji_id", None)
-        if str(entity_type) == "custom_emoji" and emoji_id and emoji_id not in found:
-            found.append(emoji_id)
-    sticker = getattr(message, "sticker", None)
-    sticker_emoji_id = getattr(sticker, "custom_emoji_id", None)
-    if sticker_emoji_id and sticker_emoji_id not in found:
-        found.append(sticker_emoji_id)
-    return found
-
-
-def custom_emoji_from_message(message):
-    """Return the first Premium emoji, the only one Telegram allows as a button icon."""
-    emojis = custom_emojis_from_message(message)
-    return emojis[0] if emojis else ""
-
-
-def text_without_custom_emojis(message):
-    """Remove Premium emoji placeholders using Telegram's UTF-16 entity offsets."""
-    value = (getattr(message, "text", None) or getattr(message, "caption", None) or "")
-    entities = list(getattr(message, "entities", None) or [])
-    entities.extend(getattr(message, "caption_entities", None) or [])
-    encoded = bytearray(value.encode("utf-16-le"))
-    ranges = []
-    for entity in entities:
-        entity_type = getattr(getattr(entity, "type", None), "value", getattr(entity, "type", None))
-        if str(entity_type) == "custom_emoji":
-            ranges.append((int(entity.offset) * 2, (int(entity.offset) + int(entity.length)) * 2))
-    for start, end in sorted(ranges, reverse=True):
-        del encoded[start:end]
-    return encoded.decode("utf-16-le").strip()
-
-
-def text_with_custom_emoji_tokens(message):
-    """Preserve every Premium emoji ID and its exact UTF-16 text position."""
-    value = (getattr(message, "text", None) or getattr(message, "caption", None) or "")
-    entities = list(
-        (getattr(message, "entities", None) if getattr(message, "text", None) else
-         getattr(message, "caption_entities", None)) or []
-    )
-    encoded = bytearray(value.encode("utf-16-le"))
-    replacements = []
-    for entity in entities:
-        entity_type = getattr(getattr(entity, "type", None), "value", getattr(entity, "type", None))
-        emoji_id = getattr(entity, "custom_emoji_id", None)
-        if str(entity_type) != "custom_emoji" or not emoji_id:
-            continue
-        start = int(entity.offset) * 2
-        end = (int(entity.offset) + int(entity.length)) * 2
-        fallback = bytes(encoded[start:end]).decode("utf-16-le")
-        token = f"[[TGEMOJI:{emoji_id}:{fallback.encode('utf-8').hex()}]]"
-        replacements.append((start, end, token.encode("utf-16-le")))
-    for start, end, token in sorted(replacements, reverse=True):
-        encoded[start:end] = token
-    return encoded.decode("utf-16-le").strip()
-
-
-def rich_text_from_message(message):
-    """Capture Telegram's exact entity-aware HTML from an admin message."""
-    html_value = (
-        getattr(message, "text_html", None)
-        or getattr(message, "caption_html", None)
-    )
-    if html_value:
-        return f"[[HTML]]{html_value}"
-    return text_with_custom_emoji_tokens(message)
-
-
-def _is_single_emoji(value):
-    """Check if a string contains an emoji character rather than text or digits."""
-    if not value or not isinstance(value, str):
-        return False
-    s = value.strip()
-    if not s:
-        return False
-    if any(c.isascii() and (c.isalnum() or c in "_-/:;=+,.<>?[]{}()!@#$%^&*`~|\\\"'") for c in s):
-        return False
-    return len(s) <= 8
-
-
-def render_stored_rich_text(value, *, parse_legacy_markdown=True):
-    """Render trusted admin HTML or legacy Markdown/token text as Telegram HTML."""
-    raw_value = str(value or "")
-
-    def close_unfinished_tags(rendered):
-        """Close formatting tags left open when dashboard fields truncate HTML."""
-        # Dashboard text fields can cut content in the middle of an HTML tag
-        # (for example ``<tg-emoji emoji-id=\"496...``). Telegram rejects the
-        # entire message in that case, so discard only the incomplete tail
-        # before balancing the formatting tags that were fully opened.
-        rendered = re.sub(r"<[^>]*\Z", "", rendered)
-        supported = {
-            "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
-            "span", "tg-spoiler", "a", "code", "pre", "blockquote", "tg-emoji",
-        }
-        opened = []
-        for match in re.finditer(r"<\s*(/?)\s*([a-zA-Z][\w-]*)(?:\s[^<>]*)?>", rendered):
-            closing, tag = match.group(1), match.group(2).lower()
-            if tag not in supported:
-                continue
-            if not closing:
-                opened.append(tag)
-            elif opened and opened[-1] == tag:
-                opened.pop()
-        return rendered + "".join(f"</{tag}>" for tag in reversed(opened))
-
-    def render_custom_emoji(match):
-        emoji_id, fallback_hex = match.groups()
-        with contextlib.suppress(ValueError, UnicodeDecodeError):
-            fallback = bytes.fromhex(fallback_hex).decode("utf-8")
-            if not _is_single_emoji(fallback):
-                fallback = "📦"
-            return f'<tg-emoji emoji-id="{emoji_id}">{html.escape(fallback)}</tg-emoji>'
-        return ""
-
-    def render_custom_emoji_tokens(rendered):
-        return re.sub(
-            r"\[\[TGEMOJI:([0-9A-Za-z_-]+):([0-9a-fA-F]+)\]\]",
-            render_custom_emoji,
-            rendered,
-        )
-
-    html_prefix = next(
-        (prefix for prefix in ("[[HTML]]", "[HTML]") if raw_value.startswith(prefix)),
-        None,
-    )
-    if html_prefix:
-        rendered = raw_value.removeprefix(html_prefix)
-        if parse_legacy_markdown:
-            rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", rendered)
-            rendered = re.sub(r"\*([^*]+)\*", r"<b>\1</b>", rendered)
-            rendered = re.sub(r"_([^_]+)_", r"<i>\1</i>", rendered)
-        return close_unfinished_tags(render_custom_emoji_tokens(rendered))
-    rendered = html.escape(raw_value)
-    if parse_legacy_markdown:
-        rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", rendered)
-        rendered = re.sub(r"\*([^*]+)\*", r"<b>\1</b>", rendered)
-        rendered = re.sub(r"_([^_]+)_", r"<i>\1</i>", rendered)
-
-    return render_custom_emoji_tokens(rendered)
 
 
 # ---------------- /start ----------------
@@ -826,202 +413,6 @@ def _announcement_plain(value):
     return str(value or "").replace("*", "").replace("_", " ").replace("`", "").strip()
 
 
-_METHOD_HIDDEN_DETAIL_LABELS = (
-    "duration", "period", "warranty", "stock",
-    "durée", "duree", "période", "periode", "garantie",
-    "المدة", "الفترة", "الضمان", "المخزون",
-)
-
-
-def _is_method_detail_row(line):
-    """Recognize detail rows even when their icon is a Premium emoji tag."""
-    visible = html.unescape(re.sub(r"<[^>]+>", "", str(line or ""))).strip()
-    # Drop leading Unicode emoji/punctuation and inspect the visible label.
-    visible = re.sub(r"^[^0-9A-Za-zÀ-ÖØ-öø-ÿ\u0600-\u06ff]+", "", visible).casefold()
-    return any(
-        visible == label or visible.startswith(f"{label}:") or visible.startswith(f"{label} :")
-        for label in _METHOD_HIDDEN_DETAIL_LABELS
-    )
-
-
-def _without_method_detail_rows(text):
-    """Remove duration, warranty and stock rows from a Methods message/card."""
-    return "\n".join(
-        line for line in str(text or "").splitlines()
-        if not _is_method_detail_row(line)
-    ).strip()
-
-
-_DESCRIPTION_LABEL_RE = re.compile(r"^(?:description|الوصف)\s*:?\s*$", re.IGNORECASE)
-_BMC_DURATION_WORD = (
-    r"days?|day|j|jours?|mois|months?|ans?|years?|ann[eé]es?|an|"
-    r"يوم|أيام|شهر|أشهر|اشهر|سنة|سنوات"
-)
-_BMC_TERM_VALUE = rf"(?:NW|FW|\d+\s*(?:{_BMC_DURATION_WORD}))"
-
-
-def _visible_message_line(line):
-    visible = html.unescape(re.sub(r"<[^>]+>", "", str(line or ""))).strip()
-    return re.sub(r"^[^0-9A-Za-zÀ-ÖØ-öø-ÿ\u0600-\u06ff]+", "", visible).strip()
-
-
-def _line_is_description_label(line):
-    """True when a Methods line is only the Description label, with no text yet."""
-    return bool(_DESCRIPTION_LABEL_RE.match(_visible_message_line(line)))
-
-
-def _line_opens_blockquote(line):
-    return bool(re.match(r"\s*<blockquote\b", str(line or ""), re.I))
-
-
-def _join_methods_description_title(text):
-    """Put the Description label and its opening text on the same line.
-
-    The word Description stays intact. The product list under it, including a
-    blockquote, stays on the following lines.
-    """
-    lines = str(text or "").splitlines()
-    joined = []
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        if _line_is_description_label(line):
-            follower = index + 1
-            while follower < len(lines) and not lines[follower].strip():
-                follower += 1
-            if follower < len(lines) and not _line_opens_blockquote(lines[follower]):
-                line = f"{line.rstrip()} {lines[follower].strip()}"
-                index = follower
-        joined.append(line)
-        index += 1
-    return "\n".join(joined)
-
-
-def _split_description_title(description):
-    """Keep the first description line with the label and the list below it."""
-    description = str(description or "").strip()
-    if not description:
-        return "", ""
-    block = re.search(r"<blockquote\b", description, re.I)
-    if block and block.start() == 0:
-        return "", description
-    if block:
-        head = description[:block.start()].strip()
-        tail = description[block.start():].strip()
-    else:
-        head, separator, tail = description.partition("\n")
-        head = head.strip()
-        tail = tail.strip() if separator else ""
-    return re.sub(r"\s+", " ", head), tail
-
-
-def _methods_description_row(lang, description):
-    """One-line Methods description title, then the included-product list."""
-    label = {"fr": "Description", "ar": "الوصف"}.get(lang, "Description")
-    label_html = f"💬 <b>{label}:</b>"
-    head, tail = _split_description_title(description)
-    if head:
-        row = f"{label_html} {head}"
-        return f"{row}\n{tail}" if tail else row
-    if tail:
-        return f"{label_html}\n{tail}"
-    return ""
-
-
-def _is_bmc_vip_product(offer):
-    offer = offer or {}
-    if str(offer.get("feature_key") or "") == getattr(db, "BMC_VIP_FEATURE_KEY", "bmc_vip"):
-        return True
-    return str(offer.get("name") or "").strip().casefold() == "bmc vip"
-
-
-def _wrapped_bmc_term(group):
-    return (
-        rf"\s*\|\s*(?:<(?P<{group}>[A-Za-z][\w-]*)\b[^>]*>\s*)?"
-        rf"{_BMC_TERM_VALUE}"
-        rf"(?({group})\s*</(?P={group})>)"
-    )
-
-
-_BMC_VIP_TERM_SUFFIX = re.compile(
-    _wrapped_bmc_term("tag_a") + _wrapped_bmc_term("tag_b"),
-    re.IGNORECASE,
-)
-
-
-def _strip_bmc_vip_term_suffix(text):
-    """Remove a ``| 30 days | NW`` suffix from the BMC VIP title only."""
-    return "\n".join(
-        _BMC_VIP_TERM_SUFFIX.sub("", line)
-        if "bmc vip" in _visible_message_line(line).casefold()
-        else line
-        for line in str(text or "").splitlines()
-    )
-
-
-def _method_announcement_description(value):
-    """Render a method description without leaking HTML source into adverts.
-
-    Descriptions captured from Telegram carry the ``[[HTML]]`` marker, which
-    lets :func:`render_stored_rich_text` preserve formatting and Premium
-    ``tg-emoji`` entities.  Older dashboard values may contain bare HTML;
-    those tags are removed (rather than escaped into visible ``<...>`` text),
-    while the normal custom-emoji token format remains supported.
-    """
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    if raw.startswith(("[[HTML]]", "[HTML]", "[[TGEMOJI:")):
-        rendered = render_stored_rich_text(raw, parse_legacy_markdown=False)
-    else:
-        # Treat unmarked HTML as legacy source, not as trusted Telegram HTML.
-        # Keep its readable text and let the token renderer restore Premium
-        # emoji placeholders where present.
-        cleaned = re.sub(r"</?[^>]+>", "", raw)
-        rendered = render_stored_rich_text(cleaned, parse_legacy_markdown=False)
-    # Product prose must never be shown in monospace just because an old
-    # description was saved inside code/pre wrappers.
-    return re.sub(r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered, flags=re.I).strip()
-
-
-def _method_announcement_text(text, service, offer=None, lang="en"):
-    """Replace period/warranty rows with the saved method description."""
-    if str((service or {}).get("name") or "").strip().casefold() != "methods":
-        return text
-    raw_description = (
-        (offer or {}).get("description_ar") if lang == "ar" and (offer or {}).get("description_ar")
-        else (offer or {}).get("description")
-    )
-    description = _method_announcement_description(raw_description)
-    description_row = _methods_description_row(lang, description)
-    head, tail = _split_description_title(description)
-    head_visible = html.unescape(re.sub(r"<[^>]+>", "", head)).strip()
-    visible_text = html.unescape(re.sub(r"<[^>]+>", "", str(text or "")))
-    # The customized Methods template may already contain the opening line.
-    # Keep that line and don't add a second copy of the same title.
-    inserted = bool(head_visible) and head_visible in visible_text
-    rows = []
-    for line in str(text or "").splitlines():
-        if _is_method_detail_row(line):
-            if description_row and not inserted:
-                rows.extend(description_row.splitlines())
-                inserted = True
-            continue
-        if description_row and not inserted and _line_is_description_label(line):
-            rows.extend(description_row.splitlines())
-            inserted = True
-            continue
-        rows.append(line)
-    if description_row and not inserted:
-        rows.extend(description_row.splitlines())
-    rendered = _join_methods_description_title("\n".join(rows))
-    if tail and tail not in rendered:
-        rendered = f"{rendered.rstrip()}\n{tail}"
-    if _is_bmc_vip_product(offer):
-        rendered = _strip_bmc_vip_term_suffix(rendered)
-    return rendered
-
-
 def _is_methods_offer(offer):
     """Return whether an offer belongs to the single-unit Methods service."""
     if not offer:
@@ -1035,49 +426,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-def top_selling_products_text(lang: str) -> str:
-    """Build the main-menu Top 5 from real paid catalogue orders."""
-    titles = {
-        "fr": "🔥 <b>TOP 5 DES PRODUITS LES PLUS VENDUS</b>",
-        "en": "🔥 <b>TOP 5 BEST-SELLING PRODUCTS</b>",
-        "ar": "🔥 <b>أفضل 5 منتجات مبيعاً</b>",
-    }
-    from app.domain.offer_stock_control import keep_best_bot_price
-
-    ranked = []
-    for offer in keep_best_bot_price(db.list_catalog_offers()):
-        sold = db.offer_sold_count(offer.get("id"))
-        if sold > 0:
-            ranked.append((sold, offer))
-    ranked.sort(key=lambda item: (-item[0], int(item[1].get("id") or 0)))
-    lines = []
-    for position, (_sold, offer) in enumerate(ranked[:5], start=1):
-        fallback = str(offer.get("emoji") or offer.get("service_emoji") or "📦").strip()
-        if not _is_single_emoji(fallback):
-            fallback = "📦"
-        emoji_id = str(offer.get("custom_emoji_id") or offer.get("service_custom_emoji_id") or "").strip()
-        icon = fallback
-        if emoji_id and emoji_id.isascii():
-            icon = f"[[TGEMOJI:{emoji_id}:{fallback.encode('utf-8').hex()}]]"
-        lines.append(f"{position} - {icon} <b>{html.escape(str(offer.get('name') or 'Product'))}</b>")
-    if not lines:
-        empty = {"fr": "Aucune vente pour le moment.", "en": "No sales yet.", "ar": "لا توجد مبيعات بعد."}
-        lines.append(empty.get(lang, empty["en"]))
-    return render_stored_rich_text(
-        "[[HTML]]" + f"{titles.get(lang, titles['en'])}\n\n" + "\n".join(lines),
-        parse_legacy_markdown=False,
-    )
-
-
-def welcome_home_text(user=None, lang="en") -> str:
-    """Build the admin-editable storefront welcome shown on every home visit."""
-    first_name = str(getattr(user, "first_name", "") or "user").strip()
-    return premium_customer_text(
-        lang,
-        "welcome",
-        first_name=first_name,
-        terms_url=TERMS_OF_SERVICE_URL,
-    )
 
 
 def _track_broadcast_message(context, sent_message, chat_id):
@@ -1806,14 +1154,6 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def ticket_conversation_text(ticket):
-    category = str(ticket.get("category") or "other").replace("_", " ").title()
-    return (
-        f"<b>Support Ticket {support_bridge.ticket_reference(ticket['id'])}</b>\n\n"
-        f"<blockquote>Category: <b>{html.escape(category)}</b>\n"
-        "Status: <b>Open</b></blockquote>\n\n"
-        "Send any message or attachment here. It goes directly to our support team."
-    )
 
 
 async def send_ticket_conversation(message, lang, ticket):
@@ -1854,52 +1194,6 @@ async def show_topup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def topup_provider_screen(lang, provider):
-    is_bybit = provider == "bybit"
-    provider_name = "Bybit Transfer (UID)" if is_bybit else "Binance Pay (ID)"
-    pay_label = "Pay UID" if is_bybit else "Pay ID"
-    pay_id = BYBIT_UID if is_bybit else BINANCE_PAY_ID
-    txid_note = (
-        "⚠️ <b>Bybit:</b> the Transaction ID is the code with dashes — not the long order/receipt number."
-        if is_bybit else
-        "⚠️ <b>Binance:</b> send the Transaction ID or Order ID from your Binance Pay receipt. No minimum deposit. Amounts below 0.01 USDT accumulate until they reach a spendable cent."
-    )
-    return (
-        f"<b>{provider_name}</b>\n\n"
-        f"<b>{pay_label}</b>\n<code>{html.escape(str(pay_id))}</code>\n"
-        "👇 <i>Tap the button below to copy</i>\n\n"
-        "<b>How to deposit</b>\n"
-        "<blockquote>1️⃣ Copy the ID above\n"
-        "2️⃣ Send any USDT amount from your wallet/exchange\n"
-        "3️⃣ Copy the Transaction ID (TXID)\n"
-        "4️⃣ Paste the TXID here in this chat\n"
-        "5️⃣ Auto-verify and instant credit ⚡</blockquote>\n\n"
-        f"<blockquote>{txid_note}</blockquote>\n\n"
-        "<blockquote>⏰ Complete payment within 30 minutes of opening this screen for auto-credit.</blockquote>"
-    )
-
-
-def topup_onchain_screen(lang, network, amount):
-    """Render BSC/Polygon top-ups in the same compact card style as Binance Pay."""
-    is_bsc = str(network).lower() == "bsc"
-    network_label = "BSC (BEP20)" if is_bsc else "Polygon"
-    contract_suffix = "97955" if is_bsc else "58e8f"
-    return (
-        f"<b>USDT TOP UP — {network_label}</b>\n\n"
-        f"<b>Wallet Address</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
-        "👇 <i>Tap the button below to copy</i>\n\n"
-        "<b>How to deposit</b>\n"
-        "<blockquote>1️⃣ Copy the wallet address above\n"
-        f"2️⃣ Send exactly <b>{float(amount):.2f} USDT</b>\n"
-        f"3️⃣ Select only the <b>{network_label}</b> network\n"
-        "4️⃣ Copy the Transaction ID (TXID/hash)\n"
-        "5️⃣ Paste the TXID here in this chat\n"
-        "6️⃣ Auto-verify and instant credit ⚡</blockquote>\n\n"
-        f"<blockquote>⚠️ <b>{network_label} only:</b> verify that the USDT contract "
-        f"address ends in <b>{contract_suffix}</b>.</blockquote>\n\n"
-        "<blockquote>⏰ Complete payment within 30 minutes of opening this screen "
-        "for auto-credit.</blockquote>"
-    )
 
 
 async def cmd_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2410,37 +1704,6 @@ async def show_callback_screen(
                 )
 
 
-def order_delivery_timestamp(order):
-    delivered_at = order.get("delivered_at") or order.get("created_at") or time.time()
-    if isinstance(delivered_at, datetime):
-        return delivered_at.timestamp()
-    try:
-        return float(delivered_at)
-    except (TypeError, ValueError, OverflowError):
-        return time.time()
-
-
-def warranty_days_used(order):
-    return max(0, int((time.time() - order_delivery_timestamp(order)) // 86400))
-
-
-def product_warranty_days(order):
-    """Resolve the warranty duration from the product, with order snapshot fallback."""
-    offer_id = order.get("offer_id")
-    if offer_id:
-        offer = db.get_offer(int(offer_id))
-        if offer and offer.get("warranty_days") is not None:
-            return max(0, int(offer.get("warranty_days") or 0))
-    return max(0, int(order.get("warranty_days") or 0))
-
-
-def product_period_days(order):
-    offer_id = order.get("offer_id")
-    if offer_id:
-        offer = db.get_offer(int(offer_id))
-        if offer and offer.get("period_days") is not None:
-            return max(0, int(offer.get("period_days") or 0))
-    return max(0, int(order.get("period_days") or 0))
 
 
 async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3368,28 +2631,6 @@ async def handle_buy_confirmation(update, context, lang):
         await q.message.reply_text(t(lang, "out_of_stock"))
 
 
-def onchain_payment_screen(lang, order):
-    method = order.get("payment_method")
-    network = "BSC (BEP20)" if method == "usdt_bsc" else "Polygon"
-    contract_suffix = "97955" if method == "usdt_bsc" else "58e8f"
-    return (
-        f"<b>USDT PAYMENT — {network}</b>\n\n"
-        f"<b>Product</b>\n{html.escape(str(order.get('offer_name') or '—'))}\n"
-        f"<b>Order</b>\n#{int(order['id'])}\n\n"
-        f"<b>Wallet Address</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
-        "👇 <i>Tap the button below to copy</i>\n\n"
-        "<b>How to pay</b>\n"
-        "<blockquote>1️⃣ Copy the wallet address above\n"
-        f"2️⃣ Send exactly <b>{float(order['total_price']):.2f} USDT</b>\n"
-        f"3️⃣ Select only the <b>{network}</b> network\n"
-        "4️⃣ Copy the Transaction ID (TXID/hash)\n"
-        "5️⃣ Tap Submit TXID and paste it in this chat\n"
-        "6️⃣ Auto-verify and begin delivery ⚡</blockquote>\n\n"
-        f"<blockquote>⚠️ <b>{network} only:</b> verify that the USDT contract "
-        f"address ends in <b>{contract_suffix}</b>.</blockquote>\n\n"
-        "<blockquote>⏰ Complete payment within 30 minutes of opening this screen "
-        "for automatic verification.</blockquote>"
-    )
 
 
 async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
@@ -4646,29 +3887,6 @@ async def handle_pending_input(update, context, lang):
         return
 
 
-def is_otp_order(order):
-    return bool(order and db.is_otp_service_name(order.get("service_name")))
-
-
-_CUSTOMER_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
-
-
-def collects_customer_email(offer):
-    """Only the 1 USDT unlimited internal Canva Pro asks for an email."""
-    if not isinstance(offer, dict):
-        return False
-    name = str(offer.get("name") or "").strip().casefold()
-    if name != "canva pro":
-        return False
-    try:
-        price = float(offer.get("price") or 0)
-    except (TypeError, ValueError):
-        return False
-    if abs(price - 1) > 0.001:
-        return False
-    if not offer.get("unlimited_stock"):
-        return False
-    return not str(offer.get("supplier_provider") or "").strip()
 
 
 async def notify_codex_acceptance_expired(bot, order):
@@ -4762,89 +3980,11 @@ class _DirectChatMessage:
         return await self.bot.send_message(self.chat_id, text, **kwargs)
 
 
-def supplier_delivery_problem_text(order_id, result):
-    """Build a complete, credential-safe supplier delivery incident report."""
-    order = db.get_order(int(order_id)) or {}
-    offer = db.get_offer(order.get("offer_id")) if order.get("offer_id") else {}
-    provider = str((offer or {}).get("supplier_provider") or "").strip().lower()
-    provider_name = reseller_service.provider_display_name(provider)
-    provider_bot = reseller_service.provider_bot_username(provider)
-    buyer = db.get_conn().users.find_one(
-        {"telegram_id": int(order.get("user_id") or 0)},
-        {"_id": 0, "username": 1, "first_name": 1, "full_name": 1, "lang": 1},
-    ) or {}
-    fulfillment = db.get_conn().reseller_fulfillments.find_one(
-        {"provider": provider, "external_order_id": f"BM-{int(order_id)}"},
-        {"_id": 0, "encrypted_items": 0},
-    ) or {}
-
-    def safe(value, fallback="—"):
-        normalized = str(value if value not in (None, "") else fallback).strip()
-        return html.escape(normalized or fallback)
-
-    username = str(buyer.get("username") or "").strip().lstrip("@")
-    buyer_username = f"@{safe(username)}" if username else "Non renseigné"
-    buyer_name = buyer.get("full_name") or buyer.get("first_name") or "Non renseigné"
-    supplier_bot = (
-        f'<a href="https://t.me/{safe(provider_bot)}">@{safe(provider_bot)}</a>'
-        if provider_bot
-        else "Non renseigné par le fournisseur"
-    )
-    supplier_order_id = fulfillment.get("supplier_order_id") or "Non retourné"
-    payment_reference = order.get("txid") or "Wallet / aucune référence TXID"
-    error_code = result.get("error_code") or "supplier_delivery_error"
-    error_message = result.get("error_message") or "Contenu de livraison non retourné"
-    incident_warning = (
-        "La commande fournisseur peut déjà avoir été débitée. Vérifiez son statut "
-        "avant toute nouvelle tentative afin d’éviter une double livraison."
-        if error_code == "supplier_delivery_pending"
-        else "Le fournisseur indique que la commande n’a pas été créée. Vérifiez tout "
-        "de même son bot avant une livraison ou une nouvelle tentative."
-    )
-    return (
-        "🚨 <b>ÉCHEC DE LIVRAISON API</b>\n\n"
-        "🏪 <b>Fournisseur</b>\n"
-        f"• Nom : <b>{safe(provider_name)}</b>\n"
-        f"• Bot Telegram : {supplier_bot}\n"
-        f"• Code fournisseur : <code>{safe(provider)}</code>\n"
-        f"• Statut API : <code>{safe(fulfillment.get('status'))}</code>\n\n"
-        "📦 <b>Commande</b>\n"
-        f"• ID local : <b>#{int(order_id)}</b>\n"
-        f"• Référence envoyée : <code>BM-{int(order_id)}</code>\n"
-        f"• ID fournisseur : <code>{safe(supplier_order_id)}</code>\n"
-        f"• ID produit fournisseur : <code>{safe((offer or {}).get('supplier_product_id'))}</code>\n"
-        f"• Produit : <b>{safe(order.get('service_name'))} — {safe(order.get('offer_name'))}</b>\n"
-        f"• Quantité : <b>{safe(order.get('qty'), '1')}</b>\n"
-        f"• Prix unitaire : <b>{safe(order.get('unit_price'), '0')} {html.escape(CURRENCY)}</b>\n"
-        f"• Total : <b>{safe(order.get('total_price'), '0')} {html.escape(CURRENCY)}</b>\n"
-        f"• Statut local : <code>{safe(order.get('status'))}</code>\n\n"
-        "👤 <b>Acheteur</b>\n"
-        f"• Telegram ID : <code>{safe(order.get('user_id'))}</code>\n"
-        f"• Nom : <b>{safe(buyer_name)}</b>\n"
-        f"• Username : <b>{buyer_username}</b>\n"
-        f"• Langue : <code>{safe(buyer.get('lang'))}</code>\n\n"
-        "💳 <b>Paiement</b>\n"
-        f"• Méthode : <code>{safe(order.get('verify_method') or order.get('payment_method'))}</code>\n"
-        f"• TXID / référence : <code>{safe(payment_reference)}</code>\n\n"
-        "❌ <b>Erreur</b>\n"
-        f"• Code : <code>{safe(error_code)}</code>\n"
-        f"• Détail : {safe(error_message)}\n\n"
-        f"⚠️ {html.escape(incident_warning)}\n\n"
-        "Utilisez les boutons ci-dessous pour informer l’acheteur ou effectuer "
-        "une livraison manuelle."
-    )
 
 
 _DELIVERY_WATCHERS = set()
 
 
-def manual_delivery_waiting_text(lang, order_id):
-    messages = {
-        "fr": f"⏳ <b>Commande #{order_id} confirmée</b>\n\nVeuillez patienter : le bot vous prépare un nouveau compte. Votre produit sera disponible très bientôt.",
-        "en": f"⏳ <b>Order #{order_id} confirmed</b>\n\nPlease wait — the bot is releasing a fresh account for you. Your product will be available very soon.",
-        "ar": f"⏳ <b>تم تأكيد الطلب #{order_id}</b>\n\nيرجى الانتظار — يقوم البوت بتجهيز حساب جديد لك. سيكون منتجك متاحاً قريباً جداً.",
-    }
-    return messages.get(lang, messages["en"])
 
 
 async def watch_manual_delivery(bot, chat_id, order_id, message_id, lang, timeout=3600):
@@ -4875,29 +4015,6 @@ async def watch_manual_delivery(bot, chat_id, order_id, message_id, lang, timeou
         _DELIVERY_WATCHERS.discard(key)
 
 
-def bmc_vip_channel_message(lang, link):
-    """Tell the buyer their private channel link. The link is already removed from stock."""
-    safe_link = html.escape(str(link or ""), quote=True)
-    texts = {
-        "fr": (
-            "✅ <b>BMC VIP est actif</b>\n\n"
-            "Voici ton lien de canal privé. Rejoins-le pour récupérer toutes les méthodes, "
-            "et les nouvelles chaque jour.\n\n"
-            f"<a href=\"{safe_link}\">{safe_link}</a>"
-        ),
-        "ar": (
-            "✅ <b>BMC VIP مفعّل</b>\n\n"
-            "هذا رابط قناتك الخاصة. انضم إليها لتحصل على كل الطرق، "
-            "والطرق الجديدة كل يوم.\n\n"
-            f"<a href=\"{safe_link}\">{safe_link}</a>"
-        ),
-    }
-    return texts.get(lang, (
-        "✅ <b>BMC VIP is active</b>\n\n"
-        "Here is your private channel link. Join it to claim every method, "
-        "and the new ones every day.\n\n"
-        f"<a href=\"{safe_link}\">{safe_link}</a>"
-    ))
 
 
 async def send_method_media(bot, customer_id, media):
@@ -5073,58 +4190,6 @@ async def send_payment_result(message, context, lang, order_id, result, uid):
         PENDING[uid] = ("await_txid", order_id)
 
 
-def premium_customer_text(lang: str, key: str, **kwargs) -> str:
-    """Render selected customer texts as HTML with their Premium emoji."""
-    protected_values = {}
-    if key == "welcome" and "first_name" in kwargs:
-        token = "WELCOMEFIRSTNAMEPLACEHOLDER8A6C"
-        protected_values[token] = html.escape(str(kwargs["first_name"]))
-        kwargs = dict(kwargs)
-        kwargs["first_name"] = token
-    if key == "delivery_received" and "content" in kwargs:
-        # Delivery data is opaque customer content, not bot markup. Protect it
-        # while rendering the customizable template, then insert escaped text.
-        token = "DELIVERYCONTENTPLACEHOLDER9F4A"
-        protected_values[token] = html.escape(str(kwargs["content"]))
-        kwargs = dict(kwargs)
-        kwargs["content"] = token
-    raw_override = db.get_text_override(key, lang)
-    if raw_override is not None and str(raw_override).strip():
-        raw_value = str(raw_override)
-        if kwargs:
-            format_kwargs = kwargs
-            is_stored_html = raw_value.startswith(("[[HTML]]", "[HTML]"))
-            if is_stored_html:
-                format_kwargs = {name: html.escape(str(value)) for name, value in kwargs.items()}
-                if key == "order_created":
-                    for name in ("total", "binance_id"):
-                        if name in format_kwargs:
-                            format_kwargs[name] = f"<code>{format_kwargs[name]}</code>"
-            with contextlib.suppress(KeyError, IndexError, ValueError):
-                raw_value = raw_value.format(**format_kwargs)
-    else:
-        raw_value = t(lang, key, **kwargs)
-    if key == "order_created" and not raw_value.startswith(("[[HTML]]", "[HTML]")):
-        # Keep the payment values individually copyable in Telegram,
-        # even when the admin's customized template uses plain placeholders.
-        copyable_values = {
-            name: str(kwargs[name])
-            for name in ("total", "binance_id")
-            if name in kwargs
-        }
-        if copyable_values:
-            raw_template = str(raw_override) if raw_override is not None else ""
-            for name, plain_value in copyable_values.items():
-                if f"`{{{name}}}`" not in raw_template:
-                    raw_value = raw_value.replace(plain_value, f"`{plain_value}`", 1)
-    value = render_stored_rich_text(raw_value)
-    for token, protected_value in protected_values.items():
-        value = value.replace(token, protected_value)
-    inline_emojis = "<tg-emoji " in value
-    emoji_id = db.get_text_override_icon(key, lang)
-    if emoji_id and not inline_emojis:
-        value = f'<tg-emoji emoji-id="{html.escape(emoji_id)}">⭐</tg-emoji> {value}'
-    return value
 
 
 async def process_txid(update, context, lang, order_id, txid):
@@ -5420,90 +4485,6 @@ async def handle_pending_photo(update, context):
         parse_mode=ParseMode.MARKDOWN,
     )
 
-def order_service_groups(orders):
-    service_emojis = {service["name"]: service.get("emoji", "📦") for service in db.list_services()}
-    grouped = {}
-    for order in orders:
-        name = str(order.get("service_name") or "Other")
-        grouped.setdefault(name, {
-            "name": name,
-            "emoji": service_emojis.get(name, "📦"),
-            "orders": [],
-        })["orders"].append(order)
-    groups = sorted(grouped.values(), key=lambda group: (-len(group["orders"]), group["name"].lower()))
-    for group in groups:
-        group["count"] = len(group["orders"])
-    return groups
-
-
-def orders_text_export(lang, orders, title):
-    lines = [
-        f"PURCHASE HISTORY — {title}",
-        "=" * max(32, len(title) + 19),
-        "",
-    ]
-    for order in orders:
-        created_at = order.get("created_at")
-        delivered_at = order.get("delivered_at")
-        purchase_date = (
-            datetime.fromtimestamp(created_at, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-            if created_at else "—"
-        )
-        delivery_date = (
-            datetime.fromtimestamp(delivered_at, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-            if delivered_at else "—"
-        )
-        qty = max(1, int(order.get("qty") or 1))
-        unit_price = float(order.get("unit_price") or 0)
-        wallet_amount = float(order.get("wallet_amount") or 0)
-        external_amount = float(order.get("total_price") or 0)
-        paid_total = round(wallet_amount + external_amount, 2)
-        gross_total = float(
-            order.get("gross_total")
-            if order.get("gross_total") is not None
-            else unit_price * qty if unit_price else paid_total
-        )
-        offer = db.get_offer(order.get("offer_id")) if order.get("offer_id") else None
-        warranty = (
-            "FW" if warranty_service.has_full_warranty(order)
-            else str(order.get("warranty") or "").strip()
-        )
-        if not warranty and offer:
-            warranty = (
-                "FW" if warranty_service.has_full_warranty(offer)
-                else str(offer.get("note") or "").strip()
-                or warranty_service.offer_warranty_label(offer, lang=lang)
-            )
-        warranty = warranty or "No warranty information recorded"
-        delivered_content = order_service.delivery_content_for_order(order)
-        payment_method = str(
-            order.get("verify_method") or order.get("payment_method") or "—"
-        )
-        txid = str(order.get("txid") or "—")
-        lines.extend([
-            f"ORDER #{order['id']}",
-            "-" * 32,
-            f"Service: {order.get('service_name') or '—'}",
-            f"Offer: {order.get('offer_name') or '—'}",
-            f"Quantity: {qty}",
-            f"Unit price: {unit_price:.2f} {order.get('currency', CURRENCY)}",
-            f"Catalog total: {gross_total:.2f} {order.get('currency', CURRENCY)}",
-            f"Total paid: {paid_total:.2f} {order.get('currency', CURRENCY)}",
-            f"Status: {status_label(lang, order.get('status', ''))}",
-            f"Purchase date: {purchase_date}",
-            f"Delivery date: {delivery_date}",
-            f"Payment method: {payment_method}",
-            f"Transaction ID: {txid}",
-            f"Warranty: {warranty}",
-            "",
-            "PURCHASE CONTENT",
-            "-" * 32,
-            delivered_content or "Content not delivered or no longer available.",
-            "",
-            "=" * 48,
-            "",
-        ])
-    return "\n".join(lines)
 
 
 async def send_orders_export(query, lang, orders, title):
