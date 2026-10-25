@@ -83,6 +83,59 @@ def test_reseller_api_setup_guide_contains_complete_integration_contract(monkeyp
     assert "https://shop.example/api/swagger" in guide
 
 
+def test_reseller_api_refresh_updates_the_open_message(monkeypatch, mock_mongodb):
+    from bot import show_reseller_api
+
+    monkeypatch.setattr(
+        "bot.public_base_url_from_environment", lambda: "https://bot.ourblackmarket.com"
+    )
+    monkeypatch.setattr("bot.buyer_api_service.dashboard", lambda user_id: {
+        "active": True,
+        "balance": 12.5,
+        "currency": "USDT",
+        "total_orders": 3,
+        "spend_30d": 4.0,
+        "key": {"prefix": "bm_"},
+    })
+    message = SimpleNamespace(text="old", reply_text=AsyncMock())
+    query = SimpleNamespace(
+        message=message,
+        data="reseller_api",
+        edit_message_text=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=42),
+        effective_chat=SimpleNamespace(type="private"),
+        effective_message=message,
+        callback_query=query,
+    )
+
+    asyncio.run(show_reseller_api(update, SimpleNamespace()))
+
+    query.edit_message_text.assert_awaited()
+    message.reply_text.assert_not_awaited()
+    rendered = query.edit_message_text.await_args.args[0]
+    assert "https://bot.ourblackmarket.com/api/v2/telegram-buyer" in rendered
+
+
+def test_unchanged_callback_screen_stays_as_it_is():
+    from telegram.error import BadRequest
+
+    from bot import show_callback_screen
+
+    message = SimpleNamespace(text="same", reply_text=AsyncMock())
+    query = SimpleNamespace(
+        message=message,
+        edit_message_text=AsyncMock(side_effect=BadRequest("Message is not modified")),
+        edit_message_reply_markup=AsyncMock(),
+    )
+
+    asyncio.run(show_callback_screen(query, "same", reply_markup=None))
+
+    message.reply_text.assert_not_awaited()
+
+
 @pytest.mark.parametrize(("code", "expected"), [
     ("not_found", "Transaction not found"),
     ("wrong_currency", "Unsupported deposit currency"),

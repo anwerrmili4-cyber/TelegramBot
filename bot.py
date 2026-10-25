@@ -1416,8 +1416,19 @@ async def show_reseller_api(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         has_key=summary["active"],
         docs_url=f"{public_base_url_from_environment()}/api/swagger",
     )
+    text = reseller_api_dashboard_text(uid, revealed_key=revealed_key)
+    query = getattr(update, "callback_query", None)
+    if query is not None and getattr(query, "message", None) is not None:
+        await show_callback_screen(
+            query,
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+        return
     await update.effective_message.reply_text(
-        reseller_api_dashboard_text(uid, revealed_key=revealed_key),
+        text,
         parse_mode=ParseMode.HTML,
         reply_markup=markup,
         link_preview_options=LinkPreviewOptions(is_disabled=True),
@@ -1677,6 +1688,8 @@ async def show_callback_screen(
         with contextlib.suppress(Exception):
             await query.edit_message_reply_markup(reply_markup=None)
     except Exception as exc:
+        if "message is not modified" in str(exc).lower():
+            return
         log.warning("show_callback_screen error with parse_mode=%s: %s. Retrying with plain text fallback.", parse_mode, exc)
         clean_text = re.sub(r"<[^>]+>", "", str(text or ""))
         try:
