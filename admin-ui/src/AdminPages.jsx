@@ -7,6 +7,7 @@ const PAGES = {
   "ai-manager": lazyPage(() => import("./pages/AiManagerPage.jsx")),
   orders: lazyPage(() => import("./pages/OrdersPage.jsx")),
   catalog: lazyPage(() => import("./pages/CatalogPage.jsx")),
+  "product-buyers": lazyPage(() => import("./pages/ProductBuyersPage.jsx")),
   "api-products": lazyPage(() => import("./pages/ApiProductsPage.jsx")),
   "provider-history": lazyPage(() => import("./pages/ProviderHistoryPage.jsx")),
   "api-clients": lazyPage(() => import("./pages/ResellerClientsPage.jsx")),

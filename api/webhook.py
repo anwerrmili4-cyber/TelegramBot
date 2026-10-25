@@ -68,7 +68,7 @@ from app.domain import (
     warranty_service,
 )
 from app.jobs import scheduled as scheduled_jobs
-from app.web import dashboard_api, notification_service
+from app.web import dashboard_api, notification_service, product_buyers
 from config import (
     ADMIN_ID,
     BOT_TOKEN,
@@ -893,7 +893,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-stats", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-inventory", "catalog", "api-products", "provider-history", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "product-buyers", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-stats", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-inventory", "site-product-buyers", "catalog", "api-products", "provider-history", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1224,6 +1224,13 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(200, messages)
             except Exception as exc:
                 self._reply(500, {"ok": False, "error": str(exc)})
+            return
+
+        elif path == "/admin/api/product-buyers":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, product_buyers.report(parse_qs(url.query)))
             return
 
         elif path == "/admin/api/orders":

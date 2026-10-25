@@ -61,6 +61,7 @@ const NAV_GROUPS = [
   ] },
   { label: "Catalogue & finance", items: [
     { id: "catalog", label: "Mon catalogue", icon: ShoppingBag },
+    { id: "product-buyers", label: "Acheteurs", icon: Users },
     { id: "inventory", label: "Inventaire", icon: Boxes },
     { id: "api-products", label: "Fournisseurs & API", icon: Cloud },
     { id: "provider-history", label: "Historique fournisseurs", icon: Cloud },
@@ -94,6 +95,7 @@ const SITE_NAV_GROUPS = [
   ] },
   { label: "Catalogue & finance", items: [
     { id: "site-catalog", label: "Mon catalogue", icon: ShoppingBag },
+    { id: "site-product-buyers", label: "Acheteurs", icon: Users },
     { id: "site-inventory", label: "Inventaire", icon: Boxes },
     { id: "site-deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
   ] },
