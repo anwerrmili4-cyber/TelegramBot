@@ -19,3 +19,24 @@ scripts/resend/node_modules/
 mobile-app/.gradle/
 mobile-app/local.properties
 mobile-app/app/build/
+
+# Generated media, previews, deployment captures, and temporary documents
+/output/
+/outputs/
+/tmp/
+
+# Generated customer-site build and local runtime state
+/customer-site/dist/
+/customer-site/.next/
+/customer-site/.sites-runtime/
+/customer-site/.vinext/
+/customer-site/.wrangler/
+/customer-site/next-env.d.ts
+
+# Local runtime databases and their journals
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
