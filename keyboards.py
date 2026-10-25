@@ -35,7 +35,7 @@ from i18n import t
 BUTTON_TEXT_KEYS = {
     "menu_catalog", "menu_methods", "menu_bot_like_mine", "menu_lovable", "menu_orders", "menu_topup", "menu_account", "menu_affiliate",
     "menu_support", "menu_lang", "menu_admin", "menu_reseller_api", "btn_main_menu", "support_no_order",
-    "catalog_request_button",
+    "catalog_request_button", "catalog_search_button", "catalog_search_again_button",
     "catalog_notifications_on", "catalog_notifications_off",
     "profile_deposit", "profile_withdraw", "profile_orders", "profile_referral",
     "profile_shop", "profile_notifications", "profile_reseller_api", "profile_main_menu",
@@ -420,8 +420,8 @@ def services_keyboard(lang):
 
     buttons.append([
         translated_button(
-            lang, "catalog_request_button",
-            callback_data="catalog_request", style="primary",
+            lang, "catalog_search_button",
+            callback_data="catalog_search", style="primary",
         ),
     ])
     buttons.append([
@@ -471,7 +471,7 @@ def _catalog_offers_keyboard(lang, _catalog_notifications_enabled=True):
     buttons = []
     db.preload_text_overrides(
         (
-            "stock_label", "price_tbd", "catalog_request_button",
+            "stock_label", "price_tbd", "catalog_search_button",
             "btn_refresh_short", "btn_main_menu_short",
         ),
         lang,
@@ -581,13 +581,78 @@ def _catalog_offers_keyboard(lang, _catalog_notifications_enabled=True):
 
     buttons.append([
         translated_button(
+            lang, "catalog_search_button",
+            callback_data="catalog_search", style="primary",
+        ),
+    ])
+    buttons.append([
+        translated_button(
+            lang, "btn_refresh_short", callback_data="catalog", style="success",
+        ),
+        translated_button(
+            lang, "btn_main_menu_short", callback_data="home", style="danger",
+        ),
+    ])
+    return InlineKeyboardMarkup(buttons)
+
+
+def catalog_search_results_keyboard(lang, offers):
+    """Show matching offers and keep product requests behind search results."""
+    buttons = []
+    db.preload_text_overrides(
+        (
+            "stock_label", "price_tbd", "catalog_search_again_button",
+            "catalog_request_button", "btn_back_services", "btn_main_menu_short",
+        ),
+        lang,
+    )
+    stock_label = t(lang, "stock_label")
+    price_tbd = t(lang, "price_tbd")
+    stock_icon = db.get_text_override_icon("stock_label", lang) or None
+
+    for offer in offers:
+        display_offer = dict(offer)
+        service_name = clean_button_name(offer.get("service_name"))
+        offer_name = clean_button_name(offer.get("name")) or f"Offer #{offer['id']}"
+        display_offer["name"] = (
+            f"{service_name} — {offer_name}" if service_name else offer_name
+        )
+        stock = int(offer.get("stock") or 0)
+        is_out = not offer.get("unlimited_stock") and stock <= 0
+        style = "danger" if is_out else (
+            "success" if offer.get("unlimited_stock") else stock_button_style(stock)
+        )
+        buttons.append([InlineKeyboardButton(
+            offer_button_label(
+                lang,
+                display_offer,
+                stock_label=stock_label,
+                price_tbd=price_tbd,
+            ),
+            callback_data=f"off:{offer['id']}",
+            style=style,
+            icon_custom_emoji_id=valid_custom_emoji_id(
+                stock_icon,
+                offer.get("custom_emoji_id"),
+                offer.get("service_custom_emoji_id"),
+            ),
+        )])
+
+    buttons.append([
+        translated_button(
+            lang, "catalog_search_again_button",
+            callback_data="catalog_search", style="primary",
+        ),
+    ])
+    buttons.append([
+        translated_button(
             lang, "catalog_request_button",
             callback_data="catalog_request", style="primary",
         ),
     ])
     buttons.append([
         translated_button(
-            lang, "btn_refresh_short", callback_data="catalog", style="success",
+            lang, "btn_back_services", callback_data="catalog", style="success",
         ),
         translated_button(
             lang, "btn_main_menu_short", callback_data="home", style="danger",

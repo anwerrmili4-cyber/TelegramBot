@@ -104,6 +104,7 @@ def test_catalog_reuses_shared_translation_and_icon_lookups(monkeypatch):
             "stock_label": "Stock",
             "price_tbd": "Price TBD",
             "catalog_request_button": "Request",
+            "catalog_search_button": "Search products",
             "catalog_notifications_on": "Catalog alerts: on",
             "catalog_notifications_off": "Catalog alerts: off",
             "btn_refresh_short": "Refresh",
@@ -278,9 +279,34 @@ def test_catalog_footer_uses_requested_action_colors(monkeypatch):
     }
 
     assert "preorder_catalog" not in actions
-    assert actions["catalog_request"].style == "primary"
+    assert "catalog_request" not in actions
+    assert actions["catalog_search"].style == "primary"
     assert actions["catalog"].style == "success"
     assert actions["home"].style == "danger"
+
+
+def test_search_results_offer_products_then_allow_a_new_request():
+    keyboard = kb.catalog_search_results_keyboard("en", [{
+        "id": 11,
+        "service_id": 1,
+        "service_name": "ChatGPT",
+        "name": "Plus",
+        "price": 10.0,
+        "currency": "USDT",
+        "stock": 2,
+        "unlimited_stock": False,
+    }])
+    actions = {
+        button.callback_data: button
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data
+    }
+
+    assert actions["off:11"].style == "success"
+    assert "ChatGPT" in actions["off:11"].text
+    assert actions["catalog_search"].style == "primary"
+    assert actions["catalog_request"].style == "primary"
 
 
 def test_normal_catalog_does_not_launch_legacy_direct_preorder(monkeypatch):

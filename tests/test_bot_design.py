@@ -2307,9 +2307,9 @@ def test_orders_export_contains_complete_purchase_and_delivery_content(monkeypat
     assert "SECRET-CREDENTIAL" in content
 
 
-def test_catalog_request_button_supports_admin_premium_emoji(mock_mongodb):
+def test_catalog_search_button_supports_admin_premium_emoji(mock_mongodb):
     db.set_text_override(
-        "catalog_request_button", "en", "Request a product", "premium-catalog-request"
+        "catalog_search_button", "en", "Search products", "premium-catalog-search"
     )
 
     keyboard = kb.services_keyboard("en")
@@ -2317,11 +2317,11 @@ def test_catalog_request_button_supports_admin_premium_emoji(mock_mongodb):
         button
         for row in keyboard.inline_keyboard
         for button in row
-        if button.callback_data == "catalog_request"
+        if button.callback_data == "catalog_search"
     )
 
-    assert button.text == "Request a product"
-    assert button.icon_custom_emoji_id == "premium-catalog-request"
+    assert button.text == "Search products"
+    assert button.icon_custom_emoji_id == "premium-catalog-search"
 
 
 def test_catalog_request_button_prompts_for_customer_need(monkeypatch, mock_mongodb):
@@ -2340,6 +2340,102 @@ def test_catalog_request_button_prompts_for_customer_need(monkeypatch, mock_mong
     message.reply_text.assert_awaited_once()
     assert "Tell us what you need" in message.reply_text.await_args.args[0]
     PENDING.pop(42, None)
+
+
+def test_catalog_search_button_prompts_for_a_product_name(monkeypatch, mock_mongodb):
+    message = SimpleNamespace(reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data="catalog_search",
+        from_user=SimpleNamespace(id=42),
+        message=message,
+        answer=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    assert PENDING.get(42) == ("catalog_search", 0)
+    assert "product name" in message.reply_text.await_args.args[0].lower()
+    PENDING.pop(42, None)
+
+
+def test_catalog_search_returns_matching_purchase_buttons(monkeypatch, mock_mongodb):
+    monkeypatch.setattr("bot.db.list_catalog_offers", lambda: [{
+        "id": 11,
+        "service_id": 1,
+        "service_name": "ChatGPT",
+        "name": "Plus",
+        "price": 10.0,
+        "currency": "USDT",
+        "stock": 2,
+        "unlimited_stock": False,
+    }])
+    message = SimpleNamespace(text="chatgpt plus", reply_text=AsyncMock())
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=42),
+        message=message,
+    )
+    PENDING[42] = ("catalog_search", 0)
+
+    asyncio.run(handle_pending_input(update, SimpleNamespace(), "en"))
+
+    reply = message.reply_text.await_args
+    callbacks = [
+        button.callback_data
+        for row in reply.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert "off:11" in callbacks
+    assert "catalog_request" in callbacks
+    assert PENDING.get(42) is None
+
+
+def test_catalog_search_without_matches_enters_product_request_flow(monkeypatch, mock_mongodb):
+    monkeypatch.setattr("bot.db.list_catalog_offers", lambda: [])
+    message = SimpleNamespace(text="Adobe Firefly annual", reply_text=AsyncMock())
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=42),
+        message=message,
+    )
+    PENDING[42] = ("catalog_search", 0)
+
+    asyncio.run(handle_pending_input(update, SimpleNamespace(), "en"))
+
+    assert PENDING.get(42) == ("catalog_request", "Adobe Firefly annual")
+    response = message.reply_text.await_args.args[0]
+    assert "no matching product" in response.lower()
+    assert "new product request" in response.lower()
+    PENDING.pop(42, None)
+
+
+def test_product_request_after_search_keeps_query_and_customer_details(monkeypatch, mock_mongodb):
+    create_ticket = Mock(return_value={
+        "id": 18,
+        "user_id": 42,
+        "category": "catalog_request",
+    })
+    monkeypatch.setattr("bot.support_service.create_ticket", create_ticket)
+    monkeypatch.setattr("bot.support_bridge.send_client_text", AsyncMock())
+    message = SimpleNamespace(
+        text="One-year license for one person",
+        text_html=None,
+        caption_html=None,
+        entities=[],
+        reply_text=AsyncMock(),
+        delete=AsyncMock(),
+    )
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=42, full_name="Test Customer", username="buyer"),
+        message=message,
+    )
+    PENDING[42] = ("catalog_request", "Adobe Firefly")
+
+    asyncio.run(handle_pending_input(update, SimpleNamespace(bot=SimpleNamespace()), "en"))
+
+    submitted = create_ticket.call_args.args[1]
+    assert "Adobe Firefly" in submitted
+    assert "One-year license for one person" in submitted
+    assert PENDING.get(42) is None
 
 
 def test_catalog_request_is_saved_and_sent_to_support_channel(monkeypatch, mock_mongodb):

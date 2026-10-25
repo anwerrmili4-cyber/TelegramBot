@@ -58,6 +58,7 @@ from app.bot.presentation import (
 from app.domain import (
     affiliate_service,
     buyer_api_service,
+    catalog_search_service,
     inventory_service,
     lovable_service,
     loyalty_service,
@@ -1486,6 +1487,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "manual_order_reply",
         "await_customer_email",
         "await_quantity",
+        "catalog_search",
         "catalog_request",
         "adm_setprice",
         "adm_flash_start",
@@ -2034,6 +2036,13 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "preorder:", "preorder_svc:", "preorder_start:", "preorder_page:", "preorderq:",
     )):
         await q.message.reply_text(t(lang, "out_of_stock"))
+        return
+    if data == "catalog_search":
+        PENDING[uid] = ("catalog_search", 0)
+        await q.message.reply_text(
+            premium_customer_text(lang, "catalog_search_prompt"),
+            parse_mode=ParseMode.HTML,
+        )
         return
     if data == "catalog_request":
         PENDING[uid] = ("catalog_request", 0)
@@ -2765,6 +2774,33 @@ async def handle_pending_input(update, context, lang):
         await send_buy_confirmation(update.message.reply_text, uid, int(ref_id), qty, lang)
         return
 
+    if kind == "catalog_search":
+        query = str(getattr(update.message, "text", "") or "").strip()[:200]
+        if not query:
+            await update.message.reply_text(
+                premium_customer_text(lang, "catalog_search_prompt"),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        matches = await asyncio.to_thread(
+            catalog_search_service.search_saved_catalog,
+            query,
+        )
+        if matches:
+            PENDING.pop(uid, None)
+            await update.message.reply_text(
+                t(lang, "catalog_search_results", query=html.escape(query)),
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb.catalog_search_results_keyboard(lang, matches),
+            )
+            return
+        PENDING[uid] = ("catalog_request", query[:200])
+        await update.message.reply_text(
+            t(lang, "catalog_search_no_results", query=html.escape(query)),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     if kind == "catalog_request":
         request_text = rich_text_from_message(update.message).strip()
         if not request_text:
@@ -2773,6 +2809,12 @@ async def handle_pending_input(update, context, lang):
                 parse_mode=ParseMode.HTML,
             )
             return
+        searched_product = str(ref or "").strip()
+        if searched_product:
+            request_text = (
+                f"Product searched: {searched_product}\n\n"
+                f"Customer details: {request_text}"
+            )
         ticket = support_service.create_ticket(uid, request_text, category="catalog_request")
         PENDING.pop(uid, None)
         await support_bridge.send_client_text(

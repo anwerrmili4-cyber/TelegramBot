@@ -376,9 +376,34 @@ TRANSLATIONS = {
         "ar": "🔕 تنبيهات المتجر: متوقفة",
     },
     "catalog_request_button": {
-        "fr": "🔎 Can't find what you need?",
-        "en": "🔎 Can't find what you need?",
-        "ar": "🔎 لا تجد ما تحتاجه؟",
+        "fr": "➕ Request a new product",
+        "en": "➕ Request a new product",
+        "ar": "➕ اطلب منتجًا جديدًا",
+    },
+    "catalog_search_button": {
+        "fr": "🔎 Search products",
+        "en": "🔎 Search products",
+        "ar": "🔎 ابحث عن منتج",
+    },
+    "catalog_search_again_button": {
+        "fr": "🔎 Search again",
+        "en": "🔎 Search again",
+        "ar": "🔎 ابحث مرة أخرى",
+    },
+    "catalog_search_prompt": {
+        "fr": "🔎 *Search products*\n\nSend the product name or service name you are looking for.",
+        "en": "🔎 *Search products*\n\nSend the product name or service name you are looking for.",
+        "ar": "🔎 *البحث عن منتج*\n\nأرسل اسم المنتج أو اسم الخدمة التي تبحث عنها.",
+    },
+    "catalog_search_results": {
+        "fr": "🔎 <b>Results for:</b> {query}\n\nChoose a matching product. If it is still not here, request a new product below.",
+        "en": "🔎 <b>Results for:</b> {query}\n\nChoose a matching product. If it is still not here, request a new product below.",
+        "ar": "🔎 <b>نتائج البحث عن:</b> {query}\n\nاختر منتجًا مطابقًا. إذا لم تجده، اطلب منتجًا جديدًا أدناه.",
+    },
+    "catalog_search_no_results": {
+        "fr": "🔎 <b>No matching product found for:</b> {query}\n\nYour search is now a new product request. Send any useful details to complete the request.",
+        "en": "🔎 <b>No matching product found for:</b> {query}\n\nYour search is now a new product request. Send any useful details to complete the request.",
+        "ar": "🔎 <b>لم يتم العثور على منتج مطابق لـ:</b> {query}\n\nتحول بحثك الآن إلى طلب منتج جديد. أرسل أي تفاصيل مفيدة لإكمال الطلب.",
     },
     "catalog_request_prompt": {
         "fr": "✍️ *Tell us what you need*\n\nSend the product or service name and any useful details. Our team will review your request.",
