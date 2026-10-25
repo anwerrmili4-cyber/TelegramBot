@@ -22,6 +22,9 @@ import database as db
 from config import (
     CANBOSO_API_BASE,
     CANBOSO_API_KEY,
+    CATAISHOP_API_BASE,
+    CATAISHOP_API_KEY,
+    CATAISHOP_VND_PER_USDT,
     CGPT_ACTIVE_API_BASE,
     CGPT_ACTIVE_API_KEY,
     GPT_CHEAP_API_KEY,
@@ -29,6 +32,8 @@ from config import (
     KAKAO_API_KEY,
     MAILREADER_API_BASE,
     MAILREADER_API_KEY,
+    MEGAMARKET_API_BASE,
+    MEGAMARKET_API_KEY,
     NASTELE_API_BASE,
     NASTELE_API_KEY,
     NASTELE_VND_PER_USDT,
@@ -63,6 +68,8 @@ CGPT_ACTIVE_PROVIDER = "cgpt_active"
 VENTEBOT_PROVIDER = "ventebot"
 PHAGIA_PROVIDER = "phagia"
 SAFWANTIGER_PROVIDER = "safwantiger"
+MEGAMARKET_PROVIDER = "megamarket"
+CATAISHOP_PROVIDER = "cataishop"
 CGPT_ACTIVE_DISPLAY_NAME = "Rich AI Store"
 PROVIDER_DISPLAY_NAMES = {
     PROVIDER: "MailReader",
@@ -79,6 +86,8 @@ PROVIDER_DISPLAY_NAMES = {
     VENTEBOT_PROVIDER: "VenteBot",
     PHAGIA_PROVIDER: "Shop Phá Giá",
     SAFWANTIGER_PROVIDER: "Safwan Tiger",
+    MEGAMARKET_PROVIDER: "MegaMarket",
+    CATAISHOP_PROVIDER: "Cataishop",
 }
 PROVIDER_BOT_USERNAMES = {
     PROVIDER: "dodistore_bot",
@@ -95,6 +104,8 @@ PROVIDER_BOT_USERNAMES = {
     VENTEBOT_PROVIDER: "storeBatmanBot",
     PHAGIA_PROVIDER: "tailieudenphagiabot",
     SAFWANTIGER_PROVIDER: "SafwanTigerShopbot",
+    MEGAMARKET_PROVIDER: "megamarketofficial_bot",
+    CATAISHOP_PROVIDER: "cataishop_bot",
 }
 SUPPORTED_PROVIDERS = {
     PROVIDER,
@@ -111,6 +122,8 @@ SUPPORTED_PROVIDERS = {
     VENTEBOT_PROVIDER,
     PHAGIA_PROVIDER,
     SAFWANTIGER_PROVIDER,
+    MEGAMARKET_PROVIDER,
+    CATAISHOP_PROVIDER,
 }
 CANBOSO_PROVIDERS = {
     CANBOSO_PROVIDER,
@@ -139,15 +152,6 @@ class ResellerOrderNotCreatedError(ResellerApiError):
     """The supplier rejected the purchase before creating an order."""
 
 
-def provider_display_name(provider: str) -> str:
-    """Return the public supplier name used in admin messages."""
-    normalized = str(provider or "").strip().lower()
-    custom = _display_name_overrides().get(normalized)
-    if custom:
-        return custom
-    return PROVIDER_DISPLAY_NAMES.get(normalized, normalized or "Fournisseur inconnu")
-
-
 _DISPLAY_NAME_SETTING = "reseller_display_names"
 
 
@@ -164,6 +168,15 @@ def _display_name_overrides() -> dict[str, str]:
         for key, value in parsed.items()
         if str(value or "").strip()
     }
+
+
+def provider_display_name(provider: str) -> str:
+    """Return the public supplier name used in admin messages."""
+    normalized = str(provider or "").strip().lower()
+    custom = _display_name_overrides().get(normalized)
+    if custom:
+        return custom
+    return PROVIDER_DISPLAY_NAMES.get(normalized, normalized or "Fournisseur inconnu")
 
 
 def rename_provider(provider: str, name: str) -> str:
@@ -245,6 +258,23 @@ def get_nastele_vnd_rate() -> float:
         except (ValueError, TypeError):
             pass
     return float(NASTELE_VND_PER_USDT or 25500.0)
+
+
+def get_cataishop_vnd_rate() -> float:
+    """Return VND per USDT for Cataishop dealer prices."""
+    setting = db.get_setting("cataishop_vnd_per_usdt")
+    if setting is not None:
+        try:
+            val = float(setting)
+            if val > 0:
+                return val
+        except (ValueError, TypeError):
+            pass
+    try:
+        configured = float(CATAISHOP_VND_PER_USDT or 0)
+    except (TypeError, ValueError):
+        configured = 0
+    return configured if configured > 0 else get_nastele_vnd_rate()
 
 
 def _request_json(
@@ -1037,6 +1067,162 @@ def _safwantiger_request_json(
     return payload
 
 
+def _megamarket_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Call MegaMarket's reseller API without exposing its bearer key."""
+    if not MEGAMARKET_API_KEY:
+        raise ResellerApiError(
+            "MegaMarket n’est pas configuré. Ajoutez HP_MEGAMARKET_API_KEY "
+            "dans les variables d’environnement."
+        )
+    if not MEGAMARKET_API_BASE:
+        raise ResellerApiError(
+            "L’adresse API MegaMarket manque. Ajoutez HP_MEGAMARKET_API_BASE."
+        )
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {
+        "Authorization": f"Bearer {MEGAMARKET_API_KEY}",
+        "Accept": "application/json",
+        **({"Content-Type": "application/json"} if body is not None else {}),
+        "User-Agent": "BlackMarket-Reseller/1.0",
+    }
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+    request = Request(
+        f"{MEGAMARKET_API_BASE}{path}",
+        headers=headers,
+        data=payload_bytes,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        error_payload: dict[str, Any] = {}
+        raw_text = ""
+        try:
+            raw_text = exc.read().decode("utf-8")
+            decoded = json.loads(raw_text)
+            if isinstance(decoded, dict):
+                error_payload = decoded
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        message = str(
+            error_payload.get("message")
+            or error_payload.get("error")
+            or raw_text
+            or ""
+        )[:300]
+        lowered = message.lower()
+        if exc.code in {401, 403} or "invalid api key" in lowered or "api key" in lowered:
+            raise ResellerApiError(
+                "Clé API MegaMarket refusée. Remplacez-la par une clé active."
+            ) from exc
+        if method == "POST" and exc.code == 404 and not error_payload:
+            raise ResellerOrderNotCreatedError(
+                "MegaMarket n’a pas encore publié d’endpoint de commande. "
+                "Aucun achat n’a été envoyé."
+            ) from exc
+        if (
+            exc.code == 402
+            or "balance" in lowered
+            or "insufficient" in lowered
+            or "out of stock" in lowered
+            or "out_of_stock" in lowered
+            or "sold out" in lowered
+        ):
+            raise ResellerOrderNotCreatedError(
+                message or "MegaMarket a refusé la commande avant de la créer."
+            ) from exc
+        error_type = (
+            ResellerOrderNotCreatedError
+            if method == "POST" and exc.code in {400, 404, 409, 422}
+            else ResellerApiError
+        )
+        raise error_type(
+            message or f"MegaMarket a répondu avec l’erreur HTTP {exc.code}."
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ResellerApiError("MegaMarket est temporairement indisponible.") from exc
+    if isinstance(payload, list):
+        payload = {"products": payload}
+    if not isinstance(payload, dict):
+        raise ResellerApiError("Réponse MegaMarket invalide.")
+    if payload.get("success") is False or payload.get("ok") is False:
+        message = str(
+            payload.get("message") or payload.get("error") or "Requête MegaMarket refusée."
+        )[:300]
+        lowered = message.lower()
+        if "balance" in lowered or "stock" in lowered or "insufficient" in lowered:
+            raise ResellerOrderNotCreatedError(message)
+        raise ResellerApiError(message)
+    return payload
+
+
+def _cataishop_request_json(
+    path: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call Cataishop's Telehub API without exposing its dealer key."""
+    if not CATAISHOP_API_KEY or not CATAISHOP_API_BASE:
+        raise ResellerApiError(
+            "Cataishop n'est pas configuré. Ajoutez HP_CATAISHOP_API_KEY "
+            "dans les variables d'environnement."
+        )
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        f"{CATAISHOP_API_BASE}{path}",
+        headers={
+            "X-API-KEY": CATAISHOP_API_KEY,
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if body is not None else {}),
+            "User-Agent": "BlackMarket-Reseller/1.0",
+        },
+        data=payload_bytes,
+        method=method,
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = ""
+        try:
+            parsed = json.loads(exc.read().decode("utf-8"))
+            if isinstance(parsed, dict):
+                detail = str(parsed.get("message") or "")[:300]
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+            detail = ""
+        if exc.code in {400, 404}:
+            raise ResellerOrderNotCreatedError(
+                detail or "Achat Cataishop refusé : solde ou stock insuffisant."
+            ) from exc
+        messages = {
+            401: "Clé API Cataishop refusée. Remplacez-la par une clé active.",
+            500: "Cataishop n'a pas pu terminer la transaction.",
+        }
+        raise ResellerApiError(
+            detail or messages.get(exc.code, f"Cataishop a répondu avec l'erreur HTTP {exc.code}.")
+        ) from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ResellerApiError("Cataishop est temporairement indisponible.") from exc
+    if not isinstance(payload, dict):
+        raise ResellerApiError("Réponse Cataishop invalide.")
+    if payload.get("success") is False:
+        message = str(payload.get("message") or "Requête Cataishop refusée.")[:300]
+        lowered = message.casefold()
+        if any(word in lowered for word in ("số dư", "không đủ", "stock", "balance", "hết")):
+            raise ResellerOrderNotCreatedError(message)
+        raise ResellerApiError(message)
+    return payload
+
+
 def _published_offer_counts() -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in db.get_conn().offers.aggregate([
@@ -1142,6 +1328,18 @@ def provider_summaries() -> list[dict[str, Any]]:
             "configured": bool(SAFWANTIGER_API_KEY),
             "documentation_url": f"{SAFWANTIGER_API_BASE}/api",
         },
+        {
+            "id": MEGAMARKET_PROVIDER,
+            "name": "MegaMarket",
+            "configured": bool(MEGAMARKET_API_KEY and MEGAMARKET_API_BASE),
+            "documentation_url": MEGAMARKET_API_BASE,
+        },
+        {
+            "id": CATAISHOP_PROVIDER,
+            "name": "Cataishop",
+            "configured": bool(CATAISHOP_API_KEY and CATAISHOP_API_BASE),
+            "documentation_url": "https://cms.cataishop.shop/api-docs.html",
+        },
     ]
     for item in summaries:
         item["default_name"] = item["name"]
@@ -1167,6 +1365,8 @@ def _provider_is_configured(provider: str) -> bool:
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
         PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
         SAFWANTIGER_PROVIDER: bool(SAFWANTIGER_API_KEY),
+        MEGAMARKET_PROVIDER: bool(MEGAMARKET_API_KEY and MEGAMARKET_API_BASE),
+        CATAISHOP_PROVIDER: bool(CATAISHOP_API_KEY and CATAISHOP_API_BASE),
     }
     return bool(flags.get(str(provider or "").strip().lower()))
 
@@ -1234,6 +1434,8 @@ def supplier_stock(provider: str, raw: dict[str, Any]) -> tuple[int, bool]:
         return 0, True
     if _explicitly_unlimited(raw):
         return 0, True
+    if provider == MEGAMARKET_PROVIDER:
+        return max(0, _count_from_keys(raw, "quantity_available", "stock", "stock_count")), False
     if provider in CANBOSO_PROVIDERS:
         stats = raw.get("stats") if isinstance(raw.get("stats"), dict) else {}
         availability = raw.get("availability") if isinstance(raw.get("availability"), dict) else {}
@@ -1364,6 +1566,30 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
         account = _safwantiger_request_json("/api/balance")
         reseller = {"balance": account.get("balance", 0)}
         supplier_name = "Safwan Tiger"
+    elif provider == MEGAMARKET_PROVIDER:
+        payload = _megamarket_request_json("/api/v1/reseller/prices?allProviders=0")
+        reseller = {
+            "balance": payload.get(
+                "balance",
+                payload.get("wallet_balance", 0),
+            ),
+        }
+        supplier_name = "MegaMarket"
+    elif provider == CATAISHOP_PROVIDER:
+        payload = _cataishop_request_json("/api/v1/telehub/products")
+        account_payload = _cataishop_request_json("/api/v1/telehub/user")
+        account = (
+            account_payload.get("data")
+            if isinstance(account_payload.get("data"), dict)
+            else {}
+        )
+        rate = get_cataishop_vnd_rate()
+        try:
+            raw_balance = float(account.get("balance") or 0)
+        except (TypeError, ValueError):
+            raw_balance = 0.0
+        reseller = {"balance": round(raw_balance / rate, 2) if rate else 0}
+        supplier_name = "Cataishop"
     elif provider == PHAGIA_PROVIDER:
         payload = _phagia_request_json("/api/v2/client/products")
         wallet_payload = _phagia_request_json("/api/v2/client/wallet")
@@ -1391,7 +1617,7 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
             )
         elif isinstance(phagia_data, list):
             raw_products = phagia_data
-    if provider in {KAKAO_PROVIDER, VEX_PROVIDER, NASTELE_PROVIDER} and not isinstance(raw_products, list):
+    if provider in {KAKAO_PROVIDER, VEX_PROVIDER, NASTELE_PROVIDER, CATAISHOP_PROVIDER} and not isinstance(raw_products, list):
         raw_products = payload.get("data")
     if not isinstance(raw_products, list):
         raise ResellerApiError("Le fournisseur ne contient aucune liste de produits.")
@@ -1453,6 +1679,8 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 )))
             if provider == VENTEBOT_PROVIDER:
                 wholesale = float(Decimal(str(raw.get("price_usd") or 0)))
+            elif provider == MEGAMARKET_PROVIDER:
+                wholesale = float(Decimal(str(raw.get("sell_price") or 0)))
             elif provider == PHAGIA_PROVIDER:
                 phagia_price = (
                     raw.get("reseller_price")
@@ -1465,6 +1693,10 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 if isinstance(phagia_price, dict):
                     phagia_price = phagia_price.get("amount", 0)
                 wholesale = float(Decimal(str(phagia_price)))
+            elif provider == CATAISHOP_PROVIDER:
+                rate = get_cataishop_vnd_rate()
+                vnd_price = float(Decimal(str(raw.get("price") or 0)))
+                wholesale = round(vnd_price / rate, 4) if rate else 0.0
         except (InvalidOperation, ValueError):
             wholesale = 0.0
         stock, unlimited_stock = supplier_stock(provider, raw)
@@ -1496,7 +1728,7 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
             )[:200],
             "description": (
                 _safwantiger_plain(raw.get("description"), 2000)
-                if provider == SAFWANTIGER_PROVIDER
+                if provider in {SAFWANTIGER_PROVIDER, CATAISHOP_PROVIDER}
                 else str(
                     raw.get("description")
                     or (f"Source : {raw.get('source')}" if raw.get("source") else "")
@@ -1508,19 +1740,23 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 or ""
             )[:2000],
             "wholesale_price": wholesale,
-            "currency": str(
-                (
-                    "USDT"
-                    if str(
-                        (raw.get("price") or {}).get("currency", "USD")
-                        if isinstance(raw.get("price"), dict)
-                        else "USD"
-                    ).upper() in {"USD", "USDT"}
-                    else (raw.get("price") or {}).get("currency", "USDT")
-                )
-                if provider in CANBOSO_PROVIDERS
-                else raw.get("currency") or "USDT"
-            )[:12],
+            "currency": (
+                "USDT"
+                if provider == CATAISHOP_PROVIDER
+                else str(
+                    (
+                        "USDT"
+                        if str(
+                            (raw.get("price") or {}).get("currency", "USD")
+                            if isinstance(raw.get("price"), dict)
+                            else "USD"
+                        ).upper() in {"USD", "USDT"}
+                        else (raw.get("price") or {}).get("currency", "USDT")
+                    )
+                    if provider in CANBOSO_PROVIDERS
+                    else raw.get("currency") or "USDT"
+                )[:12]
+            ),
             "stock": stock,
             "unlimited_stock": unlimited_stock,
             "manual_delivery": bool(
@@ -1560,7 +1796,7 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
             ),
             "custom_description": config.get("description") or (
                 _safwantiger_plain(raw.get("description"), 2000)
-                if provider == SAFWANTIGER_PROVIDER
+                if provider in {SAFWANTIGER_PROVIDER, CATAISHOP_PROVIDER}
                 else str(raw.get("description") or "")[:2000]
             ),
             "warranty": (
@@ -1705,6 +1941,8 @@ def detect_restock_events() -> dict[str, Any]:
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
         PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
         SAFWANTIGER_PROVIDER: bool(SAFWANTIGER_API_KEY),
+        MEGAMARKET_PROVIDER: bool(MEGAMARKET_API_KEY and MEGAMARKET_API_BASE),
+        CATAISHOP_PROVIDER: bool(CATAISHOP_API_KEY and CATAISHOP_API_BASE),
     }
     events: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -1763,6 +2001,8 @@ def detect_supplier_price_changes() -> dict[str, Any]:
         VENTEBOT_PROVIDER: bool(VENTEBOT_API_KEY),
         PHAGIA_PROVIDER: bool(PHAGIA_API_KEY and PHAGIA_API_BASE),
         SAFWANTIGER_PROVIDER: bool(SAFWANTIGER_API_KEY),
+        MEGAMARKET_PROVIDER: bool(MEGAMARKET_API_KEY and MEGAMARKET_API_BASE),
+        CATAISHOP_PROVIDER: bool(CATAISHOP_API_KEY and CATAISHOP_API_BASE),
     }
     changes: list[dict[str, Any]] = []
     flash_sales: list[dict[str, Any]] = []
@@ -1877,6 +2117,8 @@ def save_catalog_product(
         CGPT_ACTIVE_PROVIDER: "Produit API Rich AI Store",
         VENTEBOT_PROVIDER: "Produit API VenteBot",
         PHAGIA_PROVIDER: "Produit API Shop Phá Giá",
+        MEGAMARKET_PROVIDER: "Produit API MegaMarket",
+        CATAISHOP_PROVIDER: "Produit API Cataishop",
     }.get(provider, "Produit API MailReader")
     warranty = str(warranty or default_warranty).strip()[:250]
     delivery_delay = str(delivery_delay or "Instantané après confirmation").strip()[:120]
@@ -2358,6 +2600,31 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                     "request_id": external_order_id,
                 },
             )
+        elif provider == MEGAMARKET_PROVIDER:
+            response = _megamarket_request_json(
+                "/api/v1/reseller/orders",
+                method="POST",
+                body={
+                    "product_id": str(offer["supplier_product_id"]),
+                    "quantity": int(order.get("qty") or 1),
+                    "external_order_id": external_order_id,
+                },
+                idempotency_key=external_order_id,
+            )
+        elif provider == CATAISHOP_PROVIDER:
+            supplier_product_id = str(offer["supplier_product_id"])
+            response = _cataishop_request_json(
+                "/api/v1/telehub/buy",
+                method="POST",
+                body={
+                    "product_id": (
+                        int(supplier_product_id)
+                        if supplier_product_id.isdigit()
+                        else supplier_product_id
+                    ),
+                    "quantity": int(order.get("qty") or 1),
+                },
+            )
         elif provider == PHAGIA_PROVIDER:
             supplier_product_id = str(offer["supplier_product_id"])
             response = _phagia_request_json(
@@ -2412,6 +2679,8 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
         or response.get("order_id")
         or response.get("orderId")
         or response.get("id")
+        or (data_payload.get("order_code") if isinstance(data_payload, dict) else "")
+        or (data_payload.get("order_id") if isinstance(data_payload, dict) else "")
         or (data_payload.get("orderId") if isinstance(data_payload, dict) else "")
         or (data_payload.get("id") if isinstance(data_payload, dict) else "")
         or (order_payload.get("orderCode") if isinstance(order_payload, dict) else "")

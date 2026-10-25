@@ -51,6 +51,8 @@ export const PROVIDERS = [
   ["toolorax", "ToolOraX Store Bot"],
   ["cgpt_active", "Rich AI Store"],
   ["safwantiger", "Safwan Tiger"],
+  ["megamarket", "MegaMarket"],
+  ["cataishop", "Cataishop"],
 ];
 
 export const PROVIDER_LABELS = Object.fromEntries(PROVIDERS);

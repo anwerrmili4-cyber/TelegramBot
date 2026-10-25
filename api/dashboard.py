@@ -2691,6 +2691,18 @@ def render_dashboard(
                         <button class="btn btn-primary" onclick="selectApiProvider('safwantiger')">Voir ses produits</button>
                     </div>
                     <div class="api-action-card">
+                        <span class="badge badge-pending">Nouvelle API</span>
+                        <h3>MegaMarket</h3>
+                        <p>Prix USDT et stock en direct via @megamarketofficial_bot.</p>
+                        <button class="btn btn-primary" onclick="selectApiProvider('megamarket')">Voir ses produits</button>
+                    </div>
+                    <div class="api-action-card">
+                        <span class="badge badge-pending">Nouvelle API</span>
+                        <h3>Cataishop</h3>
+                        <p>Prix grossiste en dong, stock et livraison automatique via @cataishop_bot.</p>
+                        <button class="btn btn-primary" onclick="selectApiProvider('cataishop')">Voir ses produits</button>
+                    </div>
+                    <div class="api-action-card">
                         <span>↻</span>
                         <h3>Synchronisation</h3>
                         <p>Actualisez le solde, les prix grossistes et les stocks.</p>

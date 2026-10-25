@@ -1297,10 +1297,10 @@ async def announce_flash_sale(context, offer_id):
 async def announce_api_flash_sale(context, event):
     """Broadcast a supplier-driven price drop without creating a temporary price."""
     offer = db.get_offer(int(event["offer_id"]))
-    if not _offer_reaches_customers(offer):
-        return 0
     if not db.offer_has_stock(offer):
         return await announce_supplier_change_admin(context, event, "price")
+    if not _offer_reaches_customers(offer):
+        return 0
     service = db.get_service(offer["service_id"]) or {}
     old_price = float(event["previous_price"])
     new_price = float(event["price"])

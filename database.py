@@ -2354,6 +2354,9 @@ def add_offer(
     oid = _next_id("offers")
     last = get_conn().offers.find_one({"service_id": service_id}, sort=[("sort_order", DESCENDING)])
     service = get_service(service_id) or {}
+    resolved_sales_channels = list(sales_channels or ["bot"])
+    if site_enabled is None and "tn_site" in resolved_sales_channels:
+        site_enabled = True
     if is_methods_service(service):
         period_days = 0
         period_value = 0
@@ -2392,7 +2395,7 @@ def add_offer(
         "supplier_product_id": str(supplier_product_id or ""),
         "sort_order": (last or {}).get("sort_order", 0) + 1,
         "active": 1 if active else 0,
-        "sales_channels": list(sales_channels or ["bot"]),
+        "sales_channels": resolved_sales_channels,
         "tn_price_millimes": tn_price_millimes,
         "name_ar": str(name_ar or "")[:200],
         "description_ar": str(description_ar or "")[:2000],

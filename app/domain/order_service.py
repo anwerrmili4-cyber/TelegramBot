@@ -90,6 +90,8 @@ def create_order(
 
         reseller_service.refresh_supplier_stock([offer])
         offer = db.get_offer(int(offer["id"])) or offer
+        if not preorder and not db.offer_has_stock(offer):
+            raise ValueError("Cette offre est en rupture de stock.")
         if not offer.get("active", 1) or offer.get("stock_control_hold") is True:
             raise ValueError("Cette offre n'est pas disponible à l'achat.")
     if not preorder and not db.offer_has_stock(offer):

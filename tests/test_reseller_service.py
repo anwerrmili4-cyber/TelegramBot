@@ -1388,6 +1388,10 @@ def test_restock_detection_baselines_then_reports_only_increases(monkeypatch, mo
     monkeypatch.setattr(reseller_service, "TOOLORAX_API_KEY", "")
     monkeypatch.setattr(reseller_service, "CGPT_ACTIVE_API_KEY", "")
     monkeypatch.setattr(reseller_service, "VENTEBOT_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "PHAGIA_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "SAFWANTIGER_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "MEGAMARKET_API_KEY", "")
+    monkeypatch.setattr(reseller_service, "CATAISHOP_API_KEY", "")
     monkeypatch.setattr(reseller_service, "catalog", fake_catalog)
 
     assert reseller_service.detect_restock_events()["events"] == []
@@ -1492,6 +1496,8 @@ def test_all_supplier_bot_usernames_are_registered():
         "ventebot": "storeBatmanBot",
         "phagia": "tailieudenphagiabot",
         "safwantiger": "SafwanTigerShopbot",
+        "megamarket": "megamarketofficial_bot",
+        "cataishop": "cataishop_bot",
     }
 
 
@@ -1732,6 +1738,151 @@ def test_safwantiger_purchase_is_idempotent_and_delivers_items(
     assert fulfillment["supplier_order_id"] == "44"
 
 
+def test_megamarket_request_uses_bearer_auth_without_exposing_key(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"products":[]}'
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(reseller_service, "MEGAMARKET_API_KEY", "mmr_test_secret")
+    monkeypatch.setattr(reseller_service, "MEGAMARKET_API_BASE", "https://mega.example")
+    monkeypatch.setattr(reseller_service, "urlopen", fake_urlopen)
+
+    reseller_service._megamarket_request_json("/api/v1/reseller/prices?allProviders=0")
+
+    request, timeout = requests[0]
+    assert timeout == 20
+    assert request.full_url == "https://mega.example/api/v1/reseller/prices?allProviders=0"
+    assert request.get_header("Authorization") == "Bearer mmr_test_secret"
+    assert "mmr_test_secret" not in request.full_url
+
+
+def test_megamarket_catalog_keeps_zero_stock_and_uses_reseller_price(
+    monkeypatch, mock_mongodb,
+):
+    offer_id = _linked_offer("megamarket", "sold-out", 9)
+
+    def fake_request(path, **_kwargs):
+        assert path == "/api/v1/reseller/prices?allProviders=0"
+        return {
+            "as_of": "2026-10-11T10:47:42Z",
+            "products": [{
+                "id": "sold-out",
+                "name": "Nordvpn 3 months redeem code",
+                "sell_price": 1.99,
+                "currency": "USDT",
+                "quantity_available": 0,
+                "in_stock": False,
+                "available": False,
+                "preorder_available": False,
+            }, {
+                "id": "in-stock",
+                "name": "YouTube Individual 12 Months",
+                "sell_price": 20,
+                "currency": "USDT",
+                "quantity_available": 30,
+                "in_stock": True,
+                "available": True,
+                "description": "Private invite",
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_megamarket_request_json", fake_request)
+
+    result = reseller_service.catalog("megamarket")
+
+    assert result["provider"] == "megamarket"
+    assert result["supplier_name"] == "MegaMarket"
+    assert result["currency"] == "USDT"
+    assert result["balance"] == 0
+    sold_out, stocked = result["products"]
+    assert sold_out["id"] == "sold-out"
+    assert sold_out["wholesale_price"] == 1.99
+    assert sold_out["stock"] == 0
+    assert sold_out["unlimited_stock"] is False
+    assert stocked["wholesale_price"] == 20
+    assert stocked["stock"] == 30
+    assert stocked["description"] == "Private invite"
+    saved = db.get_offer(offer_id)
+    assert saved["stock"] == 0
+    assert reseller_service.provider_bot_username("megamarket") == "megamarketofficial_bot"
+
+
+def test_megamarket_purchase_delivers_items_once(monkeypatch, mock_mongodb):
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append((path, kwargs))
+        return {
+            "ok": True,
+            "order_id": "mm-44",
+            "items": ["user@example.com:password"],
+        }
+
+    monkeypatch.setattr(reseller_service, "_megamarket_request_json", fake_request)
+    offer_id = db.add_offer(
+        db.add_service("MegaMarket", "📦"),
+        "YouTube 12 Months",
+        25.0,
+        4,
+        supplier_provider="megamarket",
+        supplier_product_id="607a0240-ca3a-43e7-be78-732c4dfd095d",
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 120,
+        "user_id": 456,
+        "offer_id": offer_id,
+        "qty": 1,
+        "status": "payment_confirmed",
+    })
+
+    first = reseller_service.fulfill_paid_order(120)
+    second = reseller_service.fulfill_paid_order(120)
+
+    assert first == second == ["user@example.com:password"]
+    assert calls == [("/api/v1/reseller/orders", {
+        "method": "POST",
+        "body": {
+            "product_id": "607a0240-ca3a-43e7-be78-732c4dfd095d",
+            "quantity": 1,
+            "external_order_id": "BM-120",
+        },
+        "idempotency_key": "BM-120",
+    })]
+    fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 120})
+    assert fulfillment["supplier_order_id"] == "mm-44"
+
+
+def test_megamarket_missing_order_endpoint_does_not_create_an_order(monkeypatch):
+    monkeypatch.setattr(reseller_service, "MEGAMARKET_API_KEY", "mmr_test_secret")
+    monkeypatch.setattr(reseller_service, "MEGAMARKET_API_BASE", "https://mega.example")
+
+    def raising_urlopen(request, timeout):
+        raise reseller_service.HTTPError(
+            request.full_url, 404, "Not Found", hdrs=None, fp=BytesIO(b"404 page not found\n"),
+        )
+
+    monkeypatch.setattr(reseller_service, "urlopen", raising_urlopen)
+
+    with pytest.raises(reseller_service.ResellerOrderNotCreatedError, match="endpoint de commande"):
+        reseller_service._megamarket_request_json(
+            "/api/v1/reseller/orders",
+            method="POST",
+            body={"product_id": "607a0240-ca3a-43e7-be78-732c4dfd095d", "quantity": 1},
+        )
+
+
 def test_safwantiger_insufficient_balance_does_not_create_an_order(monkeypatch):
     monkeypatch.setattr(reseller_service, "SAFWANTIGER_API_KEY", "stapi_test_secret")
     monkeypatch.setattr(reseller_service, "SAFWANTIGER_API_BASE", "https://safwan.example")
@@ -1775,6 +1926,20 @@ def test_supplier_stock_keeps_zero_and_honors_out_of_stock_flags():
     assert reseller_service.supplier_stock("cgpt_active", {"stock": None}) == (0, True)
     assert reseller_service.supplier_stock("shamekh", {"stock_count": 0}) == (0, False)
     assert reseller_service.supplier_stock("nastele", {"stock": "15"}) == (15, False)
+    assert reseller_service.supplier_stock("megamarket", {
+        "quantity_available": 99,
+        "in_stock": True,
+        "available": True,
+    }) == (99, False)
+    assert reseller_service.supplier_stock("megamarket", {
+        "quantity_available": 4,
+        "in_stock": False,
+        "available": False,
+    }) == (0, False)
+    assert reseller_service.supplier_stock("megamarket", {
+        "quantity_available": 0,
+        "in_stock": True,
+    }) == (0, False)
 
 
 def test_canboso_zero_stock_is_not_replaced_by_availability(monkeypatch, mock_mongodb):
@@ -1961,31 +2126,137 @@ def test_purchase_is_refused_when_the_supplier_just_ran_out(monkeypatch, mock_mo
     reseller_service._stock_refreshed_at.clear()
 
 
+def test_cataishop_client_sends_the_key_only_as_a_header(monkeypatch):
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"success":true,"data":[]}'
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr(reseller_service, "CATAISHOP_API_KEY", "dealer-test-key")
+    monkeypatch.setattr(reseller_service, "CATAISHOP_API_BASE", "https://cms.cataishop.shop")
+    monkeypatch.setattr(reseller_service, "urlopen", fake_urlopen)
+
+    reseller_service._cataishop_request_json("/api/v1/telehub/products")
+
+    request, timeout = requests[0]
+    assert timeout == 20
+    assert request.full_url == "https://cms.cataishop.shop/api/v1/telehub/products"
+    assert request.get_header("X-api-key") == "dealer-test-key"
+    assert "dealer-test-key" not in request.full_url
+
+
+def test_cataishop_catalog_converts_dong_prices_and_reads_stock(monkeypatch, mock_mongodb):
+    def fake_request(path, **_kwargs):
+        if path == "/api/v1/telehub/user":
+            return {"success": True, "data": {"balance": 255000, "username": "cataishop"}}
+        return {
+            "success": True,
+            "data": [{
+                "id": 7,
+                "name": "Capcut pro",
+                "description": "<p>Compte Capcut</p>",
+                "price": 25500,
+                "retail_price": 30000,
+                "stock": 12,
+            }],
+        }
+
+    monkeypatch.setattr(reseller_service, "_cataishop_request_json", fake_request)
+    monkeypatch.setattr(reseller_service, "get_cataishop_vnd_rate", lambda: 25500)
+
+    result = reseller_service.catalog("cataishop")
+
+    assert result["provider"] == "cataishop"
+    assert result["supplier_name"] == "Cataishop"
+    assert result["balance"] == 10
+    assert result["currency"] == "USDT"
+    assert result["products"][0]["id"] == "7"
+    assert result["products"][0]["wholesale_price"] == 1
+    assert result["products"][0]["stock"] == 12
+    assert result["products"][0]["description"] == "Compte Capcut"
+    assert reseller_service.provider_bot_username("cataishop") == "cataishop_bot"
+
+
+def test_cataishop_purchase_delivers_accounts_once(monkeypatch, mock_mongodb):
+    calls = []
+
+    def fake_request(path, **kwargs):
+        calls.append((path, kwargs))
+        return {
+            "success": True,
+            "data": {
+                "order_id": 109,
+                "order_code": "APIX8Y2M",
+                "accounts": ["user-one|pass", "user-two|pass"],
+            },
+        }
+
+    monkeypatch.setattr(reseller_service, "_cataishop_request_json", fake_request)
+    offer_id = db.add_offer(
+        db.add_service("Capcut", "📦"),
+        "Capcut pro",
+        2.0,
+        2,
+        supplier_provider="cataishop",
+        supplier_product_id="7",
+    )
+    mock_mongodb.orders.insert_one({
+        "id": 109,
+        "user_id": 456,
+        "offer_id": offer_id,
+        "qty": 2,
+        "status": "payment_confirmed",
+    })
+
+    first = reseller_service.fulfill_paid_order(109)
+    second = reseller_service.fulfill_paid_order(109)
+
+    assert first == second == ["user-one|pass", "user-two|pass"]
+    assert calls == [("/api/v1/telehub/buy", {
+        "method": "POST",
+        "body": {"product_id": 7, "quantity": 2},
+    })]
+    stored = mock_mongodb.reseller_fulfillments.find_one({"external_order_id": "BM-109"})
+    assert stored["supplier_order_id"] == "APIX8Y2M"
+
+
 def test_renamed_supplier_can_have_its_bot_products_removed(mock_mongodb):
     service_id = db.add_service("Canva")
     offer_id = db.add_offer(
-        service_id, "Canva Pro", 1.0, 3, supplier_provider="vex", supplier_product_id="9",
+        service_id, "Canva Pro", 1.0, 3, supplier_provider="cataishop", supplier_product_id="9",
     )
     db.save_reseller_product_config(
-        "vex", "9",
+        "cataishop", "9",
         name="Canva Pro", wholesale_price=0.4, currency="USDT",
         retail_price=1.0, enabled=True, service_id=service_id, local_offer_id=offer_id,
     )
 
-    assert reseller_service.rename_provider("vex", "Vex Shop") == "Vex Shop"
-    assert reseller_service.provider_display_name("vex") == "Vex Shop"
-    summary = next(item for item in reseller_service.provider_summaries() if item["id"] == "vex")
-    assert summary["name"] == "Vex Shop"
-    assert summary["default_name"] == "VEX Reseller"
+    assert reseller_service.rename_provider("cataishop", "Cata Shop") == "Cata Shop"
+    assert reseller_service.provider_display_name("cataishop") == "Cata Shop"
+    summary = next(item for item in reseller_service.provider_summaries() if item["id"] == "cataishop")
+    assert summary["name"] == "Cata Shop"
+    assert summary["default_name"] == "Cataishop"
     assert summary["bot_product_count"] == 1
 
-    removed = reseller_service.remove_provider_products("vex")
+    removed = reseller_service.remove_provider_products("cataishop")
+
     assert removed["removed"] == 1
     offer = db.get_offer(offer_id)
     assert offer["active"] == 0
     assert offer["archived"] == 1
-    config = mock_mongodb.reseller_products.find_one({"provider": "vex", "product_id": "9"})
+    config = mock_mongodb.reseller_products.find_one({"provider": "cataishop", "product_id": "9"})
     assert config["enabled"] is False
-    summary = next(item for item in reseller_service.provider_summaries() if item["id"] == "vex")
+    summary = next(item for item in reseller_service.provider_summaries() if item["id"] == "cataishop")
     assert summary["bot_product_count"] == 0
 

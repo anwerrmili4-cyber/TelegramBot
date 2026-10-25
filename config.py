@@ -229,6 +229,15 @@ SAFWANTIGER_API_BASE: str = normalized_http_url(first_env_value(
 ))
 
 # ---------------------------------------------------------------------------
+# Fournisseur revendeur MegaMarket (@megamarketofficial_bot)
+# ---------------------------------------------------------------------------
+MEGAMARKET_API_KEY: str = env_value("HP_MEGAMARKET_API_KEY")
+MEGAMARKET_API_BASE: str = normalized_http_url(first_env_value(
+    "HP_MEGAMARKET_API_BASE",
+    default="https://my-store.live",
+))
+
+# ---------------------------------------------------------------------------
 # Fournisseur revendeur UPIBot Shop
 # ---------------------------------------------------------------------------
 UPIBOT_API_KEY: str = env_value("HP_UPIBOT_API_KEY")
@@ -243,6 +252,18 @@ TOOLORAX_API_KEY: str = env_value("HP_TOOLORAX_API_KEY")
 TOOLORAX_API_BASE: str = os.environ.get(
     "HP_TOOLORAX_API_BASE", "https://shopbot.00969600.xyz/shop-api/v1"
 ).rstrip("/")
+
+# ---------------------------------------------------------------------------
+# Fournisseur revendeur Cataishop (@cataishop_bot, API Telehub)
+# ---------------------------------------------------------------------------
+CATAISHOP_API_KEY: str = env_value("HP_CATAISHOP_API_KEY")
+CATAISHOP_API_BASE: str = normalized_http_url(first_env_value(
+    "HP_CATAISHOP_API_BASE",
+    default="https://cms.cataishop.shop",
+))
+CATAISHOP_VND_PER_USDT: float = float(
+    os.environ.get("HP_CATAISHOP_VND_PER_USDT", "25500")
+)
 
 # ---------------------------------------------------------------------------
 # Fonctions IA de l’administration (OpenAI par défaut, API compatible configurable)
