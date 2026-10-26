@@ -560,6 +560,78 @@ def _catalog_action(base_url, token, values):
         return json.load(response)
 
 
+def test_admin_offer_activation_overrides_automatic_supplier_selection(monkeypatch, mock_mongodb):
+    monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
+    service_id = database_module.add_service("Adobe", "A")
+    preferred_id = database_module.add_offer(
+        service_id,
+        "Creative Cloud Pro",
+        5,
+        8,
+        supplier_provider="upibot",
+        supplier_product_id="cheap",
+        period_days=30,
+        warranty_days=30,
+    )
+    forced_id = database_module.add_offer(
+        service_id,
+        "Creative Cloud Pro",
+        6.5,
+        0,
+        supplier_provider="kakao",
+        supplier_product_id="admin-choice",
+        period_days=30,
+        warranty_days=30,
+    )
+
+    assert database_module.get_offer(preferred_id)["active"] == 1
+    assert database_module.get_offer(forced_id)["active"] == 0
+
+    with running_server() as base_url:
+        result = _catalog_action(base_url, webhook_module.dashboard_write_token(), {
+            "action": "toggle_offer",
+            "offer_id": str(forced_id),
+        })
+
+    assert result["ok"] is True
+    forced = database_module.get_offer(forced_id)
+    assert forced["product_enabled"] is True
+    assert forced["active"] == 1
+    assert forced["admin_force_active"] is True
+    assert forced.get("stock_control_hold") is not True
+    assert forced.get("out_of_stock_hold") is not True
+    assert database_module.get_offer(preferred_id)["active"] == 0
+
+    # Supplier refreshes and stock reconciliation must not undo an explicit
+    # administrator decision.
+    database_module.update_offer(forced_id, stock=0, price=7)
+    assert database_module.get_offer(forced_id)["active"] == 1
+    assert database_module.offer_is_listed_in_bot(database_module.get_offer(forced_id)) is True
+
+    with running_server() as base_url:
+        _catalog_action(base_url, webhook_module.dashboard_write_token(), {
+            "action": "toggle_offer",
+            "offer_id": str(forced_id),
+        })
+
+    disabled = database_module.get_offer(forced_id)
+    assert disabled["active"] == 0
+    assert disabled["product_enabled"] is False
+    assert disabled.get("admin_force_active") is not True
+    assert database_module.get_offer(preferred_id)["active"] == 1
+
+    with running_server() as base_url:
+        _catalog_action(base_url, webhook_module.dashboard_write_token(), {
+            "action": "toggle_product",
+            "offer_id": str(forced_id),
+        })
+
+    reenabled = database_module.get_offer(forced_id)
+    assert reenabled["product_enabled"] is True
+    assert reenabled["active"] == 1
+    assert reenabled["admin_force_active"] is True
+
+
 def test_catalog_edit_preserves_existing_delivery_contracts(monkeypatch, mock_mongodb):
     monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "catalog-test")
     token = webhook_module.dashboard_write_token()

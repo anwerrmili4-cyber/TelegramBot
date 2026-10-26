@@ -46,6 +46,7 @@ from app.domain import (
     external_api_service,
     inventory_service,
     lovable_service,
+    offer_stock_control,
     order_conversation_service,
     order_service,
     payment_service,
@@ -2252,14 +2253,19 @@ class handler(BaseHTTPRequestHandler):
             elif action == "toggle_offer":
                 oid = int(form["offer_id"])
                 offer = db.get_offer(oid)
+                if not offer:
+                    raise ValueError("Produit introuvable")
                 next_active = 0 if offer["active"] else 1
-                db.update_offer(oid, active=next_active)
+                updated = offer_stock_control.set_admin_activation(
+                    oid, bool(next_active), product_switch=True,
+                )
                 db.audit_event("offer.toggled", details={
                     "offer_id": oid,
-                    "active": bool(next_active),
+                    "active": bool(updated.get("active")),
+                    "admin_force_active": bool(updated.get("admin_force_active")),
                     "reversible": True,
                     "before": {"active": int(offer["active"])},
-                    "after": {"active": next_active},
+                    "after": {"active": int(updated.get("active") or 0)},
                 })
 
             elif action == "toggle_product":
@@ -2268,13 +2274,17 @@ class handler(BaseHTTPRequestHandler):
                 if not offer:
                     raise ValueError("Produit introuvable")
                 enabled = not db.product_is_enabled(offer)
-                db.update_offer(oid, product_enabled=enabled)
+                updated = offer_stock_control.set_admin_activation(
+                    oid, enabled, product_switch=True,
+                )
                 db.audit_event("offer.product_toggled", details={
                     "offer_id": oid,
-                    "product_enabled": enabled,
+                    "product_enabled": db.product_is_enabled(updated),
+                    "active": bool(updated.get("active")),
+                    "admin_force_active": bool(updated.get("admin_force_active")),
                     "reversible": True,
                     "before": {"product_enabled": db.product_is_enabled(offer)},
-                    "after": {"product_enabled": enabled},
+                    "after": {"product_enabled": db.product_is_enabled(updated)},
                 })
 
             elif action == "toggle_stock":

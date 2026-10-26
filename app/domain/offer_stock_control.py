@@ -13,6 +13,7 @@ import logging
 import math
 import re
 import threading
+import time
 from collections import defaultdict
 from contextlib import contextmanager
 from typing import Any
@@ -51,6 +52,8 @@ _OFFER_FIELDS = {
     "local_copy_of_offer_id": 1,
     "stock_control_hold": 1,
     "out_of_stock_hold": 1,
+    "admin_force_active": 1,
+    "admin_force_active_at": 1,
     "feature_key": 1,
 }
 
@@ -154,6 +157,15 @@ def keep_best_bot_price(offers: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     drop: set[int] = set()
     for members in grouped.values():
+        forced = [offer for offer in members if is_admin_forced(offer)]
+        if forced:
+            winner = max(
+                forced,
+                key=lambda offer: (int(offer.get("admin_force_active_at") or 0), int(offer["id"])),
+            )
+            winner_id = int(winner["id"])
+            drop.update(int(offer["id"]) for offer in members if int(offer["id"]) != winner_id)
+            continue
         priced = [offer for offer in members if displayed_bot_price(offer) is not None]
         if len(priced) < 2 and len(members) == len(priced):
             continue
@@ -210,6 +222,75 @@ def is_held(offer: dict[str, Any] | None) -> bool:
 def is_out_of_stock_hold(offer: dict[str, Any] | None) -> bool:
     """True when this offer should be on the bot, but its stock is empty."""
     return isinstance(offer, dict) and offer.get("out_of_stock_hold") is True
+
+
+def is_admin_forced(offer: dict[str, Any] | None) -> bool:
+    """True when an administrator explicitly overrode automatic selection."""
+    return (
+        isinstance(offer, dict)
+        and offer.get("admin_force_active") is True
+        and db.product_is_enabled(offer)
+    )
+
+
+def set_admin_activation(offer_id: int, enabled: bool, *, product_switch: bool = False) -> dict[str, Any]:
+    """Persist an administrator activation until they explicitly turn it off."""
+    conn = db.get_conn()
+    numeric_id = int(offer_id)
+    offer = conn.offers.find_one({"id": numeric_id})
+    if not offer:
+        raise ValueError("Produit introuvable")
+
+    if enabled:
+        group_key = same_product_group_key(offer)
+        if group_key is not None:
+            for sibling in conn.offers.find(
+                {"id": {"$ne": numeric_id}, "archived": {"$ne": 1}},
+                _OFFER_FIELDS,
+            ):
+                if same_product_group_key(sibling) == group_key:
+                    conn.offers.update_one(
+                        {"id": int(sibling["id"])},
+                        {"$unset": {"admin_force_active": "", "admin_force_active_at": ""}},
+                    )
+        values: dict[str, Any] = {
+            "active": 1,
+            "archived": 0,
+            "admin_force_active": True,
+            "admin_force_active_at": int(time.time()),
+        }
+        if product_switch:
+            values["product_enabled"] = True
+        conn.offers.update_one(
+            {"id": numeric_id},
+            {
+                "$set": values,
+                "$unset": {
+                    "archived_at": "",
+                    "stock_control_hold": "",
+                    "out_of_stock_hold": "",
+                },
+            },
+        )
+    else:
+        values = {"active": 0}
+        if product_switch:
+            values["product_enabled"] = False
+        conn.offers.update_one(
+            {"id": numeric_id},
+            {
+                "$set": values,
+                "$unset": {
+                    "admin_force_active": "",
+                    "admin_force_active_at": "",
+                    "stock_control_hold": "",
+                    "out_of_stock_hold": "",
+                },
+            },
+        )
+
+    reconcile_same_product_offers()
+    return db.get_offer(numeric_id)
 
 
 def offer_reaches_bot_customers(offer: dict[str, Any] | None) -> bool:
@@ -355,6 +436,12 @@ def _candidate(offer: dict[str, Any], services: dict[int, dict[str, Any]], publi
 
 
 def _winner(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    forced = [offer for offer in offers if is_admin_forced(offer)]
+    if forced:
+        return max(
+            forced,
+            key=lambda offer: (int(offer.get("admin_force_active_at") or 0), int(offer["id"])),
+        )
     available = [
         offer for offer in offers
         if db.product_is_enabled(offer) and offer_in_stock(offer) and client_price(offer) is not None
@@ -494,7 +581,11 @@ def _reconcile() -> dict[str, Any]:
             unpublished_id = int(offer["id"])
         except (TypeError, ValueError):
             continue
-        if published.get(unpublished_id) is False and _apply(conn, offer, active=0, hold=False):
+        if (
+            published.get(unpublished_id) is False
+            and not is_admin_forced(offer)
+            and _apply(conn, offer, active=0, hold=False)
+        ):
             deactivated.append(unpublished_id)
 
     for offer in offers:
@@ -534,6 +625,10 @@ def _reconcile() -> dict[str, Any]:
         except (TypeError, ValueError):
             continue
         if offer_id in qualifying_ids or is_held(offer) or published.get(offer_id) is False:
+            continue
+        if is_admin_forced(offer):
+            if _apply(conn, offer, active=1, hold=False, out_of_stock=False):
+                activated.append(offer_id)
             continue
         if not db.product_is_enabled(offer) or not _service_ok(offer, services):
             continue
