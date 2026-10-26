@@ -700,6 +700,8 @@ def _purchase(order: dict[str, Any], channel: str) -> dict[str, Any]:
             "sender_type": str(message.get("sender_type") or ""),
             "content": str(message.get("content") or ""),
             "kind": str(message.get("kind") or "message"),
+            "source": str(message.get("source") or "order"),
+            "ticket_id": message.get("ticket_id"),
             "created_at": message.get("created_at"),
         }
         for message in order.get("_order_messages") or []

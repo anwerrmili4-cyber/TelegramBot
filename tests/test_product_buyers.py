@@ -37,6 +37,11 @@ def test_bot_product_filter_keeps_deleted_and_inactive_sales(mock_mongodb):
         {"id": 5, "user_id": 42, "offer_id": 10, "offer_name": "Canva Pro", "service_name": "Canva", "status": "pending_payment", "qty": 1, "total_price": 1, "created_at": 500},
         {"id": 6, "user_id": 42, "offer_id": 12, "offer_name": "Site only", "service_name": "Site", "sales_channel": "tn_site", "status": "delivered", "qty": 1, "total_price": 9, "paid_at": 600, "created_at": 600},
     ])
+    mock_mongodb.support_tickets.insert_one({"id": 91, "order_id": 1, "user_id": 42})
+    mock_mongodb.ticket_messages.insert_many([
+        {"id": 92, "ticket_id": 91, "sender_type": "client", "sender_id": 42, "content": "Use my school email.", "created_at": 90},
+        {"id": 93, "ticket_id": 91, "sender_type": "admin", "sender_id": 999, "content": "Confirmed.", "created_at": 95},
+    ])
 
     listed = product_buyers.report({"channel": ["bot"]})
     names = [item["name"] for item in listed["products"]]
@@ -61,6 +66,9 @@ def test_bot_product_filter_keeps_deleted_and_inactive_sales(mock_mongodb):
     assert amina["details"][1]["value"] == "@amina"
     assert amina["details"][6]["value"] == "2.50 USDT"
     assert amina["orders"][0]["order_id"] == 1
+    assert [message["content"] for message in amina["orders"][0]["pre_confirmation"]["messages"]] == [
+        "Use my school email.", "Confirmed.",
+    ]
     assert "password" not in str(product)
 
     removed = product_buyers.report({"channel": ["bot"], "product": ["offer:99"], "search": ["cursor"]})

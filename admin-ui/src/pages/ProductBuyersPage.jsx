@@ -85,7 +85,7 @@ function OrderPreConfirmation({ order }) {
         {context.admin_note ? <div><dt>Note interne admin</dt><dd>{context.admin_note}</dd></div> : null}
       </dl> : null}
       {messages.length ? <ol aria-label="Discussion avant confirmation">
-        {messages.map((message, index) => <li key={message.id ?? `${message.created_at}-${index}`} className={message.sender_type}>
+        {messages.map((message, index) => <li key={`${message.source || "order"}:${message.id ?? `${message.created_at}-${index}`}`} className={message.sender_type}>
           <header><strong>{message.sender_type === "admin" ? "Admin" : "Client"}</strong><time>{date(message.created_at)}</time></header>
           <p>{message.content}</p>
         </li>)}
