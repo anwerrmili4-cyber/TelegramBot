@@ -3109,6 +3109,9 @@ def test_admin_message_does_not_complete_manual_order(mock_mongodb):
     assert "Your account is being prepared." in customer_call.args[1]
     assert customer_call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "manual_reply:601"
     assert "reste en attente" in update.message.reply_text.await_args.args[0]
+    stored = mock_mongodb.order_messages.find_one({"order_id": 601})
+    assert stored["sender_type"] == "admin"
+    assert stored["content"] == "Your account is being prepared."
 
 
 def test_customer_can_reply_until_manual_order_is_delivered(
@@ -3141,6 +3144,9 @@ def test_customer_can_reply_until_manual_order_is_delivered(
     assert admin_call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "adm_client_message:604"
     assert admin_call.kwargs["reply_markup"].inline_keyboard[0][1].callback_data == "adm_deliver:604"
     assert db.get_order(604)["status"] == "payment_confirmed"
+    stored = mock_mongodb.order_messages.find_one({"order_id": 604})
+    assert stored["sender_type"] == "client"
+    assert stored["content"] == "customer@example.com"
     assert PENDING.get(42) is None
 
     mock_mongodb.orders.update_one(

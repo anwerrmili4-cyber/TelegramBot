@@ -62,6 +62,7 @@ from app.domain import (
     inventory_service,
     lovable_service,
     loyalty_service,
+    order_conversation_service,
     order_service,
     payment_service,
     reseller_service,
@@ -3820,6 +3821,9 @@ async def handle_pending_input(update, context, lang):
                 f"Email: <code>{html.escape(email)}</code>",
                 parse_mode=ParseMode.HTML,
             )
+            order_conversation_service.record_message(
+                order_id, "client", uid, email, kind="customer_info",
+            )
         except Exception as exc:
             log.warning("Customer email for order #%s was not sent to the admin: %s", order_id, exc)
             await update.message.reply_text("please send your mail address")
@@ -3852,6 +3856,7 @@ async def handle_pending_input(update, context, lang):
             parse_mode=ParseMode.HTML,
             reply_markup=admin.manual_delivery_request_keyboard(order_id),
         )
+        order_conversation_service.record_message(order_id, "client", uid, text)
         PENDING.pop(uid, None)
         await update.message.reply_text(
             t(lang, "manual_order_reply_sent", oid=order_id),
@@ -5842,6 +5847,9 @@ async def send_admin_message_to_client(update, context, order_id, content):
             reply_markup=kb.manual_order_reply_keyboard(
                 lang_of(int(order["user_id"])), order_id,
             ),
+        )
+        order_conversation_service.record_message(
+            int(order_id), "admin", ADMIN_ID, str(content),
         )
         await update.message.reply_text(
             f"✅ Message envoyé au client. La commande #{order_id} reste en attente de livraison."

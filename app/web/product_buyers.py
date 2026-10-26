@@ -11,7 +11,7 @@ from math import ceil
 from typing import Any
 
 import database as db
-from app.domain import warranty_service
+from app.domain import order_conversation_service, warranty_service
 from app.web.dashboard_api import _first, _telegram_description_plain_text
 
 _SOLD_STATUSES = (
@@ -40,6 +40,10 @@ _ORDER_FIELDS = {
     "customer_name": 1,
     "customer_email": 1,
     "customer_phone": 1,
+    "customer_info": 1,
+    "customer_note": 1,
+    "site_remark": 1,
+    "admin_note": 1,
     "total_price": 1,
     "wallet_amount": 1,
     "total_millimes": 1,
@@ -578,8 +582,13 @@ def _catalog_price(offer: dict[str, Any] | None, latest: dict[str, Any], channel
 
 
 def _buyers(rows: list[dict[str, Any]], channel: str, conn: Any) -> list[dict[str, Any]]:
+    messages = order_conversation_service.messages_by_order(
+        row.get("id") for row in rows if row.get("id") is not None
+    )
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
+    for stored in rows:
+        row = dict(stored)
+        row["_order_messages"] = messages.get(int(row["id"]), []) if row.get("id") is not None else []
         grouped.setdefault(_buyer_key(row, channel), []).append(row)
     if channel == "site":
         buyers = [_site_buyer(key, purchases, conn) for key, purchases in grouped.items()]
@@ -685,7 +694,25 @@ def _buyer_payload(
 
 def _purchase(order: dict[str, Any], channel: str) -> dict[str, Any]:
     tracking = order.get("_fw_tracking") or _fw_tracking(order)
-    return {
+    messages = [
+        {
+            "id": message.get("id"),
+            "sender_type": str(message.get("sender_type") or ""),
+            "content": str(message.get("content") or ""),
+            "kind": str(message.get("kind") or "message"),
+            "created_at": message.get("created_at"),
+        }
+        for message in order.get("_order_messages") or []
+        if message.get("sender_type") in {"admin", "client"} and str(message.get("content") or "").strip()
+    ]
+    context = {
+        "prompt": str(order.get("site_remark") or "").strip(),
+        "customer_info": str(order.get("customer_info") or "").strip(),
+        "customer_note": str(order.get("customer_note") or "").strip(),
+        "admin_note": str(order.get("admin_note") or "").strip(),
+        "messages": messages,
+    }
+    purchase = {
         "order_id": order.get("id"),
         "cart_reference": str(order.get("cart_reference") or ""),
         "status": str(order.get("status") or ""),
@@ -698,6 +725,9 @@ def _purchase(order: dict[str, Any], channel: str) -> dict[str, Any]:
         "period": _period(None, order),
         **tracking,
     }
+    if any((context["customer_info"], context["customer_note"], context["admin_note"], context["messages"])):
+        purchase["pre_confirmation"] = context
+    return purchase
 
 
 def _quantity(order: dict[str, Any]) -> int:

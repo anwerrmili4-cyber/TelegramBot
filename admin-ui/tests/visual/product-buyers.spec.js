@@ -39,6 +39,16 @@ async function mockBuyers(page, channel = "bot") {
           spent: channel === "site" ? 15000 : 15, status: "delivered", paid_at: stamp,
           is_full_warranty: index < 2, fw_status: index === 0 ? "active" : index === 1 ? "finished" : "",
           remaining_days: index === 0 ? 12 : index === 1 ? 0 : null, expires_at: index < 2 ? stamp + (index === 0 ? 12 : -2) * 86400 : null,
+          pre_confirmation: index === 0 ? {
+            prompt: channel === "site" ? "Email du compte à activer" : "",
+            customer_info: channel === "site" ? "amina-login@example.com" : "",
+            customer_note: "Profil enfants",
+            admin_note: "Vérifié manuellement",
+            messages: [
+              { id: 1, sender_type: "admin", content: "Quel profil souhaitez-vous ?", created_at: stamp - 120 },
+              { id: 2, sender_type: "client", content: "Le profil Enfants", created_at: stamp - 60 },
+            ],
+          } : undefined,
         }],
       })).filter((buyer) => coverage === "fw_active" ? buyer.fw_active : coverage === "fw_finished" ? buyer.fw_finished : coverage === "fw" ? buyer.fw_total : true);
       body = { ok: true, products: hasSales ? rows : [], product: selected && hasSales ? {
@@ -90,6 +100,10 @@ test("buyers retain period and selection through customer and order routes", asy
   await expect(page.getByLabel("Date de début")).toHaveValue("2026-10-01");
   await expect(page.getByRole("heading", { name: names[0] })).toBeVisible();
   await page.getByRole("button", { name: "Afficher les achats de Amina Salah" }).click();
+  await page.getByRole("button", { name: "Afficher les informations avant confirmation de la commande 101" }).click();
+  await expect(page.getByText("Quel profil souhaitez-vous ?", { exact: true })).toBeVisible();
+  await expect(page.getByText("Le profil Enfants", { exact: true })).toBeVisible();
+  await expect(page.getByText("Profil enfants", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Commande #101" }).click();
   await expect(page).toHaveURL(/\/orders\/101$/);
   await expect(page.getByRole("heading", { name: "Commande #101" })).toBeVisible();

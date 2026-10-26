@@ -89,6 +89,8 @@ def test_site_product_filter_lists_buyers_with_their_account(mock_mongodb):
             "offer_id": 8, "offer_name": "Netflix", "service_name": "Streaming",
             "status": "delivered", "quantity": 2, "total_millimes": 25000, "unit_price_millimes": 12500,
             "paid_at": 800, "created_at": 800, "cart_reference": "TN-1",
+            "site_remark": "Email du compte à activer", "customer_info": "amine-login@example.com",
+            "customer_note": "Profil enfants", "admin_note": "Vérifié manuellement",
         },
         {
             "id": 21, "sales_channel": "tn_site", "customer_id": 7,
@@ -99,6 +101,11 @@ def test_site_product_filter_lists_buyers_with_their_account(mock_mongodb):
             "id": 22, "user_id": 42, "offer_id": 8, "offer_name": "Netflix", "service_name": "Streaming",
             "status": "delivered", "qty": 1, "total_price": 5, "paid_at": 700, "created_at": 700,
         },
+    ])
+    mock_mongodb.order_messages.insert_many([
+        {"id": 1, "order_id": 20, "sender_type": "admin", "sender_id": 999, "content": "Confirmez le profil souhaité", "kind": "message", "created_at": 790},
+        {"id": 2, "order_id": 20, "sender_type": "client", "sender_id": 7, "content": "Le profil Enfants", "kind": "message", "created_at": 795},
+        {"id": 3, "order_id": 999, "sender_type": "client", "sender_id": 7, "content": "Autre commande", "kind": "message", "created_at": 796},
     ])
 
     listed = product_buyers.report({"channel": ["site"]})
@@ -116,6 +123,13 @@ def test_site_product_filter_lists_buyers_with_their_account(mock_mongodb):
     assert any(fact["value"] == "+21621111222" for fact in buyer["details"])
     assert buyer["orders"][0]["cart_reference"] == "TN-1"
     assert buyer["orders"][0]["quantity"] == 2
+    context = buyer["orders"][0]["pre_confirmation"]
+    assert context["prompt"] == "Email du compte à activer"
+    assert context["customer_info"] == "amine-login@example.com"
+    assert context["customer_note"] == "Profil enfants"
+    assert context["admin_note"] == "Vérifié manuellement"
+    assert [message["sender_type"] for message in context["messages"]] == ["admin", "client"]
+    assert "Autre commande" not in str(context)
     assert "secret-hash" not in str(detail)
 
 

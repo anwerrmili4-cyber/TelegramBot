@@ -96,8 +96,28 @@
 .buyer-table button[aria-expanded="true"] svg { transform: rotate(180deg); }
 .buyer-table .open, .buyer-orders-row { background: var(--panel-soft); }
 .buyer-orders-row ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.buyer-orders-row li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 11px; }
-.buyer-orders-row time { margin-left: auto; color: var(--muted); }
+.buyer-orders-row li { min-width: 0; font-size: 11px; }
+.buyer-order-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.buyer-order-line > time { margin-left: auto; color: var(--muted); }
+.buyer-order-context { width: min(100%, 720px); margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.buyer-order-context > button { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 36px; padding: 8px 10px; border: 0; color: var(--text); background: transparent; text-align: left; font-size: 10px; font-weight: 600; }
+.buyer-order-context > button > span { flex: 1; }
+.buyer-order-context > button > b { color: var(--muted); font-size: 9px; font-weight: 500; }
+.buyer-order-context.open > button { border-bottom: 1px solid var(--line); }
+.buyer-order-context.open > button > svg:last-child { transform: rotate(180deg); }
+.buyer-order-context > div { display: grid; gap: 12px; padding: 12px; }
+.buyer-order-context dl { display: grid; gap: 8px; margin: 0; }
+.buyer-order-context dl > div { display: grid; grid-template-columns: minmax(110px, .45fr) minmax(0, 1fr); gap: 12px; }
+.buyer-order-context dt { color: var(--muted); }
+.buyer-order-context dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.buyer-order-context ol { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.buyer-order-context ol li { max-width: 84%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+.buyer-order-context ol li.admin { margin-left: auto; border-color: color-mix(in srgb, var(--green) 30%, var(--line)); }
+.buyer-order-context ol header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+.buyer-order-context ol strong { font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+.buyer-order-context ol time { color: var(--muted); font-size: 9px; }
+.buyer-order-context ol p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.buyer-table td .buyer-order-context { min-width: 260px; }
 .buyer-product-file summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; list-style: none; }
 .buyer-product-file summary::-webkit-details-marker { display: none; }
 .buyer-product-file summary strong { font-size: 13px; }
@@ -140,6 +160,8 @@
   .buyer-metrics strong { font-size: 20px; }
   .buyer-panel > header .buyer-search { max-width: none; }
   .buyer-file { grid-template-columns: minmax(0, 1fr); }
+  .buyer-order-context dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .buyer-order-context ol li { max-width: 95%; }
   .buyer-fw-summary > div { grid-template-columns: 1fr; }
   .buyer-fw-summary article + article { border-top: 1px solid var(--line); border-left: 0; }
 }

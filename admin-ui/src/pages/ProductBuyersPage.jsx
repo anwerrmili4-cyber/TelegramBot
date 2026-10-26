@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { ArrowUpRight, CalendarDays, CheckCircle2, ChevronDown, Search, ShieldCheck, ShoppingBag, UserRound } from "lucide-react";
+import { ArrowUpRight, CalendarDays, CheckCircle2, ChevronDown, MessageSquareText, Search, ShieldCheck, ShoppingBag, UserRound } from "lucide-react";
 import { STATUS_LABELS, money, date, PageHeader, Empty, providerLabel } from "../admin-kit.jsx";
 import { dinars, LINE_STATUS, useSiteQuery } from "../site-format.jsx";
 import { buildAdminQuery } from "../admin-routes.js";
@@ -63,6 +63,35 @@ function FullWarrantyStatus({ order, compact = false }) {
     {order.fw_status === "finished" ? <CheckCircle2 size={13} /> : <ShieldCheck size={13} />}
     {compact ? (order.fw_status === "finished" ? "FW terminé" : "FW en cours") : label}
   </span>;
+}
+
+function OrderPreConfirmation({ order }) {
+  const [open, setOpen] = useState(false);
+  const context = order.pre_confirmation;
+  if (!context) return null;
+  const messages = context.messages || [];
+  const orderLabel = order.cart_reference || order.order_id;
+  return <div className={`buyer-order-context${open ? " open" : ""}`}>
+    <button type="button" aria-expanded={open} aria-label={`${open ? "Masquer" : "Afficher"} les informations avant confirmation de la commande ${orderLabel}`} onClick={() => setOpen((value) => !value)}>
+      <MessageSquareText size={14} />
+      <span>Informations avant confirmation</span>
+      {messages.length ? <b>{messages.length} message{messages.length > 1 ? "s" : ""}</b> : null}
+      <ChevronDown size={14} />
+    </button>
+    {open ? <div>
+      {(context.customer_info || context.customer_note || context.admin_note) ? <dl>
+        {context.customer_info ? <div><dt>{context.prompt || "Information du client"}</dt><dd>{context.customer_info}</dd></div> : null}
+        {context.customer_note ? <div><dt>Note du client</dt><dd>{context.customer_note}</dd></div> : null}
+        {context.admin_note ? <div><dt>Note interne admin</dt><dd>{context.admin_note}</dd></div> : null}
+      </dl> : null}
+      {messages.length ? <ol aria-label="Discussion avant confirmation">
+        {messages.map((message, index) => <li key={message.id ?? `${message.created_at}-${index}`} className={message.sender_type}>
+          <header><strong>{message.sender_type === "admin" ? "Admin" : "Client"}</strong><time>{date(message.created_at)}</time></header>
+          <p>{message.content}</p>
+        </li>)}
+      </ol> : null}
+    </div> : null}
+  </div>;
 }
 
 export default function ProductBuyersPage({ channel = "bot", data, onNavigate }) {
@@ -224,7 +253,7 @@ export default function ProductBuyersPage({ channel = "bot", data, onNavigate })
                 {view === "orders" ? (transactions.length ? <div className="table-scroll"><table className="buyer-table">
                   <thead><tr><th>Commande</th><th>Client</th><th>Statut</th><th>Suivi FW</th><th>Quantité</th><th>Total</th><th>Date de paiement</th></tr></thead>
                   <tbody>{transactions.map((order) => <tr key={order.order_id}>
-                    <td>{routeLink(buyerOrderTarget(channel, order), <>{order.cart_reference || `#${order.order_id}`}<ArrowUpRight size={13} /></>, `Ouvrir la commande ${order.cart_reference || order.order_id}`)}</td>
+                    <td>{routeLink(buyerOrderTarget(channel, order), <>{order.cart_reference || `#${order.order_id}`}<ArrowUpRight size={13} /></>, `Ouvrir la commande ${order.cart_reference || order.order_id}`)}<OrderPreConfirmation order={order} /></td>
                     <td>{routeLink(buyerTarget(order.buyer), order.buyer.name)}</td>
                     <td><span className={`status ${order.status}`}>{orderStatus(channel, order.status)}</span></td>
                     <td><FullWarrantyStatus order={order} /></td>
@@ -255,12 +284,15 @@ export default function ProductBuyersPage({ channel = "bot", data, onNavigate })
                                 <ul>
                                   {(buyer.orders || []).map((order) => (
                                     <li key={order.order_id}>
-                                      {routeLink(buyerOrderTarget(channel, order), order.cart_reference || `Commande #${order.order_id}`)}
-                                      <span className={`status ${order.status}`}>{orderStatus(channel, order.status)}</span>
-                                      <FullWarrantyStatus order={order} compact />
-                                      <span>{order.quantity} unité{order.quantity > 1 ? "s" : ""} · Total {spentLabel(channel, order.spent, currency)}</span>
-                                      <span>{[order.period, order.warranty].filter(Boolean).join(" · ")}</span>
-                                      <time>{date(order.paid_at || order.created_at)}</time>
+                                      <div className="buyer-order-line">
+                                        {routeLink(buyerOrderTarget(channel, order), order.cart_reference || `Commande #${order.order_id}`)}
+                                        <span className={`status ${order.status}`}>{orderStatus(channel, order.status)}</span>
+                                        <FullWarrantyStatus order={order} compact />
+                                        <span>{order.quantity} unité{order.quantity > 1 ? "s" : ""} · Total {spentLabel(channel, order.spent, currency)}</span>
+                                        <span>{[order.period, order.warranty].filter(Boolean).join(" · ")}</span>
+                                        <time>{date(order.paid_at || order.created_at)}</time>
+                                      </div>
+                                      <OrderPreConfirmation order={order} />
                                     </li>
                                   ))}
                                 </ul>

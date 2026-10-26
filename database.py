@@ -333,6 +333,10 @@ def init_db():
         ],
         name="product_buyers_workspace_status_paid_product",
     )
+    db.order_messages.create_index(
+        [("order_id", ASCENDING), ("created_at", ASCENDING), ("id", ASCENDING)],
+        name="order_conversation_chronological",
+    )
     _enforce_otp_catalog_rules(db)
     schema = db.schema_meta.find_one({"_id": "schema"}, {"version": 1})
     if schema and schema.get("version") == SCHEMA_VERSION:

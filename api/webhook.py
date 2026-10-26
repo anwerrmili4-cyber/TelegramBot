@@ -46,6 +46,7 @@ from app.domain import (
     external_api_service,
     inventory_service,
     lovable_service,
+    order_conversation_service,
     order_service,
     payment_service,
     reseller_comparison_service,
@@ -2931,6 +2932,9 @@ class handler(BaseHTTPRequestHandler):
                     raise ValueError("Commande ou message invalide")
                 _run_async(
                     _application().bot.send_message(order["user_id"], html.escape(message), parse_mode=ParseMode.HTML)
+                )
+                order_conversation_service.record_message(
+                    oid, "admin", ADMIN_ID, message,
                 )
                 db.audit_event("customer.message_sent", details={"order_id": oid, "user_id": order["user_id"]})
 
