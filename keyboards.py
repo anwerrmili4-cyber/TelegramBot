@@ -338,14 +338,19 @@ def main_menu_keyboard(lang, user_id):
 def home_keyboard(lang, user_id):
     hidden = set(filter(None, (db.get_setting("hidden_home_actions", "") or "").split(",")))
     unread_notifications = _support_unread_count(user_id)
+    notifications_icon = db.get_text_override_icon("menu_notifications", lang) or None
+    notifications_label = notifications_button_label(lang, user_id, unread_notifications)
+    if notifications_icon and not unread_notifications:
+        notifications_label = notifications_label.removeprefix("🔔 ")
     bot_like_service = db.get_conn().services.find_one({"feature_key": "bot_like_mine"}) or {}
     bot_like_icon = str(bot_like_service.get("custom_emoji_id") or "").strip()
     candidate_rows = [
         [translated_button(lang, "menu_catalog", callback_data="catalog", style="success")],
         [InlineKeyboardButton(
-            notifications_button_label(lang, user_id, unread_notifications),
+            notifications_label,
             callback_data="notifications",
             style="danger" if unread_notifications else "primary",
+            icon_custom_emoji_id=notifications_icon,
         )],
         [
             translated_button(lang, "menu_methods", callback_data="methods", style="primary"),

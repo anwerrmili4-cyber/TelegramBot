@@ -1346,3 +1346,34 @@ def test_home_menu_notifications_button_has_no_red_sign_when_read(monkeypatch):
 
     assert button.text == "🔔 Notifications"
     assert "🔴" not in button.text
+
+
+def test_home_notifications_button_supports_admin_premium_emoji(monkeypatch):
+    monkeypatch.setattr(kb, "_support_unread_count", lambda _user_id: 2)
+    monkeypatch.setattr(
+        kb.db,
+        "get_text_override_icon",
+        lambda key, lang: "premium-notifications" if (key, lang) == ("menu_notifications", "en") else "",
+    )
+
+    keyboard = kb.home_keyboard("en", 42)
+    button = next(
+        button
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data == "notifications"
+    )
+
+    assert button.text == "🔴 Notifications (2)"
+    assert button.icon_custom_emoji_id == "premium-notifications"
+
+    monkeypatch.setattr(kb, "_support_unread_count", lambda _user_id: 0)
+    read_keyboard = kb.home_keyboard("en", 42)
+    read_button = next(
+        button
+        for row in read_keyboard.inline_keyboard
+        for button in row
+        if button.callback_data == "notifications"
+    )
+    assert read_button.text == "Notifications"
+    assert read_button.icon_custom_emoji_id == "premium-notifications"
