@@ -451,6 +451,12 @@ def init_db():
     db.support_tickets.create_index([("category", ASCENDING), ("status", ASCENDING), ("updated_at", DESCENDING)])
     db.support_tickets.create_index("user_id")
     db.ticket_messages.create_index([("ticket_id", ASCENDING), ("created_at", ASCENDING)])
+    db.ticket_messages.create_index([
+        ("ticket_id", ASCENDING),
+        ("sender_type", ASCENDING),
+        ("customer_read", ASCENDING),
+        ("created_at", DESCENDING),
+    ])
     db.support_tickets.create_index("channel_message_ids")
     db.storefront_customers.create_index("id", unique=True)
     db.storefront_customers.create_index("email", unique=True)

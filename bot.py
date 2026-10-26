@@ -122,6 +122,7 @@ onchain_payment_screen = _payment_presentation.onchain_payment_screen
 topup_onchain_screen = _payment_presentation.topup_onchain_screen
 topup_provider_screen = _payment_presentation.topup_provider_screen
 ticket_conversation_text = _support_presentation.ticket_conversation_text
+support_notifications_text = _support_presentation.support_notifications_text
 supplier_delivery_problem_text = _supplier_incidents.supplier_delivery_problem_text
 premium_customer_text = _customer_text.premium_customer_text
 bmc_vip_channel_message = _delivery_presentation.bmc_vip_channel_message
@@ -1559,6 +1560,17 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_affiliate(update, context)
     elif text == t(lang, "menu_support"):
         await cmd_support(update, context)
+    elif text == kb.notifications_button_label(lang, uid):
+        clear_support_pending()
+        messages = support_service.unread_admin_messages(uid)
+        await update.message.reply_text(
+            support_notifications_text(messages, lang),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb.support_notifications_keyboard(lang, messages),
+        )
+        support_service.mark_admin_messages_read(
+            uid, [message["id"] for message in messages],
+        )
     elif text == t(lang, "menu_admin") and uid == ADMIN_ID:
         clear_support_pending()
         await update.message.reply_text("\U0001f6e0\ufe0f *Panneau Admin*", parse_mode=ParseMode.MARKDOWN,
@@ -1819,6 +1831,18 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data == "home":
         await send_main_menu(update, context, lang)
+        return
+    if data == "notifications":
+        messages = support_service.unread_admin_messages(uid)
+        await show_callback_screen(
+            q,
+            support_notifications_text(messages, lang),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb.support_notifications_keyboard(lang, messages),
+        )
+        support_service.mark_admin_messages_read(
+            uid, [message["id"] for message in messages],
+        )
         return
     if data == "catalog":
         await show_callback_screen(

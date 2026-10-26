@@ -131,3 +131,20 @@ def test_open_ticket_must_be_closed_before_archive(mock_mongodb):
     ticket = support_service.create_ticket(user_id=303, message="Still open")
 
     assert support_service.archive_ticket(ticket["id"]) is False
+
+
+def test_admin_replies_are_unread_until_the_customer_opens_notifications(mock_mongodb):
+    own_ticket = support_service.create_ticket(user_id=101, message="My issue")
+    other_ticket = support_service.create_ticket(user_id=202, message="Other issue")
+    own_reply = support_service.admin_reply(own_ticket["id"], 999, "Your access is ready")
+    support_service.admin_reply(other_ticket["id"], 999, "Other customer reply")
+
+    assert support_service.count_unread_admin_messages(101) == 1
+    assert [item["content"] for item in support_service.unread_admin_messages(101)] == [
+        "Your access is ready",
+    ]
+
+    support_service.mark_admin_messages_read(101, [own_reply["id"]])
+
+    assert support_service.count_unread_admin_messages(101) == 0
+    assert support_service.count_unread_admin_messages(202) == 1

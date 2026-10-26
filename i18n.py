@@ -97,6 +97,11 @@ TRANSLATIONS = {
     "menu_affiliate": {"fr": "⭐️ Parrainer & gagner", "en": "⭐️ Refer & Earn", "ar": "⭐️ ادعُ واربح"},
     "menu_account": {"fr": "👤 Mon profil", "en": "👤 My Profile", "ar": "👤 ملفي الشخصي"},
     "menu_support": {"fr": "🛎️ Support", "en": "🛎️ Support", "ar": "🛎️ الدعم"},
+    "menu_notifications": {
+        "fr": "🔔 Notifications",
+        "en": "🔔 Notifications",
+        "ar": "🔔 الإشعارات",
+    },
     "menu_methods": {"fr": "🧠 Methods", "en": "🧠 Methods", "ar": "🧠 الطرق"},
     "menu_bot_like_mine": {
         "fr": "BOT LIKE MINE",

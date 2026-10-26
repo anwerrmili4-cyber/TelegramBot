@@ -1002,11 +1002,11 @@ def test_home_uses_green_shop_blue_actions_and_red_support(mock_mongodb):
     assert {actions[action].style for action in ("topup", "account", "language")} == {"primary"}
     assert {"profile_withdraw", "profile_notifications", "warranty"}.isdisjoint(actions)
     assert actions["support"].style == "danger"
-    assert [len(row) for row in keyboard.inline_keyboard[:4]] == [1, 2, 2, 2]
-    assert [button.callback_data for button in keyboard.inline_keyboard[1]] == [
+    assert [len(row) for row in keyboard.inline_keyboard[:5]] == [1, 1, 2, 2, 2]
+    assert [button.callback_data for button in keyboard.inline_keyboard[2]] == [
         "methods", "bot_like_mine",
     ]
-    assert [button.callback_data for button in keyboard.inline_keyboard[3]] == [
+    assert [button.callback_data for button in keyboard.inline_keyboard[4]] == [
         "language", "support",
     ]
     assert actions["bot_like_mine"].text == "BOT LIKE MINE"
@@ -1316,3 +1316,33 @@ def test_ticket_conversation_keyboard_can_close_or_go_home():
     assert keyboard.inline_keyboard[1][0].callback_data == "ticket_close:17"
     assert keyboard.inline_keyboard[1][0].style == "danger"
     assert keyboard.inline_keyboard[2][0].callback_data == "home"
+
+
+def test_home_menu_notifications_button_shows_red_unread_count(monkeypatch):
+    monkeypatch.setattr(kb, "_support_unread_count", lambda _user_id: 3)
+
+    keyboard = kb.home_keyboard("en", 42)
+    button = next(
+        button
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data == "notifications"
+    )
+
+    assert button.text == "🔴 Notifications (3)"
+    assert button.style == "danger"
+
+
+def test_home_menu_notifications_button_has_no_red_sign_when_read(monkeypatch):
+    monkeypatch.setattr(kb, "_support_unread_count", lambda _user_id: 0)
+
+    keyboard = kb.home_keyboard("en", 42)
+    button = next(
+        button
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data == "notifications"
+    )
+
+    assert button.text == "🔔 Notifications"
+    assert "🔴" not in button.text

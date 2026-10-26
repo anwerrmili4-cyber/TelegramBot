@@ -3380,6 +3380,29 @@ def test_customer_can_reply_from_support_notification(monkeypatch, mock_mongodb)
     assert f"TKT-{ticket['id']:06d}" in query.message.reply_text.await_args.args[0]
 
 
+def test_customer_notifications_screen_marks_support_replies_read(monkeypatch, mock_mongodb):
+    ticket = support_service.create_ticket(42, "Help", category="other")
+    support_service.admin_reply(ticket["id"], 999, "Your replacement is ready")
+    query = SimpleNamespace(
+        data="notifications",
+        from_user=SimpleNamespace(id=42),
+        message=SimpleNamespace(text="Home"),
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(
+        SimpleNamespace(callback_query=query),
+        SimpleNamespace(bot=SimpleNamespace()),
+    ))
+
+    rendered = query.edit_message_text.await_args.args[0]
+    assert "Your replacement is ready" in rendered
+    assert "TKT-000001" in rendered
+    assert support_service.count_unread_admin_messages(42) == 0
+
+
 def test_attachment_can_create_the_first_ticket_message(mock_mongodb):
     PENDING[42] = ("support", "other")
     user = SimpleNamespace(

@@ -34,7 +34,7 @@ from i18n import t
 
 BUTTON_TEXT_KEYS = {
     "menu_catalog", "menu_methods", "menu_bot_like_mine", "menu_lovable", "menu_orders", "menu_topup", "menu_account", "menu_affiliate",
-    "menu_support", "menu_lang", "menu_admin", "menu_reseller_api", "btn_main_menu", "support_no_order",
+    "menu_support", "menu_notifications", "menu_lang", "menu_admin", "menu_reseller_api", "btn_main_menu", "support_no_order",
     "catalog_request_button", "catalog_search_button", "catalog_search_again_button",
     "catalog_notifications_on", "catalog_notifications_off",
     "profile_deposit", "profile_withdraw", "profile_orders", "profile_referral",
@@ -290,6 +290,34 @@ def ticket_conversation_keyboard(lang, ticket_id):
         )],
         [translated_button(lang, "btn_main_menu", callback_data="home")],
     ])
+
+
+def _support_unread_count(user_id):
+    from app.domain import support_service
+
+    return support_service.count_unread_admin_messages(user_id)
+
+
+def notifications_button_label(lang, user_id, unread=None):
+    unread = _support_unread_count(user_id) if unread is None else int(unread)
+    if unread:
+        label = t(lang, "menu_notifications").removeprefix("🔔 ")
+        return f"🔴 {label} ({unread})"
+    return t(lang, "menu_notifications")
+
+
+def support_notifications_keyboard(lang, messages):
+    rows = [
+        [InlineKeyboardButton(
+            f"💬 TKT-{int(message['ticket_id']):06d}",
+            callback_data=f"ticket_reply:{int(message['ticket_id'])}",
+        )]
+        for message in messages
+    ]
+    rows.append([translated_button(lang, "btn_main_menu", callback_data="home")])
+    return InlineKeyboardMarkup(rows)
+
+
 def main_menu_keyboard(lang, user_id):
     hidden = set(filter(None, (db.get_setting("hidden_home_actions", "") or "").split(",")))
     candidates = [
@@ -298,6 +326,7 @@ def main_menu_keyboard(lang, user_id):
         [("topup", t(lang, "menu_topup"))],
         [("account", t(lang, "menu_account")), ("affiliate", t(lang, "menu_affiliate"))],
         [("support", t(lang, "menu_support")), ("language", t(lang, "menu_lang"))],
+        [("notifications", notifications_button_label(lang, user_id))],
     ]
     rows = [[label for action, label in row if action not in hidden] for row in candidates]
     rows = [row for row in rows if row]
@@ -308,10 +337,16 @@ def main_menu_keyboard(lang, user_id):
 
 def home_keyboard(lang, user_id):
     hidden = set(filter(None, (db.get_setting("hidden_home_actions", "") or "").split(",")))
+    unread_notifications = _support_unread_count(user_id)
     bot_like_service = db.get_conn().services.find_one({"feature_key": "bot_like_mine"}) or {}
     bot_like_icon = str(bot_like_service.get("custom_emoji_id") or "").strip()
     candidate_rows = [
         [translated_button(lang, "menu_catalog", callback_data="catalog", style="success")],
+        [InlineKeyboardButton(
+            notifications_button_label(lang, user_id, unread_notifications),
+            callback_data="notifications",
+            style="danger" if unread_notifications else "primary",
+        )],
         [
             translated_button(lang, "menu_methods", callback_data="methods", style="primary"),
             translated_button(

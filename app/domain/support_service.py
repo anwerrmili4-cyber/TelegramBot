@@ -98,6 +98,7 @@ def add_message(
         "sender_id": sender_id,
         "sender_type": sender_type,
         "content": content[:2000],
+        "customer_read": sender_type != "admin",
         "created_at": now,
     }
     if media:
@@ -135,6 +136,63 @@ def get_messages(ticket_id: int, limit: int = 50) -> list[dict]:
             {"ticket_id": ticket_id}
         ).sort("created_at", ASCENDING).limit(limit)
     ]
+
+
+def _customer_ticket_ids(user_id: int) -> list[int]:
+    return [
+        int(ticket["id"])
+        for ticket in db.get_conn().support_tickets.find(
+            {"user_id": int(user_id), "channel": {"$ne": "tn_site"}},
+            {"id": 1},
+        )
+    ]
+
+
+def count_unread_admin_messages(user_id: int) -> int:
+    """Count new support replies for one Telegram customer."""
+    ticket_ids = _customer_ticket_ids(user_id)
+    if not ticket_ids:
+        return 0
+    return db.get_conn().ticket_messages.count_documents({
+        "ticket_id": {"$in": ticket_ids},
+        "sender_type": "admin",
+        "customer_read": False,
+    })
+
+
+def unread_admin_messages(user_id: int, limit: int = 20) -> list[dict]:
+    """Return the customer's newest unread support replies."""
+    ticket_ids = _customer_ticket_ids(user_id)
+    if not ticket_ids:
+        return []
+    from pymongo import DESCENDING
+
+    return [
+        db._public(message)
+        for message in db.get_conn().ticket_messages.find({
+            "ticket_id": {"$in": ticket_ids},
+            "sender_type": "admin",
+            "customer_read": False,
+        }).sort("created_at", DESCENDING).limit(max(1, min(int(limit), 50)))
+    ]
+
+
+def mark_admin_messages_read(user_id: int, message_ids: list[int]) -> int:
+    """Mark only messages owned by this customer as read."""
+    ticket_ids = _customer_ticket_ids(user_id)
+    clean_ids = [int(message_id) for message_id in message_ids]
+    if not ticket_ids or not clean_ids:
+        return 0
+    result = db.get_conn().ticket_messages.update_many(
+        {
+            "id": {"$in": clean_ids},
+            "ticket_id": {"$in": ticket_ids},
+            "sender_type": "admin",
+            "customer_read": False,
+        },
+        {"$set": {"customer_read": True, "customer_read_at": datetime.now(UTC)}},
+    )
+    return int(result.modified_count)
 
 
 def admin_reply(ticket_id: int, admin_id: int, content: str) -> dict | None:
