@@ -321,6 +321,18 @@ def init_db():
         unique=True,
         partialFilterExpression={"otp_default": True},
     )
+    # Product-buyer reporting starts with workspace/status equality, narrows by
+    # payment date, then groups by product. Keep this before the schema-version
+    # fast path so existing installations receive the index on their next boot.
+    db.orders.create_index(
+        [
+            ("sales_channel", ASCENDING),
+            ("status", ASCENDING),
+            ("paid_at", DESCENDING),
+            ("offer_id", ASCENDING),
+        ],
+        name="product_buyers_workspace_status_paid_product",
+    )
     _enforce_otp_catalog_rules(db)
     schema = db.schema_meta.find_one({"_id": "schema"}, {"version": 1})
     if schema and schema.get("version") == SCHEMA_VERSION:

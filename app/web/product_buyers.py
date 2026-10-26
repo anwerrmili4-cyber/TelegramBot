@@ -7,9 +7,11 @@ The sale itself is the record: the current catalog is only extra detail.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from math import ceil
 from typing import Any
 
 import database as db
+from app.domain import warranty_service
 from app.web.dashboard_api import _first, _telegram_description_plain_text
 
 _SOLD_STATUSES = (
@@ -61,14 +63,19 @@ def report(params: dict[str, list[str]]) -> dict[str, Any]:
     channel = "site" if _first(params, "channel") == "site" else "bot"
     selected = _first(params, "product")
     search = _first(params, "search").casefold()
+    coverage = _first(params, "coverage")
+    if coverage not in {"fw", "fw_active", "fw_finished"}:
+        coverage = "all"
+    try:
+        start, end = _date_bounds(params)
+    except ValueError:
+        return {"ok": False, "error": "Période invalide : vérifiez les dates de début et de fin.", "products": []}
     conn = db.get_conn()
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for order in conn.orders.find(_sold_query(channel), _ORDER_FIELDS):
-        grouped.setdefault(_product_key(order), []).append(order)
+    summaries = _aggregate_summaries(conn.orders, channel, start, end, coverage)
 
     offer_ids = [
         int(key.removeprefix("offer:"))
-        for key in grouped
+        for key in summaries
         if key.startswith("offer:") and key.removeprefix("offer:").isdigit()
     ]
     offers = {
@@ -82,8 +89,8 @@ def report(params: dict[str, list[str]]) -> dict[str, Any]:
     }
 
     products = []
-    for key, rows in grouped.items():
-        item = _product_summary(key, rows, offers, services, channel)
+    for key, summary in summaries.items():
+        item = _aggregated_product_summary(key, summary, offers, services, channel)
         if search and search not in f"{item['name']} {item['service_name']}".casefold():
             continue
         products.append(item)
@@ -97,10 +104,17 @@ def report(params: dict[str, list[str]]) -> dict[str, Any]:
     }
     if not selected:
         return payload
-    rows = grouped.get(selected)
-    if rows is None:
+    summary = summaries.get(selected)
+    if summary is None:
+        if start is not None or end is not None or coverage != "all":
+            payload["product"] = None
+            return payload
         payload["ok"] = False
         payload["error"] = "Ce produit n’a aucune vente enregistrée."
+        return payload
+    rows = _selected_orders(conn.orders, channel, selected, start, end, coverage)
+    if not rows:
+        payload["product"] = None
         return payload
     product = _product_summary(selected, rows, offers, services, channel, detailed=True)
     product["buyers"] = _buyers(rows, channel, conn)
@@ -108,16 +122,300 @@ def report(params: dict[str, list[str]]) -> dict[str, Any]:
     return payload
 
 
-def _sold_query(channel: str) -> dict[str, Any]:
+def _summary_pipeline(
+    channel: str,
+    start: int | None,
+    end: int | None,
+    coverage: str,
+    *,
+    now: int | None = None,
+) -> list[dict[str, Any]]:
+    """Aggregate product totals without accumulating an unbounded order array."""
+    current = int(datetime.now(UTC).timestamp()) if now is None else int(now)
+    report_date = {
+        "$cond": [
+            {"$gt": [{"$ifNull": ["$paid_at", 0]}, 0]},
+            "$paid_at",
+            {"$ifNull": ["$created_at", 0]},
+        ]
+    }
+    quantity = {
+        "$cond": [
+            {"$gt": [{"$ifNull": ["$qty", 0]}, 0]},
+            "$qty",
+            {"$cond": [{"$gt": [{"$ifNull": ["$quantity", 0]}, 0]}, "$quantity", 1]},
+        ]
+    }
+    if channel == "site":
+        buyer_key = {
+            "$cond": [
+                {"$ne": [{"$ifNull": ["$customer_id", None]}, None]},
+                {"$concat": ["customer:", {"$toString": "$customer_id"}]},
+                {"$cond": [
+                    {"$ne": [{"$ifNull": ["$customer_email", ""]}, ""]},
+                    {"$concat": ["email:", {"$toLower": {"$ifNull": ["$customer_email", ""]}}]},
+                    {"$concat": ["name:", {"$toLower": {"$ifNull": ["$customer_name", ""]}}]},
+                ]},
+            ]
+        }
+        spent = {
+            "$ifNull": [
+                "$total_millimes",
+                {"$multiply": [{"$ifNull": ["$total_price", 0]}, 1000]},
+            ]
+        }
+    else:
+        buyer_key = {
+            "$cond": [
+                {"$ne": [{"$ifNull": ["$user_id", None]}, None]},
+                {"$concat": ["user:", {"$toString": "$user_id"}]},
+                "user:unknown",
+            ]
+        }
+        spent = db.order_charge_total_expression()
+    is_fw = {
+        "$or": [
+            {"$eq": [{"$toUpper": {"$ifNull": ["$warranty", ""]}}, "FW"]},
+            {"$and": [
+                {"$gt": [{"$ifNull": ["$period_days", 0]}, 0]},
+                {"$eq": [{"$ifNull": ["$period_days", 0]}, {"$ifNull": ["$warranty_days", 0]}]},
+            ]},
+        ]
+    }
+    started_at = {
+        "$cond": [
+            {"$gt": [{"$ifNull": ["$delivered_at", 0]}, 0]},
+            "$delivered_at",
+            report_date,
+        ]
+    }
+    pipeline: list[dict[str, Any]] = [
+        {"$match": _sold_query(channel, start, end)},
+        {"$set": {
+            "_report_date": report_date,
+            "_quantity": quantity,
+            "_buyer_key": buyer_key,
+            "_spent": spent,
+            "_is_fw": is_fw,
+            "_fw_started_at": started_at,
+        }},
+        {"$set": {
+            "_fw_expires_at": {
+                "$cond": [
+                    {"$and": ["$_is_fw", {"$gt": ["$_fw_started_at", 0]}, {"$gt": [{"$ifNull": ["$period_days", 0]}, 0]}]},
+                    {"$add": ["$_fw_started_at", {"$multiply": ["$period_days", 86400]}]},
+                    None,
+                ]
+            },
+        }},
+        {"$set": {
+            "_fw_status": {
+                "$cond": [
+                    {"$not": ["$_is_fw"]},
+                    "",
+                    {"$cond": [
+                        {"$and": [{"$ne": ["$_fw_expires_at", None]}, {"$lte": ["$_fw_expires_at", current]}]},
+                        "finished",
+                        "active",
+                    ]},
+                ]
+            },
+        }},
+    ]
+    if coverage == "fw":
+        pipeline.append({"$match": {"_is_fw": True}})
+    elif coverage == "fw_active":
+        pipeline.append({"$match": {"_fw_status": "active"}})
+    elif coverage == "fw_finished":
+        pipeline.append({"$match": {"_fw_status": "finished"}})
+    pipeline.extend([
+        {"$sort": {"created_at": -1}},
+        {"$group": {
+            "_id": {
+                "offer_id": "$offer_id",
+                "offer_name": "$offer_name",
+                "service_name": "$service_name",
+            },
+            "sales_count": {"$sum": 1},
+            "buyer_keys": {"$addToSet": "$_buyer_key"},
+            "quantity": {"$sum": "$_quantity"},
+            "spent": {"$sum": "$_spent"},
+            "first_sale_at": {"$min": "$_report_date"},
+            "last_sale_at": {"$max": "$_report_date"},
+            "fw_total": {"$sum": {"$cond": ["$_is_fw", 1, 0]}},
+            "fw_active": {"$sum": {"$cond": [{"$eq": ["$_fw_status", "active"]}, 1, 0]}},
+            "fw_finished": {"$sum": {"$cond": [{"$eq": ["$_fw_status", "finished"]}, 1, 0]}},
+            "latest": {"$first": {
+                "offer_id": "$offer_id",
+                "offer_name": "$offer_name",
+                "service_name": "$service_name",
+                "created_at": "$created_at",
+                "warranty": "$warranty",
+                "warranty_days": "$warranty_days",
+                "warranty_value": "$warranty_value",
+                "warranty_unit": "$warranty_unit",
+                "period_days": "$period_days",
+                "period_value": "$period_value",
+                "period_unit": "$period_unit",
+                "unit_price": "$unit_price",
+                "unit_price_millimes": "$unit_price_millimes",
+                "product_description_snapshot": "$product_description_snapshot",
+            }},
+        }},
+    ])
+    return pipeline
+
+
+def _aggregate_summaries(
+    collection: Any,
+    channel: str,
+    start: int | None,
+    end: int | None,
+    coverage: str,
+) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for raw in collection.aggregate(_summary_pipeline(channel, start, end, coverage), allowDiskUse=True):
+        latest = dict(raw.get("latest") or {})
+        identity = raw.get("_id") or {}
+        latest.setdefault("offer_id", identity.get("offer_id"))
+        latest.setdefault("offer_name", identity.get("offer_name"))
+        latest.setdefault("service_name", identity.get("service_name"))
+        key = _product_key(latest)
+        incoming = {
+            "sales_count": int(raw.get("sales_count") or 0),
+            "buyer_keys": set(raw.get("buyer_keys") or []),
+            "quantity": int(raw.get("quantity") or 0),
+            "spent": raw.get("spent") or 0,
+            "first_sale_at": int(raw.get("first_sale_at") or 0),
+            "last_sale_at": int(raw.get("last_sale_at") or 0),
+            "fw_total": int(raw.get("fw_total") or 0),
+            "fw_active": int(raw.get("fw_active") or 0),
+            "fw_finished": int(raw.get("fw_finished") or 0),
+            "latest": latest,
+        }
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = incoming
+            continue
+        current["sales_count"] += incoming["sales_count"]
+        current["buyer_keys"].update(incoming["buyer_keys"])
+        current["quantity"] += incoming["quantity"]
+        current["spent"] += incoming["spent"]
+        current["first_sale_at"] = min(current["first_sale_at"], incoming["first_sale_at"])
+        current["last_sale_at"] = max(current["last_sale_at"], incoming["last_sale_at"])
+        current["fw_total"] += incoming["fw_total"]
+        current["fw_active"] += incoming["fw_active"]
+        current["fw_finished"] += incoming["fw_finished"]
+        if int(latest.get("created_at") or 0) > int(current["latest"].get("created_at") or 0):
+            current["latest"] = latest
+    return grouped
+
+
+def _selected_orders(
+    collection: Any,
+    channel: str,
+    selected: str,
+    start: int | None,
+    end: int | None,
+    coverage: str,
+) -> list[dict[str, Any]]:
+    query = _sold_query(channel, start, end)
+    if selected.startswith("offer:") and selected.removeprefix("offer:").isdigit():
+        offer_id = int(selected.removeprefix("offer:"))
+        selected_query = {"offer_id": {"$in": [offer_id, str(offer_id)]}}
+    elif selected.startswith("snapshot:") and "|" in selected:
+        service, name = selected.removeprefix("snapshot:").split("|", 1)
+        import re
+        selected_query = {
+            "offer_id": {"$in": [None, ""]},
+            "service_name": {"$regex": rf"^\s*{re.escape(service)}\s*$", "$options": "i"},
+            "offer_name": {"$regex": rf"^\s*{re.escape(name)}\s*$", "$options": "i"},
+        }
+    else:
+        return []
+    rows = []
+    for stored in collection.find({"$and": [query, selected_query]}, _ORDER_FIELDS):
+        order = dict(stored)
+        order["_fw_tracking"] = _fw_tracking(order)
+        if _matches_coverage(order["_fw_tracking"], coverage):
+            rows.append(order)
+    return rows
+
+
+def _date_bounds(params: dict[str, list[str]]) -> tuple[int | None, int | None]:
+    """Unix seconds: inclusive start, exclusive end, supplied in the viewer's timezone."""
+    bounds = []
+    for key in ("from_ts", "to_ts"):
+        raw = _first(params, key)
+        value = int(raw) if raw else None
+        if value is not None and not 0 <= value <= 253402300799:
+            raise ValueError("Timestamp out of range")
+        bounds.append(value)
+    start, end = bounds
+    if start is not None and end is not None and start >= end:
+        raise ValueError("Empty or reversed range")
+    return start, end
+
+
+def _sold_query(channel: str, start: int | None = None, end: int | None = None) -> dict[str, Any]:
     sold = {
         "$or": [
             {"status": {"$in": list(_SOLD_STATUSES)}},
             {"paid_at": {"$gt": 0}},
         ],
     }
-    if channel == "site":
-        return {"sales_channel": "tn_site", **sold}
-    return db.customer_order_query(sold)
+    query = {"sales_channel": "tn_site", **sold} if channel == "site" else db.customer_order_query(sold)
+    if start is None and end is None:
+        return query
+    bounds = {}
+    if start is not None:
+        bounds["$gte"] = start
+    if end is not None:
+        bounds["$lt"] = end
+    # Match the date used in the report: payment first, creation for legacy sales.
+    return {"$and": [query, {"$or": [
+        {"paid_at": {"$gt": 0, **bounds}},
+        {"$and": [
+            {"$or": [{"paid_at": None}, {"paid_at": 0}]},
+            {"created_at": bounds},
+        ]},
+    ]}]}
+
+
+def _fw_tracking(order: dict[str, Any], now: int | None = None) -> dict[str, Any]:
+    """Describe Full Warranty usage from delivery until the product period ends."""
+    is_full = warranty_service.has_full_warranty(order) or str(order.get("warranty") or "").strip().upper() == "FW"
+    if not is_full:
+        return {
+            "is_full_warranty": False,
+            "fw_status": "",
+            "fw_started_at": None,
+            "expires_at": None,
+            "remaining_days": None,
+        }
+    current = int(datetime.now(UTC).timestamp()) if now is None else int(now)
+    started_at = int(order.get("delivered_at") or order.get("paid_at") or order.get("created_at") or 0) or None
+    period_days = max(0, int(order.get("period_days") or 0))
+    expires_at = started_at + period_days * 86400 if started_at and period_days else None
+    finished = expires_at is not None and current >= expires_at
+    remaining_days = max(0, ceil((expires_at - current) / 86400)) if expires_at is not None else None
+    return {
+        "is_full_warranty": True,
+        "fw_status": "finished" if finished else "active",
+        "fw_started_at": started_at,
+        "expires_at": expires_at,
+        "remaining_days": remaining_days,
+    }
+
+
+def _matches_coverage(tracking: dict[str, Any], coverage: str) -> bool:
+    if coverage == "fw":
+        return bool(tracking["is_full_warranty"])
+    if coverage == "fw_active":
+        return tracking["fw_status"] == "active"
+    if coverage == "fw_finished":
+        return tracking["fw_status"] == "finished"
+    return True
 
 
 def _product_key(order: dict[str, Any]) -> str:
@@ -127,6 +425,40 @@ def _product_key(order: dict[str, Any]) -> str:
     service = str(order.get("service_name") or "").strip().casefold()
     name = str(order.get("offer_name") or "").strip().casefold()
     return f"snapshot:{service}|{name}"
+
+
+def _aggregated_product_summary(
+    key: str,
+    summary: dict[str, Any],
+    offers: dict[int, dict[str, Any]],
+    services: dict[int, dict[str, Any]],
+    channel: str,
+) -> dict[str, Any]:
+    latest = summary["latest"]
+    offer_id = int(key.removeprefix("offer:")) if key.startswith("offer:") else None
+    offer = offers.get(offer_id) if offer_id is not None else None
+    service = services.get(int(offer["service_id"])) if offer and offer.get("service_id") is not None else None
+    state, state_label = _catalog_state(offer)
+    spent = int(summary["spent"]) if channel == "site" else round(float(summary["spent"]), 2)
+    return {
+        "key": key,
+        "offer_id": offer_id,
+        "name": str((offer or {}).get("name") or latest.get("offer_name") or "Produit sans nom").strip() or "Produit sans nom",
+        "service_name": str((service or {}).get("name") or latest.get("service_name") or "").strip(),
+        "catalog_state": state,
+        "catalog_label": state_label,
+        "sales_count": int(summary["sales_count"]),
+        "buyer_count": len(summary["buyer_keys"]),
+        "quantity": int(summary["quantity"]),
+        "spent": spent,
+        "warranty": _warranty(offer, latest),
+        "period": _period(offer, latest),
+        "first_sale_at": summary["first_sale_at"] or None,
+        "last_sale_at": summary["last_sale_at"] or None,
+        "fw_total": int(summary["fw_total"]),
+        "fw_active": int(summary["fw_active"]),
+        "fw_finished": int(summary["fw_finished"]),
+    }
 
 
 def _product_summary(
@@ -148,6 +480,7 @@ def _product_summary(
     spent = _sum_spent(rows, channel)
     first_sale = min(int(row.get("paid_at") or row.get("created_at") or 0) for row in rows)
     last_sale = max(int(row.get("paid_at") or row.get("created_at") or 0) for row in rows)
+    tracked = [row.get("_fw_tracking") or _fw_tracking(row) for row in rows]
     item = {
         "key": key,
         "offer_id": offer_id,
@@ -163,6 +496,9 @@ def _product_summary(
         "period": _period(offer, latest),
         "first_sale_at": first_sale or None,
         "last_sale_at": last_sale or None,
+        "fw_total": sum(1 for item in tracked if item["is_full_warranty"]),
+        "fw_active": sum(1 for item in tracked if item["fw_status"] == "active"),
+        "fw_finished": sum(1 for item in tracked if item["fw_status"] == "finished"),
     }
     if detailed:
         item["facts"] = _facts(item, offer, service, latest, channel)
@@ -327,6 +663,7 @@ def _buyer_payload(
     email: str = "",
 ) -> dict[str, Any]:
     ordered = sorted(purchases, key=lambda row: int(row.get("created_at") or 0), reverse=True)
+    tracked = [row.get("_fw_tracking") or _fw_tracking(row) for row in ordered]
     return {
         "key": key,
         "name": name,
@@ -338,12 +675,16 @@ def _buyer_payload(
         "spent": _sum_spent(ordered, channel),
         "first_purchase_at": min(int(row.get("paid_at") or row.get("created_at") or 0) for row in ordered) or None,
         "last_purchase_at": max(int(row.get("paid_at") or row.get("created_at") or 0) for row in ordered) or None,
+        "fw_total": sum(1 for item in tracked if item["is_full_warranty"]),
+        "fw_active": sum(1 for item in tracked if item["fw_status"] == "active"),
+        "fw_finished": sum(1 for item in tracked if item["fw_status"] == "finished"),
         "details": details,
         "orders": [_purchase(row, channel) for row in ordered],
     }
 
 
 def _purchase(order: dict[str, Any], channel: str) -> dict[str, Any]:
+    tracking = order.get("_fw_tracking") or _fw_tracking(order)
     return {
         "order_id": order.get("id"),
         "cart_reference": str(order.get("cart_reference") or ""),
@@ -355,6 +696,7 @@ def _purchase(order: dict[str, Any], channel: str) -> dict[str, Any]:
         "delivered_at": order.get("delivered_at"),
         "warranty": _warranty(None, order),
         "period": _period(None, order),
+        **tracking,
     }
 
 
