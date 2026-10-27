@@ -131,13 +131,13 @@ modules do not recreate the same coupling under different filenames.
 **Description:** Move the catalog browsing callback slice into a handler module using explicit dependencies for database access, keyboards, and rendering.
 
 **Acceptance criteria:**
-- [ ] Existing callback data remains compatible.
-- [ ] Single-offer and multi-offer navigation produce the same messages and keyboards.
-- [ ] Handler registration and startup remain in `bot.py` until a later plan.
+- [x] Existing callback data remains compatible.
+- [x] Single-offer and multi-offer navigation produce the same messages and keyboards.
+- [x] Handler registration and startup remain in `bot.py` until a later plan.
 
 **Verification:**
-- [ ] `python -m pytest tests/test_keyboards.py tests/test_bot_design.py -k "catalog or offer or service" -q`
-- [ ] `python -m pytest tests/test_startup.py tests/test_bot_runtime_features.py -q`
+- [x] `python -m pytest tests/test_keyboards.py tests/test_bot_design.py -k "catalog or offer or service" -q`
+- [x] `python -m pytest tests/test_startup.py tests/test_bot_runtime_features.py -q`
 
 **Dependencies:** Task 3
 
@@ -151,10 +151,10 @@ modules do not recreate the same coupling under different filenames.
 
 ## Checkpoint: Bot boundary
 
-- [ ] Tasks 1-5 acceptance criteria pass.
-- [ ] `bot.py` remains a working compatibility facade.
-- [ ] Full suite is no worse than baseline.
-- [ ] Review before starting webhook extraction.
+- [x] Tasks 1-5 acceptance criteria pass.
+- [x] `bot.py` remains a working compatibility facade.
+- [x] Full suite is no worse than baseline (1,087 passed; one transient Windows loopback failure passed alone).
+- [x] Review before starting webhook extraction.
 
 ## Task 6: Extract admin catalog form parsing and actions
 

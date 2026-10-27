@@ -75,13 +75,13 @@ Baseline and focused test commands
 
 - [x] Task 3: Extract pure bot presentation into focused rich-text, method-card, offer-card, and admin-preview modules.
 - [x] Task 4: Extract stock, sale, and broadcast announcement logic into `app/bot/announcements.py`.
-- [ ] Task 5: Extract one customer handler slice (catalog and offer navigation) into `app/bot/handlers/catalog.py`.
+- [x] Task 5: Extract one customer handler slice (catalog and offer navigation) into `app/bot/handlers/catalog.py`.
 
 ### Checkpoint: Bot Boundary
 
-- [ ] `bot.py` still exposes all names used by tests and startup wiring.
-- [ ] Focused bot tests and runtime startup tests pass.
-- [ ] Telegram callback data and rendered customer text remain unchanged.
+- [x] `bot.py` still exposes all names used by tests and startup wiring.
+- [x] Focused bot tests and runtime startup tests pass.
+- [x] Telegram callback data and rendered customer text remain unchanged.
 
 ### Phase 3: Decompose `api/webhook.py`
 
