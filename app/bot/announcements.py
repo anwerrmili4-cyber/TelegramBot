@@ -11,7 +11,12 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 import database as db
+import keyboards as kb
+from app.bot.customer_text import premium_customer_text
+from app.bot.methods_presentation import method_announcement_text
 from app.bot.presentation import _is_single_emoji
+from app.domain import warranty_service
+from config import CURRENCY, DEFAULT_LANG, SHOP_NAME
 
 log = logging.getLogger("bot")
 
@@ -144,11 +149,84 @@ async def broadcast_in_batches(
     return sent
 
 
+def offer_reaches_customers(offer):
+    from app.domain.offer_stock_control import offer_reaches_bot_customers
+
+    return offer_reaches_bot_customers(offer)
+
+
+async def announce_channel_restock(
+    context, offer_id, added, stock, supplier_event=None,
+):
+    """Broadcast a private new-stock advert to every active bot user."""
+    offer = db.get_offer(int(offer_id))
+    if not offer_reaches_customers(offer):
+        return 0
+    unlimited = bool(offer.get("unlimited_stock"))
+    if not unlimited:
+        try:
+            stock = max(0, int(offer.get("stock") or 0))
+        except (TypeError, ValueError):
+            stock = max(0, int(stock or 0))
+        if stock <= 0:
+            return 0
+    if added is not None and int(added or 0) <= 0:
+        return 0
+    service = db.get_service(offer["service_id"]) or {}
+    price = "—" if offer.get("price") is None else f"{float(offer['price']):.2f}"
+
+    async def send_one(user):
+        user_id = int(user["telegram_id"])
+        lang = user.get("lang") or DEFAULT_LANG
+        message_key = (
+            "channel_stock_announcement"
+            if added is not None
+            else "offer_stock_announcement"
+        )
+        values = {
+            "emoji": announcement_service_emoji(service),
+            "service": announcement_plain(service.get("name") or SHOP_NAME),
+            "offer": announcement_plain(offer.get("name") or f"Offer #{offer_id}"),
+            "period": kb.offer_period_label(lang, offer),
+            "warranty": warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
+            "price": price,
+            "cur": CURRENCY,
+            "stock": "∞" if unlimited else int(stock),
+        }
+        if added is not None:
+            values["added"] = int(added)
+        await send_broadcast_message_safe(
+            context,
+            chat_id=user_id,
+            text=method_announcement_text(
+                premium_customer_text(lang, message_key, **values),
+                service,
+                offer,
+                lang,
+            ),
+            reply_markup=kb.announcement_offer_keyboard(lang, offer),
+        )
+
+    return await broadcast_in_batches(
+        send_one,
+        label="New-stock broadcast",
+        catalog_updates_only=True,
+        catalog_offer_id=offer_id,
+    )
+
+
+async def send_new_stock_broadcast(context, offer_id, added, stock):
+    """Finish the broadcast before a serverless webhook request can terminate."""
+    return await announce_channel_restock(context, offer_id, added, stock)
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
+    "announce_channel_restock",
     "broadcast_in_batches",
     "is_blocked_broadcast_error",
     "send_broadcast_message_safe",
+    "send_new_stock_broadcast",
     "track_broadcast_message",
 ]

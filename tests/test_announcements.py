@@ -29,3 +29,11 @@ def test_bot_facade_reexports_broadcast_batching():
     assert bot._broadcast_in_batches is announcements.broadcast_in_batches
     assert bot.BROADCAST_BATCH_SIZE == announcements.BROADCAST_BATCH_SIZE
     assert bot.BROADCAST_BATCH_DELAY == announcements.BROADCAST_BATCH_DELAY
+
+
+def test_bot_facade_reexports_stock_announcements():
+    import bot
+    from app.bot import announcements
+
+    assert bot.announce_channel_restock is announcements.announce_channel_restock
+    assert bot.send_new_stock_broadcast is announcements.send_new_stock_broadcast

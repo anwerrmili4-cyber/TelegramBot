@@ -102,6 +102,9 @@ _is_blocked_broadcast_error = _announcements.is_blocked_broadcast_error
 _broadcast_in_batches = _announcements.broadcast_in_batches
 BROADCAST_BATCH_SIZE = _announcements.BROADCAST_BATCH_SIZE
 BROADCAST_BATCH_DELAY = _announcements.BROADCAST_BATCH_DELAY
+_offer_reaches_customers = _announcements.offer_reaches_customers
+announce_channel_restock = _announcements.announce_channel_restock
+send_new_stock_broadcast = _announcements.send_new_stock_broadcast
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -430,72 +433,6 @@ async def announce_supplier_change_admin(context, event, change_type):
         reply_markup=kb.offer_detail_keyboard(lang, offer),
     )
     return 1
-
-
-def _offer_reaches_customers(offer):
-    from app.domain.offer_stock_control import offer_reaches_bot_customers
-
-    return offer_reaches_bot_customers(offer)
-
-
-async def announce_channel_restock(
-    context, offer_id, added, stock, supplier_event=None,
-):
-    """Broadcast a private new-stock advert to every active bot user.
-
-    An offer the bot is not selling does not get this message. The broadcast
-    job stays stored and is sent when that offer is listed again.
-    """
-    offer = db.get_offer(int(offer_id))
-    if not _offer_reaches_customers(offer):
-        return 0
-    unlimited = bool(offer.get("unlimited_stock"))
-    if not unlimited:
-        try:
-            stock = max(0, int(offer.get("stock") or 0))
-        except (TypeError, ValueError):
-            stock = max(0, int(stock or 0))
-        if stock <= 0:
-            return 0
-    if added is not None and int(added or 0) <= 0:
-        return 0
-    service = db.get_service(offer["service_id"]) or {}
-    price = "—" if offer.get("price") is None else f"{float(offer['price']):.2f}"
-    async def send_one(user):
-        user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
-        message_key = "channel_stock_announcement" if added is not None else "offer_stock_announcement"
-        values = {
-            "emoji": _announcement_service_emoji(service),
-            "service": _announcement_plain(service.get("name") or SHOP_NAME),
-            "offer": _announcement_plain(offer.get("name") or f"Offer #{offer_id}"),
-            "period": kb.offer_period_label(lang, offer),
-            "warranty": warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-            "price": price,
-            "cur": CURRENCY,
-            "stock": "∞" if unlimited else int(stock),
-        }
-        if added is not None:
-            values["added"] = int(added)
-        await _send_broadcast_message_safe(
-            context,
-            chat_id=user_id,
-            text=_method_announcement_text(
-                premium_customer_text(lang, message_key, **values), service, offer, lang,
-            ),
-            reply_markup=kb.announcement_offer_keyboard(lang, offer),
-        )
-    return await _broadcast_in_batches(
-        send_one,
-        label="New-stock broadcast",
-        catalog_updates_only=True,
-        catalog_offer_id=offer_id,
-    )
-
-
-async def send_new_stock_broadcast(context, offer_id, added, stock):
-    """Finish the broadcast before a serverless webhook request can terminate."""
-    return await announce_channel_restock(context, offer_id, added, stock)
 
 
 async def announce_flash_sale(context, offer_id):
