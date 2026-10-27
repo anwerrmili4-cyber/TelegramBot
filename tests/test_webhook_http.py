@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import threading
 from contextlib import contextmanager
@@ -540,6 +541,26 @@ def test_webhook_requires_json_content_type(monkeypatch):
             assert exc.code == 415
         else:
             raise AssertionError("Webhook accepted a non-JSON request")
+
+
+def test_webhook_content_type_rejection_consumes_request_body(monkeypatch):
+    """Avoid a Windows TCP reset hiding the intended HTTP 415 response."""
+    body = b"update_id=1"
+    request_handler = object.__new__(handler)
+    request_handler.path = "/api/webhook"
+    request_handler.headers = {
+        "Content-Length": str(len(body)),
+        "X-Telegram-Bot-Api-Secret-Token": "expected-secret",
+    }
+    request_handler.rfile = io.BytesIO(body)
+    replies = []
+    request_handler._reply = lambda status, payload: replies.append((status, payload))
+    monkeypatch.setenv("HP_WEBHOOK_SECRET", "expected-secret")
+
+    request_handler.do_POST()
+
+    assert replies == [(415, {"ok": False, "error": "content_type_must_be_json"})]
+    assert request_handler.rfile.tell() == len(body)
 
 
 def test_control_room_routes_support_direct_navigation():

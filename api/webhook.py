@@ -646,6 +646,25 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _discard_request_body(self, *, max_bytes: int = MAX_WEBHOOK_BODY_BYTES) -> None:
+        """Consume a rejected small request so Windows can deliver the response."""
+        try:
+            remaining = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            self.close_connection = True
+            return
+        if remaining <= 0:
+            return
+        if remaining > max_bytes:
+            self.close_connection = True
+            return
+        while remaining:
+            chunk = self.rfile.read(min(remaining, 64 * 1024))
+            if not chunk:
+                self.close_connection = True
+                return
+            remaining -= len(chunk)
+
     def _read_multipart(self, max_bytes: int) -> tuple[dict[str, str], dict]:
         content_type = self.headers.get("Content-Type", "")
         if not content_type.lower().startswith("multipart/form-data;"):
@@ -2001,6 +2020,7 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_type = self.headers.get("Content-Type", "").partition(";")[0].strip().lower()
             if content_type != "application/json":
+                self._discard_request_body()
                 self._reply(415, {"ok": False, "error": "content_type_must_be_json"})
                 return
             length = int(self.headers.get("Content-Length", "0"))
