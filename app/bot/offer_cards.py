@@ -103,6 +103,25 @@ def decompose_legacy_bulk_line(template: str, lang: str = "en") -> str:
     )
 
 
+def offer_description_text(offer: dict, lang: str) -> str:
+    """Render the stored product description for its dedicated screen."""
+    if lang == "ar" and offer.get("description_ar"):
+        description = offer.get("description_ar")
+    elif lang == "fr" and offer.get("description_fr"):
+        description = offer.get("description_fr")
+    else:
+        description = offer.get("description")
+    rendered = render_stored_rich_text(
+        (description or "").strip() or "—", parse_legacy_markdown=False,
+    )
+    rendered = re.sub(
+        r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered, flags=re.I,
+    )
+    return re.sub(
+        r"<blockquote\b[^>]*>", "<blockquote>", rendered, flags=re.I,
+    )
+
+
 def compact_offer_text(offer: dict, lang: str) -> str:
     """Build the compact public offer card used with or without an image."""
     service = None
@@ -302,5 +321,6 @@ __all__ = [
     "decompose_legacy_bulk_line",
     "decomposed_bulk_price_template",
     "offer_detail_fields",
+    "offer_description_text",
     "parse_duration_input",
 ]

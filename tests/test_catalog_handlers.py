@@ -1,6 +1,12 @@
 """Compatibility checks for catalog handlers extracted from ``bot``."""
 
 
+def test_catalog_handler_offer_description_dependency_is_public():
+    from app.bot.offer_cards import offer_description_text
+
+    assert callable(offer_description_text)
+
+
 def test_bot_facade_reexports_catalog_navigation_handlers():
     import bot
     from app.bot.handlers import catalog
