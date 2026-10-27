@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from pymongo import ReturnDocument
 from telegram import Bot, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -96,6 +96,8 @@ from i18n import TRANSLATIONS, status_label, t
 _is_bmc_vip_product = _methods_presentation.is_bmc_vip_product
 _announcement_service_emoji = _announcements.announcement_service_emoji
 _announcement_plain = _announcements.announcement_plain
+_track_broadcast_message = _announcements.track_broadcast_message
+_send_broadcast_message_safe = _announcements.send_broadcast_message_safe
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -416,49 +418,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-
-
-def _track_broadcast_message(context, sent_message, chat_id):
-    """Persist an outgoing campaign message for later global deletion."""
-    job_id = getattr(context, "broadcast_job_id", None)
-    message_id = getattr(sent_message, "message_id", None)
-    if job_id and message_id:
-        try:
-            db.record_broadcast_message(
-                job_id,
-                getattr(context, "broadcast_kind", "broadcast"),
-                chat_id,
-                message_id,
-            )
-        except Exception as exc:
-            # The message is already delivered: never resend it just because
-            # history tracking had a transient database failure.
-            log.warning("Could not track broadcast message %s/%s: %s", chat_id, message_id, exc)
-    return sent_message
-
-
-async def _send_broadcast_message_safe(context, chat_id, text, reply_markup=None):
-    """Send an HTML announcement message with automatic fallback to unformatted text."""
-    try:
-        sent_message = await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-        )
-        return _track_broadcast_message(context, sent_message, chat_id)
-    except BadRequest as exc:
-        err_msg = str(exc).lower()
-        if any(term in err_msg for term in ("entity", "parse", "html", "tag", "can't parse")):
-            log.warning("Broadcast HTML parse failure for user %s (%s). Falling back to plain text.", chat_id, exc)
-            plain_text = re.sub(r"<[^>]+>", "", text)
-            sent_message = await context.bot.send_message(
-                chat_id=chat_id,
-                text=plain_text,
-                reply_markup=reply_markup,
-            )
-            return _track_broadcast_message(context, sent_message, chat_id)
-        raise
 
 
 async def announce_supplier_change_admin(context, event, change_type):

@@ -11,3 +11,11 @@ def test_bot_facade_reexports_announcement_formatters():
     assert announcements.announcement_service_emoji(
         {"emoji": "not-an-emoji"}, fallback="📦",
     ) == "📦"
+
+
+def test_bot_facade_reexports_announcement_delivery_helpers():
+    import bot
+    from app.bot import announcements
+
+    assert bot._track_broadcast_message is announcements.track_broadcast_message
+    assert bot._send_broadcast_message_safe is announcements.send_broadcast_message_safe
