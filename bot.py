@@ -111,6 +111,8 @@ announce_supplier_price_update = _announcements.announce_supplier_price_update
 broadcast_admin_message = _announcements.broadcast_admin_message
 announce_restock_digest = _announcements.announce_restock_digest
 delete_broadcast_messages = _announcements.delete_broadcast_messages
+broadcast_maintenance_notice = _announcements.broadcast_maintenance_notice
+broadcast_affiliate_program_update = _announcements.broadcast_affiliate_program_update
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -521,32 +523,6 @@ def queue_broadcast(kind, *, dedupe_key="", **payload):
 def resume_pending_broadcasts():
     for job in db.pending_broadcast_jobs():
         _submit_broadcast_job(job["id"])
-
-
-async def broadcast_maintenance_notice(context, message):
-    """Notify every active bot user when maintenance mode is enabled."""
-    async def send_one(user):
-        user_id = int(user["telegram_id"])
-        sent_message = await context.bot.send_message(
-            chat_id=user_id,
-            text=f"🛠️ Maintenance\n\n{message}",
-        )
-        _track_broadcast_message(context, sent_message, user_id)
-    return await _broadcast_in_batches(send_one, label="Maintenance notice")
-
-
-async def broadcast_affiliate_program_update(context):
-    """Notify every active bot user about the affiliate qualification rule."""
-    async def send_one(user):
-        user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
-        sent_message = await context.bot.send_message(
-            chat_id=user_id,
-            text=premium_customer_text(lang, "affiliate_program_update"),
-            parse_mode=ParseMode.HTML,
-        )
-        _track_broadcast_message(context, sent_message, user_id)
-    return await _broadcast_in_batches(send_one, label="Affiliate program update")
 
 
 async def announce_channel_purchase(context, order_id):

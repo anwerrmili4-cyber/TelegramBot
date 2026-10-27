@@ -80,3 +80,14 @@ def test_bot_facade_reexports_broadcast_deletion():
     from app.bot import announcements
 
     assert bot.delete_broadcast_messages is announcements.delete_broadcast_messages
+
+
+def test_bot_facade_reexports_program_notices():
+    import bot
+    from app.bot import announcements
+
+    assert bot.broadcast_maintenance_notice is announcements.broadcast_maintenance_notice
+    assert (
+        bot.broadcast_affiliate_program_update
+        is announcements.broadcast_affiliate_program_update
+    )

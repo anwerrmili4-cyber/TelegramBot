@@ -537,6 +537,39 @@ async def delete_broadcast_messages(context, target_job_id):
     return deleted
 
 
+async def broadcast_maintenance_notice(context, message):
+    """Notify every active bot user when maintenance mode is enabled."""
+
+    async def send_one(user):
+        user_id = int(user["telegram_id"])
+        sent_message = await context.bot.send_message(
+            chat_id=user_id,
+            text=f"🛠️ Maintenance\n\n{message}",
+        )
+        track_broadcast_message(context, sent_message, user_id)
+
+    return await broadcast_in_batches(send_one, label="Maintenance notice")
+
+
+async def broadcast_affiliate_program_update(context):
+    """Notify users about the affiliate qualification rule."""
+
+    async def send_one(user):
+        user_id = int(user["telegram_id"])
+        lang = user.get("lang") or DEFAULT_LANG
+        sent_message = await context.bot.send_message(
+            chat_id=user_id,
+            text=premium_customer_text(lang, "affiliate_program_update"),
+            parse_mode=ParseMode.HTML,
+        )
+        track_broadcast_message(context, sent_message, user_id)
+
+    return await broadcast_in_batches(
+        send_one,
+        label="Affiliate program update",
+    )
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
@@ -547,7 +580,9 @@ __all__ = [
     "announce_supplier_price_update",
     "announce_restock_digest",
     "broadcast_admin_message",
+    "broadcast_affiliate_program_update",
     "broadcast_in_batches",
+    "broadcast_maintenance_notice",
     "configure_admin_context",
     "delete_broadcast_messages",
     "is_blocked_broadcast_error",
