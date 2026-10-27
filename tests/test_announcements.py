@@ -65,3 +65,11 @@ def test_bot_facade_reexports_supplier_price_announcements():
         bot.announce_supplier_price_update
         is announcements.announce_supplier_price_update
     )
+
+
+def test_bot_facade_reexports_general_customer_announcements():
+    import bot
+    from app.bot import announcements
+
+    assert bot.broadcast_admin_message is announcements.broadcast_admin_message
+    assert bot.announce_restock_digest is announcements.announce_restock_digest

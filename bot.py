@@ -109,6 +109,8 @@ announce_flash_sale = _announcements.announce_flash_sale
 announce_supplier_change_admin = _announcements.announce_supplier_change_admin
 announce_api_flash_sale = _announcements.announce_api_flash_sale
 announce_supplier_price_update = _announcements.announce_supplier_price_update
+broadcast_admin_message = _announcements.broadcast_admin_message
+announce_restock_digest = _announcements.announce_restock_digest
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -380,43 +382,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-
-
-async def broadcast_admin_message(context, source_chat_id, message_id):
-    """Copy an admin-authored Telegram message to every active bot user."""
-    async def send_one(user):
-        sent_message = await context.bot.copy_message(
-            chat_id=int(user["telegram_id"]),
-            from_chat_id=source_chat_id,
-            message_id=message_id,
-        )
-        _track_broadcast_message(context, sent_message, int(user["telegram_id"]))
-    return await _broadcast_in_batches(send_one, label="Admin announcement")
-
-
-async def announce_restock_digest(context, events):
-    """Legacy compatibility: announce every restock as its own message."""
-    from app.domain.offer_stock_control import customer_broadcast_waits
-
-    sent = 0
-    for event in list(events or [])[:12]:
-        payload = {
-            "offer_id": int(event.get("offer_id") or 0),
-            "added": max(0, int(event.get("added") or 0)),
-            "stock": max(0, int(event.get("stock") or 0)),
-            "supplier_event": event,
-        }
-        if payload["offer_id"] and customer_broadcast_waits("stock", payload):
-            db.park_broadcast_job("stock", payload)
-            continue
-        sent += await announce_channel_restock(
-            context,
-            payload["offer_id"],
-            payload["added"],
-            payload["stock"],
-            event,
-        )
-    return sent
 
 
 async def delete_broadcast_messages(context, target_job_id):

@@ -433,6 +433,46 @@ async def announce_supplier_price_update(context, event):
     )
 
 
+async def broadcast_admin_message(context, source_chat_id, message_id):
+    """Copy an admin-authored Telegram message to every active bot user."""
+
+    async def send_one(user):
+        user_id = int(user["telegram_id"])
+        sent_message = await context.bot.copy_message(
+            chat_id=user_id,
+            from_chat_id=source_chat_id,
+            message_id=message_id,
+        )
+        track_broadcast_message(context, sent_message, user_id)
+
+    return await broadcast_in_batches(send_one, label="Admin announcement")
+
+
+async def announce_restock_digest(context, events):
+    """Legacy compatibility: announce every restock as its own message."""
+    from app.domain.offer_stock_control import customer_broadcast_waits
+
+    sent = 0
+    for event in list(events or [])[:12]:
+        payload = {
+            "offer_id": int(event.get("offer_id") or 0),
+            "added": max(0, int(event.get("added") or 0)),
+            "stock": max(0, int(event.get("stock") or 0)),
+            "supplier_event": event,
+        }
+        if payload["offer_id"] and customer_broadcast_waits("stock", payload):
+            db.park_broadcast_job("stock", payload)
+            continue
+        sent += await announce_channel_restock(
+            context,
+            payload["offer_id"],
+            payload["added"],
+            payload["stock"],
+            event,
+        )
+    return sent
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
@@ -441,6 +481,8 @@ __all__ = [
     "announce_flash_sale",
     "announce_supplier_change_admin",
     "announce_supplier_price_update",
+    "announce_restock_digest",
+    "broadcast_admin_message",
     "broadcast_in_batches",
     "configure_admin_context",
     "is_blocked_broadcast_error",
