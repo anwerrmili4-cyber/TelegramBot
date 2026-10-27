@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
@@ -220,10 +221,63 @@ async def send_new_stock_broadcast(context, offer_id, added, stock):
     return await announce_channel_restock(context, offer_id, added, stock)
 
 
+async def announce_flash_sale(context, offer_id):
+    """Broadcast an active flash sale privately to every active bot user."""
+    offer = db.get_offer(int(offer_id))
+    if not offer_reaches_customers(offer) or not offer.get("flash_sale_active"):
+        return 0
+    service = db.get_service(offer["service_id"]) or {}
+    remaining_seconds = max(0, int(offer["flash_sale_ends_at"]) - int(time.time()))
+    hours, remainder = divmod(remaining_seconds, 3600)
+    minutes = max(1, remainder // 60)
+    remaining = f"{hours}h {minutes}m" if hours else f"{minutes}m"
+    old_price = float(offer["flash_sale_original_price"])
+    new_price = float(offer["price"])
+    discount_percent = (
+        round(((old_price - new_price) / old_price) * 100) if old_price else 0
+    )
+
+    async def send_one(user):
+        user_id = int(user["telegram_id"])
+        lang = user.get("lang") or DEFAULT_LANG
+        await send_broadcast_message_safe(
+            context,
+            chat_id=user_id,
+            text=method_announcement_text(
+                premium_customer_text(
+                    lang,
+                    "flash_sale_announcement",
+                    emoji=announcement_service_emoji(service, "🎁"),
+                    service=announcement_plain(service.get("name") or SHOP_NAME),
+                    offer=announcement_plain(offer.get("name") or f"Offer #{offer_id}"),
+                    period=kb.offer_period_label(lang, offer),
+                    warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
+                    old_price=f"{old_price:.2f}",
+                    price=f"{new_price:.2f}",
+                    cur=CURRENCY,
+                    discount=discount_percent,
+                    remaining=remaining,
+                ),
+                service,
+                offer,
+                lang,
+            ),
+            reply_markup=kb.announcement_offer_keyboard(lang, offer),
+        )
+
+    return await broadcast_in_batches(
+        send_one,
+        label="Flash-sale broadcast",
+        catalog_updates_only=True,
+        catalog_offer_id=offer_id,
+    )
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
     "announce_channel_restock",
+    "announce_flash_sale",
     "broadcast_in_batches",
     "is_blocked_broadcast_error",
     "send_broadcast_message_safe",

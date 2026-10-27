@@ -37,3 +37,10 @@ def test_bot_facade_reexports_stock_announcements():
 
     assert bot.announce_channel_restock is announcements.announce_channel_restock
     assert bot.send_new_stock_broadcast is announcements.send_new_stock_broadcast
+
+
+def test_bot_facade_reexports_flash_sale_announcements():
+    import bot
+    from app.bot import announcements
+
+    assert bot.announce_flash_sale is announcements.announce_flash_sale
