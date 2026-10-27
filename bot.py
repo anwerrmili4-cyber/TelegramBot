@@ -33,6 +33,7 @@ import admin
 import database as db
 import keyboards as kb
 from app import support_bridge
+from app.bot import announcements as _announcements
 from app.bot import customer_text as _customer_text
 from app.bot import delivery_presentation as _delivery_presentation
 from app.bot import home_presentation as _home_presentation
@@ -47,7 +48,7 @@ from app.bot import support_presentation as _support_presentation
 from app.bot import text_previews as _text_previews
 from app.bot.media import send_cached_photo
 from app.bot.presentation import (
-    _is_single_emoji,
+    _is_single_emoji,  # noqa: F401  (compatibility export)
     custom_emoji_from_message,
     custom_emojis_from_message,  # noqa: F401  (compatibility export)
     render_stored_rich_text,  # noqa: F401  (compatibility export)
@@ -93,6 +94,8 @@ from config import (
 from i18n import TRANSLATIONS, status_label, t
 
 _is_bmc_vip_product = _methods_presentation.is_bmc_vip_product
+_announcement_service_emoji = _announcements.announcement_service_emoji
+_announcement_plain = _announcements.announcement_plain
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -398,22 +401,6 @@ async def _broadcast_in_batches(
         if offset + BROADCAST_BATCH_SIZE < len(users):
             await asyncio.sleep(BROADCAST_BATCH_DELAY)
     return sent
-
-
-def _announcement_service_emoji(service, fallback="📦"):
-    """Render a service's Unicode or Premium emoji inside announcement text."""
-    service = service or {}
-    raw_emoji = str(service.get("emoji") or "").strip()
-    emoji = raw_emoji if _is_single_emoji(raw_emoji) else fallback
-    emoji_id = str(service.get("custom_emoji_id") or "").strip()
-    if emoji_id and emoji_id.isascii():
-        return f"[[TGEMOJI:{emoji_id}:{emoji.encode('utf-8').hex()}]]"
-    return emoji
-
-
-def _announcement_plain(value):
-    """Keep dynamic names from breaking the customizable Markdown template."""
-    return str(value or "").replace("*", "").replace("_", " ").replace("`", "").strip()
 
 
 def _is_methods_offer(offer):
