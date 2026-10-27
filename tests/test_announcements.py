@@ -73,3 +73,10 @@ def test_bot_facade_reexports_general_customer_announcements():
 
     assert bot.broadcast_admin_message is announcements.broadcast_admin_message
     assert bot.announce_restock_digest is announcements.announce_restock_digest
+
+
+def test_bot_facade_reexports_broadcast_deletion():
+    import bot
+    from app.bot import announcements
+
+    assert bot.delete_broadcast_messages is announcements.delete_broadcast_messages

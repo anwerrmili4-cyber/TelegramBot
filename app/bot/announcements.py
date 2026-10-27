@@ -473,6 +473,70 @@ async def announce_restock_digest(context, events):
     return sent
 
 
+async def delete_broadcast_messages(context, target_job_id):
+    """Delete one tracked campaign from every recipient Telegram allows."""
+    target_job_id = int(target_job_id)
+    messages = db.list_broadcast_messages(target_job_id)
+    db.set_broadcast_deletion_status(target_job_id, "deleting")
+
+    async def delete_one(row):
+        chat_id = int(row["chat_id"])
+        message_id = int(row["message_id"])
+        for attempt in range(3):
+            try:
+                await context.bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                )
+                db.mark_broadcast_message_deleted(
+                    target_job_id, chat_id, message_id,
+                )
+                return 1
+            except RetryAfter as exc:
+                if attempt < 2:
+                    delay = exc.retry_after
+                    delay = (
+                        delay.total_seconds()
+                        if hasattr(delay, "total_seconds")
+                        else float(delay)
+                    )
+                    await asyncio.sleep(delay + 0.15)
+                    continue
+                error = str(exc)
+            except (TimedOut, NetworkError) as exc:
+                if attempt < 2:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+                    continue
+                error = str(exc)
+            except Exception as exc:
+                error = str(exc)
+                if "message to delete not found" in error.lower():
+                    db.mark_broadcast_message_deleted(
+                        target_job_id, chat_id, message_id,
+                    )
+                    return 1
+            db.mark_broadcast_message_deleted(
+                target_job_id, chat_id, message_id, error=error,
+            )
+            return 0
+        return 0
+
+    deleted = 0
+    for offset in range(0, len(messages), BROADCAST_BATCH_SIZE):
+        batch = messages[offset:offset + BROADCAST_BATCH_SIZE]
+        deleted += sum(await asyncio.gather(*(delete_one(row) for row in batch)))
+        if offset + BROADCAST_BATCH_SIZE < len(messages):
+            await asyncio.sleep(BROADCAST_BATCH_DELAY)
+    failed = len(db.list_broadcast_messages(target_job_id))
+    db.set_broadcast_deletion_status(
+        target_job_id,
+        "deleted" if failed == 0 else "partial",
+        deleted_count=deleted,
+        failed_count=failed,
+    )
+    return deleted
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
@@ -485,6 +549,7 @@ __all__ = [
     "broadcast_admin_message",
     "broadcast_in_batches",
     "configure_admin_context",
+    "delete_broadcast_messages",
     "is_blocked_broadcast_error",
     "send_broadcast_message_safe",
     "send_new_stock_broadcast",
