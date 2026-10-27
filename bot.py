@@ -13,7 +13,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
 from pymongo import ReturnDocument
 from telegram import Bot, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, Update
@@ -113,6 +112,7 @@ announce_restock_digest = _announcements.announce_restock_digest
 delete_broadcast_messages = _announcements.delete_broadcast_messages
 broadcast_maintenance_notice = _announcements.broadcast_maintenance_notice
 broadcast_affiliate_program_update = _announcements.broadcast_affiliate_program_update
+_execute_broadcast_job = _announcements.execute_broadcast_job
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -129,6 +129,7 @@ compact_offer_text = _offer_cards.compact_offer_text
 decompose_legacy_bulk_line = _offer_cards.decompose_legacy_bulk_line
 decomposed_bulk_price_template = _offer_cards.decomposed_bulk_price_template
 offer_detail_fields = _offer_cards.offer_detail_fields
+offer_description_text = _offer_cards.offer_description_text
 parse_duration_input = _offer_cards.parse_duration_input
 order_service_groups = _order_history.order_service_groups
 orders_text_export = _order_history.orders_text_export
@@ -384,53 +385,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-
-
-async def _execute_broadcast_job(job):
-    from telegram.request import HTTPXRequest
-
-    request = HTTPXRequest(connect_timeout=20, read_timeout=30)
-    bot_client = Bot(token=BOT_TOKEN, request=request)
-    await bot_client.initialize()
-    try:
-        context = SimpleNamespace(
-            bot=bot_client,
-            broadcast_job_id=int(job["id"]),
-            broadcast_kind=str(job.get("kind") or "broadcast"),
-        )
-        payload = job.get("payload") or {}
-        kind = job.get("kind")
-        sent = 0
-        if kind == "stock":
-            sent = await announce_channel_restock(
-                context,
-                payload["offer_id"],
-                payload.get("added"),
-                payload.get("stock"),
-                payload.get("supplier_event"),
-            )
-        elif kind == "restock_digest":
-            sent = await announce_restock_digest(context, payload.get("events") or [])
-        elif kind == "flash_sale":
-            sent = await announce_flash_sale(context, payload["offer_id"])
-        elif kind == "api_flash_sale":
-            sent = await announce_api_flash_sale(context, payload["event"])
-        elif kind == "supplier_price_update":
-            sent = await announce_supplier_price_update(context, payload["event"])
-        elif kind == "admin_message":
-            sent = await broadcast_admin_message(context, payload["source_chat_id"], payload["message_id"])
-        elif kind == "delete_broadcast":
-            sent = await delete_broadcast_messages(context, payload["target_job_id"])
-        elif kind == "maintenance":
-            sent = await broadcast_maintenance_notice(context, payload["message"])
-        elif kind == "affiliate_update":
-            sent = await broadcast_affiliate_program_update(context)
-        else:
-            raise ValueError(f"Unknown broadcast job: {kind}")
-
-        return sent
-    finally:
-        await bot_client.shutdown()
 
 
 def _run_broadcast_job(job_id):

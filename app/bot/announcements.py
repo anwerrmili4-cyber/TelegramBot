@@ -7,7 +7,9 @@ import logging
 import os
 import re
 import time
+from types import SimpleNamespace
 
+from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
@@ -17,7 +19,7 @@ from app.bot.customer_text import premium_customer_text
 from app.bot.methods_presentation import method_announcement_text
 from app.bot.presentation import _is_single_emoji
 from app.domain import warranty_service
-from config import CURRENCY, DEFAULT_LANG, SHOP_NAME
+from config import BOT_TOKEN, CURRENCY, DEFAULT_LANG, SHOP_NAME
 
 log = logging.getLogger("bot")
 
@@ -570,6 +572,56 @@ async def broadcast_affiliate_program_update(context):
     )
 
 
+async def execute_broadcast_job(job):
+    """Execute one claimed broadcast job with an isolated Telegram client."""
+    from telegram.request import HTTPXRequest
+
+    request = HTTPXRequest(connect_timeout=20, read_timeout=30)
+    bot_client = Bot(token=BOT_TOKEN, request=request)
+    await bot_client.initialize()
+    try:
+        context = SimpleNamespace(
+            bot=bot_client,
+            broadcast_job_id=int(job["id"]),
+            broadcast_kind=str(job.get("kind") or "broadcast"),
+        )
+        payload = job.get("payload") or {}
+        kind = job.get("kind")
+        if kind == "stock":
+            return await announce_channel_restock(
+                context,
+                payload["offer_id"],
+                payload.get("added"),
+                payload.get("stock"),
+                payload.get("supplier_event"),
+            )
+        if kind == "restock_digest":
+            return await announce_restock_digest(
+                context, payload.get("events") or [],
+            )
+        if kind == "flash_sale":
+            return await announce_flash_sale(context, payload["offer_id"])
+        if kind == "api_flash_sale":
+            return await announce_api_flash_sale(context, payload["event"])
+        if kind == "supplier_price_update":
+            return await announce_supplier_price_update(context, payload["event"])
+        if kind == "admin_message":
+            return await broadcast_admin_message(
+                context, payload["source_chat_id"], payload["message_id"],
+            )
+        if kind == "delete_broadcast":
+            return await delete_broadcast_messages(
+                context, payload["target_job_id"],
+            )
+        if kind == "maintenance":
+            return await broadcast_maintenance_notice(context, payload["message"])
+        if kind == "affiliate_update":
+            return await broadcast_affiliate_program_update(context)
+        raise ValueError(f"Unknown broadcast job: {kind}")
+    finally:
+        await bot_client.shutdown()
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
@@ -585,6 +637,7 @@ __all__ = [
     "broadcast_maintenance_notice",
     "configure_admin_context",
     "delete_broadcast_messages",
+    "execute_broadcast_job",
     "is_blocked_broadcast_error",
     "send_broadcast_message_safe",
     "send_new_stock_broadcast",

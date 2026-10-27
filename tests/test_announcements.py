@@ -91,3 +91,10 @@ def test_bot_facade_reexports_program_notices():
         bot.broadcast_affiliate_program_update
         is announcements.broadcast_affiliate_program_update
     )
+
+
+def test_bot_facade_reexports_broadcast_job_dispatch():
+    import bot
+    from app.bot import announcements
+
+    assert bot._execute_broadcast_job is announcements.execute_broadcast_job
