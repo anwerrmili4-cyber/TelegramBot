@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import re
 
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 
 import database as db
 from app.bot.presentation import _is_single_emoji
 
 log = logging.getLogger("bot")
+
+BROADCAST_BATCH_SIZE = max(
+    1, min(20, int(os.environ.get("HP_BROADCAST_BATCH_SIZE", "15"))),
+)
+BROADCAST_BATCH_DELAY = max(
+    0.25, float(os.environ.get("HP_BROADCAST_BATCH_DELAY", "0.55")),
+)
 
 
 def announcement_service_emoji(service, fallback="📦"):
@@ -81,9 +90,65 @@ async def send_broadcast_message_safe(context, chat_id, text, reply_markup=None)
         raise
 
 
+def is_blocked_broadcast_error(exc):
+    message = str(exc).lower()
+    return "blocked" in message or "chat not found" in message or "deactivated" in message
+
+
+async def broadcast_in_batches(
+    send_one, *, label, catalog_updates_only=False, catalog_offer_id=None,
+):
+    """Send concurrently in Telegram-safe chunks, with rate-limit retries."""
+    users = [
+        row for row in db.list_broadcast_users(
+            catalog_updates_only=catalog_updates_only,
+            catalog_offer_id=catalog_offer_id,
+        )
+        if row.get("telegram_id")
+    ]
+
+    async def deliver(user):
+        user_id = int(user["telegram_id"])
+        for attempt in range(3):
+            try:
+                await send_one(user)
+                return 1
+            except RetryAfter as exc:
+                retry_after = exc.retry_after
+                delay = (
+                    retry_after.total_seconds()
+                    if hasattr(retry_after, "total_seconds")
+                    else float(retry_after)
+                )
+                await asyncio.sleep(delay + 0.15)
+            except (TimedOut, NetworkError) as exc:
+                if attempt < 2:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+                    continue
+                log.warning("%s failed for user %s: %s", label, user_id, exc)
+                return 0
+            except Exception as exc:
+                if is_blocked_broadcast_error(exc):
+                    db.mark_broadcast_blocked(user_id)
+                else:
+                    log.warning("%s failed for user %s: %s", label, user_id, exc)
+                return 0
+        return 0
+
+    sent = 0
+    for offset in range(0, len(users), BROADCAST_BATCH_SIZE):
+        batch = users[offset:offset + BROADCAST_BATCH_SIZE]
+        sent += sum(await asyncio.gather(*(deliver(user) for user in batch)))
+        if offset + BROADCAST_BATCH_SIZE < len(users):
+            await asyncio.sleep(BROADCAST_BATCH_DELAY)
+    return sent
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
+    "broadcast_in_batches",
+    "is_blocked_broadcast_error",
     "send_broadcast_message_safe",
     "track_broadcast_message",
 ]

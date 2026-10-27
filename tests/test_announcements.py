@@ -19,3 +19,13 @@ def test_bot_facade_reexports_announcement_delivery_helpers():
 
     assert bot._track_broadcast_message is announcements.track_broadcast_message
     assert bot._send_broadcast_message_safe is announcements.send_broadcast_message_safe
+
+
+def test_bot_facade_reexports_broadcast_batching():
+    import bot
+    from app.bot import announcements
+
+    assert bot._is_blocked_broadcast_error is announcements.is_blocked_broadcast_error
+    assert bot._broadcast_in_batches is announcements.broadcast_in_batches
+    assert bot.BROADCAST_BATCH_SIZE == announcements.BROADCAST_BATCH_SIZE
+    assert bot.BROADCAST_BATCH_DELAY == announcements.BROADCAST_BATCH_DELAY

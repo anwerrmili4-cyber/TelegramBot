@@ -98,6 +98,10 @@ _announcement_service_emoji = _announcements.announcement_service_emoji
 _announcement_plain = _announcements.announcement_plain
 _track_broadcast_message = _announcements.track_broadcast_message
 _send_broadcast_message_safe = _announcements.send_broadcast_message_safe
+_is_blocked_broadcast_error = _announcements.is_blocked_broadcast_error
+_broadcast_in_batches = _announcements.broadcast_in_batches
+BROADCAST_BATCH_SIZE = _announcements.BROADCAST_BATCH_SIZE
+BROADCAST_BATCH_DELAY = _announcements.BROADCAST_BATCH_DELAY
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -154,8 +158,6 @@ log = logging.getLogger("bot")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-BROADCAST_BATCH_SIZE = max(1, min(20, int(os.environ.get("HP_BROADCAST_BATCH_SIZE", "15"))))
-BROADCAST_BATCH_DELAY = max(0.25, float(os.environ.get("HP_BROADCAST_BATCH_DELAY", "0.55")))
 _broadcast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="telegram-broadcast")
 _submitted_broadcast_jobs: set[int] = set()
 _broadcast_jobs_lock = threading.Lock()
@@ -353,56 +355,6 @@ async def send_channel_member_welcome(send, context, user_id, lang):
         parse_mode=ParseMode.HTML,
         reply_markup=kb.home_keyboard(lang, user_id),
     )
-
-
-def _is_blocked_broadcast_error(exc):
-    message = str(exc).lower()
-    return "blocked" in message or "chat not found" in message or "deactivated" in message
-
-
-async def _broadcast_in_batches(
-    send_one, *, label, catalog_updates_only=False, catalog_offer_id=None,
-):
-    """Send concurrently in Telegram-safe chunks, with retries for rate limits."""
-    users = [
-        row for row in db.list_broadcast_users(
-            catalog_updates_only=catalog_updates_only,
-            catalog_offer_id=catalog_offer_id,
-        )
-        if row.get("telegram_id")
-    ]
-
-    async def deliver(user):
-        user_id = int(user["telegram_id"])
-        for attempt in range(3):
-            try:
-                await send_one(user)
-                return 1
-            except RetryAfter as exc:
-                retry_after = exc.retry_after
-                delay = retry_after.total_seconds() if hasattr(retry_after, "total_seconds") else float(retry_after)
-                await asyncio.sleep(delay + 0.15)
-            except (TimedOut, NetworkError) as exc:
-                if attempt < 2:
-                    await asyncio.sleep(0.4 * (attempt + 1))
-                    continue
-                log.warning("%s failed for user %s: %s", label, user_id, exc)
-                return 0
-            except Exception as exc:
-                if _is_blocked_broadcast_error(exc):
-                    db.mark_broadcast_blocked(user_id)
-                else:
-                    log.warning("%s failed for user %s: %s", label, user_id, exc)
-                return 0
-        return 0
-
-    sent = 0
-    for offset in range(0, len(users), BROADCAST_BATCH_SIZE):
-        batch = users[offset:offset + BROADCAST_BATCH_SIZE]
-        sent += sum(await asyncio.gather(*(deliver(user) for user in batch)))
-        if offset + BROADCAST_BATCH_SIZE < len(users):
-            await asyncio.sleep(BROADCAST_BATCH_DELAY)
-    return sent
 
 
 def _is_methods_offer(offer):
