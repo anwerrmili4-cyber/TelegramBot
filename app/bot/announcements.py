@@ -27,6 +27,23 @@ BROADCAST_BATCH_SIZE = max(
 BROADCAST_BATCH_DELAY = max(
     0.25, float(os.environ.get("HP_BROADCAST_BATCH_DELAY", "0.55")),
 )
+def _default_admin_id():
+    return 0
+
+
+def _default_language(_user_id):
+    return DEFAULT_LANG
+
+
+_admin_id_provider = _default_admin_id
+_language_provider = _default_language
+
+
+def configure_admin_context(admin_id_provider, language_provider):
+    """Inject bot-runtime lookups without creating an import cycle."""
+    global _admin_id_provider, _language_provider
+    _admin_id_provider = admin_id_provider
+    _language_provider = language_provider
 
 
 def announcement_service_emoji(service, fallback="📦"):
@@ -273,12 +290,82 @@ async def announce_flash_sale(context, offer_id):
     )
 
 
+async def announce_supplier_change_admin(context, event, change_type):
+    """Send the normal product design privately when a promo is unsuitable."""
+    admin_id = int(_admin_id_provider() or 0)
+    if not admin_id:
+        return 0
+    event = event or {}
+    offer = db.get_offer(int(event.get("offer_id") or 0)) or {}
+    if not offer:
+        return 0
+    lang = _language_provider(admin_id)
+    service = db.get_service(offer.get("service_id")) or {}
+    values = {
+        "emoji": announcement_service_emoji(service),
+        "service": announcement_plain(service.get("name") or SHOP_NAME),
+        "offer": announcement_plain(
+            offer.get("name") or f"Offer #{offer.get('id', 0)}",
+        ),
+        "period": kb.offer_period_label(lang, offer),
+        "warranty": warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
+        "cur": CURRENCY,
+    }
+    if change_type == "stock":
+        key = "channel_stock_announcement"
+        values.update({
+            "price": f"{float(offer.get('price') or 0):.2f}",
+            "stock": max(0, int(event.get("stock") or 0)),
+            "added": max(0, int(event.get("added") or 0)),
+        })
+    else:
+        old_price = float(event.get("previous_price") or 0)
+        new_price = float(event.get("price") or 0)
+        if new_price < old_price:
+            key = "flash_sale_announcement"
+            values.update({
+                "old_price": f"{old_price:.2f}",
+                "price": f"{new_price:.2f}",
+                "discount": (
+                    round(((old_price - new_price) / old_price) * 100)
+                    if old_price else 0
+                ),
+                "remaining": {
+                    "fr": "Disponibilité limitée",
+                    "ar": "متاح لفترة محدودة",
+                }.get(lang, "Limited availability"),
+            })
+        else:
+            key = "offer_stock_announcement"
+            values.update({
+                "price": f"{new_price:.2f}",
+                "stock": (
+                    "∞" if offer.get("unlimited_stock")
+                    else max(0, int(offer.get("stock") or 0))
+                ),
+            })
+    await send_broadcast_message_safe(
+        context,
+        chat_id=admin_id,
+        text=method_announcement_text(
+            premium_customer_text(lang, key, **values),
+            service,
+            offer,
+            lang,
+        ),
+        reply_markup=kb.offer_detail_keyboard(lang, offer),
+    )
+    return 1
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
     "announce_channel_restock",
     "announce_flash_sale",
+    "announce_supplier_change_admin",
     "broadcast_in_batches",
+    "configure_admin_context",
     "is_blocked_broadcast_error",
     "send_broadcast_message_safe",
     "send_new_stock_broadcast",

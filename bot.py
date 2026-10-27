@@ -106,6 +106,7 @@ _offer_reaches_customers = _announcements.offer_reaches_customers
 announce_channel_restock = _announcements.announce_channel_restock
 send_new_stock_broadcast = _announcements.send_new_stock_broadcast
 announce_flash_sale = _announcements.announce_flash_sale
+announce_supplier_change_admin = _announcements.announce_supplier_change_admin
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -201,6 +202,9 @@ from app.bot.middlewares import (
 def lang_of(user_id):
     lang = db.get_user_lang(user_id) or DEFAULT_LANG
     return lang if lang in {"en", "ar"} else "en"
+
+
+_announcements.configure_admin_context(lambda: ADMIN_ID, lang_of)
 
 
 async def notify_successful_referral(context, referrer_id):
@@ -374,66 +378,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-
-
-async def announce_supplier_change_admin(context, event, change_type):
-    """Send the normal bot-product design privately when a promo is unsuitable."""
-    if not ADMIN_ID:
-        return 0
-    event = event or {}
-    offer = db.get_offer(int(event.get("offer_id") or 0)) or {}
-    if not offer:
-        return 0
-    lang = lang_of(ADMIN_ID)
-    service = db.get_service(offer.get("service_id")) or {}
-    values = {
-        "emoji": _announcement_service_emoji(service),
-        "service": _announcement_plain(service.get("name") or SHOP_NAME),
-        "offer": _announcement_plain(offer.get("name") or f"Offer #{offer.get('id', 0)}"),
-        "period": kb.offer_period_label(lang, offer),
-        "warranty": warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-        "cur": CURRENCY,
-    }
-    if change_type == "stock":
-        key = "channel_stock_announcement"
-        values.update({
-            "price": f"{float(offer.get('price') or 0):.2f}",
-            "stock": max(0, int(event.get("stock") or 0)),
-            "added": max(0, int(event.get("added") or 0)),
-        })
-    else:
-        old_price = float(event.get("previous_price") or 0)
-        new_price = float(event.get("price") or 0)
-        if new_price < old_price:
-            key = "flash_sale_announcement"
-            values.update({
-                "old_price": f"{old_price:.2f}",
-                "price": f"{new_price:.2f}",
-                "discount": round(((old_price - new_price) / old_price) * 100)
-                if old_price else 0,
-                "remaining": {
-                    "fr": "Disponibilité limitée",
-                    "ar": "متاح لفترة محدودة",
-                }.get(lang, "Limited availability"),
-            })
-        else:
-            key = "offer_stock_announcement"
-            values.update({
-                "price": f"{new_price:.2f}",
-                "stock": (
-                    "∞" if offer.get("unlimited_stock")
-                    else max(0, int(offer.get("stock") or 0))
-                ),
-            })
-    await _send_broadcast_message_safe(
-        context,
-        chat_id=ADMIN_ID,
-        text=_method_announcement_text(
-            premium_customer_text(lang, key, **values), service, offer, lang,
-        ),
-        reply_markup=kb.offer_detail_keyboard(lang, offer),
-    )
-    return 1
 
 
 async def announce_api_flash_sale(context, event):
