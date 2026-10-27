@@ -54,3 +54,14 @@ def test_bot_facade_reexports_admin_supplier_announcements():
         bot.announce_supplier_change_admin
         is announcements.announce_supplier_change_admin
     )
+
+
+def test_bot_facade_reexports_supplier_price_announcements():
+    import bot
+    from app.bot import announcements
+
+    assert bot.announce_api_flash_sale is announcements.announce_api_flash_sale
+    assert (
+        bot.announce_supplier_price_update
+        is announcements.announce_supplier_price_update
+    )

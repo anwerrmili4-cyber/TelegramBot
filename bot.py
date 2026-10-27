@@ -107,6 +107,8 @@ announce_channel_restock = _announcements.announce_channel_restock
 send_new_stock_broadcast = _announcements.send_new_stock_broadcast
 announce_flash_sale = _announcements.announce_flash_sale
 announce_supplier_change_admin = _announcements.announce_supplier_change_admin
+announce_api_flash_sale = _announcements.announce_api_flash_sale
+announce_supplier_price_update = _announcements.announce_supplier_price_update
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -378,69 +380,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-
-
-async def announce_api_flash_sale(context, event):
-    """Broadcast a supplier-driven price drop without creating a temporary price."""
-    offer = db.get_offer(int(event["offer_id"]))
-    if not db.offer_has_stock(offer):
-        return await announce_supplier_change_admin(context, event, "price")
-    if not _offer_reaches_customers(offer):
-        return 0
-    service = db.get_service(offer["service_id"]) or {}
-    old_price = float(event["previous_price"])
-    new_price = float(event["price"])
-    discount_percent = round(((old_price - new_price) / old_price) * 100) if old_price else 0
-    async def send_one(user):
-        user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
-        remaining = {
-            "fr": "Disponibilité limitée",
-            "ar": "متاح لفترة محدودة",
-        }.get(lang, "Limited availability")
-        await _send_broadcast_message_safe(
-            context,
-            chat_id=user_id,
-            text=_method_announcement_text(
-                premium_customer_text(
-                    lang,
-                    "flash_sale_announcement",
-                    emoji=_announcement_service_emoji(service, "🔥"),
-                    service=_announcement_plain(service.get("name") or SHOP_NAME),
-                    offer=_announcement_plain(offer.get("name") or f"Offer #{offer['id']}"),
-                    period=kb.offer_period_label(lang, offer),
-                    warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-                    old_price=f"{old_price:.2f}",
-                    price=f"{new_price:.2f}",
-                    cur=CURRENCY,
-                    discount=discount_percent,
-                    remaining=remaining,
-                ), service, offer, lang,
-            ),
-            reply_markup=kb.announcement_offer_keyboard(lang, offer),
-        )
-    return await _broadcast_in_batches(
-        send_one,
-        label="Automatic flash-sale broadcast",
-        catalog_updates_only=True,
-        catalog_offer_id=offer["id"],
-    )
-
-
-async def announce_supplier_price_update(context, event):
-    """Reuse the bot's manual new-drop design after a supplier price update."""
-    offer = db.get_offer(int(event["offer_id"]))
-    if not _offer_reaches_customers(offer):
-        return 0
-    if not db.offer_has_stock(offer):
-        return await announce_supplier_change_admin(context, event, "price")
-    stock = "∞" if offer.get("unlimited_stock") else max(0, int(offer.get("stock") or 0))
-    return await announce_channel_restock(
-        context,
-        int(offer["id"]),
-        None,
-        stock,
-    )
 
 
 async def broadcast_admin_message(context, source_chat_id, message_id):
