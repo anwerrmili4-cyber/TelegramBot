@@ -10,3 +10,4 @@ def test_bot_facade_reexports_catalog_navigation_handlers():
     assert bot.show_service_offers is catalog.show_service_offers
     assert bot.catalog_reply_markup is catalog.catalog_reply_markup
     assert bot.show_catalog is catalog.show_catalog
+    assert bot._handle_catalog_callback is catalog.handle_catalog_callback

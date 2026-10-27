@@ -43,7 +43,6 @@ from app.bot import supplier_incidents as _supplier_incidents
 from app.bot import support_presentation as _support_presentation
 from app.bot import text_previews as _text_previews
 from app.bot.handlers import catalog as _catalog_handlers
-from app.bot.media import send_cached_photo
 from app.bot.presentation import (
     _is_single_emoji,  # noqa: F401  (compatibility export)
     custom_emoji_from_message,
@@ -63,7 +62,6 @@ from app.domain import (
     order_conversation_service,
     order_service,
     payment_service,
-    reseller_service,
     support_service,
     wallet_service,
     warranty_service,
@@ -122,6 +120,7 @@ show_deep_link_offer = _catalog_handlers.show_deep_link_offer
 show_service_offers = _catalog_handlers.show_service_offers
 catalog_reply_markup = _catalog_handlers.catalog_reply_markup
 show_catalog = _catalog_handlers.show_catalog
+_handle_catalog_callback = _catalog_handlers.handle_catalog_callback
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -1580,140 +1579,13 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb.orders_keyboard(lang),
         )
         return
-    if data.startswith("svc:"):
-        sid = int(data.split(":")[1])
-        service = db.get_service(sid)
-        if not service or not db.is_bot_visible(service):
-            await show_callback_screen(
-                q,
-                t(lang, "catalog_flat_title", shop=SHOP_NAME),
-                reply_markup=await catalog_reply_markup(
-                    lang, db.catalog_notifications_enabled(uid),
-                ),
-            )
-            return
-        offers = db.list_offers(sid)
-        reseller_service.refresh_supplier_stock_in_background()
-        if len(offers) == 1:
-            # Continue through the regular offer-detail branch below so old
-            # service buttons and links also skip the redundant catalogue.
-            data = f"off:{offers[0]['id']}"
-        else:
-            emoji = service.get("emoji", "📦")
-            name = service.get("name", "")
-            await show_callback_screen(
-                q,
-                t(lang, "service_title", emoji=emoji, name=name),
-                reply_markup=kb.offers_keyboard(lang, sid),
-            )
-            return
-
-
-    if data.startswith("offer_description:"):
-        offer_id = int(data.split(":", 1)[1])
-        offer = db.get_offer(offer_id)
-        if db.is_bmc_vip_offer(offer):
-            offer = db.get_offer(db.ensure_bmc_vip_offer())
-        if not offer or not db.offer_is_listed_in_bot(offer):
-            await q.message.reply_text(
-                premium_customer_text(lang, "out_of_stock"),
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb.out_of_stock_keyboard(lang),
-            )
-            return
-        await show_callback_screen(
-            q,
-            offer_description_text(offer, lang),
-            parse_mode=ParseMode.HTML,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-            reply_markup=kb.offer_description_keyboard(lang, offer),
-        )
-        return
-
-    if data.startswith("off:"):
-        raw_oid = data.split(":")[1]
-        try:
-            oid = int(raw_oid)
-        except (ValueError, TypeError):
-            oid = raw_oid
-        off = db.get_offer(oid) or db.get_offer(str(raw_oid))
-        if db.is_bmc_vip_offer(off):
-            off = db.get_offer(db.ensure_bmc_vip_offer())
-        if off and db.offer_is_listed_in_bot(off):
-            reseller_service.refresh_supplier_stock_in_background()
-        else:
-            off = None
-        if not off or not db.offer_is_listed_in_bot(off) or (not db.offer_has_stock(off) and not db.is_bmc_vip_offer(off)):
-            await q.message.reply_text(
-                premium_customer_text(lang, "out_of_stock"),
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb.out_of_stock_keyboard(lang),
-            )
-            return
-        try:
-            detail_text = compact_offer_text(off, lang)
-        except Exception as exc:
-            log.warning("compact_offer_text failed: %s", exc)
-            detail_text = (
-                f"🏷 <b>{html.escape(str(off.get('name') or 'Offre'))}</b>\n\n"
-                f"💎 <b>Prix :</b> {off.get('price')} {html.escape(str(off.get('currency', CURRENCY)))}\n"
-                f"📦 <b>Stock :</b> {off.get('stock') or 0}"
-            )
-
-        photo_file_id = off.get("photo_file_id")
-        if photo_file_id:
-            try:
-                if len(detail_text) <= 900:
-                    await q.message.reply_photo(
-                        photo=photo_file_id,
-                        caption=detail_text,
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=kb.offer_detail_keyboard(lang, off),
-                    )
-                else:
-                    await q.message.reply_photo(photo=photo_file_id)
-                    await q.message.reply_text(
-                        detail_text,
-                        parse_mode=ParseMode.HTML,
-                        link_preview_options=LinkPreviewOptions(is_disabled=True),
-                        reply_markup=kb.offer_detail_keyboard(lang, off),
-                    )
-                with contextlib.suppress(Exception):
-                    await q.message.delete()
-                return
-            except Exception as e:
-                log.warning("Failed to reply with offer photo %s: %s", photo_file_id, e)
-
-        off_name = str(off.get("name") or "").lower()
-        is_chatgpt_offer = "chat" in off_name and "gpt" in off_name
-        if is_chatgpt_offer:
-            try:
-                base_url = public_base_url_from_environment()
-                await send_cached_photo(
-                    q.message.reply_photo,
-                    f"{base_url}/assets/chatgpt-plus-benefits.png",
-                    caption="\U0001f525 *ChatGPT Plus Benefits*",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-                await q.message.reply_text(
-                    detail_text,
-                    parse_mode=ParseMode.HTML,
-                    link_preview_options=LinkPreviewOptions(is_disabled=True),
-                    reply_markup=kb.offer_detail_keyboard(lang, off),
-                )
-                with contextlib.suppress(Exception):
-                    await q.message.delete()
-                return
-            except Exception as e:
-                log.warning("Failed to send ChatGPT photo: %s", e)
-
-        await show_callback_screen(
-            q,
-            detail_text,
-            parse_mode=ParseMode.HTML,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-            reply_markup=kb.offer_detail_keyboard(lang, off),
-        )
+    if await _handle_catalog_callback(
+        update,
+        context,
+        lang,
+        data,
+        show_screen=show_callback_screen,
+    ):
         return
     if data.startswith("buy:"):
         offer_id = int(data.split(":", 1)[1])
