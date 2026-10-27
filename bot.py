@@ -585,7 +585,7 @@ async def announce_channel_restock(
             text=_method_announcement_text(
                 premium_customer_text(lang, message_key, **values), service, offer, lang,
             ),
-            reply_markup=kb.offer_detail_keyboard(lang, offer),
+            reply_markup=kb.announcement_offer_keyboard(lang, offer),
         )
     return await _broadcast_in_batches(
         send_one,
@@ -635,7 +635,7 @@ async def announce_flash_sale(context, offer_id):
                     remaining=remaining,
                 ), service, offer, lang,
             ),
-            reply_markup=kb.offer_detail_keyboard(lang, offer),
+            reply_markup=kb.announcement_offer_keyboard(lang, offer),
         )
     return await _broadcast_in_batches(
         send_one,
@@ -682,7 +682,7 @@ async def announce_api_flash_sale(context, event):
                     remaining=remaining,
                 ), service, offer, lang,
             ),
-            reply_markup=kb.offer_detail_keyboard(lang, offer),
+            reply_markup=kb.announcement_offer_keyboard(lang, offer),
         )
     return await _broadcast_in_batches(
         send_one,
@@ -2374,8 +2374,10 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await handle_quantity_selection(update, context, lang)
         return
-    if data.startswith("qty_page:"):
+    if data.startswith(("qty_adjust:", "qty_page:")):
         await handle_quantity_selection(update, context, lang)
+        return
+    if data.startswith("qty_current:"):
         return
     if data.startswith("buyq:"):
         await handle_buy_confirmation(update, context, lang)
@@ -2604,6 +2606,11 @@ async def handle_quantity_selection(update, context, lang):
     q = update.callback_query
     parts = q.data.split(":")
     offer_id = int(parts[1])
+    quantity = 1
+    if q.data.startswith("qty_adjust:") and len(parts) > 2:
+        quantity = int(parts[2])
+    elif q.data.startswith("qty_page:") and len(parts) > 2:
+        quantity = int(parts[2]) * 20 + 1
     offer = await _load_offer_with_live_stock(offer_id)
 
     if not offer or offer.get("price") is None or not db.offer_has_stock(offer):
@@ -2637,7 +2644,7 @@ async def handle_quantity_selection(update, context, lang):
     await send_quantity_prompt(
         quantity_text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb.quantity_keyboard(lang, offer, page=0),
+        reply_markup=kb.quantity_keyboard(lang, offer, quantity=quantity),
     )
 
 

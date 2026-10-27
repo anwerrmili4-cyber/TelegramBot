@@ -156,7 +156,9 @@ def _interaction_button_name(query):
         "orders_export": "Export orders", "rating": "Rate purchase",
         "support_cat": "Support category", "support_order": "Support order",
         "svc": "Open service", "off": "Open offer", "buy": "Buy now",
-        "buyq": "Select quantity", "qty_page": "Change quantity page", "tour": "Onboarding",
+        "buyq": "Buy selected quantity", "qty_adjust": "Adjust quantity",
+        "qty_current": "Current quantity", "qty_page": "Change quantity page",
+        "tour": "Onboarding",
     }
     name = names.get(action) or action.replace("_", " ").strip().title() or "Unknown button"
     return f"{name} ({value})" if value else name

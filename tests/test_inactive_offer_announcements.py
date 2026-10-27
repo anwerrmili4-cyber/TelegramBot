@@ -147,7 +147,9 @@ def test_parked_supplier_news_is_kept_and_returns_when_the_offer_is_listed(
     assert "NEW DROP AVAILABLE" in call["text"]
     assert "CapCut Pro" in call["text"]
     assert "Stock: <b>11</b>" in call["text"]
-    assert call["reply_markup"].inline_keyboard[0][0].callback_data == f"buy:{dear}"
+    markup = call["reply_markup"].inline_keyboard
+    assert len(markup) == 1
+    assert markup[0][0].callback_data == f"off:{dear}"
 
 
 def test_higher_priced_duplicate_keeps_its_news_until_it_is_the_bot_price(

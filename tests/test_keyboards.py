@@ -6,18 +6,36 @@ import keyboards as kb
 from keyboards import offer_button_label, stock_badge, stock_button_style
 
 
-def test_quantity_keyboard_uses_stock_as_maximum():
-    keyboard = kb.quantity_keyboard("fr", {"id": 9, "stock": 7})
+def test_quantity_keyboard_uses_compact_stepper_and_red_back_button():
+    keyboard = kb.quantity_keyboard("en", {"id": 9, "stock": 7}, quantity=3)
 
-    callbacks = [
-        button.callback_data
-        for row in keyboard.inline_keyboard
-        for button in row
+    rows = keyboard.inline_keyboard
+    assert [[button.text for button in row] for row in rows] == [
+        ["−", "3", "+"],
+        ["🛒 Buy now"],
+        ["⬅️ Back"],
     ]
+    assert [[button.callback_data for button in row] for row in rows] == [
+        ["qty_adjust:9:2", "qty_current:9:3", "qty_adjust:9:4"],
+        ["buyq:9:3"],
+        ["off:9"],
+    ]
+    assert [button.style for button in rows[0]] == ["danger", None, "success"]
+    assert rows[1][0].style == "success"
+    assert rows[2][0].style == "danger"
 
-    assert "buyq:9:1" in callbacks
-    assert "buyq:9:7" in callbacks
-    assert "buyq:9:8" not in callbacks
+
+def test_quantity_keyboard_clamps_stepper_to_available_stock():
+    keyboard = kb.quantity_keyboard("en", {"id": 9, "stock": 7}, quantity=99)
+
+    stepper = keyboard.inline_keyboard[0]
+    assert [button.callback_data for button in stepper] == [
+        "qty_adjust:9:6", "qty_current:9:7", "qty_current:9:7",
+    ]
+    assert keyboard.inline_keyboard[1][0].callback_data == "buyq:9:7"
+
+    minimum = kb.quantity_keyboard("en", {"id": 9, "stock": 7}, quantity=1)
+    assert minimum.inline_keyboard[0][0].callback_data == "qty_current:9:1"
 
 
 def test_delivery_keeps_customer_inside_bot_without_admin_contact():
@@ -242,6 +260,39 @@ def test_unlimited_offer_hides_stock_and_remains_buyable():
     ]
     assert "buy:9" in callbacks
     assert any(c in callbacks for c in ("catalog", "svc:1"))
+
+
+def test_announcement_keyboard_only_opens_the_product_description():
+    offer = {
+        "id": 9, "service_id": 1, "name": "Managed accounts",
+        "price": 5.0, "stock": 3,
+    }
+
+    keyboard = kb.announcement_offer_keyboard("en", offer)
+
+    assert len(keyboard.inline_keyboard) == 1
+    assert len(keyboard.inline_keyboard[0]) == 1
+    button = keyboard.inline_keyboard[0][0]
+    assert button.text == "🛒 Buy now"
+    assert button.callback_data == "off:9"
+
+
+def test_buy_and_back_buttons_always_use_semantic_colors():
+    styles = {
+        key: kb.translated_button(
+            "en", key, callback_data="test", style="primary",
+        ).style
+        for key in (
+            "btn_buy", "btn_channel_buy_now", "btn_back", "btn_back_services",
+        )
+    }
+
+    assert styles == {
+        "btn_buy": "success",
+        "btn_channel_buy_now": "success",
+        "btn_back": "danger",
+        "btn_back_services": "danger",
+    }
 
 
 def test_offer_button_uses_bulk_unit_price_when_configured():

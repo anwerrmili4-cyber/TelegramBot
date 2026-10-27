@@ -53,6 +53,13 @@ BUTTON_TEXT_KEYS = {
     "btn_verify_join", "btn_channel_buy_now",
 }
 
+SEMANTIC_BUTTON_STYLES = {
+    "btn_buy": "success",
+    "btn_channel_buy_now": "success",
+    "btn_back": "danger",
+    "btn_back_services": "danger",
+}
+
 
 def is_button_text_key(key):
     return key in BUTTON_TEXT_KEYS or str(key).startswith("support_category_")
@@ -72,6 +79,7 @@ def translated_button(
     switch_inline_query=None, icon_custom_emoji_id=None,
 ):
     """Build an inline button with the admin-selected Premium emoji icon."""
+    style = SEMANTIC_BUTTON_STYLES.get(key, style)
     return InlineKeyboardButton(
         clean_translated_button_text(t(lang, key)),
         callback_data=callback_data, url=url, style=style,
@@ -787,6 +795,13 @@ def offer_detail_keyboard(lang, offer):
     return InlineKeyboardMarkup(buttons)
 
 
+def announcement_offer_keyboard(lang, offer):
+    """Open an announced offer's product sheet before checkout."""
+    return InlineKeyboardMarkup([[
+        translated_button(lang, "btn_buy", callback_data=f"off:{offer['id']}")
+    ]])
+
+
 def profile_keyboard(lang):
     """Compact profile navigation matching the two-column customer layout."""
     return InlineKeyboardMarkup([
@@ -1001,30 +1016,39 @@ def out_of_stock_keyboard(lang):
     ]])
 
 
-def quantity_keyboard(lang, offer, page=0, page_size=20):
-    stock = 100 if offer.get("unlimited_stock") else max(1, int(offer.get("stock", 1)))
-    total_pages = max(1, (stock + page_size - 1) // page_size)
-    page = max(0, min(int(page), total_pages - 1))
-    start = page * page_size + 1
-    end = min(stock, start + page_size - 1)
-    rows = []
-    row = []
-    for qty in range(start, end + 1):
-        row.append(InlineKeyboardButton(str(qty), callback_data=f"buyq:{offer['id']}:{qty}"))
-        if len(row) == 5:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton("◀️", callback_data=f"qty_page:{offer['id']}:{page - 1}"))
-    if page < total_pages - 1:
-        nav.append(InlineKeyboardButton("▶️", callback_data=f"qty_page:{offer['id']}:{page + 1}"))
-    if nav:
-        rows.append(nav)
-    rows.append([translated_button(lang, "btn_back", callback_data=f"off:{offer['id']}")])
-    return InlineKeyboardMarkup(rows)
+def quantity_keyboard(lang, offer, quantity=1):
+    max_quantity = (
+        100 if offer.get("unlimited_stock")
+        else max(1, int(offer.get("stock", 1)))
+    )
+    quantity = max(1, min(int(quantity), max_quantity))
+    previous_quantity = max(1, quantity - 1)
+    next_quantity = min(max_quantity, quantity + 1)
+    offer_id = offer["id"]
+    previous_action = "qty_adjust" if quantity > 1 else "qty_current"
+    next_action = "qty_adjust" if quantity < max_quantity else "qty_current"
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "−", callback_data=f"{previous_action}:{offer_id}:{previous_quantity}",
+                style="danger",
+            ),
+            InlineKeyboardButton(
+                str(quantity), callback_data=f"qty_current:{offer_id}:{quantity}",
+            ),
+            InlineKeyboardButton(
+                "+", callback_data=f"{next_action}:{offer_id}:{next_quantity}",
+                style="success",
+            ),
+        ],
+        [translated_button(
+            lang, "btn_buy", callback_data=f"buyq:{offer_id}:{quantity}",
+            style="success",
+        )],
+        [translated_button(
+            lang, "btn_back", callback_data=f"off:{offer_id}", style="danger",
+        )],
+    ])
 
 
 def paid_keyboard(lang, order_id, binance_id="", total="", currency="USDT"):

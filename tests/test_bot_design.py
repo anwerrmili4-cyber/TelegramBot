@@ -570,9 +570,81 @@ def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb)
     assert all("━━━━━━━━" not in call.kwargs["text"] for call in calls)
     assert all("🤖" in call.kwargs["text"] for call in calls)
     assert all(
-        call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"buy:{offer_id}"
+        len(call.kwargs["reply_markup"].inline_keyboard) == 1
+        and call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"off:{offer_id}"
         for call in calls
     )
+
+
+def test_announcement_buy_now_opens_product_sheet_before_checkout(
+    monkeypatch, mock_mongodb,
+):
+    service_id = db.add_service("AI", "🤖")
+    offer_id = db.add_offer(
+        service_id,
+        "Gemini Pro 18 months",
+        5.0,
+        3,
+        description="Premium account delivered instantly.",
+    )
+    mock_mongodb.users.insert_one({"telegram_id": 101, "lang": "en"})
+    bot_client = SimpleNamespace(send_message=AsyncMock())
+    asyncio.run(announce_channel_restock(
+        SimpleNamespace(bot=bot_client), offer_id, 3, 3,
+    ))
+    announcement = bot_client.send_message.await_args.kwargs
+    button = announcement["reply_markup"].inline_keyboard[0][0]
+    message = SimpleNamespace(
+        text=announcement["text"],
+        reply_text=AsyncMock(),
+        reply_photo=AsyncMock(),
+        delete=AsyncMock(),
+    )
+    query = SimpleNamespace(
+        data=button.callback_data,
+        from_user=SimpleNamespace(id=101),
+        message=message,
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(
+        SimpleNamespace(callback_query=query), SimpleNamespace(),
+    ))
+
+    detail = query.edit_message_text.await_args
+    assert "Premium account delivered instantly." in detail.args[0]
+    callbacks = [
+        item.callback_data
+        for row in detail.kwargs["reply_markup"].inline_keyboard
+        for item in row
+    ]
+    assert f"buy:{offer_id}" in callbacks
+    assert "catalog" in callbacks
+
+
+def test_quantity_adjustment_redraws_compact_stepper(monkeypatch, mock_mongodb):
+    service_id = db.add_service("AI", "🤖")
+    offer_id = db.add_offer(service_id, "Gemini Pro", 5.0, 7)
+    message = SimpleNamespace(text="Choose quantity", photo=None, reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data=f"qty_adjust:{offer_id}:4",
+        from_user=SimpleNamespace(id=101),
+        message=message,
+        edit_message_text=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    markup = query.edit_message_text.await_args.kwargs["reply_markup"].inline_keyboard
+    assert [[button.callback_data for button in row] for row in markup] == [
+        [f"qty_adjust:{offer_id}:3", f"qty_current:{offer_id}:4", f"qty_adjust:{offer_id}:5"],
+        [f"buyq:{offer_id}:4"],
+        [f"off:{offer_id}"],
+    ]
 
 
 def test_catalog_updates_skip_customers_who_disabled_alerts(mock_mongodb):
@@ -777,7 +849,10 @@ def test_supplier_restocks_are_sent_as_individual_product_messages(mock_mongodb)
         assert "API" not in call.kwargs["text"]
         assert "NEW DROP" in call.kwargs["text"] or "NOUVEAU DROP" in call.kwargs["text"]
         assert "━━━━━━━━" not in call.kwargs["text"]
-        assert len(call.kwargs["reply_markup"].inline_keyboard) == 2
+        assert len(call.kwargs["reply_markup"].inline_keyboard) == 1
+        button = call.kwargs["reply_markup"].inline_keyboard[0][0]
+        assert button.text == "🛒 Buy now" or button.text == "🛒 Acheter maintenant"
+        assert button.callback_data.startswith("off:")
 
 
 def test_broadcast_jobs_are_persisted_claimed_and_completed(mock_mongodb):
@@ -868,7 +943,9 @@ def test_flash_sale_is_broadcast_with_buy_button(mock_mongodb):
     assert "FLASH SALE" in call.kwargs["text"]
     assert "8.00 USDT" in call.kwargs["text"]
     assert "3.00 USDT" in call.kwargs["text"]
-    assert call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"buy:{offer_id}"
+    markup = call.kwargs["reply_markup"].inline_keyboard
+    assert len(markup) == 1
+    assert markup[0][0].callback_data == f"off:{offer_id}"
 
 
 def test_automatic_flash_sale_uses_common_design_without_api_mention(mock_mongodb):
@@ -971,7 +1048,9 @@ def test_supplier_price_increase_is_broadcast_as_customer_new_drop(
     assert "NEW DROP AVAILABLE" in calls[0].kwargs["text"]
     assert "7.00 USDT" in calls[0].kwargs["text"]
     assert "Previous price" not in calls[0].kwargs["text"]
-    assert calls[0].kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"buy:{offer_id}"
+    markup = calls[0].kwargs["reply_markup"].inline_keyboard
+    assert len(markup) == 1
+    assert markup[0][0].callback_data == f"off:{offer_id}"
 
 
 def test_admin_can_reannounce_current_offer_without_adding_stock(mock_mongodb):
