@@ -9,13 +9,11 @@ import io
 import logging
 import os
 import re
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from pymongo import ReturnDocument
-from telegram import Bot, ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, Update
+from telegram import ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, LinkPreviewOptions, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -113,6 +111,11 @@ delete_broadcast_messages = _announcements.delete_broadcast_messages
 broadcast_maintenance_notice = _announcements.broadcast_maintenance_notice
 broadcast_affiliate_program_update = _announcements.broadcast_affiliate_program_update
 _execute_broadcast_job = _announcements.execute_broadcast_job
+_run_broadcast_job = _announcements.run_broadcast_job
+_submit_broadcast_job = _announcements.submit_broadcast_job
+_customer_broadcast_waits = _announcements.customer_broadcast_waits
+queue_broadcast = _announcements.queue_broadcast
+resume_pending_broadcasts = _announcements.resume_pending_broadcasts
 _is_method_detail_row = _methods_presentation.is_method_detail_row
 _join_methods_description_title = _methods_presentation.join_methods_description_title
 _line_is_description_label = _methods_presentation.line_is_description_label
@@ -170,10 +173,6 @@ log = logging.getLogger("bot")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-_broadcast_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="telegram-broadcast")
-_submitted_broadcast_jobs: set[int] = set()
-_broadcast_jobs_lock = threading.Lock()
-
 # états utilisateurs en mémoire (clé = user_id)
 # "await_txid": order_id  |  "adm_setprice": offer_id
 #  "adm_deliver": order_id
@@ -212,6 +211,7 @@ def lang_of(user_id):
 
 
 _announcements.configure_admin_context(lambda: ADMIN_ID, lang_of)
+_announcements.configure_job_submitter(lambda job_id: _submit_broadcast_job(job_id))
 
 
 async def notify_successful_referral(context, referrer_id):
@@ -385,98 +385,6 @@ def _is_single_unit_offer(offer):
     return _is_methods_offer(offer) or str((offer or {}).get("feature_key") or "") == "bot_like_mine"
 
 
-
-
-def _run_broadcast_job(job_id):
-    retry = False
-    try:
-        job = db.claim_broadcast_job(job_id)
-        if not job:
-            return
-        kind = str(job.get("kind") or "")
-        payload = job.get("payload") or {}
-        if _customer_broadcast_waits(kind, payload):
-            db.hold_broadcast_job(job_id)
-            log.info("Broadcast job %s held until its product is listed in the bot", job_id)
-            return
-        sent = asyncio.run(_execute_broadcast_job(job))
-        if sent == 0 and _customer_broadcast_waits(kind, payload):
-            db.hold_broadcast_job(job_id)
-            log.info("Broadcast job %s held until its product is listed in the bot", job_id)
-            return
-        db.complete_broadcast_job(job_id, sent)
-        log.info("Broadcast job %s completed: %s message(s)", job_id, sent)
-    except Exception as exc:
-        log.exception("Broadcast job %s failed", job_id)
-        retry = db.fail_broadcast_job(job_id, exc) == "retry"
-        error_text = html.escape(str(exc)[:200])
-        if ADMIN_ID:
-            def _notify_admin_fail():
-                from telegram.request import HTTPXRequest
-                req = HTTPXRequest(connect_timeout=10, read_timeout=10)
-                b = Bot(token=BOT_TOKEN, request=req)
-                async def _send():
-                    async with b:
-                        await b.send_message(
-                            chat_id=ADMIN_ID,
-                            text=f"⚠️ <b>Échec de la diffusion</b> (Job #{job_id})\n\nErreur : <code>{error_text}</code>",
-                            parse_mode=ParseMode.HTML,
-                        )
-                asyncio.run(_send())
-            with contextlib.suppress(Exception):
-                _notify_admin_fail()
-    finally:
-        with _broadcast_jobs_lock:
-            _submitted_broadcast_jobs.discard(int(job_id))
-        if retry:
-            time.sleep(1.5)
-            _submit_broadcast_job(job_id)
-
-
-def _submit_broadcast_job(job_id):
-    job_id = int(job_id)
-    with _broadcast_jobs_lock:
-        if job_id in _submitted_broadcast_jobs:
-            return False
-        _submitted_broadcast_jobs.add(job_id)
-    _broadcast_executor.submit(_run_broadcast_job, job_id)
-    return True
-
-
-def _customer_broadcast_waits(kind, payload):
-    from app.domain.offer_stock_control import customer_broadcast_waits
-
-    return customer_broadcast_waits(kind, payload)
-
-
-def queue_broadcast(kind, *, dedupe_key="", **payload):
-    """Queue a reliable broadcast and return immediately to the admin/cron.
-
-    Catalog news for an offer the bot is not selling is kept and not sent.
-    It goes out on its own once that offer is listed again.
-    """
-    if _customer_broadcast_waits(kind, payload):
-        job = db.park_broadcast_job(kind, payload, dedupe_key=dedupe_key)
-        held = bool(job and job.get("status") == "held")
-        return {
-            "job_id": job.get("id") if job else None,
-            "queued": False,
-            "held": held,
-            "recipient_count": 0 if held else int((job or {}).get("recipient_count") or 0),
-        }
-    job, created = db.create_broadcast_job(kind, payload, dedupe_key=dedupe_key)
-    if job and job.get("status") in {"queued", "retry"}:
-        _submit_broadcast_job(job["id"])
-    return {
-        "job_id": job.get("id") if job else None,
-        "queued": bool(created),
-        "recipient_count": int((job or {}).get("recipient_count") or 0),
-    }
-
-
-def resume_pending_broadcasts():
-    for job in db.pending_broadcast_jobs():
-        _submit_broadcast_job(job["id"])
 
 
 async def announce_channel_purchase(context, order_id):
@@ -1790,6 +1698,27 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+
+    if data.startswith("offer_description:"):
+        offer_id = int(data.split(":", 1)[1])
+        offer = db.get_offer(offer_id)
+        if db.is_bmc_vip_offer(offer):
+            offer = db.get_offer(db.ensure_bmc_vip_offer())
+        if not offer or not db.offer_is_listed_in_bot(offer):
+            await q.message.reply_text(
+                premium_customer_text(lang, "out_of_stock"),
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb.out_of_stock_keyboard(lang),
+            )
+            return
+        await show_callback_screen(
+            q,
+            offer_description_text(offer, lang),
+            parse_mode=ParseMode.HTML,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+            reply_markup=kb.offer_description_keyboard(lang, offer),
+        )
+        return
 
     if data.startswith("off:"):
         raw_oid = data.split(":")[1]

@@ -1,5 +1,9 @@
 """Compatibility checks for announcement behavior extracted from ``bot``."""
 
+import subprocess
+import sys
+import textwrap
+
 
 def test_bot_facade_reexports_announcement_formatters():
     import bot
@@ -98,3 +102,53 @@ def test_bot_facade_reexports_broadcast_job_dispatch():
     from app.bot import announcements
 
     assert bot._execute_broadcast_job is announcements.execute_broadcast_job
+
+
+def test_bot_facade_reexports_broadcast_job_lifecycle():
+    import bot
+    from app.bot import announcements
+
+    assert bot._run_broadcast_job is announcements.run_broadcast_job
+    assert bot._submit_broadcast_job is announcements.submit_broadcast_job
+    assert bot._customer_broadcast_waits is announcements.customer_broadcast_waits
+    assert bot.queue_broadcast is announcements.queue_broadcast
+    assert bot.resume_pending_broadcasts is announcements.resume_pending_broadcasts
+
+
+def test_importing_announcements_does_not_send_or_mutate_broadcasts():
+    script = textwrap.dedent(
+        """
+        from unittest.mock import Mock
+
+        import database
+        import telegram
+
+        guarded_names = (
+            "complete_broadcast_job",
+            "create_broadcast_job",
+            "fail_broadcast_job",
+            "hold_broadcast_job",
+            "park_broadcast_job",
+            "record_broadcast_message",
+        )
+        guarded = {}
+        for name in guarded_names:
+            guarded[name] = Mock(name=name)
+            setattr(database, name, guarded[name])
+        bot_constructor = Mock(name="Bot")
+        telegram.Bot = bot_constructor
+
+        import app.bot.announcements  # noqa: F401
+
+        bot_constructor.assert_not_called()
+        for operation in guarded.values():
+            operation.assert_not_called()
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import html
 import logging
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 from telegram import Bot
@@ -39,6 +43,13 @@ def _default_language(_user_id):
 
 _admin_id_provider = _default_admin_id
 _language_provider = _default_language
+_job_submitter_provider = None
+_broadcast_executor = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="telegram-broadcast",
+)
+_submitted_broadcast_jobs: set[int] = set()
+_broadcast_jobs_lock = threading.Lock()
 
 
 def configure_admin_context(admin_id_provider, language_provider):
@@ -46,6 +57,18 @@ def configure_admin_context(admin_id_provider, language_provider):
     global _admin_id_provider, _language_provider
     _admin_id_provider = admin_id_provider
     _language_provider = language_provider
+
+
+def configure_job_submitter(job_submitter_provider):
+    """Inject the compatibility submitter exposed by the bot facade."""
+    global _job_submitter_provider
+    _job_submitter_provider = job_submitter_provider
+
+
+def _submit_job(job_id):
+    if _job_submitter_provider is not None:
+        return _job_submitter_provider(job_id)
+    return submit_broadcast_job(job_id)
 
 
 def announcement_service_emoji(service, fallback="📦"):
@@ -622,6 +645,120 @@ async def execute_broadcast_job(job):
         await bot_client.shutdown()
 
 
+def run_broadcast_job(job_id):
+    """Claim and execute a queued broadcast, recording its final state."""
+    retry = False
+    try:
+        job = db.claim_broadcast_job(job_id)
+        if not job:
+            return
+        kind = str(job.get("kind") or "")
+        payload = job.get("payload") or {}
+        if customer_broadcast_waits(kind, payload):
+            db.hold_broadcast_job(job_id)
+            log.info(
+                "Broadcast job %s held until its product is listed in the bot",
+                job_id,
+            )
+            return
+        sent = asyncio.run(execute_broadcast_job(job))
+        if sent == 0 and customer_broadcast_waits(kind, payload):
+            db.hold_broadcast_job(job_id)
+            log.info(
+                "Broadcast job %s held until its product is listed in the bot",
+                job_id,
+            )
+            return
+        db.complete_broadcast_job(job_id, sent)
+        log.info("Broadcast job %s completed: %s message(s)", job_id, sent)
+    except Exception as exc:
+        log.exception("Broadcast job %s failed", job_id)
+        retry = db.fail_broadcast_job(job_id, exc) == "retry"
+        admin_id = _admin_id_provider()
+        if admin_id:
+            error_text = html.escape(str(exc)[:200])
+
+            def notify_admin_fail():
+                from telegram.request import HTTPXRequest
+
+                request = HTTPXRequest(connect_timeout=10, read_timeout=10)
+                bot_client = Bot(token=BOT_TOKEN, request=request)
+
+                async def send():
+                    async with bot_client:
+                        await bot_client.send_message(
+                            chat_id=admin_id,
+                            text=(
+                                "⚠️ <b>Échec de la diffusion</b> "
+                                f"(Job #{job_id})\n\n"
+                                f"Erreur : <code>{error_text}</code>"
+                            ),
+                            parse_mode=ParseMode.HTML,
+                        )
+
+                asyncio.run(send())
+
+            with contextlib.suppress(Exception):
+                notify_admin_fail()
+    finally:
+        with _broadcast_jobs_lock:
+            _submitted_broadcast_jobs.discard(int(job_id))
+        if retry:
+            time.sleep(1.5)
+            _submit_job(job_id)
+
+
+def submit_broadcast_job(job_id):
+    """Submit a broadcast once, even if several triggers release it."""
+    job_id = int(job_id)
+    with _broadcast_jobs_lock:
+        if job_id in _submitted_broadcast_jobs:
+            return False
+        _submitted_broadcast_jobs.add(job_id)
+    _broadcast_executor.submit(run_broadcast_job, job_id)
+    return True
+
+
+def customer_broadcast_waits(kind, payload):
+    """Return whether customer news must wait for a listed product."""
+    from app.domain.offer_stock_control import customer_broadcast_waits as waits
+
+    return waits(kind, payload)
+
+
+def queue_broadcast(kind, *, dedupe_key="", **payload):
+    """Persist a reliable broadcast and schedule eligible customer news."""
+    if customer_broadcast_waits(kind, payload):
+        job = db.park_broadcast_job(kind, payload, dedupe_key=dedupe_key)
+        held = bool(job and job.get("status") == "held")
+        return {
+            "job_id": job.get("id") if job else None,
+            "queued": False,
+            "held": held,
+            "recipient_count": (
+                0 if held else int((job or {}).get("recipient_count") or 0)
+            ),
+        }
+    job, created = db.create_broadcast_job(
+        kind,
+        payload,
+        dedupe_key=dedupe_key,
+    )
+    if job and job.get("status") in {"queued", "retry"}:
+        _submit_job(job["id"])
+    return {
+        "job_id": job.get("id") if job else None,
+        "queued": bool(created),
+        "recipient_count": int((job or {}).get("recipient_count") or 0),
+    }
+
+
+def resume_pending_broadcasts():
+    """Submit persisted jobs left pending by a previous process."""
+    for job in db.pending_broadcast_jobs():
+        _submit_job(job["id"])
+
+
 __all__ = [
     "announcement_plain",
     "announcement_service_emoji",
@@ -636,10 +773,16 @@ __all__ = [
     "broadcast_in_batches",
     "broadcast_maintenance_notice",
     "configure_admin_context",
+    "configure_job_submitter",
+    "customer_broadcast_waits",
     "delete_broadcast_messages",
     "execute_broadcast_job",
     "is_blocked_broadcast_error",
+    "queue_broadcast",
+    "resume_pending_broadcasts",
+    "run_broadcast_job",
     "send_broadcast_message_safe",
     "send_new_stock_broadcast",
+    "submit_broadcast_job",
     "track_broadcast_message",
 ]
