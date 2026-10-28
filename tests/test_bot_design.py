@@ -673,13 +673,15 @@ def test_quantity_adjustment_redraws_compact_stepper(monkeypatch, mock_mongodb):
         from_user=SimpleNamespace(id=101),
         message=message,
         edit_message_text=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
         answer=AsyncMock(),
     )
     monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
 
     asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
 
-    markup = query.edit_message_text.await_args.kwargs["reply_markup"].inline_keyboard
+    query.edit_message_text.assert_not_awaited()
+    markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"].inline_keyboard
     assert [[button.callback_data for button in row] for row in markup] == [
         [f"qty_adjust:{offer_id}:3", f"qty_current:{offer_id}:4", f"qty_adjust:{offer_id}:5"],
         [f"buyq:{offer_id}:4"],

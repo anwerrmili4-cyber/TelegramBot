@@ -22,20 +22,27 @@ from i18n import t
 log = logging.getLogger("bot")
 
 
-async def load_offer_with_live_stock(offer_id, *, wait_for_refresh=True):
-    """Load a customer-visible offer and optionally wait for supplier stock."""
+def saved_listed_offer(offer_id):
+    """Return the saved customer-visible offer without contacting a supplier."""
     offer = db.get_offer(offer_id)
     if not offer or not db.offer_is_listed_in_bot(offer):
         return None
     if db.is_bmc_vip_offer(offer):
         offer = db.get_offer(db.ensure_bmc_vip_offer())
-        return offer if db.offer_is_listed_in_bot(offer) else None
+        return offer if offer and db.offer_is_listed_in_bot(offer) else None
+    return offer
+
+
+async def load_offer_with_live_stock(offer_id, *, wait_for_refresh=True):
+    """Load a customer-visible offer and optionally wait for supplier stock."""
+    offer = saved_listed_offer(offer_id)
+    if not offer or db.is_bmc_vip_offer(offer):
+        return offer
     if wait_for_refresh:
         await asyncio.to_thread(reseller_service.refresh_supplier_stock, [offer])
-        offer = db.get_offer(offer.get("id", offer_id))
-    else:
-        reseller_service.refresh_supplier_stock_in_background()
-    return offer if db.offer_is_listed_in_bot(offer) else None
+        return saved_listed_offer(offer.get("id", offer_id))
+    reseller_service.refresh_supplier_stock_in_background()
+    return offer
 
 
 async def show_deep_link_offer(update, lang, offer_id):

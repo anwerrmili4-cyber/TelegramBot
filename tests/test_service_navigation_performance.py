@@ -71,6 +71,60 @@ def test_product_navigation_does_not_wait_for_supplier(monkeypatch, route, offer
         refresh_lock.release()
 
 
+@pytest.mark.parametrize("route", ["stepper", "buy_now", "open_quantity"])
+def test_purchase_buttons_do_not_wait_for_supplier(monkeypatch, route):
+    """Quantity and Buy now must redraw before any supplier catalog request."""
+    service_id = db.add_service("Canva", "C")
+    offer_id = db.add_offer(service_id, "Premium", 4.0, 7)
+    release = threading.Event()
+    entered = threading.Event()
+
+    def slow_refresh(offers=None):
+        entered.set()
+        release.wait(0.4)
+
+    monkeypatch.setattr(reseller_service, "refresh_supplier_stock", slow_refresh)
+    monkeypatch.setattr(bot, "lang_of", lambda _user_id: "en")
+    data = {
+        "stepper": f"qty_adjust:{offer_id}:3",
+        "buy_now": f"buyq:{offer_id}:3",
+        "open_quantity": f"buy:{offer_id}",
+    }[route]
+    message = SimpleNamespace(text="Choose quantity", photo=None, reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data=data,
+        from_user=SimpleNamespace(id=7),
+        message=message,
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
+    )
+    started = time.perf_counter()
+    try:
+        asyncio.run(bot.cb_navigation(
+            SimpleNamespace(callback_query=query, effective_user=query.from_user),
+            SimpleNamespace(),
+        ))
+        elapsed = time.perf_counter() - started
+        print(f"{route}: {elapsed:.3f}s")
+        assert elapsed < 0.3, f"{route} waited {elapsed:.3f}s for the supplier"
+        assert not entered.is_set(), f"{route} called the supplier stock API"
+        query.answer.assert_awaited()
+        if route == "stepper":
+            query.edit_message_text.assert_not_awaited()
+            markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+            stepper = markup.inline_keyboard
+            assert stepper[0][1].text == "3"
+            assert stepper[1][0].callback_data == f"buyq:{offer_id}:3"
+        else:
+            rendered = query.edit_message_text.await_args.args[0]
+            assert "Premium" in rendered
+            if route == "buy_now":
+                assert "*3*" in rendered or "3" in rendered
+    finally:
+        release.set()
+
+
 def test_checkout_rechecks_supplier_stock_before_creating_order(monkeypatch):
     service_id = db.add_service("Canva", "C")
     offer_id = db.add_offer(

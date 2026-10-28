@@ -116,6 +116,7 @@ _customer_broadcast_waits = _announcements.customer_broadcast_waits
 queue_broadcast = _announcements.queue_broadcast
 resume_pending_broadcasts = _announcements.resume_pending_broadcasts
 _load_offer_with_live_stock = _catalog_handlers.load_offer_with_live_stock
+_saved_listed_offer = _catalog_handlers.saved_listed_offer
 show_deep_link_offer = _catalog_handlers.show_deep_link_offer
 show_service_offers = _catalog_handlers.show_service_offers
 catalog_reply_markup = _catalog_handlers.catalog_reply_markup
@@ -1070,10 +1071,12 @@ async def show_callback_screen(
 async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     uid = q.from_user.id
-    lang = lang_of(uid)
     data = q.data
+    # Clear Telegram's button clock before any database read. A later alert
+    # cannot replace this acknowledgement; those paths reply in the chat.
     with contextlib.suppress(Exception):
         await q.answer()
+    lang = lang_of(uid)
 
     if data.startswith("codex_number_agree:"):
         order_id = int(data.split(":", 1)[1])
@@ -1829,22 +1832,38 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------------- Confirmation avant achat ----------------
 async def handle_quantity_selection(update, context, lang):
-    """Demande au client combien de comptes/produits il veut acheter."""
+    """Ask how many units to buy, and redraw the stepper without a supplier call.
+
+    The selected quantity lives only on the buttons. ``create_order`` refreshes
+    supplier stock before a purchase is recorded, so these taps use saved stock.
+    """
     q = update.callback_query
     parts = q.data.split(":")
     offer_id = int(parts[1])
     quantity = 1
+    adjusting = q.data.startswith(("qty_adjust:", "qty_page:"))
     if q.data.startswith("qty_adjust:") and len(parts) > 2:
         quantity = int(parts[2])
     elif q.data.startswith("qty_page:") and len(parts) > 2:
         quantity = int(parts[2]) * 20 + 1
-    offer = await _load_offer_with_live_stock(offer_id)
+    offer = _saved_listed_offer(offer_id)
 
     if not offer or offer.get("price") is None or not db.offer_has_stock(offer):
-        await q.answer(t(lang, "out_of_stock"), show_alert=True)
+        await q.message.reply_text(t(lang, "out_of_stock"))
         return
 
     PENDING[q.from_user.id] = ("await_quantity", offer_id)
+    markup = kb.quantity_keyboard(lang, offer, quantity=quantity)
+    if adjusting:
+        try:
+            await q.edit_message_reply_markup(reply_markup=markup)
+        except Exception as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            log.warning("Quantity stepper markup update failed: %s", exc)
+        else:
+            return
+
     send_quantity_prompt = q.message.reply_text if (q.message and q.message.photo) else q.edit_message_text
     stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
     bulk_line = ""
@@ -1871,13 +1890,17 @@ async def handle_quantity_selection(update, context, lang):
     await send_quantity_prompt(
         quantity_text,
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb.quantity_keyboard(lang, offer, quantity=quantity),
+        reply_markup=markup,
     )
 
 
 async def send_buy_confirmation(send, uid, offer_id, qty, lang):
-    """Validate a quantity and display the purchase summary."""
-    offer = await _load_offer_with_live_stock(offer_id)
+    """Show the purchase summary from saved stock.
+
+    Supplier stock is checked again when the customer confirms and the order
+    is created, so this screen does not wait on the supplier catalog.
+    """
+    offer = _saved_listed_offer(offer_id)
     if not offer or offer.get("price") is None:
         return False
     if _is_single_unit_offer(offer):
@@ -2034,7 +2057,7 @@ async def handle_pending_input(update, context, lang):
 
     if kind == "await_quantity":
         ref_id = ref
-        offer = await _load_offer_with_live_stock(int(ref_id))
+        offer = _saved_listed_offer(int(ref_id))
         try:
             qty = int(text)
         except ValueError:
