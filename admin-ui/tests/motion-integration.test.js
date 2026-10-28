@@ -17,21 +17,15 @@ test("admin motion dependencies are installed", async () => {
   assert.ok(pkg.dependencies.motion);
 });
 
-test("Lenis is driven by GSAP and keeps ScrollTrigger synchronized", async () => {
+test("admin shell scrolls inside the page instead of smoothing the document", async () => {
   const smoothScroll = await source("src/components/motion/SmoothScroll.jsx");
-
-  assert.match(smoothScroll, /lenis\.on\(["']scroll["'],\s*ScrollTrigger\.update\)/);
-  assert.match(smoothScroll, /lenis\.raf\(time \* 1000\)/);
-  assert.match(smoothScroll, /gsap\.ticker\.add\(tick\)/);
-  assert.match(smoothScroll, /prefers-reduced-motion:\s*reduce/);
-});
-
-test("admin sections reveal with ScrollTrigger and reduced motion stays static", async () => {
   const reveals = await source("src/components/motion/useAdminReveals.js");
 
-  assert.match(reveals, /ScrollTrigger/);
-  assert.match(reveals, /once:\s*true/);
+  assert.doesNotMatch(smoothScroll, /lenis/i);
+  assert.doesNotMatch(smoothScroll, /ScrollTrigger/);
   assert.match(reveals, /prefers-reduced-motion:\s*reduce/);
+  assert.match(reveals, /slice\(0,\s*12\)/);
+  assert.doesNotMatch(reveals, /ScrollTrigger/);
 });
 
 test("admin homepage uses the requested React Bits components", async () => {

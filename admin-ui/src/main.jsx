@@ -14,6 +14,7 @@ import "./operations.css";
 import "./system.css";
 import "./site.css";
 import "./provider-history.css";
+import "./shell.css";
 
 class AppErrorBoundary extends Component {
   constructor(props) {

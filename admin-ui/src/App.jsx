@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminPage from "./AdminPages";
 import SitePage, { SITE_PAGE_IDS } from "./SitePages";
 import NotificationSettings, { NOTIFICATION_CATEGORIES, notificationAction } from "./NotificationSettings";
@@ -7,6 +7,21 @@ import WorkspaceHome from "./WorkspaceHome";
 import { buildAdminQuery } from "./admin-routes.js";
 import { ControlCenter, DataExplorer } from "./ControlCenter";
 import { useAdminReveals } from "./components/motion/useAdminReveals.js";
+import { useDrawerMotion } from "./components/motion/useDrawerMotion.js";
+import { useNavIndicator } from "./components/motion/useNavIndicator.js";
+import { NavCount } from "./components/motion/NavCount.jsx";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+import "./components/motion/setup.js";
+import { Button } from "./ui/Button.jsx";
+import { Dialog } from "./ui/Dialog.jsx";
+import { Empty } from "./ui/Empty.jsx";
+import { ErrorState } from "./ui/ErrorState.jsx";
+import { Field } from "./ui/Field.jsx";
+import { Skeleton } from "./ui/Skeleton.jsx";
+import { Toast } from "./ui/Toast.jsx";
+import { SHELL_MESSAGES, shellErrorMessage } from "./ui/messages.js";
+import { adminPageId, filterNavEntries, resolveAdminPage } from "./ui/route.js";
 import {
   Activity,
   AlertTriangle,
@@ -108,6 +123,7 @@ const BOT_NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
 const ALL_NAV_GROUPS = [...NAV_GROUPS, ...SITE_NAV_GROUPS];
 const ALL_NAV_ITEMS = ALL_NAV_GROUPS.flatMap((group) => group.items);
+const KNOWN_PAGE_IDS = ALL_NAV_ITEMS.map((item) => item.id);
 const isSitePage = (page) => SITE_PAGE_IDS.has(page);
 
 const STATUS_LABELS = {
@@ -165,6 +181,80 @@ function readCollapsedGroups() {
   }
 }
 
+function NavGroup({ group, collapsed, activePage, countFor, onToggle, onNavigate, onSettled, motionRef }) {
+  const bodyRef = useRef(null);
+  const chevronRef = useRef(null);
+  useGSAP(() => {
+    const body = bodyRef.current;
+    if (!body) return undefined;
+    const animate = motionRef.current === group.label;
+    if (animate) motionRef.current = null;
+    const instant = !animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const items = gsap.utils.toArray(".nav-item", body).slice(0, 12);
+    gsap.to(chevronRef.current, {
+      rotation: collapsed ? -90 : 0,
+      duration: instant ? 0 : 0.2,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+    if (!collapsed) {
+      gsap.set(body, { display: "grid", autoAlpha: 1 });
+      if (instant) {
+        gsap.set(items, { clearProps: "transform,opacity,visibility" });
+        return undefined;
+      }
+      gsap.fromTo(items, { y: -6, autoAlpha: 0 }, {
+        y: 0,
+        autoAlpha: 1,
+        duration: 0.2,
+        stagger: 0.02,
+        overwrite: "auto",
+        clearProps: "transform,opacity,visibility",
+        onComplete: onSettled,
+      });
+      return undefined;
+    }
+    if (instant) {
+      gsap.set(items, { clearProps: "transform,opacity,visibility" });
+      gsap.set(body, { display: "none" });
+      return undefined;
+    }
+    gsap.to(items, {
+      y: -4,
+      autoAlpha: 0,
+      duration: 0.14,
+      stagger: 0.012,
+      overwrite: "auto",
+      onComplete: () => {
+        gsap.set(body, { display: "none" });
+        onSettled?.();
+      },
+    });
+    return undefined;
+  }, { dependencies: [collapsed], scope: bodyRef, revertOnUpdate: true });
+
+  return (
+    <div className="nav-group">
+      <button type="button" className="nav-heading" aria-expanded={!collapsed} onClick={onToggle}>
+        <span>{group.label}</span>
+        <span className="nav-chevron" ref={chevronRef}><ChevronDown size={14} aria-hidden="true" /></span>
+      </button>
+      <div className="nav-group-items" ref={bodyRef} aria-hidden={collapsed}>
+        {group.items.map(({ id, label, icon: Icon }) => {
+          const count = countFor(id);
+          return (
+            <button key={id} type="button" className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}>
+              <Icon size={18} strokeWidth={1.8} />
+              <span>{label}</span>
+              <NavCount value={count} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const pendingOrders = data?.summary?.pending_orders || 0;
   const openTickets = data?.summary?.open_tickets || 0;
@@ -175,45 +265,79 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
   const siteRequests = data?.summary?.site_product_requests || 0;
   const siteWarranties = data?.summary?.site_warranties || 0;
   const siteReviews = data?.summary?.site_reviews_pending || 0;
+  const siteQueue = siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties + siteReviews;
   const [collapsedGroups, setCollapsedGroups] = useState(readCollapsedGroups);
+  const [navLayout, setNavLayout] = useState(0);
+  const asideRef = useRef(null);
+  const backdropRef = useRef(null);
+  const navRef = useRef(null);
+  const groupMotionRef = useRef(null);
   const updateCollapsed = (update) => setCollapsedGroups((current) => {
     const next = new Set(current);
     update(next);
     window.localStorage.setItem("admin-nav-collapsed", JSON.stringify([...next]));
     return next;
   });
-  const toggleGroup = (label) => updateCollapsed((next) => (next.has(label) ? next.delete(label) : next.add(label)));
+  const toggleGroup = (label) => {
+    groupMotionRef.current = label;
+    updateCollapsed((next) => (next.has(label) ? next.delete(label) : next.add(label)));
+  };
   useEffect(() => {
     const activeGroup = ALL_NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label;
     if (activeGroup && collapsedGroups.has(activeGroup)) updateCollapsed((next) => next.delete(activeGroup));
   }, [activePage]);
   const siteMode = isSitePage(activePage);
   const groups = siteMode ? SITE_NAV_GROUPS : NAV_GROUPS;
+  useDrawerMotion(asideRef, backdropRef, mobileOpen);
+  useNavIndicator(navRef, `${activePage}:${navLayout}:${[...collapsedGroups].join("|")}:${siteMode}`);
+  const countFor = (id) => (
+    id === "orders" ? pendingOrders
+      : id === "site-orders" ? siteCarts
+        : id === "site-deposits" ? siteDeposits
+          : id === "support" ? openTickets
+            : id === "product-requests" ? productRequests
+              : id === "site-support" ? siteTickets
+                : id === "site-product-requests" ? siteRequests
+                  : id === "site-warranties" ? siteWarranties
+                    : id === "site-reviews" ? siteReviews
+                      : 0
+  );
 
   return (
-    <>
+    <div className="sidebar-slot">
       <button
+        ref={backdropRef}
         className={`sidebar-backdrop ${mobileOpen ? "is-open" : ""}`}
         aria-label="Fermer le menu"
         onClick={onClose}
       />
-      <aside className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
+      <aside ref={asideRef} className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
         <div className="brand">
-          {siteMode ? <img className="brand-logo" src={`${import.meta.env.BASE_URL}logo.png`} alt="" width="40" height="40" /> : <div className="brand-mark">{initials(data?.shop_name || "BlackMarket")}</div>}
+          {siteMode ? <img className="brand-logo" src={`${import.meta.env.BASE_URL}logo.png`} alt="" width="36" height="36" /> : <div className="brand-mark">{initials(data?.shop_name || "BlackMarket")}</div>}
           <div><strong>{siteMode ? "BlackMarket" : (data?.shop_name || "BlackMarket")}</strong><span>{siteMode ? "Site Tunisie" : "Commerce workspace"}</span></div>
-          <button className="icon-button mobile-only" onClick={onClose} aria-label="Fermer"><X size={20} /></button>
+          <button className="icon-button mobile-only" type="button" onClick={onClose} aria-label="Fermer"><X size={20} /></button>
         </div>
 
         <div className="workspace-switch" role="tablist" aria-label="Espace d’administration">
           <button type="button" role="tab" aria-selected={!siteMode} onClick={() => siteMode && onNavigate("overview")}><Bot size={15} />Bot Telegram</button>
-          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties + siteReviews > 0 && <small>{siteCarts + siteDeposits + siteTickets + siteRequests + siteWarranties + siteReviews}</small>}</button>
+          <button type="button" role="tab" aria-selected={siteMode} onClick={() => !siteMode && onNavigate("site-overview")}><Globe2 size={15} />Site Tunisie{!siteMode && siteQueue > 0 && <NavCount value={siteQueue} />}</button>
         </div>
 
-        <nav className="nav-list" aria-label="Navigation principale">
-          {groups.map((group) => <div className="nav-group" key={group.label}><button type="button" className="nav-heading" aria-expanded={!collapsedGroups.has(group.label)} onClick={() => toggleGroup(group.label)}><span>{group.label}</span><ChevronDown size={13} aria-hidden="true" /></button>{!collapsedGroups.has(group.label) && group.items.map(({ id, label, icon: Icon }) => {
-            const count = id === "orders" ? pendingOrders : id === "site-orders" ? siteCarts : id === "site-deposits" ? siteDeposits : id === "support" ? openTickets : id === "product-requests" ? productRequests : id === "site-support" ? siteTickets : id === "site-product-requests" ? siteRequests : id === "site-warranties" ? siteWarranties : id === "site-reviews" ? siteReviews : 0;
-            return <button key={id} className={`nav-item ${activePage === id ? "active" : ""}`} aria-current={activePage === id ? "page" : undefined} onClick={() => onNavigate(id)}><Icon size={18} strokeWidth={1.7} /><span>{label}</span>{count > 0 && <small>{count}</small>}</button>;
-          })}</div>)}
+        <nav className="nav-list" aria-label="Navigation principale" ref={navRef}>
+          <span className="nav-indicator" aria-hidden="true" />
+          {groups.map((group) => (
+            <NavGroup
+              key={group.label}
+              group={group}
+              collapsed={collapsedGroups.has(group.label)}
+              activePage={activePage}
+              countFor={countFor}
+              onToggle={() => toggleGroup(group.label)}
+              onNavigate={onNavigate}
+              onSettled={() => setNavLayout((value) => value + 1)}
+              motionRef={groupMotionRef}
+            />
+          ))}
         </nav>
 
         {siteMode ? <a className="sidebar-footer" href="https://www.ourblackmarket.com" target="_blank" rel="noreferrer">
@@ -224,7 +348,7 @@ function Sidebar({ activePage, data, mobileOpen, onClose, onNavigate }) {
           <div><strong>Bot configuré</strong><span>@{data?.bot_username || "—"}</span></div>
         </div>}
       </aside>
-    </>
+    </div>
   );
 }
 
@@ -236,7 +360,7 @@ function Header({ activePage, alertCount, busyAction, density, isRefreshing, onL
         <button className="icon-button menu-button" onClick={onMenu} aria-label="Ouvrir le menu"><Menu size={21} /></button>
         <nav className="topbar-breadcrumb" aria-label="Fil d’Ariane"><span>{ALL_NAV_GROUPS.find((group) => group.items.some((item) => item.id === activePage))?.label}</span><ChevronRight size={14} aria-hidden="true" /><h1>{current.label}</h1></nav>
       </div>
-      <button className="global-search-trigger" onClick={onSearch} aria-label="Rechercher dans le panneau">
+      <button className="global-search-trigger" onClick={onSearch} aria-label="Rechercher dans le panneau" aria-keyshortcuts="Control+K">
         <Search size={17} />
         <span>Rechercher commandes, produits ou clients…</span>
         <kbd>Ctrl K</kbd>
@@ -261,12 +385,20 @@ function SearchDialog({ data, onClose, onNavigate }) {
   const normalized = query.trim().toLowerCase();
   const results = useMemo(() => {
     if (!normalized) return [];
-    const orders = (data.orders || []).filter((item) => `${item.id} ${item.user_id} ${item.username || ""} ${item.offer_name || ""} ${item.service_name || ""} ${item.txid || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `order-${item.id}`, title: `Commande #${item.id}`, detail: item.txid ? `${item.offer_name || "Produit"} · TXID ${item.txid}` : item.offer_name || `Client ${item.user_id}`, page: "orders", icon: ClipboardList }));
-    const customers = (data.users || []).filter((item) => `${item.telegram_id || item.user_id || ""} ${item.username || ""} ${item.first_name || ""} ${item.last_name || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `customer-${item.telegram_id || item.user_id}`, title: item.username ? `@${item.username}` : `Client ${item.telegram_id || item.user_id}`, detail: [item.first_name, item.last_name].filter(Boolean).join(" ") || "Client Telegram", page: "customers", icon: Users }));
+    const orders = (data.orders || []).filter((item) => `${item.id} ${item.user_id} ${item.username || ""} ${item.offer_name || ""} ${item.service_name || ""} ${item.txid || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `order-${item.id}`, entityId: item.id, title: `Commande #${item.id}`, detail: item.txid ? `${item.offer_name || "Produit"} · TXID ${item.txid}` : item.offer_name || `Client ${item.user_id}`, page: "orders", icon: ClipboardList }));
+    const customers = (data.users || []).filter((item) => `${item.telegram_id || item.user_id || ""} ${item.username || ""} ${item.first_name || ""} ${item.last_name || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `customer-${item.telegram_id || item.user_id}`, entityId: item.telegram_id || item.user_id, title: item.username ? `@${item.username}` : `Client ${item.telegram_id || item.user_id}`, detail: [item.first_name, item.last_name].filter(Boolean).join(" ") || "Client Telegram", page: "customers", icon: Users }));
     const services = (data.services || []).filter((item) => `${item.name || ""} ${(item.offers || []).map((offer) => `${offer.name} ${offer.supplier_provider || ""}`).join(" ")}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `service-${item.id}`, title: item.name, detail: `${item.offer_count || 0} offre(s)`, page: "catalog", icon: ShoppingBag }));
     const tickets = (data.tickets || []).filter((item) => `${item.id} ${item.user_id} ${item.category || ""} ${item.message || ""}`.toLowerCase().includes(normalized)).slice(0, 3).map((item) => ({ id: `ticket-${item.id}`, entityId: item.id, title: item.category === "catalog_request" ? `Demande produit #${item.id}` : `Ticket #${item.id}`, detail: item.message || item.category || `Client ${item.user_id}`, page: item.category === "catalog_request" ? "product-requests" : "support", icon: item.category === "catalog_request" ? PackageSearch : Headphones }));
     return [...orders, ...customers, ...services, ...tickets];
   }, [data, normalized]);
+  const pageHits = useMemo(() => filterNavEntries(ALL_NAV_GROUPS, normalized).map((item) => ({
+    id: `page-${item.id}`,
+    title: item.label,
+    detail: item.group,
+    page: item.id,
+    icon: item.icon,
+    kind: "page",
+  })), [normalized]);
   const [siteResults, setSiteResults] = useState([]);
   const [sitePending, setSitePending] = useState(false);
   useEffect(() => {
@@ -305,28 +437,48 @@ function SearchDialog({ data, onClose, onNavigate }) {
       window.clearTimeout(timer);
     };
   }, [normalized, query]);
-  const visibleResults = [...results, ...siteResults].slice(0, 14);
+  const visibleResults = [...pageHits, ...results.map((item) => ({ ...item, kind: "record" })), ...siteResults.map((item) => ({ ...item, kind: "record" }))];
+  const [activeIndex, setActiveIndex] = useState(0);
+  const resultKey = visibleResults.map((item) => item.id).join("|");
+  useEffect(() => setActiveIndex(0), [resultKey]);
 
-  useEffect(() => {
-    const closeOnEscape = (event) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  const openResult = (result) => {
+    if (!KNOWN_PAGE_IDS.includes(result.page)) return;
+    onNavigate(result.page, result.entityId, result.extra);
+    onClose();
+  };
+
+  const onKeyDown = (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((index) => Math.min(index + 1, Math.max(visibleResults.length - 1, 0)));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter" && event.target instanceof HTMLInputElement && visibleResults[activeIndex]) {
+      event.preventDefault();
+      openResult(visibleResults[activeIndex]);
+    }
+  };
 
   return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section className="search-dialog" role="dialog" aria-modal="true" aria-label="Recherche globale" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="search-dialog-input"><Search size={20} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, commande, panier site, recharge, TXID, client ou ticket…" /><button onClick={onClose}><X size={18} /></button></div>
-        <div className="search-results">
-          {!normalized && <div className="search-empty"><Search size={25} /><strong>Recherche globale</strong><span>Saisissez un nom, un panier du site, une recharge, un TXID, un produit ou un ticket.</span></div>}
-          {normalized && visibleResults.length === 0 && !sitePending && <div className="search-empty"><strong>Aucun résultat</strong><span>Essayez un autre terme de recherche.</span></div>}
-          {visibleResults.map(({ id, entityId, title, detail, page, extra, icon: Icon }) => (
-            <button key={id} onClick={() => { onNavigate(page, entityId, extra); onClose(); }}><span><Icon size={17} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={16} /></button>
-          ))}
-        </div>
-        <footer><span>↵ ouvrir</span><span>Échap fermer</span></footer>
-      </section>
-    </div>
+    <Dialog label="Recherche globale" className="search-dialog" backdropClassName="dialog-backdrop" onClose={onClose} onKeyDown={onKeyDown}>
+      <div className="search-dialog-input"><Search size={20} /><input role="combobox" aria-expanded="true" aria-controls="admin-palette-list" aria-activedescendant={visibleResults[activeIndex] ? `palette-option-${activeIndex}` : undefined} autoFocus data-autofocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Page, commande, panier, client, TXID ou ticket…" /><button type="button" onClick={onClose} aria-label="Fermer la recherche"><X size={18} /></button></div>
+      <div className="search-results" id="admin-palette-list" role="listbox">
+        {visibleResults.length === 0 && !sitePending && <Empty detail="Essayez un autre terme de recherche." />}
+        {visibleResults.map((result, index) => {
+          const Icon = result.icon;
+          const previousKind = visibleResults[index - 1]?.kind;
+          return (
+            <Fragment key={result.id}>
+              {result.kind !== previousKind && <p className="shell-palette-label">{result.kind === "page" ? "Pages" : "Enregistrements"}</p>}
+              <button type="button" id={`palette-option-${index}`} role="option" aria-selected={index === activeIndex} className={index === activeIndex ? "is-active" : ""} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><span><Icon size={17} /></span><div><strong>{result.title}</strong><small>{result.detail}</small></div><ChevronRight size={16} /></button>
+            </Fragment>
+          );
+        })}
+      </div>
+      <footer><span>↑↓ parcourir</span><span>↵ ouvrir</span><span>Échap fermer</span></footer>
+    </Dialog>
   );
 }
 
@@ -360,8 +512,16 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
     system: Activity,
   }[notification.category] || Bell);
   return (
-    <div className="drawer-backdrop" onMouseDown={onClose}>
-      <aside className="notifications-drawer" onMouseDown={(event) => event.stopPropagation()}>
+    <Dialog
+      label="Notifications"
+      motion="drawer"
+      className="notifications-drawer"
+      backdropClassName="drawer-backdrop"
+      onClose={() => {
+        if (confirmDelete) setConfirmDelete(false);
+        else onClose();
+      }}
+    >
         <header><div><span className={`notification-live ${error ? "is-disconnected" : ""}`}><i />{error ? "Synchronisation interrompue" : lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")} · 5 s` : "Connexion…"}</span><h2>Notifications</h2></div><div className="notification-head-actions"><button className="icon-button" onClick={onRefresh} aria-label="Actualiser les notifications"><RefreshCw size={17} className={loading ? "spin" : ""} /></button><button className="icon-button" onClick={onClose} aria-label="Fermer les notifications"><X size={18} /></button></div></header>
         <NotificationSettings token={token} />
         <div className="notification-search"><input aria-label="Rechercher une notification" placeholder="Rechercher une notification…" value={search} onChange={(event) => setSearch(event.target.value)} /><select aria-label="Catégorie de notification" value={category} onChange={(event) => setCategory(event.target.value)}><option value="">Toutes les catégories</option>{Object.entries(NOTIFICATION_CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
@@ -370,7 +530,7 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
         {confirmDelete && <div className="notification-delete-confirm" role="alert"><span>Supprimer les {notifications.length} notifications affichées ?</span><button onClick={() => setConfirmDelete(false)} disabled={deleting}>Annuler</button><button className="danger" disabled={deleting} onClick={async () => { setDeleting(true); const deleted = await onDeleteAll(); setDeleting(false); if (deleted) setConfirmDelete(false); }}>{deleting ? "Suppression…" : "Supprimer"}</button></div>}
         {error && <div className="notification-error"><AlertTriangle size={15} /><span>{error}</span><button onClick={onRefresh}>Réessayer</button></div>}
         <div className="drawer-alerts">
-          {loading && !notifications.length ? <div className="notification-loading"><RefreshCw className="spin" size={19} />Lecture des événements réels…</div> : visible.length === 0 ? <div className="search-empty"><CheckCheck size={25} /><strong>{notifications.length ? "Aucun résultat pour ces filtres" : "Aucune notification"}</strong><span>{notifications.length ? "Les nouvelles opérations apparaîtront automatiquement." : "Aucune intervention n’est nécessaire actuellement."}</span></div> : visible.map((notification) => {
+          {loading && !notifications.length ? <div className="notification-loading"><RefreshCw className="spin" size={19} />Lecture des événements réels…</div> : visible.length === 0 ? <Empty detail={notifications.length ? "Aucun résultat pour ces filtres." : "Aucune intervention n’est nécessaire actuellement."} /> : visible.map((notification) => {
             const Icon = iconFor(notification);
             const read = isRead(notification);
             const categoryLabel = NOTIFICATION_CATEGORIES[notification.category] || "Alerte";
@@ -382,62 +542,8 @@ function NotificationsDrawer({ token, lastSynced, error, loading, notifications 
             </article>;
           })}
         </div>
-      </aside>
-    </div>
+    </Dialog>
   );
-}
-
-function Toast({ toast, onClose }) {
-  const [leaving, setLeaving] = useState(false);
-  const onCloseRef = useRef(onClose);
-  const dismissTimerRef = useRef(null);
-  const removeTimerRef = useRef(null);
-
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useEffect(() => {
-    window.clearTimeout(dismissTimerRef.current);
-    window.clearTimeout(removeTimerRef.current);
-    setLeaving(false);
-    if (!toast) return undefined;
-    dismissTimerRef.current = window.setTimeout(() => {
-      setLeaving(true);
-      removeTimerRef.current = window.setTimeout(() => onCloseRef.current(), 260);
-    }, 4200);
-    return () => {
-      window.clearTimeout(dismissTimerRef.current);
-      window.clearTimeout(removeTimerRef.current);
-    };
-  }, [toast]);
-
-  if (!toast) return null;
-  const type = toast.type || "success";
-  const Icon = type === "success" ? CheckCheck : AlertTriangle;
-  const dismiss = () => {
-    if (leaving) return;
-    window.clearTimeout(dismissTimerRef.current);
-    setLeaving(true);
-    removeTimerRef.current = window.setTimeout(() => onCloseRef.current(), 260);
-  };
-
-  return <div className="toast-stage">
-    <div key={`${type}-${toast.title}-${toast.message}`} className={`toast ${type}${leaving ? " is-leaving" : ""}`} role={type === "error" ? "alert" : "status"} aria-live={type === "error" ? "assertive" : "polite"} aria-atomic="true">
-      <span className="toast-icon" aria-hidden="true"><Icon size={21} strokeWidth={2.25} /></span>
-      <div className="toast-copy"><strong>{toast.title}</strong>{toast.message && <small>{toast.message}</small>}</div>
-      <button type="button" onClick={dismiss} aria-label="Ignorer la notification" title="Ignorer cette notification"><span>Ignorer</span><X size={15} /></button>
-      <i className="toast-progress" aria-hidden="true" />
-    </div>
-  </div>;
-}
-
-function LoadingState() {
-  return <div className="loading-state"><div className="loader" /><strong>Chargement du centre de contrôle…</strong><span>Connexion sécurisée aux données du bot.</span></div>;
-}
-
-function ErrorState({ message, onRetry }) {
-  return <div className="loading-state error-state"><AlertTriangle size={32} /><strong>Impossible de charger le tableau de bord</strong><span>{message}</span><button className="primary-button" onClick={onRetry}>Réessayer</button></div>;
 }
 
 const SPECIALIZED_CONFIRMATION_ACTIONS = /^(archive_|delete_|bulk_|refund_|cancel_|revoke|undo_|reject_|approve_|add_inventory$|site_(cart_deliver|cart_cancel|offer_update|offer_save|service_save|service_visibility|settings_save|deposit_approve|deposit_reject|wallet_adjust)$)/;
@@ -491,7 +597,7 @@ function describeAdminChange(params = {}) {
   return { title, description, target };
 }
 
-function LoginPage({ onAuthenticated }) {
+function LoginPage({ notice, onAuthenticated }) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -517,7 +623,7 @@ function LoginPage({ onAuthenticated }) {
       if (!response.ok || payload.ok === false) throw new Error(payload.error || "Connexion impossible.");
       await onAuthenticated();
     } catch (loginError) {
-      setMessage(loginError.message || "Connexion impossible. Réessayez.");
+      setMessage(shellErrorMessage(loginError));
     } finally {
       setSubmitting(false);
     }
@@ -533,16 +639,20 @@ function LoginPage({ onAuthenticated }) {
           <p>Pilotez vos commandes, votre catalogue et vos clients depuis un espace unique, conçu pour aller à l’essentiel.</p>
         </div>
         <div className="login-security-note"><ShieldCheck size={18} /><div><strong>Accès sécurisé</strong><span>Vos données restent protégées et confidentielles.</span></div></div>
-        <div className="login-orb login-orb-one" /><div className="login-orb login-orb-two" />
       </section>
 
       <section className="login-panel">
         <form className="login-card" onSubmit={submit}>
           <header><span className="login-lock"><LockKeyhole size={21} /></span><div><h2>Bon retour parmi nous</h2><p>Connectez-vous pour accéder au tableau de bord.</p></div></header>
-          <label className="login-field"><span>Identifiant</span><div><KeyRound size={17} /><input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" spellCheck="false" aria-invalid={Boolean(message)} autoFocus /></div></label>
-          <label className="login-field"><span>Mot de passe</span><div><LockKeyhole size={17} /><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" aria-invalid={Boolean(message)} /><button type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>
-          {message && <div className="login-error" role="alert"><AlertTriangle size={15} />{message}</div>}
-          <button className="login-submit" type="submit" disabled={submitting}>{submitting ? <><span className="login-spinner" />Connexion en cours…</> : <>Se connecter <LogIn size={17} /></>}</button>
+          {notice ? <p className="shell-banner" role="status">{notice}</p> : null}
+          <Field id="login-username" label="Identifiant">
+            <div className="login-control"><KeyRound size={17} /><input id="login-username" value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" spellCheck="false" aria-invalid={Boolean(message)} autoFocus data-autofocus /></div>
+          </Field>
+          <Field id="login-password" label="Mot de passe">
+            <div className="login-control"><LockKeyhole size={17} /><input id="login-password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" aria-invalid={Boolean(message)} /><button type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div>
+          </Field>
+          {message ? <p className="shell-banner is-error" role="alert">{message}</p> : null}
+          <Button className="login-submit" type="submit" busy={submitting}>{submitting ? "Connexion en cours…" : <>Se connecter <LogIn size={17} /></>}</Button>
           <footer><ShieldCheck size={13} /> Session sécurisée · Accès réservé</footer>
         </form>
         <p className="login-help">Un problème d’accès ? Contactez le propriétaire du bot.</p>
@@ -552,11 +662,13 @@ function LoginPage({ onAuthenticated }) {
 }
 
 export default function App() {
-  const routePage = () => window.location.pathname.replace(/^\/admin(?:-v2)?\/?/, "").split("/")[0] || "overview";
-  const initialPage = routePage();
-  const [activePage, setActivePage] = useState(ALL_NAV_ITEMS.some((item) => item.id === initialPage) ? initialPage : "overview");
+  const initialPage = resolveAdminPage(window.location.pathname, KNOWN_PAGE_IDS);
+  const [activePage, setActivePage] = useState(initialPage);
   const [data, setData] = useState(null);
   const [authenticated, setAuthenticated] = useState(null);
+  const [sessionNotice, setSessionNotice] = useState("");
+  const authenticatedRef = useRef(null);
+  authenticatedRef.current = authenticated;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState("");
@@ -599,7 +711,8 @@ export default function App() {
       try {
         const response = await fetch(scope === "shell" ? "/admin/api/data?scope=shell" : "/admin/api/data", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(20_000) });
         if (response.status === 401) {
-          setAuthenticated(false);
+          if (authenticatedRef.current) window.dispatchEvent(new Event("admin:session-expired"));
+          else setAuthenticated(false);
           setLoading(false);
           return;
         }
@@ -612,8 +725,9 @@ export default function App() {
         lastSyncRef.current = Date.now();
         if (background) window.dispatchEvent(new Event("admin:data-synced"));
       } catch (requestError) {
-        if (!background) setError(requestError.message || "Une erreur inattendue est survenue.");
-        else setSyncError("Actualisation impossible. Les données affichées peuvent être anciennes.");
+        const message = shellErrorMessage(requestError);
+        if (!background) setError(message);
+        else setSyncError(message);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -659,7 +773,7 @@ export default function App() {
         setNotificationsSynced(new Date());
         setNotificationsError("");
       } catch (requestError) {
-        setNotificationsError(requestError.message || "Les notifications ne peuvent pas être actualisées.");
+        setNotificationsError(shellErrorMessage(requestError));
       } finally {
         setNotificationsLoading(false);
       }
@@ -684,7 +798,7 @@ export default function App() {
       if (document.visibilityState === "visible" && navigator.onLine) loadNotifications(true);
     };
     const timer = window.setInterval(refresh, 5_000);
-    const offline = () => setNotificationsError("Hors ligne. La synchronisation reprendra à la reconnexion.");
+    const offline = () => setNotificationsError(SHELL_MESSAGES.network);
     window.addEventListener("offline", offline);
     window.addEventListener("online", refresh);
     window.addEventListener("focus", refresh);
@@ -702,8 +816,12 @@ export default function App() {
     if (notificationsOpen) loadNotifications(true);
   }, [notificationsOpen, loadNotifications]);
   useEffect(() => {
-    const expired = () => { setAuthenticated(false); setData(null); };
-    const offline = () => setSyncError("Connexion interrompue. Reconnectez-vous au réseau avant d’agir.");
+    const expired = () => {
+      setSessionNotice(SHELL_MESSAGES.sessionExpired);
+      setAuthenticated(false);
+      setData(null);
+    };
+    const offline = () => setSyncError(SHELL_MESSAGES.network);
     const failedRead = (event) => setSyncError(event.detail);
     window.addEventListener("admin:session-expired", expired);
     window.addEventListener("offline", offline);
@@ -754,7 +872,7 @@ export default function App() {
     const openSearch = (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setSearchOpen(true);
+        setSearchOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", openSearch);
@@ -762,10 +880,14 @@ export default function App() {
   }, []);
   useEffect(() => {
     const synchronizeRoute = () => {
-      const page = routePage();
-      const nextPage = ALL_NAV_ITEMS.some((item) => item.id === page) ? page : "overview";
+      const raw = adminPageId(window.location.pathname);
+      const nextPage = resolveAdminPage(window.location.pathname, KNOWN_PAGE_IDS);
+      if (raw !== nextPage && window.location.pathname !== "/admin") {
+        window.history.replaceState({}, "", "/admin");
+      }
       setActivePage(nextPage);
     };
+    synchronizeRoute();
     const restorePage = (event) => {
       synchronizeRoute();
       if (event.persisted) loadData(true, true);
@@ -779,21 +901,14 @@ export default function App() {
   }, [loadData]);
 
   const navigate = (page, entityId = null, extra = null) => {
-    const updatePage = () => {
-      setActivePage(page);
-      setMobileOpen(false);
-      const target = page === "overview" ? "/admin" : `/admin/${page}`;
-      const params = buildAdminQuery(page, entityId, extra);
-      const query = params.toString();
-      window.history.pushState({}, "", target + (query ? `?${query}` : ""));
-      window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page, entityId, extra } }));
-    };
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (document.startViewTransition && !reduceMotion && page !== activePage) {
-      document.startViewTransition(updatePage);
-    } else {
-      updatePage();
-    }
+    const nextPage = KNOWN_PAGE_IDS.includes(page) ? page : "overview";
+    setActivePage(nextPage);
+    setMobileOpen(false);
+    const target = nextPage === "overview" ? "/admin" : `/admin/${nextPage}`;
+    const params = buildAdminQuery(nextPage, nextPage === page ? entityId : null, nextPage === page ? extra : null);
+    const query = params.toString();
+    window.history.pushState({}, "", target + (query ? `?${query}` : ""));
+    window.dispatchEvent(new CustomEvent("admin:navigate", { detail: { page: nextPage, entityId, extra } }));
   };
 
   const markNotificationsRead = async (ids) => {
@@ -838,7 +953,7 @@ export default function App() {
       });
       const payload = await response.json();
       if (response.status === 401) window.dispatchEvent(new Event("admin:session-expired"));
-      if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || "Action refusée.");
+      if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.error || SHELL_MESSAGES.unexpected);
       if (isSitePage(activePage)) {
         if (!quiet) {
           pauseNotificationToastsRef.current = Date.now() + 8000;
@@ -938,12 +1053,14 @@ export default function App() {
   const logout = async () => {
     await fetch("/admin/api/logout", { method: "POST", credentials: "same-origin" });
     setData(null);
+    setSessionNotice("");
     setAuthenticated(false);
-    window.history.replaceState({}, "", "/admin/login");
+    window.history.replaceState({}, "", "/admin");
   };
 
   if (authenticated === false) {
-    return <LoginPage onAuthenticated={async () => {
+    return <LoginPage notice={sessionNotice} onAuthenticated={async () => {
+      setSessionNotice("");
       await loadData(false, true);
       window.history.replaceState({}, "", "/admin");
     }} />;
@@ -957,12 +1074,12 @@ export default function App() {
         <div className={`sync-status ${syncError ? "has-error" : ""}`} role="status"><span>{syncError || (lastSynced ? `Synchronisé à ${lastSynced.toLocaleTimeString("fr-FR")}` : "Connexion au panneau…")}</span>{syncError && <button onClick={() => loadData(true)}>Réessayer</button>}</div>
         <main ref={contentRef} className={`content page-${activePage}`} id="main-content">
           {data?.preview_mode && <p className="preview-notice" role="status">Prévisualisation locale · données fictives · aucune écriture réelle</p>}
-          {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message="La session administrateur n’a pas pu être restaurée." onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : isSitePage(activePage) ? <><p className="site-done" role="status" hidden={siteDone == null}><CheckCheck size={18} /><span><strong>Terminé.</strong>{siteDone ? ` ${siteDone}` : ""}</span></p><SitePage key={activePage} page={activePage} data={data} onAction={adminAction} onNavigate={navigate} setToast={setToast} /></> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
+          {loading ? <Skeleton /> : error ? <ErrorState message={error} onRetry={() => loadData()} /> : !data ? <ErrorState message={SHELL_MESSAGES.unexpected} onRetry={() => loadData()} /> : activePage === "overview" ? <WorkspaceHome data={data} onNavigate={navigate} /> : activePage === "control-center" || activePage === "phone" ? <ControlCenter data={data} onNavigate={navigate} phone={activePage === "phone"} /> : activePage === "data-explorer" ? <DataExplorer onNavigate={navigate} /> : isSitePage(activePage) ? <><p className="site-done" role="status" hidden={siteDone == null}><CheckCheck size={18} /><span><strong>Terminé.</strong>{siteDone ? ` ${siteDone}` : ""}</span></p><SitePage key={activePage} page={activePage} data={data} onAction={adminAction} onNavigate={navigate} setToast={setToast} /></> : <AdminPage key={activePage} page={activePage} data={data} onAction={adminAction} onHealthCheck={runHealthCheck} onNavigate={navigate} setToast={setToast} />}
         </main>
       </div>
       {searchOpen && data && <SearchDialog data={data} onClose={() => setSearchOpen(false)} onNavigate={navigate} />}
       {notificationsOpen && <NotificationsDrawer token={data?.dashboard_write_token} lastSynced={notificationsSynced} error={notificationsError} loading={notificationsLoading} notifications={notifications} onAction={adminAction} onClose={() => setNotificationsOpen(false)} onDeleteAll={deleteAllNotifications} onMarkAllRead={markAllNotificationsRead} onMarkRead={markNotificationRead} onNavigate={navigate} onRefresh={() => loadNotifications()} readIds={notificationReadIds} />}
-      {actionConfirmation && <div className="action-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeActionConfirmation(); }}><section className="action-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="admin-change-title" aria-describedby="admin-change-description"><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><button type="button" className="secondary-button" onClick={closeActionConfirmation}>Annuler</button><button type="button" className="primary-button" onClick={confirmAdminAction}>Confirmer la modification</button></footer></section></div>}
+      {actionConfirmation && <Dialog role="alertdialog" labelledBy="admin-change-title" describedBy="admin-change-description" className="action-confirm-dialog" backdropClassName="action-confirm-backdrop" onClose={closeActionConfirmation}><span className="action-confirm-icon"><ShieldCheck size={23} /></span><div><small>Vérification avant action</small><h2 id="admin-change-title">{actionConfirmation.title}</h2><p id="admin-change-description">{actionConfirmation.description}</p><strong>{actionConfirmation.target}</strong></div><footer><Button variant="secondary" data-autofocus onClick={closeActionConfirmation}>Annuler</Button><Button onClick={confirmAdminAction}>Confirmer la modification</Button></footer></Dialog>}
       {authenticated && <nav className="phone-nav" aria-label="Navigation mobile">{(isSitePage(activePage)
           ? [["site-overview", "Accueil", LayoutDashboard], ["site-orders", "Commandes", ClipboardList], ["site-deposits", "Dépôts", CircleDollarSign], ["site-customers", "Clients", Users]]
           : [["phone", "Pilotage", LayoutDashboard], ["orders", "Commandes", ClipboardList], ["deposits", "Dépôts", CircleDollarSign], ["support", "Support", Headphones]]).map(([id, label, Icon]) => <button key={id} aria-current={activePage === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={21} /><span>{label}</span></button>)}<button onClick={() => setMobileOpen(true)} aria-label="Tous les outils"><Menu size={21} /><span>Plus</span></button></nav>}
