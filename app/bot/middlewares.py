@@ -156,6 +156,7 @@ def _interaction_button_name(query):
         "orders_export": "Export orders", "rating": "Rate purchase",
         "support_cat": "Support category", "support_order": "Support order",
         "svc": "Open service", "off": "Open offer", "buy": "Buy now",
+        "offer_description": "View product description",
         "buyq": "Buy selected quantity", "qty_adjust": "Adjust quantity",
         "qty_current": "Current quantity", "qty_page": "Change quantity page",
         "tour": "Onboarding",

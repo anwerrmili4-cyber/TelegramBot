@@ -312,7 +312,7 @@ def test_startup_copies_supplier_offers_once_when_the_schema_is_older(mock_mongo
     assert copies[0]["active"] == 0
     assert copies[0]["supplier_provider"] == ""
     assert mock_mongodb.offers.find_one({"id": supplier_id})["supplier_provider"] == "vex"
-    assert mock_mongodb.schema_meta.find_one({"_id": "schema"})["version"] == 32
+    assert mock_mongodb.schema_meta.find_one({"_id": "schema"})["version"] == db.SCHEMA_VERSION
     audit = mock_mongodb.audit_events.find_one({"action": "catalog.supplier_offers_copied_local"})
     assert audit["details"]["offers_copied"] == 1
     assert audit["details"]["services"] == 1

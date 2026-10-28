@@ -16,9 +16,43 @@ def test_offer_detail_fields_parse_admin_description():
     assert fields["mail"] == "iCloud"
 
 
-def test_collapsed_description_quote_is_shown_in_full(monkeypatch):
+def test_product_card_replaces_description_with_admin_notice(
+    monkeypatch, mock_mongodb,
+):
     monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
+    bot.db.set_text_override(
+        "offer_description_notice", "en", "Read the separate description first.",
+    )
+
     rendered = compact_offer_text({
+        "id": 180,
+        "name": "CapCut Pro",
+        "price": 2.43,
+        "stock": 2,
+        "description": "Original product terms and login instructions.",
+    }, "en")
+
+    assert "Read the separate description first." in rendered
+    assert "Original product terms and login instructions." not in rendered
+
+
+def test_separate_description_page_preserves_original_rich_text():
+    rendered = bot.offer_description_text({
+        "description": (
+            '[[HTML]]<tg-emoji emoji-id="description-icon">📄</tg-emoji> '
+            '<b>Private Pro account</b>\n'
+            '<blockquote expandable>Login on mobile first.</blockquote>'
+        ),
+    }, "en")
+
+    assert '<tg-emoji emoji-id="description-icon">📄</tg-emoji>' in rendered
+    assert "<b>Private Pro account</b>" in rendered
+    assert "<blockquote>Login on mobile first.</blockquote>" in rendered
+    assert "expandable" not in rendered
+
+
+def test_collapsed_description_quote_is_shown_in_full():
+    rendered = bot.offer_description_text({
         "id": 182,
         "name": "Elevenlabs - 10k Credits",
         "service_name": "ElevenLabs",
@@ -58,7 +92,8 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
     assert "<b>STOCK:</b> <b>12</b>" in preview
     assert "<b>VENDUS:</b> <b>7</b>" in preview
     assert "<b>GARANTIE:</b> <b>NW</b>" in preview
-    assert "<b>DESCRIPTION:</b>\nCompte premium prêt à utiliser" in preview
+    assert "Veuillez lire la description avant d’acheter" in preview
+    assert "Compte premium prêt à utiliser" not in preview
 
 
 def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypatch, mock_mongodb):
@@ -84,7 +119,8 @@ def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypat
     assert "<b>📦 Pro &amp; Plus</b> · <b>14.00</b> <b>USDT</b>" in preview
     assert "Available: <b>7</b> · Purchased: <b>4</b>" in preview
     assert "<b>PERIOD:</b> <b>30 days</b>" in preview
-    assert "Ready &lt;b&gt;today&lt;/b&gt;" in preview
+    assert "Please read the description before buying" in preview
+    assert "Ready &lt;b&gt;today&lt;/b&gt;" not in preview
 
 
 def test_product_card_admin_preview_preserves_variable_names(mock_mongodb):
@@ -128,10 +164,8 @@ def test_product_card_prefixes_catalog_and_restyles_code_values(monkeypatch, moc
     assert "<code>" not in preview
 
 
-def test_product_description_removes_code_font_but_keeps_rich_text(monkeypatch):
-    monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
-
-    preview = compact_offer_text({
+def test_product_description_removes_code_font_but_keeps_rich_text():
+    preview = bot.offer_description_text({
         "id": 9,
         "name": "Premium",
         "price": 2,
@@ -175,7 +209,8 @@ def test_methods_card_hides_duration_warranty_and_stock_with_premium_icons(
     assert "Warranty:" not in preview
     assert "Stock:" not in preview
     assert "Price: <b>3.50</b> <b>USDT</b>" in preview
-    assert "💬 Description: Full instructions" in preview
+    assert "💬 Description: ⚠️ Please read the description before buying" in preview
+    assert "Full instructions" not in preview
     assert "Description:\n" not in preview
     assert "Description:</b>\n" not in preview
 
@@ -223,12 +258,19 @@ def test_methods_description_stays_with_its_label_and_bmc_vip_drops_term_suffix(
     assert "| <b>30 days</b> |" not in vip
     assert "<b>NW</b>" not in vip
     assert "Price: <b>15.00</b>" in vip
-    assert "💬 Description: ✅ METHODS Available" in vip
+    assert "💬 Description: ⚠️ Please read the description before buying" in vip
     assert "Description:\n" not in vip
-    assert "<blockquote>Amazon Prime 6 months</blockquote>" in vip
+    assert "<blockquote>Amazon Prime 6 months</blockquote>" not in vip
     assert "PaysafeCard Playstore" in other
     assert "| <b>30 days</b> | <b>NW</b>" in other
-    assert "💬 Description: Card steps" in other
+    assert "💬 Description: ⚠️ Please read the description before buying" in other
+    assert "Card steps" not in other
+    assert "<blockquote>Amazon Prime 6 months</blockquote>" in bot.offer_description_text(
+        {"description": description}, "en",
+    )
+    assert bot.offer_description_text(
+        {"description": "[[HTML]]Card steps"}, "en",
+    ) == "Card steps"
 
 
 def test_bulk_row_uses_editable_components_and_hides_when_disabled(monkeypatch, mock_mongodb):

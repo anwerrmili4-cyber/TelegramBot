@@ -334,6 +334,16 @@ TRANSLATIONS = {
         "en": "🏷 *{name}*\n\n💎 *PRICE:* {price} {currency}\n📅 *PERIOD:* {period}\n📦 *BULK PRICE:* {bulk_price} {currency} × {bulk_quantity}+\n📦 *STOCK:* {stock}\n🛒 *SOLD:* {sold}\n🛡 *WARRANTY:* {warranty}\n\n💬 *DESCRIPTION:*\n{description}",
         "ar": "🏷 *{name}*\n\n💎 *السعر:* {price} {currency}\n📅 *المدة:* {period}\n📦 *سعر الجملة:* {bulk_price} {currency} × {bulk_quantity}+\n📦 *المخزون:* {stock}\n🛒 *تم البيع:* {sold}\n🛡 *الضمان:* {warranty}\n\n💬 *الوصف:*\n{description}",
     },
+    "offer_description_notice": {
+        "fr": "⚠️ Veuillez lire la description avant d’acheter. Nous déclinons toute responsabilité si vous achetez sans l’avoir consultée.",
+        "en": "⚠️ Please read the description before buying. We do not take any responsibility in this matter.",
+        "ar": "⚠️ يرجى قراءة الوصف قبل الشراء. نحن غير مسؤولين إذا اشتريت المنتج دون مراجعته.",
+    },
+    "btn_description": {
+        "fr": "📄 Description",
+        "en": "📄 Description",
+        "ar": "📄 الوصف",
+    },
     "channel_affiliate_reward": {
         "fr": "🎉 *AFFILIATE REWARD UNLOCKED!*\n\n🏆 A community member reached *{count} valid referrals*\n💰 *{reward} USDT* was added instantly to their wallet\n\n🔥 Share your referral link, grow the community and unlock your own rewards!",
         "en": "🎉 *AFFILIATE REWARD UNLOCKED!*\n\n🏆 A community member reached *{count} valid referrals*\n💰 *{reward} USDT* was added instantly to their wallet\n\n🔥 Share your referral link, grow the community and unlock your own rewards!",

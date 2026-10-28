@@ -262,6 +262,30 @@ def test_unlimited_offer_hides_stock_and_remains_buyable():
     assert any(c in callbacks for c in ("catalog", "svc:1"))
 
 
+def test_offer_detail_adds_description_button_and_description_navigation():
+    offer = {
+        "id": 9, "service_id": 1, "name": "Managed accounts",
+        "price": 5.0, "stock": 3,
+    }
+
+    detail_actions = {
+        button.callback_data: button
+        for row in kb.offer_detail_keyboard("en", offer).inline_keyboard
+        for button in row
+    }
+    assert detail_actions["offer_description:9"].text == "📄 Description"
+    assert detail_actions["offer_description:9"].style == "primary"
+
+    description_actions = {
+        button.callback_data: button
+        for row in kb.offer_description_keyboard("en", offer).inline_keyboard
+        for button in row
+    }
+    assert set(description_actions) == {"buy:9", "off:9"}
+    assert description_actions["buy:9"].style == "success"
+    assert description_actions["off:9"].style == "danger"
+
+
 def test_announcement_keyboard_only_opens_the_product_description():
     offer = {
         "id": 9, "service_id": 1, "name": "Managed accounts",
@@ -1124,8 +1148,10 @@ def test_customize_menu_has_global_product_card_editor():
     }
 
     assert "adm_text_key:offer_card_template" in callbacks
+    assert "adm_text_key:offer_description_notice" in callbacks
     assert "adm_text_key:welcome" in callbacks
     assert admin.text_category_for_key("offer_card_template") == "catalog"
+    assert admin.text_category_for_key("offer_description_notice") == "catalog"
 
 
 def test_reseller_api_stays_in_profile_and_dashboard(mock_mongodb):

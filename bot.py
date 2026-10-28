@@ -1851,7 +1851,7 @@ async def handle_quantity_selection(update, context, lang):
     try:
         bulk_quantity = int(offer.get("bulk_quantity") or 0)
         bulk_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and 0 <= bulk_price < float(offer["price"]):
+        if bulk_quantity > 0 and 0 <= bulk_price <= float(offer["price"]):
             bulk_line = t(
                 lang, "bulk_price_line", quantity=bulk_quantity,
                 price=f"{bulk_price:.2f}", cur=CURRENCY,

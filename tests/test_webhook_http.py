@@ -244,7 +244,16 @@ def test_bulk_price_update_is_audited_and_reversible(monkeypatch, mock_mongodb):
     monkeypatch.setattr(webhook_module, "DASHBOARD_PASSWORD", "secret")
     mock_mongodb.services.insert_one({"id": 1, "name": "Service", "active": 1})
     mock_mongodb.offers.insert_many([
-        {"id": 10, "service_id": 1, "name": "One", "price": 2.0, "tn_price_millimes": 10000, "active": 1},
+        {
+            "id": 10,
+            "service_id": 1,
+            "name": "One",
+            "price": 2.0,
+            "bulk_quantity": 5,
+            "bulk_unit_price": 1.5,
+            "tn_price_millimes": 10000,
+            "active": 1,
+        },
         {"id": 11, "service_id": 1, "name": "Two", "price": 4.0, "active": 1},
     ])
     encoded = base64.b64encode(b"admin:secret").decode()
@@ -271,6 +280,7 @@ def test_bulk_price_update_is_audited_and_reversible(monkeypatch, mock_mongodb):
 
     assert payload["modified"] == 2
     assert database_module.get_offer(10)["price"] == 2.2
+    assert database_module.get_offer(10)["bulk_unit_price"] == 1.7
     assert database_module.get_offer(10)["tn_price_millimes"] == 11000
     event = mock_mongodb.audit_events.find_one({"action": "offer.bulk_updated"})
     assert event["id"]
@@ -280,6 +290,7 @@ def test_bulk_price_update_is_audited_and_reversible(monkeypatch, mock_mongodb):
     restored = webhook_module.undo_audit_event(event["id"])
     assert restored["restored"] == 2
     assert database_module.get_offer(10)["price"] == 2.0
+    assert database_module.get_offer(10)["bulk_unit_price"] == 1.5
     assert database_module.get_offer(10)["tn_price_millimes"] == 10000
 
 

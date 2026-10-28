@@ -118,7 +118,7 @@ def displayed_bot_price(offer: dict[str, Any] | None) -> float | None:
         bulk_price = float((offer or {}).get("bulk_unit_price"))
     except (TypeError, ValueError):
         return regular
-    if bulk_quantity > 0 and math.isfinite(bulk_price) and 0 <= bulk_price < regular:
+    if bulk_quantity > 0 and math.isfinite(bulk_price) and 0 <= bulk_price <= regular:
         return round(bulk_price, 4)
     return regular
 

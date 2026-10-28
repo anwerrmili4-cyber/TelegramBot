@@ -7,7 +7,7 @@ import keyboards as kb
 from admin import offer_admin_keyboard
 from app.constants import OrderStatus
 from app.domain import payment_service
-from bot import bmc_vip_channel_message, compact_offer_text
+from bot import bmc_vip_channel_message, compact_offer_text, offer_description_text
 
 
 def _method(name, price):
@@ -42,7 +42,10 @@ def test_vip_button_is_first_and_hides_other_method_prices(mock_mongodb):
     )
     assert vip["price"] == 15
     assert vip["bmc_vip_claims"] == 1
-    description = compact_offer_text(vip, "en")
+    card = compact_offer_text(vip, "en")
+    description = offer_description_text(vip, "en")
+    assert "Please read the description before buying" in card
+    assert "4 places are still $15" not in card
     assert "Alpha method" not in description
     assert "7.5" not in description
     assert "17.5" not in description
@@ -59,8 +62,11 @@ def test_admin_description_replaces_the_default_and_is_kept(mock_mongodb):
     assert vip["description"] == "Private BMC access. New drops every day."
     assert "Alpha" not in vip["description"]
     card = compact_offer_text(vip, "ar")
-    assert "Private BMC access" in card
-    assert "أماكن" not in card
+    description = offer_description_text(vip, "ar")
+    assert "Private BMC access" not in card
+    assert "يرجى قراءة الوصف قبل الشراء" in card
+    assert "Private BMC access" in description
+    assert "أماكن" not in description
 
 
 def test_admin_price_stays_after_the_launch_slots_fill(mock_mongodb):

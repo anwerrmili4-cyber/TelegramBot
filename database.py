@@ -19,7 +19,7 @@ from config import ADMIN_ID, INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -552,6 +552,8 @@ def init_db():
                 "services": copied["services"],
                 "service_ids": copied["service_ids"],
             })
+    if not schema or int(schema.get("version") or 0) < 33:
+        _normalize_stored_bulk_prices(db)
     if os.environ.get("HP_SEED_DEFAULT_CATALOG", "").strip().lower() in {"1", "true", "yes"}:
         _seed_catalog()
     db.schema_meta.update_one(
@@ -1455,6 +1457,9 @@ def start_flash_sale(offer_id, sale_price, duration_minutes):
     if duration_minutes < 1 or duration_minutes > 10080:
         raise ValueError("La durée doit être comprise entre 1 minute et 7 jours.")
     ends_at = int(time.time()) + duration_minutes * 60
+    bulk_updates = _synchronized_bulk_price_fields(
+        offer, sale_price, preserve_margin=False,
+    )
     get_conn().offers.update_one(
         {"id": int(offer_id)},
         {"$set": {
@@ -1465,6 +1470,7 @@ def start_flash_sale(offer_id, sale_price, duration_minutes):
             "flash_sale_price": sale_price,
             "flash_sale_ends_at": ends_at,
             "price": sale_price,
+            **bulk_updates,
         }},
     )
     note_same_product_stock()
@@ -1555,8 +1561,8 @@ def parse_bulk_options(raw, regular_price):
             raise ValueError("La quantité minimum d’une option de gros est 1")
         if unit_price < 0:
             raise ValueError("Le prix en gros ne peut pas être négatif")
-        if unit_price >= price:
-            raise ValueError("Le prix en gros doit être inférieur au prix normal")
+        if unit_price > price:
+            raise ValueError("Le prix en gros doit être inférieur ou égal au prix normal")
         options.append({"name": name, "min_quantity": quantity, "unit_price": unit_price})
     return options
 
@@ -1578,8 +1584,8 @@ def bulk_fields_from_form(form, regular_price):
     unit_price = float(raw_price) if raw_price else None
     if unit_price is not None and unit_price < 0:
         raise ValueError("Le prix en gros ne peut pas être négatif")
-    if quantity and (unit_price is None or unit_price >= price):
-        raise ValueError("Le prix en gros doit être inférieur au prix normal")
+    if quantity and (unit_price is None or unit_price > price):
+        raise ValueError("Le prix en gros doit être inférieur ou égal au prix normal")
     return {"bulk_quantity": quantity, "bulk_unit_price": unit_price}
 
 
@@ -1610,13 +1616,86 @@ def resolve_bulk_unit_price(offer, qty, regular_price):
         if (
             threshold > 0
             and quantity >= threshold
-            and 0 <= unit_price < regular
+            and 0 <= unit_price <= regular
             and (best is None or threshold > best[0] or (threshold == best[0] and unit_price < best[1]))
         ):
             best = (threshold, unit_price)
     if best is None:
         return regular
     return round(best[1], 2)
+
+
+def _synchronized_bulk_price_fields(offer, new_price, *, preserve_margin):
+    """Keep every enabled bulk tier at or below the current product price."""
+    if not isinstance(offer, dict):
+        return {}
+    current_price = max(0.0, float(offer.get("price") or 0))
+    target_price = max(0.0, float(new_price))
+
+    def synchronized(unit_price):
+        old_bulk = max(0.0, float(unit_price))
+        if preserve_margin:
+            fixed_margin = max(0.0, current_price - old_bulk)
+            return round(max(0.0, target_price - fixed_margin), 2)
+        return round(min(old_bulk, target_price), 2)
+
+    options = offer.get("bulk_options")
+    if isinstance(options, list) and options:
+        adjusted = []
+        for option in options:
+            if not isinstance(option, dict) or option.get("unit_price") is None:
+                adjusted.append(option)
+                continue
+            adjusted.append({
+                **option,
+                "unit_price": synchronized(option["unit_price"]),
+            })
+        first = next(
+            (
+                item for item in adjusted
+                if isinstance(item, dict) and item.get("unit_price") is not None
+            ),
+            None,
+        )
+        fields = {"bulk_options": adjusted}
+        if first is not None:
+            fields["bulk_unit_price"] = float(first["unit_price"])
+        return fields
+
+    try:
+        quantity = int(offer.get("bulk_quantity") or 0)
+        unit_price = offer.get("bulk_unit_price")
+    except (TypeError, ValueError):
+        return {}
+    if quantity <= 0 or unit_price is None:
+        return {}
+    return {"bulk_unit_price": synchronized(unit_price)}
+
+
+def _normalize_stored_bulk_prices(conn):
+    """Clamp legacy bulk tiers that are above their product's normal price."""
+    modified = 0
+    for offer in conn.offers.find({
+        "price": {"$ne": None},
+        "$or": [
+            {"bulk_unit_price": {"$ne": None}},
+            {"bulk_options.0": {"$exists": True}},
+        ],
+    }):
+        try:
+            fields = _synchronized_bulk_price_fields(
+                offer, offer["price"], preserve_margin=False,
+            )
+        except (TypeError, ValueError):
+            continue
+        changed = {
+            key: value for key, value in fields.items()
+            if offer.get(key) != value
+        }
+        if changed:
+            conn.offers.update_one({"_id": offer["_id"]}, {"$set": changed})
+            modified += 1
+    return modified
 
 
 def offer_has_stock(offer, qty=1):
@@ -1704,7 +1783,17 @@ def update_offer(
     warranty_visible=None,
 ):
     existing = get_conn().offers.find_one(
-        {"id": offer_id}, {"service_id": 1, "stock": 1, "unlimited_stock": 1}
+        {"id": offer_id},
+        {
+            "service_id": 1,
+            "stock": 1,
+            "unlimited_stock": 1,
+            "price": 1,
+            "bulk_quantity": 1,
+            "bulk_unit_price": 1,
+            "bulk_options": 1,
+            "flash_sale_active": 1,
+        },
     ) or {}
     if service_id is not None and int(service_id) != int(existing.get("service_id") or 0):
         source_service = get_service(existing.get("service_id"))
@@ -1778,6 +1867,19 @@ def update_offer(
         }.items()
         if value is not None
     }
+    if price is not None and bulk_unit_price is None and bulk_options is None:
+        values.update(_synchronized_bulk_price_fields(
+            existing,
+            price,
+            preserve_margin=not bool(existing.get("flash_sale_active")),
+        ))
+    elif bulk_unit_price is not None or bulk_options is not None:
+        prospective = {**existing, **values}
+        values.update(_synchronized_bulk_price_fields(
+            prospective,
+            prospective.get("price") or 0,
+            preserve_margin=False,
+        ))
     effective_service_id = int(service_id) if service_id is not None else existing.get("service_id")
     service = get_service(effective_service_id) if existing else None
     if service and is_otp_service_name(service.get("name")):
@@ -2400,6 +2502,33 @@ def add_offer(
         site_warranty_unit = "days"
         site_note = "NW"
     special_values = _otp_offer_values() if is_otp_service_name(service.get("name")) else {}
+    configured_bulk_quantity = max(0, int(bulk_quantity or 0))
+    configured_bulk_price = (
+        round(float(bulk_unit_price), 2)
+        if bulk_unit_price is not None and str(bulk_unit_price).strip() != ""
+        else None
+    )
+    configured_bulk_options = (
+        [dict(option) for option in bulk_options]
+        if bulk_options is not None else None
+    )
+    normalized_bulk = _synchronized_bulk_price_fields(
+        {
+            "price": price,
+            "bulk_quantity": configured_bulk_quantity,
+            "bulk_unit_price": configured_bulk_price,
+            "bulk_options": configured_bulk_options,
+        },
+        price,
+        preserve_margin=False,
+    )
+    configured_bulk_price = normalized_bulk.get(
+        "bulk_unit_price", configured_bulk_price,
+    )
+    if configured_bulk_options is not None:
+        configured_bulk_options = normalized_bulk.get(
+            "bulk_options", configured_bulk_options,
+        )
     get_conn().offers.insert_one({
         "id": oid,
         "service_id": service_id,
@@ -2445,15 +2574,11 @@ def add_offer(
         "warranty_value": int(warranty_value if warranty_value is not None else (warranty_days or 0)),
         "warranty_unit": warranty_service.normalize_duration_unit(warranty_unit),
         "warranty_visible": bool(warranty_visible),
-        "bulk_quantity": max(0, int(bulk_quantity or 0)),
-        "bulk_unit_price": (
-            round(float(bulk_unit_price), 2)
-            if bulk_unit_price is not None and str(bulk_unit_price).strip() != ""
-            else None
-        ),
+        "bulk_quantity": configured_bulk_quantity,
+        "bulk_unit_price": configured_bulk_price,
         "product_enabled": bool(product_enabled),
         "stock_enabled": bool(stock_enabled),
-        **({"bulk_options": [dict(option) for option in bulk_options]} if bulk_options is not None else {}),
+        **({"bulk_options": configured_bulk_options} if configured_bulk_options is not None else {}),
         **({"site_enabled": bool(site_enabled)} if site_enabled is not None else {}),
         **({"site_name": str(site_name)[:160]} if site_name else {}),
         **({"site_note": str(site_note)[:250]} if site_note else {}),
@@ -2965,10 +3090,7 @@ def sync_reseller_supplier_price(provider, product_id, wholesale_price):
             "updated_at": now,
         }},
     )
-    get_conn().offers.update_one(
-        {"id": int(config["local_offer_id"])},
-        {"$set": {"price": new_retail}},
-    )
+    update_offer(int(config["local_offer_id"]), price=new_retail)
     note_same_product_stock()
     return {
         "offer_id": int(config["local_offer_id"]),

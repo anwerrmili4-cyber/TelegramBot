@@ -30,7 +30,6 @@ from bot import (
     cb_navigation,
     cmd_replacement,
     cmd_start,
-    compact_offer_text,
     custom_emoji_from_message,
     custom_emojis_from_message,
     delete_broadcast_messages,
@@ -43,6 +42,7 @@ from bot import (
     notify_admin_interaction,
     notify_successful_referral,
     numbered_delivery_content,
+    offer_description_text,
     on_text_menu,
     onchain_payment_screen,
     order_service_groups,
@@ -614,14 +614,54 @@ def test_announcement_buy_now_opens_product_sheet_before_checkout(
     ))
 
     detail = query.edit_message_text.await_args
-    assert "Premium account delivered instantly." in detail.args[0]
+    assert "Please read the description before buying" in detail.args[0]
+    assert "Premium account delivered instantly." not in detail.args[0]
     callbacks = [
         item.callback_data
         for row in detail.kwargs["reply_markup"].inline_keyboard
         for item in row
     ]
     assert f"buy:{offer_id}" in callbacks
+    assert f"offer_description:{offer_id}" in callbacks
     assert "catalog" in callbacks
+
+
+def test_description_button_opens_original_description_on_separate_page(
+    monkeypatch, mock_mongodb,
+):
+    service_id = db.add_service("Video", "🎬")
+    offer_id = db.add_offer(
+        service_id,
+        "CapCut Pro",
+        2.43,
+        2,
+        description=(
+            "[[HTML]]<b>Full 30 days private Pro Team account.</b>\n"
+            "<blockquote expandable>Login to mobile App first.</blockquote>"
+        ),
+    )
+    message = SimpleNamespace(text="Product sheet", reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data=f"offer_description:{offer_id}",
+        from_user=SimpleNamespace(id=101),
+        message=message,
+        answer=AsyncMock(),
+        edit_message_text=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    description_page = query.edit_message_text.await_args
+    assert "<b>Full 30 days private Pro Team account.</b>" in description_page.args[0]
+    assert "<blockquote>Login to mobile App first.</blockquote>" in description_page.args[0]
+    assert "Please read the description before buying" not in description_page.args[0]
+    callbacks = [
+        button.callback_data
+        for row in description_page.kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert callbacks == [f"buy:{offer_id}", f"off:{offer_id}"]
 
 
 def test_quantity_adjustment_redraws_compact_stepper(monkeypatch, mock_mongodb):
@@ -1867,7 +1907,7 @@ def test_offer_description_preserves_telegram_rich_formatting(monkeypatch):
     stored = rich_text_from_message(message)
     monkeypatch.setattr("bot.db.offer_sold_count", lambda _offer_id: 0)
 
-    rendered = compact_offer_text({
+    rendered = offer_description_text({
         "id": 1, "name": "Plan", "price": 5.0, "stock": 2,
         "description": stored, "instructions": "—", "note": "Warranty",
     }, "en")
@@ -1879,7 +1919,7 @@ def test_offer_description_preserves_telegram_rich_formatting(monkeypatch):
 def test_plain_offer_description_does_not_treat_stars_or_underscores_as_markup(monkeypatch):
     monkeypatch.setattr("bot.db.offer_sold_count", lambda _offer_id: 0)
 
-    rendered = compact_offer_text({
+    rendered = offer_description_text({
         "id": 1, "name": "Plan", "price": 5.0, "stock": 2,
         "description": "* ChatGPT: Icloud_mail\n* Mailbox: Icloud_mail",
         "instructions": "—", "note": "Warranty",
@@ -2162,7 +2202,7 @@ def test_out_of_stock_offer_click_has_no_legacy_preorder_button(monkeypatch):
     assert not any(callback.startswith("preorder:") for callback in callbacks)
 
 
-def test_compact_offer_repairs_dashboard_truncated_html(monkeypatch):
+def test_offer_description_repairs_dashboard_truncated_html(monkeypatch):
     monkeypatch.setattr("bot.db.offer_sold_count", lambda _offer_id: 0)
     offer = {
         "id": 83,
@@ -2173,13 +2213,13 @@ def test_compact_offer_repairs_dashboard_truncated_html(monkeypatch):
         "description": "[[HTML]]<blockquote>Activation guide</blockquote>\n<i>Delivery i",
     }
 
-    rendered = compact_offer_text(offer, "en")
+    rendered = offer_description_text(offer, "en")
 
     assert rendered.endswith("<i>Delivery i</i>")
     assert rendered.count("<blockquote>") == rendered.count("</blockquote>")
 
 
-def test_compact_offer_removes_tag_truncated_mid_attribute(monkeypatch):
+def test_offer_description_removes_tag_truncated_mid_attribute(monkeypatch):
     monkeypatch.setattr("bot.db.offer_sold_count", lambda _offer_id: 0)
     offer = {
         "id": 43,
@@ -2192,7 +2232,7 @@ def test_compact_offer_removes_tag_truncated_mid_attribute(monkeypatch):
         ),
     }
 
-    rendered = compact_offer_text(offer, "en")
+    rendered = offer_description_text(offer, "en")
 
     assert '<tg-emoji emoji-id="4960958' not in rendered
     assert rendered.endswith("<b></b></blockquote>")

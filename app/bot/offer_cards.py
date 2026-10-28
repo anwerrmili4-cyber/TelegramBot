@@ -122,6 +122,16 @@ def offer_description_text(offer: dict, lang: str) -> str:
     )
 
 
+def offer_description_notice_text(lang: str) -> str:
+    """Render the admin-editable warning shown on the compact product card."""
+    notice = (
+        db.get_text_override("offer_description_notice", lang)
+        or TRANSLATIONS.get("offer_description_notice", {}).get(lang)
+        or TRANSLATIONS["offer_description_notice"]["en"]
+    )
+    return render_stored_rich_text(notice)
+
+
 def compact_offer_text(offer: dict, lang: str) -> str:
     """Build the compact public offer card used with or without an image."""
     service = None
@@ -154,22 +164,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     display_name = " ".join(
         part for part in (catalog_emoji, display_name) if part
     )
-    if lang == "ar" and offer.get("description_ar"):
-        description = offer.get("description_ar")
-    elif lang == "fr" and offer.get("description_fr"):
-        description = offer.get("description_fr")
-    else:
-        description = offer.get("description")
-    description = (description or "").strip() or "—"
-    rendered_description = render_stored_rich_text(
-        description, parse_legacy_markdown=False,
-    )
-    rendered_description = re.sub(
-        r"</?(?:code|pre)(?:\s[^>]*)?>", "", rendered_description, flags=re.I,
-    )
-    rendered_description = re.sub(
-        r"<blockquote\b[^>]*>", "<blockquote>", rendered_description, flags=re.I,
-    )
+    rendered_notice = offer_description_notice_text(lang)
     warranty = warranty_service.offer_warranty_label(offer, lang=lang)
     period = warranty_service.offer_period_label(offer, lang=lang)
     try:
@@ -191,7 +186,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     try:
         bulk_quantity = int(offer.get("bulk_quantity") or 0)
         bulk_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and 0 <= bulk_price < float(offer.get("price")):
+        if bulk_quantity > 0 and 0 <= bulk_price <= float(offer.get("price")):
             bulk_enabled = True
     except (TypeError, ValueError):
         pass
@@ -212,7 +207,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         "sold": f"<b>{html.escape(str(sold))}</b>",
         "period": f"<b>{html.escape(str(period))}</b>",
         "warranty": f"<b>{html.escape(str(warranty)[:120])}</b>",
-        "description": rendered_description,
+        "description": rendered_notice,
         "bulk_price": f"<b>{bulk_price:.2f}</b>",
         "bulk_quantity": f"<b>{bulk_quantity}</b>",
     }
@@ -299,15 +294,15 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         r"<blockquote\b[^>]*>", "<blockquote>", rendered, flags=re.I,
     )
     visible_card = html.unescape(re.sub(r"<[^>]+>", "", rendered))
-    visible_description = html.unescape(
-        re.sub(r"<[^>]+>", "", rendered_description),
+    visible_notice = html.unescape(
+        re.sub(r"<[^>]+>", "", rendered_notice),
     ).strip()
     if (
-        visible_description
-        and visible_description != "—"
-        and visible_description not in visible_card
+        visible_notice
+        and visible_notice != "—"
+        and visible_notice not in visible_card
     ):
-        rendered = f"{rendered.rstrip()}\n{rendered_description}"
+        rendered = f"{rendered.rstrip()}\n{rendered_notice}"
     if is_methods_catalog:
         rendered = join_methods_description_title(rendered)
         if is_bmc_vip_product(offer):
@@ -321,6 +316,7 @@ __all__ = [
     "decompose_legacy_bulk_line",
     "decomposed_bulk_price_template",
     "offer_detail_fields",
+    "offer_description_notice_text",
     "offer_description_text",
     "parse_duration_input",
 ]

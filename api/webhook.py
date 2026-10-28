@@ -2405,6 +2405,9 @@ class handler(BaseHTTPRequestHandler):
                             "price": row.get("price"),
                             "tn_price_millimes": row.get("tn_price_millimes"),
                         }
+                        for key in ("bulk_unit_price", "bulk_options"):
+                            if key in row:
+                                before[key] = row.get(key)
                         after = {
                             "price": round(float(row.get("price") or 0) * factor, 4),
                             "tn_price_millimes": (
@@ -2415,7 +2418,12 @@ class handler(BaseHTTPRequestHandler):
                         update = {"price": after["price"]}
                         if after["tn_price_millimes"] is not None:
                             update["tn_price_millimes"] = after["tn_price_millimes"]
-                        db.get_conn().offers.update_one({"id": row["id"]}, {"$set": update})
+                        db.update_offer(row["id"], **update)
+                        saved = db.get_conn().offers.find_one({"id": row["id"]}) or {}
+                        for key in ("bulk_unit_price", "bulk_options"):
+                            if key in before or key in saved:
+                                before.setdefault(key, None)
+                                after[key] = saved.get(key)
                         changes.append({"id": row["id"], "before": before, "after": after})
                 elif operation == "move_service":
                     service_id = int(form.get("value", "0"))
