@@ -178,6 +178,7 @@ def test_quantity_confirmation_keeps_selected_quantity():
     assert keyboard.inline_keyboard[1][0].callback_data == "pay_binance:9:4"
     assert keyboard.inline_keyboard[2][0].callback_data == "pay_bsc:9:4"
     assert keyboard.inline_keyboard[3][0].callback_data == "pay_polygon:9:4"
+    assert keyboard.inline_keyboard[4][0].callback_data == "qty_adjust:9:4"
 
 
 def test_onchain_payment_keyboard_submits_txid_without_auto_confirmation():
@@ -187,7 +188,6 @@ def test_onchain_payment_keyboard_submits_txid_without_auto_confirmation():
     assert keyboard.inline_keyboard[0][0].copy_text.text == "0xabc"
     assert keyboard.inline_keyboard[1][0].callback_data == "paid_chain:81"
     assert keyboard.inline_keyboard[2][0].callback_data == "change_payment:81"
-    assert keyboard.inline_keyboard[3][0].callback_data == "home"
 
 
 def test_onchain_topup_keyboard_copies_address_and_keeps_navigation():
@@ -662,6 +662,8 @@ def test_official_subscriptions_appear_in_the_catalog(mock_mongodb):
     assert kb.offers_keyboard("fr", official_id).inline_keyboard[-1][0].callback_data == "catalog"
     detail = kb.offer_detail_keyboard("fr", db.get_offer(monthly_id))
     assert detail.inline_keyboard[-1][0].callback_data == "catalog"
+    grouped = kb.offer_detail_keyboard("fr", db.list_offers(regular_id)[0])
+    assert grouped.inline_keyboard[-1][0].callback_data == f"svc:{regular_id}"
 
 
 def test_out_of_stock_offers_leave_the_bot_catalog(mock_mongodb):

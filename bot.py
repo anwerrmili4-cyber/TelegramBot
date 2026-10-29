@@ -2106,7 +2106,9 @@ async def send_buy_confirmation(send, uid, offer_id, qty, lang):
           total=f"{gross_total - referral_discount['amount']:.2f}",
           discount_line=discount_line),
         parse_mode=ParseMode.MARKDOWN,
-        reply_markup=kb.confirm_buy_keyboard(lang, offer_id, qty),
+        reply_markup=kb.confirm_buy_keyboard(
+            lang, offer_id, qty, single_unit=_is_single_unit_offer(offer),
+        ),
     )
     return True
 

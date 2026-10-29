@@ -786,6 +786,29 @@ def offers_keyboard(lang, service_id):
     return InlineKeyboardMarkup(buttons)
 
 
+def product_back_callback(offer):
+    """Return the screen that opened this product."""
+    offer = offer or {}
+    service_id = offer.get("service_id")
+    service_name = offer.get("service_name")
+    if service_id is not None and not service_name:
+        service = db.get_service(service_id) or {}
+        service_name = service.get("name")
+    if db.is_bmc_vip_offer(offer) or db.is_methods_service(service_name or ""):
+        return "methods"
+    if db.is_official_subscriptions_service(service_name):
+        return "catalog"
+    if service_id is None:
+        return "catalog"
+    listed = [
+        item for item in db.list_offers(int(service_id))
+        if db.is_bot_visible(item) and not db.is_bmc_vip_offer(item)
+    ]
+    if len(listed) > 1:
+        return f"svc:{int(service_id)}"
+    return "catalog"
+
+
 def offer_detail_keyboard(lang, offer):
     buttons = []
     if offer.get("feature_key") == "bot_like_mine":
@@ -803,8 +826,9 @@ def offer_detail_keyboard(lang, offer):
     )])
     if offer.get("price") is not None and db.offer_has_stock(offer):
         buttons.append([translated_button(lang, "btn_buy", callback_data=f"buy:{offer['id']}")])
-    back_target = "methods" if db.is_bmc_vip_offer(offer) else "catalog"
-    buttons.append([translated_button(lang, "btn_back", callback_data=back_target)])
+    buttons.append([translated_button(
+        lang, "btn_back", callback_data=product_back_callback(offer), style="danger",
+    )])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -1086,7 +1110,10 @@ def paid_keyboard(lang, order_id, binance_id="", total="", currency="USDT"):
         [translated_button(lang, "btn_verify_txid", callback_data=f"paid:{order_id}", style="success")],
         [
             translated_button(lang, "btn_cancel_short", callback_data=f"cancel_buy:{order_id}"),
-            translated_button(lang, "btn_main_menu_short", callback_data="home"),
+            translated_button(
+                lang, "btn_back",
+                callback_data=f"change_payment:{order_id}", style="danger",
+            ),
         ],
     ])
 
@@ -1126,14 +1153,20 @@ def orders_keyboard(lang, orders=None):
     ]])
 
 
-def confirm_buy_keyboard(lang, offer_id, qty=1):
-    """Clavier de confirmation avant achat."""
+def confirm_buy_keyboard(lang, offer_id, qty=1, *, single_unit=False):
+    """Payment methods, with back returning to quantity or the product card."""
+    back_callback = (
+        f"off:{int(offer_id)}" if single_unit
+        else f"qty_adjust:{int(offer_id)}:{int(qty)}"
+    )
     return InlineKeyboardMarkup([
         [translated_button(lang, "btn_pay_wallet", callback_data=f"pay_wallet:{offer_id}:{qty}")],
         [translated_button(lang, "btn_pay_binance", callback_data=f"pay_binance:{offer_id}:{qty}")],
         [translated_button(lang, "btn_pay_bsc", callback_data=f"pay_bsc:{offer_id}:{qty}")],
         [translated_button(lang, "btn_pay_polygon", callback_data=f"pay_polygon:{offer_id}:{qty}")],
-        [translated_button(lang, "btn_cancel", callback_data=f"cancel_buy:{offer_id}")],
+        [translated_button(
+            lang, "btn_back", callback_data=back_callback, style="danger",
+        )],
     ])
 
 
@@ -1149,12 +1182,11 @@ def onchain_payment_keyboard(lang, order_id, address=""):
             callback_data=f"paid_chain:{int(order_id)}",
             style="success",
         )],
-        [InlineKeyboardButton(
-            "🔄 Change Method",
+        [translated_button(
+            lang, "btn_back",
             callback_data=f"change_payment:{int(order_id)}",
-            style="primary",
+            style="danger",
         )],
-        [translated_button(lang, "topup_home_button", callback_data="home", style="danger")],
     ])
 
 
@@ -1187,7 +1219,9 @@ def duplicate_order_keyboard(lang, existing_order_id, offer_id, qty=1):
     return InlineKeyboardMarkup([
         [translated_button(lang, "btn_continue_payment", callback_data=f"continue_pay:{existing_order_id}")],
         [translated_button(lang, "btn_new_order", callback_data=f"confirm_buy:{offer_id}:{qty}")],
-        [translated_button(lang, "btn_cancel", callback_data=f"cancel_buy:{offer_id}")],
+        [translated_button(
+            lang, "btn_back", callback_data=f"off:{int(offer_id)}", style="danger",
+        )],
     ])
 
 
