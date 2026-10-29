@@ -111,11 +111,16 @@ def test_purchase_buttons_do_not_wait_for_supplier(monkeypatch, route):
         assert not entered.is_set(), f"{route} called the supplier stock API"
         query.answer.assert_awaited()
         if route == "stepper":
-            query.edit_message_text.assert_not_awaited()
-            markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"]
+            query.edit_message_reply_markup.assert_not_awaited()
+            query.edit_message_text.assert_awaited()
+            rendered = query.edit_message_text.await_args.args[0]
+            assert "Premium" in rendered
+            assert "12.00" in rendered
+            markup = query.edit_message_text.await_args.kwargs["reply_markup"]
             stepper = markup.inline_keyboard
             assert stepper[0][1].text == "3"
-            assert stepper[1][0].callback_data == f"buyq:{offer_id}:3"
+            assert stepper[1][0].callback_data == f"qty_custom:{offer_id}"
+            assert stepper[2][0].callback_data == f"buyq:{offer_id}:3"
         else:
             rendered = query.edit_message_text.await_args.args[0]
             assert "Premium" in rendered

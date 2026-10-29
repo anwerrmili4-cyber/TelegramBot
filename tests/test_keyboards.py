@@ -12,17 +12,42 @@ def test_quantity_keyboard_uses_compact_stepper_and_red_back_button():
     rows = keyboard.inline_keyboard
     assert [[button.text for button in row] for row in rows] == [
         ["−", "3", "+"],
+        ["Custom"],
         ["🛒 Buy now"],
         ["⬅️ Back"],
     ]
     assert [[button.callback_data for button in row] for row in rows] == [
         ["qty_adjust:9:2", "qty_current:9:3", "qty_adjust:9:4"],
+        ["qty_custom:9"],
         ["buyq:9:3"],
         ["off:9"],
     ]
     assert [button.style for button in rows[0]] == ["danger", None, "success"]
-    assert rows[1][0].style == "success"
-    assert rows[2][0].style == "danger"
+    assert rows[1][0].style == "primary"
+    assert rows[2][0].style == "success"
+    assert rows[3][0].style == "danger"
+    assert "quantity_custom_button" in kb.BUTTON_TEXT_KEYS
+    assert "quantity_custom_button" not in kb.SEMANTIC_BUTTON_STYLES
+    arabic = kb.quantity_keyboard("ar", {"id": 9, "stock": 7}, quantity=3)
+    assert arabic.inline_keyboard[1][0].text == "مخصص"
+
+
+def test_quantity_custom_button_uses_admin_text_override_icon(mock_mongodb):
+    db.set_text_override(
+        "quantity_custom_button", "en", "Type quantity", "premium-custom-qty",
+    )
+
+    button = kb.quantity_keyboard(
+        "en", {"id": 9, "stock": 7}, quantity=3,
+    ).inline_keyboard[1][0]
+
+    assert button.text == "Type quantity"
+    assert button.style == "primary"
+    assert button.callback_data == "qty_custom:9"
+    assert button.icon_custom_emoji_id == "premium-custom-qty"
+    assert admin.text_category_for_key("quantity_custom_button") == "catalog"
+    assert admin.text_category_for_key("quantity_manual_prompt") == "catalog"
+    assert admin.text_entry_label("quantity_custom_button").startswith("Custom quantity")
 
 
 def test_quantity_keyboard_clamps_stepper_to_available_stock():
@@ -32,7 +57,8 @@ def test_quantity_keyboard_clamps_stepper_to_available_stock():
     assert [button.callback_data for button in stepper] == [
         "qty_adjust:9:6", "qty_current:9:7", "qty_current:9:7",
     ]
-    assert keyboard.inline_keyboard[1][0].callback_data == "buyq:9:7"
+    assert keyboard.inline_keyboard[1][0].callback_data == "qty_custom:9"
+    assert keyboard.inline_keyboard[2][0].callback_data == "buyq:9:7"
 
     minimum = kb.quantity_keyboard("en", {"id": 9, "stock": 7}, quantity=1)
     assert minimum.inline_keyboard[0][0].callback_data == "qty_current:9:1"
@@ -515,10 +541,10 @@ def test_offer_buttons_use_native_telegram_styles(monkeypatch):
     ])
 
     keyboard = kb.offers_keyboard("en", 1)
+    products = keyboard.inline_keyboard[:3]
 
-    assert keyboard.inline_keyboard[0][0].style == "success"
-    assert keyboard.inline_keyboard[1][0].style == "success"
-    assert keyboard.inline_keyboard[2][0].style == "danger"
+    assert [row[0].callback_data for row in products] == ["off:3", "off:1", "off:2"]
+    assert [row[0].style for row in products] == ["danger", "success", "success"]
 
 
 def test_orders_services_keyboard_matches_grouped_design():

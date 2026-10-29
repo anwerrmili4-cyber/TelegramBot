@@ -1609,6 +1609,9 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("qty_current:"):
         return
+    if data.startswith("qty_custom:"):
+        await handle_custom_quantity(update, context, lang)
+        return
     if data.startswith("buyq:"):
         await handle_buy_confirmation(update, context, lang)
         return
@@ -1831,11 +1834,116 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------- Confirmation avant achat ----------------
+def _bounded_purchase_quantity(offer, quantity):
+    """Clamp a stepper value to the same range as the quantity keyboard."""
+    try:
+        selected = int(quantity)
+    except (TypeError, ValueError):
+        selected = 1
+    if offer.get("unlimited_stock"):
+        maximum = 100
+    else:
+        maximum = max(1, int(offer.get("stock") or 1))
+    return max(1, min(selected, maximum))
+
+
+def _quantity_product_emoji(offer):
+    """Return the product emoji and whether the prompt must be Telegram HTML.
+
+    The offer emoji is shown when it is set; otherwise the service emoji is
+    kept. A Premium custom emoji id on the offer, otherwise on the service,
+    uses the same ``tg-emoji`` tag as other customer messages.
+    """
+    service = {}
+    if offer.get("service_id") is not None:
+        service = db.get_service(offer.get("service_id")) or {}
+    unicode_emoji = str(offer.get("emoji") or "").strip() or str(
+        service.get("emoji") or offer.get("service_emoji") or ""
+    ).strip()
+    emoji_id = kb.valid_custom_emoji_id(
+        offer.get("custom_emoji_id"),
+        service.get("custom_emoji_id"),
+        offer.get("service_custom_emoji_id"),
+    )
+    if not emoji_id:
+        return unicode_emoji, False
+    fallback = unicode_emoji if _is_single_emoji(unicode_emoji) else "📦"
+    return (
+        f'<tg-emoji emoji-id="{html.escape(emoji_id)}">'
+        f"{html.escape(fallback)}</tg-emoji>",
+        True,
+    )
+
+
+def _quantity_screen_text(lang, offer, quantity):
+    """Build the quantity prompt, including the live total for this quantity."""
+    emoji, premium = _quantity_product_emoji(offer)
+    unit_price = order_service.unit_price_for_quantity(offer, quantity)
+    stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
+    offer_name = str(offer.get("name") or "")
+    values = {
+        "emoji": f"{emoji} " if emoji else "",
+        "offer": offer_name,
+        "stock": stock_display,
+        "price": f"{unit_price:.2f}",
+        "total": f"{round(unit_price * quantity, 2):.2f}",
+        "cur": CURRENCY,
+    }
+    bulk_line = ""
+    try:
+        bulk_quantity = int(offer.get("bulk_quantity") or 0)
+        bulk_price = float(offer.get("bulk_unit_price"))
+        if bulk_quantity > 0 and 0 <= bulk_price <= float(offer["price"]):
+            bulk_line = t(
+                lang, "bulk_price_line", quantity=bulk_quantity,
+                price=f"{bulk_price:.2f}", cur=CURRENCY,
+            )
+    except (TypeError, ValueError):
+        pass
+    if not premium:
+        text = t(lang, "choose_quantity", **values)
+        if bulk_line:
+            text = f"{text}\n{bulk_line}"
+        return text, ParseMode.MARKDOWN
+
+    # Keep the Premium tag intact, and escape the product name for HTML.
+    name_token = "QTYOFFERNAMEPLACEHOLDER7C2E"
+    emoji_token = "QTYEMOJIPLACEHOLDER4B9D"
+    protected = dict(values)
+    protected["offer"] = name_token
+    protected["emoji"] = f"{emoji_token} " if emoji else ""
+    text = t(lang, "choose_quantity", **protected)
+    if bulk_line:
+        text = f"{text}\n{bulk_line}"
+    rendered = render_stored_rich_text(text)
+    rendered = rendered.replace(emoji_token, emoji)
+    rendered = rendered.replace(name_token, html.escape(offer_name))
+    return rendered, ParseMode.HTML
+
+
+async def handle_custom_quantity(update, context, lang):
+    """Ask the customer to type a quantity, using saved stock only."""
+    del context
+    q = update.callback_query
+    offer_id = int(q.data.split(":", 1)[1])
+    offer = _saved_listed_offer(offer_id)
+    if not offer or offer.get("price") is None or not db.offer_has_stock(offer):
+        await q.message.reply_text(t(lang, "out_of_stock"))
+        return
+    PENDING[q.from_user.id] = ("await_quantity", offer_id)
+    stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
+    await q.message.reply_text(
+        t(lang, "quantity_manual_prompt", stock=stock_display),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 async def handle_quantity_selection(update, context, lang):
     """Ask how many units to buy, and redraw the stepper without a supplier call.
 
-    The selected quantity lives only on the buttons. ``create_order`` refreshes
-    supplier stock before a purchase is recorded, so these taps use saved stock.
+    The selected quantity lives on the buttons and in the message total.
+    ``create_order`` refreshes supplier stock before a purchase is recorded,
+    so these taps use saved stock only.
     """
     q = update.callback_query
     parts = q.data.split(":")
@@ -1853,43 +1961,27 @@ async def handle_quantity_selection(update, context, lang):
         return
 
     PENDING[q.from_user.id] = ("await_quantity", offer_id)
+    quantity = _bounded_purchase_quantity(offer, quantity)
     markup = kb.quantity_keyboard(lang, offer, quantity=quantity)
+    quantity_text, parse_mode = _quantity_screen_text(lang, offer, quantity)
     if adjusting:
         try:
-            await q.edit_message_reply_markup(reply_markup=markup)
+            await q.edit_message_text(
+                quantity_text,
+                parse_mode=parse_mode,
+                reply_markup=markup,
+            )
         except Exception as exc:
             if "message is not modified" in str(exc).lower():
                 return
-            log.warning("Quantity stepper markup update failed: %s", exc)
+            log.warning("Quantity stepper update failed: %s", exc)
         else:
             return
 
     send_quantity_prompt = q.message.reply_text if (q.message and q.message.photo) else q.edit_message_text
-    stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
-    bulk_line = ""
-    try:
-        bulk_quantity = int(offer.get("bulk_quantity") or 0)
-        bulk_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and 0 <= bulk_price <= float(offer["price"]):
-            bulk_line = t(
-                lang, "bulk_price_line", quantity=bulk_quantity,
-                price=f"{bulk_price:.2f}", cur=CURRENCY,
-            )
-    except (TypeError, ValueError):
-        pass
-    quantity_text = t(
-            lang,
-            "choose_quantity",
-            offer=offer["name"],
-            stock=stock_display,
-            price=f"{offer['price']:.2f}",
-            cur=CURRENCY,
-        )
-    if bulk_line:
-        quantity_text += f"\n{bulk_line}"
     await send_quantity_prompt(
         quantity_text,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=parse_mode,
         reply_markup=markup,
     )
 

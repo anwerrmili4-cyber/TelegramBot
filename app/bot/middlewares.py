@@ -159,6 +159,7 @@ def _interaction_button_name(query):
         "offer_description": "View product description",
         "buyq": "Buy selected quantity", "qty_adjust": "Adjust quantity",
         "qty_current": "Current quantity", "qty_page": "Change quantity page",
+        "qty_custom": "Enter quantity manually",
         "tour": "Onboarding",
     }
     name = names.get(action) or action.replace("_", " ").strip().title() or "Unknown button"

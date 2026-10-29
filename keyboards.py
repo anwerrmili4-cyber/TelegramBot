@@ -42,7 +42,7 @@ BUTTON_TEXT_KEYS = {
     "profile_shop", "profile_notifications", "profile_reseller_api", "profile_main_menu",
     "topup_verify_txid", "topup_verify_bybit", "topup_onchain", "topup_bsc", "topup_polygon", "topup_sol", "topup_sol_check",
     "topup_home_button",
-    "btn_main_menu_short", "btn_refresh_short", "btn_back_services", "btn_buy", "btn_description", "btn_back", "btn_paid",
+    "btn_main_menu_short", "btn_refresh_short", "btn_back_services", "btn_buy", "quantity_custom_button", "btn_description", "btn_back", "btn_paid",
     "btn_cancel_short", "btn_verify_txid", "btn_cancel_order", "btn_pay_wallet",
     "btn_pay_binance", "btn_pay_bybit", "btn_pay_bsc", "btn_pay_polygon", "btn_submit_chain_txid",
     "btn_cancel", "btn_continue_payment", "btn_new_order", "btn_reply_manual_order",
@@ -1066,6 +1066,11 @@ def quantity_keyboard(lang, offer, quantity=1):
                 style="success",
             ),
         ],
+        [translated_button(
+            lang, "quantity_custom_button",
+            callback_data=f"qty_custom:{offer_id}",
+            style="primary",
+        )],
         [translated_button(
             lang, "btn_buy", callback_data=f"buyq:{offer_id}:{quantity}",
             style="success",

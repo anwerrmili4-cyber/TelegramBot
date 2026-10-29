@@ -93,6 +93,7 @@ def text_entry_label(key):
     names = {
         "offer_card_template": "Product card",
         "offer_description_notice": "Product description warning",
+        "quantity_custom_button": "Custom quantity",
         "welcome": "Welcome page",
         "menu_catalog": "Shop",
         "menu_topup": "Deposit",

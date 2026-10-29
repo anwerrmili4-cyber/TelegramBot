@@ -502,10 +502,16 @@ TRANSLATIONS = {
     "btn_delivery_problem": {"fr": "⚠️ Signaler un problème", "en": "⚠️ Report a problem", "ar": "⚠️ الإبلاغ عن مشكلة"},
     "cat_other": {"fr": "📦 Autres services", "en": "📦 Other services", "ar": "📦 خدمات أخرى"},
     # ---------------- Confirmation d'achat ----------------
+    "quantity_custom_button": {"fr": "Custom", "en": "Custom", "ar": "مخصص"},
+    "quantity_manual_prompt": {
+        "fr": "✏️ Envoyez un nombre entier entre *1* et *{stock}*.",
+        "en": "✏️ Send a whole number between *1* and *{stock}*.",
+        "ar": "✏️ أرسل رقماً صحيحاً بين *1* و *{stock}*.",
+    },
     "choose_quantity": {
-        "fr": "✏️ *Entrez la quantité à acheter (1-{stock}) :*\n\nProduit : *{offer}*\nStock disponible : *{stock}*\nPrix unitaire : *{price} {cur}*",
-        "en": "✏️ *Enter quantity to buy (1-{stock}):*\n\nProduct: *{offer}*\nAvailable stock: *{stock}*\nUnit price: *{price} {cur}*",
-        "ar": "✏️ *أدخل الكمية المطلوبة (1-{stock}):*\n\nالمنتج: *{offer}*\nالمخزون المتاح: *{stock}*\nسعر الوحدة: *{price} {cur}*",
+        "fr": "✏️ *Entrez la quantité à acheter (1-{stock}) :*\n\nProduit : {emoji}*{offer}*\nStock disponible : *{stock}*\nPrix unitaire : *{price} {cur}*\nTotal : *{total} {cur}*",
+        "en": "✏️ *Enter quantity to buy (1-{stock}):*\n\nProduct: {emoji}*{offer}*\nAvailable stock: *{stock}*\nUnit price: *{price} {cur}*\nTotal: *{total} {cur}*",
+        "ar": "✏️ *أدخل الكمية المطلوبة (1-{stock}):*\n\nالمنتج: {emoji}*{offer}*\nالمخزون المتاح: *{stock}*\nسعر الوحدة: *{price} {cur}*\nالإجمالي: *{total} {cur}*",
     },
     "bulk_price_line": {
         "fr": "📦 Prix en gros dès *{quantity} unités* : *{price} {cur} / unité*",

@@ -75,12 +75,18 @@ def test_already_confirmed_topup_has_a_clear_customer_message():
 
 
 def test_removed_french_quantity_prompt_falls_back_to_english():
-    message = t("fr", "choose_quantity", offer="Chat GPT Plus", stock=9, price="1.23", cur="USDT")
+    message = t(
+        "fr", "choose_quantity",
+        offer="Chat GPT Plus", stock=9, price="1.23", cur="USDT",
+        emoji="🤖", total="11.07",
+    )
 
     assert "Enter quantity" in message
     assert "1-9" in message
     assert "Available stock: *9*" in message
     assert "1.23 USDT" in message
+    assert "🤖" in message
+    assert "Total: *11.07 USDT*" in message
 
 
 def test_admin_text_prompt_formats_text_key_without_argument_collision():

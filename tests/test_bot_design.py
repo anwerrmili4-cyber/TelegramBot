@@ -680,13 +680,164 @@ def test_quantity_adjustment_redraws_compact_stepper(monkeypatch, mock_mongodb):
 
     asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
 
-    query.edit_message_text.assert_not_awaited()
-    markup = query.edit_message_reply_markup.await_args.kwargs["reply_markup"].inline_keyboard
+    query.edit_message_reply_markup.assert_not_awaited()
+    query.edit_message_text.assert_awaited()
+    first = query.edit_message_text.await_args
+    assert first.kwargs["parse_mode"] == ParseMode.MARKDOWN
+    assert "🤖" in first.args[0]
+    assert "Gemini Pro" in first.args[0]
+    assert "20.00" in first.args[0]
+    markup = first.kwargs["reply_markup"].inline_keyboard
     assert [[button.callback_data for button in row] for row in markup] == [
         [f"qty_adjust:{offer_id}:3", f"qty_current:{offer_id}:4", f"qty_adjust:{offer_id}:5"],
+        [f"qty_custom:{offer_id}"],
         [f"buyq:{offer_id}:4"],
         [f"off:{offer_id}"],
     ]
+
+    query.edit_message_text.reset_mock()
+    query.data = f"qty_adjust:{offer_id}:2"
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    second = query.edit_message_text.await_args.args[0]
+    assert "10.00" in second
+    assert "20.00" not in second
+    assert "🤖" in second
+
+
+def test_quantity_stepper_uses_premium_emoji_and_bulk_total(monkeypatch, mock_mongodb):
+    service_id = db.add_service("AI", "🤖", custom_emoji_id="premium-service")
+    offer_id = db.add_offer(
+        service_id, "Pro & <Plus>", 10.0, 12,
+        custom_emoji_id="premium-offer",
+        bulk_quantity=4, bulk_unit_price=8.0,
+    )
+    db.update_offer(offer_id, emoji="💎")
+    query = SimpleNamespace(
+        data=f"qty_adjust:{offer_id}:4",
+        from_user=SimpleNamespace(id=101),
+        message=SimpleNamespace(text="Choose quantity", photo=None, reply_text=AsyncMock()),
+        edit_message_text=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    call = query.edit_message_text.await_args
+    rendered = call.args[0]
+    assert call.kwargs["parse_mode"] == ParseMode.HTML
+    assert '<tg-emoji emoji-id="premium-offer">💎</tg-emoji>' in rendered
+    assert "premium-service" not in rendered
+    assert "Pro &amp; &lt;Plus&gt;" in rendered
+    assert "<Plus>" not in rendered
+    assert "8.00" in rendered
+    assert "32.00" in rendered
+
+    query.edit_message_text.reset_mock()
+    query.data = f"qty_adjust:{offer_id}:2"
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    below_bulk = query.edit_message_text.await_args.args[0]
+    assert "20.00" in below_bulk
+    assert "32.00" not in below_bulk
+    assert "10.00" in below_bulk
+
+
+def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb):
+    service_id = db.add_service("AI", "🤖")
+    offer_id = db.add_offer(service_id, "Gemini Pro", 5.0, 7)
+    refresh = Mock(side_effect=AssertionError("supplier catalog was called"))
+    monkeypatch.setattr(
+        "app.bot.handlers.catalog.reseller_service.refresh_supplier_stock",
+        refresh,
+    )
+    message = SimpleNamespace(text="Choose quantity", photo=None, reply_text=AsyncMock())
+    query = SimpleNamespace(
+        data=f"qty_custom:{offer_id}",
+        from_user=SimpleNamespace(id=101),
+        message=message,
+        edit_message_text=AsyncMock(),
+        edit_message_reply_markup=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+
+    assert refresh.call_count == 0
+    assert PENDING.get(101) == ("await_quantity", offer_id)
+    prompt = message.reply_text.await_args
+    assert "whole number" in prompt.args[0]
+    assert "*1*" in prompt.args[0]
+    assert "*7*" in prompt.args[0]
+    assert prompt.kwargs["parse_mode"] == ParseMode.MARKDOWN
+    query.edit_message_text.assert_not_awaited()
+
+    typed = SimpleNamespace(text="4", reply_text=AsyncMock())
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(effective_user=SimpleNamespace(id=101), message=typed),
+        SimpleNamespace(),
+        "en",
+    ))
+
+    assert PENDING.get(101) is None
+    confirmation = typed.reply_text.await_args.args[0]
+    assert "Order summary" in confirmation
+    assert "Gemini Pro" in confirmation
+    assert "*4*" in confirmation
+    assert "20.00" in confirmation
+
+
+def test_custom_quantity_button_reports_missing_or_unsold_offer(monkeypatch, mock_mongodb):
+    service_id = db.add_service("AI", "🤖")
+    sold_out_id = db.add_offer(service_id, "Gone", 5.0, 0)
+    monkeypatch.setattr("bot.lang_of", lambda _user_id: "en")
+
+    def press(data):
+        message = SimpleNamespace(reply_text=AsyncMock())
+        query = SimpleNamespace(
+            data=data,
+            from_user=SimpleNamespace(id=101),
+            message=message,
+            edit_message_text=AsyncMock(),
+            answer=AsyncMock(),
+        )
+        asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
+        return message
+
+    sold_out = press(f"qty_custom:{sold_out_id}")
+    missing = press("qty_custom:999999")
+
+    assert "Out of stock" in sold_out.reply_text.await_args.args[0]
+    assert "Out of stock" in missing.reply_text.await_args.args[0]
+    assert PENDING.get(101) is None
+
+
+def test_admin_custom_quantity_button_stores_premium_icon(mock_mongodb, monkeypatch):
+    admin_id = 999
+    db.upsert_user(admin_id, "admin", "Admin")
+    PENDING[admin_id] = ("adm_text_override", "quantity_custom_button|en")
+    message = SimpleNamespace(
+        text="⭐ Custom",
+        caption=None,
+        entities=[SimpleNamespace(
+            type="custom_emoji", custom_emoji_id="premium-custom", offset=0, length=1,
+        )],
+        caption_entities=[],
+        reply_text=AsyncMock(),
+    )
+    monkeypatch.setattr("bot.ADMIN_ID", admin_id)
+
+    asyncio.run(on_text_menu(
+        SimpleNamespace(effective_user=SimpleNamespace(id=admin_id), message=message),
+        SimpleNamespace(),
+    ))
+
+    assert db.get_text_override("quantity_custom_button", "en") == "Custom"
+    assert db.get_text_override_icon("quantity_custom_button", "en") == "premium-custom"
+    assert PENDING.get(admin_id) is None
 
 
 def test_catalog_updates_skip_customers_who_disabled_alerts(mock_mongodb):
