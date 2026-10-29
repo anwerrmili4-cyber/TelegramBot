@@ -19,6 +19,28 @@ def duration_to_days(value: Any, unit: Any = "days") -> int:
     return amount * multiplier
 
 
+def display_duration(value: Any, unit: Any = "days", lang: str = "en") -> str:
+    """Show a customer duration in months, except short spans and long years.
+
+    Less than 30 days stays in days. Exact 30-day groups, and exactly one
+    year, are shown in months. More than one year keeps its original unit.
+    A length that is not a whole month is left unchanged.
+    """
+    amount = max(0, int(value or 0))
+    normalized = normalize_duration_unit(unit)
+    if normalized == "years":
+        if amount == 1:
+            return format_duration(12, "months", lang)
+        return format_duration(amount, "years", lang)
+    if normalized == "months":
+        return format_duration(amount, "months", lang)
+    if amount == 365:
+        return format_duration(12, "months", lang)
+    if amount < 30 or amount % 30 or amount // 30 > 12:
+        return format_duration(amount, "days", lang)
+    return format_duration(amount // 30, "months", lang)
+
+
 def format_duration(value: Any, unit: Any = "days", lang: str = "en") -> str:
     """Format a duration using its administrator-selected unit."""
     amount = max(0, int(value or 0))
@@ -57,16 +79,12 @@ def format_warranty(
         if configured_value is not None:
             if configured_value <= 0:
                 return "NW"
-            return format_duration(configured_value, unit, lang)
+            return display_duration(configured_value, unit, lang)
 
     if val is not None:
         if val <= 0:
             return "NW"
-        if lang == "fr":
-            return f"{val} j"
-        if lang == "ar":
-            return f"{val} يوم"
-        return f"{val} day{'s' if val != 1 else ''}"
+        return display_duration(val, "days", lang)
 
     note = str(legacy_note or "").strip()
     if not note or note.upper() in {"NW", "NO WARRANTY", "SANS GARANTIE", "0"}:
@@ -74,11 +92,7 @@ def format_warranty(
     match = re.search(r"(\d{1,3})\s*(?:d|day|days|j|jour|jours)", note, re.I)
     if match:
         d = int(match.group(1))
-        if lang == "fr":
-            return f"{d} j"
-        if lang == "ar":
-            return f"{d} يوم"
-        return f"{d} day{'s' if d != 1 else ''}"
+        return display_duration(d, "days", lang)
     return note
 
 
@@ -133,4 +147,4 @@ def offer_period_label(offer: dict[str, Any] | None, lang: str = "en") -> str:
             unit = offer.get("warranty_unit", "days")
     except (TypeError, ValueError):
         value, unit = 30, "days"
-    return format_duration(value or 30, unit, lang)
+    return display_duration(value or 30, unit, lang)

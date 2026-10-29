@@ -686,7 +686,7 @@ def test_quantity_adjustment_redraws_compact_stepper(monkeypatch, mock_mongodb):
     assert first.kwargs["parse_mode"] == ParseMode.MARKDOWN
     assert "🤖" in first.args[0]
     assert "Gemini Pro" in first.args[0]
-    assert "Period: *30 days*" in first.args[0]
+    assert "Period: *1 month*" in first.args[0]
     assert "Warranty: *NW*" in first.args[0]
     assert "20.00" in first.args[0]
     markup = first.kwargs["reply_markup"].inline_keyboard

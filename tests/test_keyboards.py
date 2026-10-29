@@ -223,7 +223,7 @@ def test_offer_button_label_uses_store_style():
         },
     )
 
-    assert label == "SuperGrok 12 Months | 365 days | $30"
+    assert label == "SuperGrok 12 Months | 12 months | $30"
 
 
 def test_offer_button_label_uses_sky_blue_for_low_stock():
@@ -236,7 +236,7 @@ def test_offer_button_label_uses_sky_blue_for_low_stock():
         },
     )
 
-    assert label == "Low Stock Product | 30 days | $5"
+    assert label == "Low Stock Product | 1 month | $5"
 
 
 def test_offer_button_keeps_non_dollar_currency_visible():
@@ -245,7 +245,7 @@ def test_offer_button_keeps_non_dollar_currency_visible():
         {"name": "European plan", "price": 4.5, "currency": "EUR", "stock": 3},
     )
 
-    assert label == "European plan | 30 days | 4.5 EUR"
+    assert label == "European plan | 1 month | 4.5 EUR"
 
 
 def test_offer_button_places_unicode_emoji_and_period_before_price():
@@ -260,7 +260,7 @@ def test_offer_button_places_unicode_emoji_and_period_before_price():
         },
     )
 
-    assert label == "⭐ Premium | 30 days | $5"
+    assert label == "⭐ Premium | 1 month | $5"
 
 
 def test_offer_button_always_keeps_price_visible_with_long_name():
@@ -351,7 +351,7 @@ def test_offer_button_uses_bulk_unit_price_when_configured():
         "bulk_quantity": 5, "bulk_unit_price": 3.25,
     })
 
-    assert label == "Bulk plan | 30 days | $3.25"
+    assert label == "Bulk plan | 1 month | $3.25"
     assert "Stock" not in label
 
 
@@ -585,7 +585,7 @@ def test_offer_button_uses_admin_selected_animated_emoji(monkeypatch):
 
     button = kb.offers_keyboard("en", 1).inline_keyboard[0][0]
 
-    assert button.text == "Premium | 30 days | $5"
+    assert button.text == "Premium | 1 month | $5"
     assert button.icon_custom_emoji_id == "admin-selected-id"
 
 
@@ -1401,7 +1401,7 @@ def test_premium_service_icon_replaces_unicode_emoji_in_catalog_button(monkeypat
 
     button = kb.catalog_offers_keyboard("en").inline_keyboard[0][0]
 
-    assert button.text == "Chat GPT Plus | 30 days | $5"
+    assert button.text == "Chat GPT Plus | 1 month | $5"
     assert button.callback_data == "off:11"
     assert button.icon_custom_emoji_id == "premium-chatgpt"
 
@@ -1417,7 +1417,7 @@ def test_premium_offer_icon_replaces_unicode_emoji_in_offer_button(monkeypatch):
 
     button = kb.offers_keyboard("en", 3).inline_keyboard[0][0]
 
-    assert button.text == "Chat GPT Plus | 30 days | $5"
+    assert button.text == "Chat GPT Plus | 1 month | $5"
     assert button.icon_custom_emoji_id == "premium-chatgpt"
 
 
@@ -1441,7 +1441,7 @@ def test_adobe_creative_cloud_button_falls_back_to_service_icon(monkeypatch):
 
     button = kb.offers_keyboard("en", 33).inline_keyboard[0][0]
 
-    assert button.text == "Creative Cloud Pro | 30 days | $6"
+    assert button.text == "Creative Cloud Pro | 1 month | $6"
     assert button.callback_data == "off:43"
     assert button.icon_custom_emoji_id == adobe_icon
 

@@ -5,8 +5,11 @@ from app.domain import warranty_service
 
 def test_offer_warranty_label():
     assert warranty_service.offer_warranty_label({"warranty_days": 0}) == "NW"
-    assert warranty_service.offer_warranty_label({"warranty_days": 30}) == "30 days"
-    assert warranty_service.offer_warranty_label({"warranty_days": 30}, lang="fr") == "30 j"
+    assert warranty_service.offer_warranty_label({"warranty_days": 14}) == "14 days"
+    assert warranty_service.offer_warranty_label({"warranty_days": 30}) == "1 month"
+    assert warranty_service.offer_warranty_label({"warranty_days": 30}, lang="fr") == "1 mois"
+    assert warranty_service.offer_warranty_label({"warranty_days": 60}) == "2 months"
+    assert warranty_service.offer_warranty_label({"warranty_days": 45}) == "45 days"
     assert warranty_service.offer_warranty_label({"note": "NW"}) == "NW"
     assert warranty_service.offer_warranty_label({}) == "NW"
     assert warranty_service.offer_warranty_label(None) == "NW"
@@ -15,16 +18,28 @@ def test_offer_warranty_label():
     }) == "6 months"
     assert warranty_service.offer_warranty_label({
         "warranty_days": 365, "warranty_value": 1, "warranty_unit": "years",
-    }) == "1 year"
+    }) == "12 months"
+    assert warranty_service.offer_warranty_label({
+        "warranty_days": 730, "warranty_value": 2, "warranty_unit": "years",
+    }) == "2 years"
 
 
-def test_period_label_preserves_selected_unit():
+def test_period_label_uses_months_except_short_days_and_long_years():
     assert warranty_service.offer_period_label({
         "period_days": 90, "period_value": 3, "period_unit": "months",
     }) == "3 months"
     assert warranty_service.offer_period_label({
+        "period_days": 30, "period_value": 30, "period_unit": "days",
+    }) == "1 month"
+    assert warranty_service.offer_period_label({
+        "period_days": 365, "period_value": 1, "period_unit": "years",
+    }) == "12 months"
+    assert warranty_service.offer_period_label({
         "period_days": 730, "period_value": 2, "period_unit": "years",
     }) == "2 years"
+    assert warranty_service.offer_period_label({
+        "period_days": 10, "period_value": 10, "period_unit": "days",
+    }) == "10 days"
     assert warranty_service.duration_to_days(6, "months") == 180
     assert warranty_service.duration_to_days(2, "years") == 730
 
@@ -77,7 +92,7 @@ def test_offer_and_order_store_period_and_warranty(mock_mongodb):
     assert offer["warranty_days"] == 30
     assert order["period_days"] == 45
     assert order["warranty_days"] == 30
-    assert order["warranty"] == "30 days"
+    assert order["warranty"] == "1 month"
 
 
 def test_offer_and_order_store_month_and_year_units(mock_mongodb):
@@ -92,7 +107,7 @@ def test_offer_and_order_store_month_and_year_units(mock_mongodb):
     order_id = db.create_order(42, offer, 1)
     order = db.get_order(order_id)
 
-    assert warranty_service.offer_period_label(offer) == "1 year"
+    assert warranty_service.offer_period_label(offer) == "12 months"
     assert warranty_service.offer_warranty_label(offer) == "3 months"
     assert order["period_value"] == 1
     assert order["period_unit"] == "years"

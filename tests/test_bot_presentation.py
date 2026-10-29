@@ -43,6 +43,39 @@ def test_bot_facade_reexports_methods_presentation_helpers():
     )
 
 
+def test_announcement_hides_empty_duration_and_nw_warranty():
+    from app.bot.methods_presentation import method_announcement_text
+
+    text = (
+        "<b>Muse AI 31 B token</b>\n"
+        "<blockquote>"
+        '<tg-emoji emoji-id="duration-icon">📅</tg-emoji> Duration :\n'
+        '<tg-emoji emoji-id="warranty-icon">🛡</tg-emoji> Warranty : <b>NW</b>\n'
+        "Price : 2.50 USDT\n"
+        "Stock : 45"
+        "</blockquote>"
+    )
+
+    rendered = method_announcement_text(text, {"name": "AI"})
+
+    assert "Duration" not in rendered
+    assert "Warranty" not in rendered
+    assert "Price : 2.50 USDT" in rendered
+    assert "Stock : 45" in rendered
+    assert rendered.startswith("<b>Muse AI 31 B token</b>\n<blockquote>")
+    assert rendered.rstrip().endswith("</blockquote>")
+
+
+def test_announcement_keeps_duration_and_warranty_when_present():
+    from app.bot.methods_presentation import method_announcement_text
+
+    text = "Duration : 12 months\nWarranty : FW\nPrice : 17.00 USDT"
+
+    rendered = method_announcement_text(text, {"name": "Framer"})
+
+    assert rendered == text
+
+
 def test_bot_facade_reexports_offer_card_helpers():
     import bot
     from app.bot import offer_cards

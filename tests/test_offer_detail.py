@@ -88,7 +88,7 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
 
     assert "<b>🤖 AI Tools — Perplexity Pro</b>" in preview
     assert "<b>PRIX:</b> <b>10.00</b> <b>USDT</b>" in preview
-    assert "<b>PÉRIODE:</b> <b>30 j</b>" in preview
+    assert "<b>PÉRIODE:</b> <b>1 mois</b>" in preview
     assert "<b>STOCK:</b> <b>12</b>" in preview
     assert "<b>VENDUS:</b> <b>7</b>" in preview
     assert "<b>GARANTIE:</b> <b>NW</b>" in preview
@@ -139,7 +139,7 @@ def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypat
     assert '<tg-emoji emoji-id="premium-product">💠</tg-emoji>' in preview
     assert "<b>📦 Pro &amp; Plus</b> · <b>14.00</b> <b>USDT</b>" in preview
     assert "Available: <b>7</b> · Purchased: <b>4</b>" in preview
-    assert "<b>PERIOD:</b> <b>30 days</b>" in preview
+    assert "<b>PERIOD:</b> <b>1 month</b>" in preview
     assert "Please read the description before buying" in preview
     assert "Ready &lt;b&gt;today&lt;/b&gt;" not in preview
 
@@ -283,7 +283,7 @@ def test_methods_description_stays_with_its_label_and_bmc_vip_drops_term_suffix(
     assert "Description:\n" not in vip
     assert "<blockquote>Amazon Prime 6 months</blockquote>" not in vip
     assert "PaysafeCard Playstore" in other
-    assert "| <b>30 days</b> | <b>NW</b>" in other
+    assert "| <b>1 month</b> | <b>NW</b>" in other
     assert "💬 Description: ⚠️ Please read the description before buying" in other
     assert "Card steps" not in other
     assert "<blockquote>Amazon Prime 6 months</blockquote>" in bot.offer_description_text(
