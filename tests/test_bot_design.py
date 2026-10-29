@@ -756,7 +756,9 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
         refresh,
     )
     message = SimpleNamespace(
-        text="Choose quantity", photo=None, reply_text=AsyncMock(),
+        text="Choose quantity",
+        photo=None,
+        reply_text=AsyncMock(return_value=SimpleNamespace(message_id=88, chat=SimpleNamespace(id=500))),
         chat=SimpleNamespace(id=500), message_id=77,
     )
     query = SimpleNamespace(
@@ -774,6 +776,7 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
     assert refresh.call_count == 0
     assert PENDING.get(101)[1]["offer_id"] == offer_id
     assert PENDING.get(101)[1]["message_id"] == 77
+    assert PENDING.get(101)[1]["prompt_message_id"] == 88
     prompt = message.reply_text.await_args
     assert "whole number" in prompt.args[0]
     assert "*1*" in prompt.args[0]
@@ -781,11 +784,12 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
     assert prompt.kwargs["parse_mode"] == ParseMode.MARKDOWN
     query.edit_message_text.assert_not_awaited()
 
-    typed = SimpleNamespace(text="4", reply_text=AsyncMock())
+    typed = SimpleNamespace(text="4", reply_text=AsyncMock(), message_id=99, chat=SimpleNamespace(id=500))
     editor = AsyncMock()
+    deleter = AsyncMock()
     asyncio.run(handle_pending_input(
         SimpleNamespace(effective_user=SimpleNamespace(id=101), message=typed),
-        SimpleNamespace(bot=SimpleNamespace(edit_message_text=editor)),
+        SimpleNamespace(bot=SimpleNamespace(edit_message_text=editor, delete_message=deleter)),
         "en",
     ))
 
@@ -802,6 +806,9 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
     assert keyboard[0][1].callback_data == f"qty_current:{offer_id}:4"
     assert keyboard[2][0].callback_data == f"buyq:{offer_id}:4"
     assert PENDING.get(101)[1]["offer_id"] == offer_id
+    assert PENDING.get(101)[1]["prompt_message_id"] is None
+    deleted = {(call.kwargs["chat_id"], call.kwargs["message_id"]) for call in deleter.await_args_list}
+    assert deleted == {(500, 88), (500, 99)}
 
 
 def test_custom_quantity_button_reports_missing_or_unsold_offer(monkeypatch, mock_mongodb):

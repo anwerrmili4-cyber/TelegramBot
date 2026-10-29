@@ -1931,17 +1931,36 @@ def _quantity_screen_text(lang, offer, quantity):
     return rendered, ParseMode.HTML
 
 
-def _remember_quantity_screen(user_id, offer_id, message):
+def _remember_quantity_screen(user_id, offer_id, message, prompt_message_id=None):
     """Keep the open quantity message so a typed number can update it."""
     chat = getattr(message, "chat", None)
     chat_id = getattr(chat, "id", None)
     if chat_id is None:
         chat_id = getattr(message, "chat_id", None)
+    previous = PENDING.get(user_id)
+    if prompt_message_id is None and isinstance(previous, tuple) and len(previous) > 1 and isinstance(previous[1], dict):
+        prompt_message_id = previous[1].get("prompt_message_id")
     PENDING[user_id] = ("await_quantity", {
         "offer_id": int(offer_id),
         "chat_id": chat_id,
         "message_id": getattr(message, "message_id", None),
+        "prompt_message_id": prompt_message_id,
     })
+
+
+async def _delete_custom_quantity_prompt(bot, chat_id, prompt_message_id, typed_message):
+    """Remove the temporary quantity prompt and the number the customer sent."""
+    message_ids = []
+    if prompt_message_id:
+        message_ids.append(prompt_message_id)
+    typed_id = getattr(typed_message, "message_id", None)
+    if typed_id and typed_id not in message_ids:
+        message_ids.append(typed_id)
+    for message_id in message_ids:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception as exc:
+            log.debug("Could not delete the custom quantity prompt: %s", exc)
 
 
 async def handle_custom_quantity(update, context, lang):
@@ -1955,9 +1974,13 @@ async def handle_custom_quantity(update, context, lang):
         return
     _remember_quantity_screen(q.from_user.id, offer_id, q.message)
     stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
-    await q.message.reply_text(
+    prompt = await q.message.reply_text(
         t(lang, "quantity_manual_prompt", stock=stock_display),
         parse_mode=ParseMode.MARKDOWN,
+    )
+    _remember_quantity_screen(
+        q.from_user.id, offer_id, q.message,
+        prompt_message_id=getattr(prompt, "message_id", None),
     )
 
 
@@ -2175,9 +2198,10 @@ async def handle_pending_input(update, context, lang):
             offer_id = int(ref.get("offer_id") or 0)
             chat_id = ref.get("chat_id")
             message_id = ref.get("message_id")
+            prompt_message_id = ref.get("prompt_message_id")
         else:
             offer_id = int(ref)
-            chat_id = message_id = None
+            chat_id = message_id = prompt_message_id = None
         offer = _saved_listed_offer(offer_id)
         try:
             qty = int(text)
@@ -2215,7 +2239,19 @@ async def handle_pending_input(update, context, lang):
                 parse_mode=parse_mode,
                 reply_markup=markup,
             )
-            _remember_quantity_screen(uid, offer_id, sent)
+            _remember_quantity_screen(uid, offer_id, sent, prompt_message_id=prompt_message_id)
+            sent_chat = getattr(getattr(sent, "chat", None), "id", None)
+            if sent_chat:
+                chat_id = sent_chat
+        if prompt_message_id:
+            await _delete_custom_quantity_prompt(
+                context.bot, chat_id, prompt_message_id, update.message,
+            )
+            current = PENDING.get(uid)
+            if isinstance(current, tuple) and len(current) > 1 and isinstance(current[1], dict):
+                saved = dict(current[1])
+                saved["prompt_message_id"] = None
+                PENDING[uid] = (current[0], saved)
         return
 
     if kind == "catalog_search":
