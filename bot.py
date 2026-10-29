@@ -4841,7 +4841,7 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Modifiez les annonces de nouveaux stocks et de ventes flash. "
             "La mise en forme et les emojis Premium Telegram sont conservés.\n\n"
             "Les produits sans période et sans garantie utilisent le modèle "
-            "*Sans période ni garantie*."
+            "*Sans période ni garantie*.",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=admin.alert_design_keyboard(),
         )
