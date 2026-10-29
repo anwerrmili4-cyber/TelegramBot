@@ -1881,9 +1881,13 @@ def _quantity_screen_text(lang, offer, quantity):
     unit_price = order_service.unit_price_for_quantity(offer, quantity)
     stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
     offer_name = str(offer.get("name") or "")
+    period = warranty_service.offer_period_label(offer, lang)
+    warranty = warranty_service.offer_warranty_label(offer, lang)
     values = {
         "emoji": f"{emoji} " if emoji else "",
         "offer": offer_name,
+        "period": period,
+        "warranty": warranty,
         "stock": stock_display,
         "price": f"{unit_price:.2f}",
         "total": f"{round(unit_price * quantity, 2):.2f}",
@@ -1909,15 +1913,21 @@ def _quantity_screen_text(lang, offer, quantity):
     # Keep the Premium tag intact, and escape the product name for HTML.
     name_token = "QTYOFFERNAMEPLACEHOLDER7C2E"
     emoji_token = "QTYEMOJIPLACEHOLDER4B9D"
+    period_token = "QTYPERIODPLACEHOLDER1A2B"
+    warranty_token = "QTYWARRANTYPLACEHOLDER3C4D"
     protected = dict(values)
     protected["offer"] = name_token
     protected["emoji"] = f"{emoji_token} " if emoji else ""
+    protected["period"] = period_token
+    protected["warranty"] = warranty_token
     text = t(lang, "choose_quantity", **protected)
     if bulk_line:
         text = f"{text}\n{bulk_line}"
     rendered = render_stored_rich_text(text)
     rendered = rendered.replace(emoji_token, emoji)
     rendered = rendered.replace(name_token, html.escape(offer_name))
+    rendered = rendered.replace(period_token, html.escape(period))
+    rendered = rendered.replace(warranty_token, html.escape(warranty))
     return rendered, ParseMode.HTML
 
 
@@ -4610,6 +4620,14 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "\n\n<b>Variables disponibles :</b>\n"
                 "<code>{first_name}</code> <code>{terms_url}</code>"
                 "\n<i>La mise en forme et les emojis Telegram Premium sont pris en charge.</i>"
+            )
+        if key == "choose_quantity":
+            template_help = (
+                "\n\n<b>Variables disponibles :</b>\n"
+                "<code>{emoji}</code> <code>{offer}</code> "
+                "<code>{period}</code> <code>{warranty}</code> "
+                "<code>{stock}</code> <code>{price}</code> "
+                "<code>{total}</code> <code>{cur}</code>"
             )
         prompt = (
             f"✏️ <b>Modifier {html.escape(key)}</b> "

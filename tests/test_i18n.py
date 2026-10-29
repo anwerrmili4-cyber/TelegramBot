@@ -78,7 +78,7 @@ def test_removed_french_quantity_prompt_falls_back_to_english():
     message = t(
         "fr", "choose_quantity",
         offer="Chat GPT Plus", stock=9, price="1.23", cur="USDT",
-        emoji="🤖", total="11.07",
+        emoji="🤖", total="11.07", period="1 year", warranty="30 days",
     )
 
     assert "Enter quantity" in message
@@ -86,6 +86,8 @@ def test_removed_french_quantity_prompt_falls_back_to_english():
     assert "Available stock: *9*" in message
     assert "1.23 USDT" in message
     assert "🤖" in message
+    assert "Period: *1 year*" in message
+    assert "Warranty: *30 days*" in message
     assert "Total: *11.07 USDT*" in message
 
 

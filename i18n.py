@@ -509,9 +509,9 @@ TRANSLATIONS = {
         "ar": "✏️ أرسل رقماً صحيحاً بين *1* و *{stock}*.",
     },
     "choose_quantity": {
-        "fr": "✏️ *Entrez la quantité à acheter (1-{stock}) :*\n\nProduit : {emoji}*{offer}*\nStock disponible : *{stock}*\nPrix unitaire : *{price} {cur}*\nTotal : *{total} {cur}*",
-        "en": "✏️ *Enter quantity to buy (1-{stock}):*\n\nProduct: {emoji}*{offer}*\nAvailable stock: *{stock}*\nUnit price: *{price} {cur}*\nTotal: *{total} {cur}*",
-        "ar": "✏️ *أدخل الكمية المطلوبة (1-{stock}):*\n\nالمنتج: {emoji}*{offer}*\nالمخزون المتاح: *{stock}*\nسعر الوحدة: *{price} {cur}*\nالإجمالي: *{total} {cur}*",
+        "fr": "✏️ *Entrez la quantité à acheter (1-{stock}) :*\n\nProduit : {emoji}*{offer}*\nPériode : *{period}*\nGarantie : *{warranty}*\nStock disponible : *{stock}*\nPrix unitaire : *{price} {cur}*\nTotal : *{total} {cur}*",
+        "en": "✏️ *Enter quantity to buy (1-{stock}):*\n\nProduct: {emoji}*{offer}*\nPeriod: *{period}*\nWarranty: *{warranty}*\nAvailable stock: *{stock}*\nUnit price: *{price} {cur}*\nTotal: *{total} {cur}*",
+        "ar": "✏️ *أدخل الكمية المطلوبة (1-{stock}):*\n\nالمنتج: {emoji}*{offer}*\nالمدة: *{period}*\nالضمان: *{warranty}*\nالمخزون المتاح: *{stock}*\nسعر الوحدة: *{price} {cur}*\nالإجمالي: *{total} {cur}*",
     },
     "bulk_price_line": {
         "fr": "📦 Prix en gros dès *{quantity} unités* : *{price} {cur} / unité*",
