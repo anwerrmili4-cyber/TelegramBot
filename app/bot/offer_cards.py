@@ -12,7 +12,7 @@ from app.bot.methods_presentation import (
     strip_bmc_vip_term_suffix,
     without_method_detail_rows,
 )
-from app.bot.presentation import render_stored_rich_text
+from app.bot.presentation import _is_single_emoji, render_stored_rich_text
 from app.domain import warranty_service
 from config import CURRENCY
 from i18n import TRANSLATIONS
@@ -122,6 +122,40 @@ def offer_description_text(offer: dict, lang: str) -> str:
     )
 
 
+def _product_title_emoji(offer: dict, service: dict | None) -> str:
+    """Return the product emoji as Telegram HTML for the card title.
+
+    A Premium emoji is stored as a custom emoji id with an empty Unicode
+    fallback, so the title must render that icon instead of the plain box.
+    """
+    product_unicode = str(offer.get("emoji") or "").strip()
+    product_custom = str(offer.get("custom_emoji_id") or "").strip()
+    service_unicode = str(
+        offer.get("service_emoji") or (service or {}).get("emoji") or ""
+    ).strip()
+    service_custom = str(
+        offer.get("service_custom_emoji_id")
+        or (service or {}).get("custom_emoji_id")
+        or ""
+    ).strip()
+    if product_custom and product_custom.isascii():
+        emoji_id = product_custom
+        fallback = product_unicode or service_unicode or "📦"
+    elif product_unicode:
+        return html.escape(product_unicode)
+    elif service_custom and service_custom.isascii():
+        emoji_id = service_custom
+        fallback = service_unicode or "📦"
+    else:
+        return html.escape(service_unicode or "📦")
+    if not _is_single_emoji(fallback):
+        fallback = "📦"
+    return (
+        f'<tg-emoji emoji-id="{html.escape(emoji_id, quote=True)}">'
+        f"{html.escape(fallback)}</tg-emoji>"
+    )
+
+
 def offer_description_notice_text(lang: str) -> str:
     """Render the admin-editable warning shown on the compact product card."""
     notice = (
@@ -145,12 +179,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         or (service or {}).get("name")
         or ""
     ).strip()
-    catalog_emoji = str(
-        offer.get("service_emoji")
-        or (service or {}).get("emoji")
-        or offer.get("emoji")
-        or "📦"
-    ).strip()
+    catalog_emoji = _product_title_emoji(offer, service)
     product_name = str(
         offer.get("name_ar")
         if lang == "ar" and offer.get("name_ar")
@@ -161,9 +190,9 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         catalog_name.casefold(),
     ):
         display_name = f"{catalog_name} — {product_name}"
-    display_name = " ".join(
-        part for part in (catalog_emoji, display_name) if part
-    )
+    title = html.escape(display_name)
+    if catalog_emoji:
+        title = f"{catalog_emoji} {title}".strip()
     rendered_notice = offer_description_notice_text(lang)
     warranty = warranty_service.offer_warranty_label(offer, lang=lang)
     period = warranty_service.offer_period_label(offer, lang=lang)
@@ -197,9 +226,9 @@ def compact_offer_text(offer: dict, lang: str) -> str:
             or TRANSLATIONS["offer_card_template"]["en"]
         )
     replacements = {
-        "name": f"<b>{html.escape(display_name)}</b>",
+        "name": f"<b>{title}</b>",
         "catalog_name": html.escape(catalog_name),
-        "catalog_emoji": html.escape(catalog_emoji),
+        "catalog_emoji": catalog_emoji,
         "product_name": html.escape(product_name),
         "price": f"<b>{html.escape(str(price))}</b>",
         "currency": f"<b>{html.escape(currency)}</b>",

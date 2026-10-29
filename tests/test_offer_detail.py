@@ -96,6 +96,27 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
     assert "Compte premium prêt à utiliser" not in preview
 
 
+def test_product_card_title_uses_the_product_emoji_instead_of_the_box(monkeypatch):
+    monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)
+
+    preview = compact_offer_text({
+        "id": 19,
+        "name": "Framer Pro",
+        "service_name": "Framer",
+        "service_emoji": "📦",
+        "emoji": "",
+        "custom_emoji_id": "543210987654321",
+        "price": 17,
+        "currency": "USDT",
+        "stock": 52,
+        "period_days": 365,
+        "warranty_days": 0,
+    }, "en")
+
+    assert '<tg-emoji emoji-id="543210987654321">📦</tg-emoji> Framer Pro</b>' in preview
+    assert "<b>📦 Framer Pro</b>" not in preview
+
+
 def test_product_card_template_is_globally_editable_with_premium_emoji(monkeypatch, mock_mongodb):
     monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 4)
     bot.db.set_text_override(
