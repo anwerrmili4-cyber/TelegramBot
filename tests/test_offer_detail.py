@@ -95,6 +95,10 @@ def test_compact_offer_text_contains_the_complete_admin_preview(monkeypatch):
     assert "Veuillez lire la description avant d’acheter" in preview
     assert "Compte premium prêt à utiliser" not in preview
 
+    admin_preview = compact_offer_text(offer, "fr", show_stored_description=True)
+    assert "Compte premium prêt à utiliser" in admin_preview
+    assert "Veuillez lire la description avant d’acheter" not in admin_preview
+
 
 def test_product_card_title_uses_the_product_emoji_instead_of_the_box(monkeypatch):
     monkeypatch.setattr(bot.db, "offer_sold_count", lambda _offer_id: 0)

@@ -166,8 +166,14 @@ def offer_description_notice_text(lang: str) -> str:
     return render_stored_rich_text(notice)
 
 
-def compact_offer_text(offer: dict, lang: str) -> str:
-    """Build the compact public offer card used with or without an image."""
+def compact_offer_text(
+    offer: dict, lang: str, *, show_stored_description: bool = False,
+) -> str:
+    """Build the compact public offer card used with or without an image.
+
+    Customers see the shared warning in place of the description. The admin
+    product screen passes ``show_stored_description`` so the saved text appears.
+    """
     service = None
     if not offer.get("service_name") and offer.get("service_id") is not None:
         service = db.get_service(offer.get("service_id"))
@@ -194,6 +200,10 @@ def compact_offer_text(offer: dict, lang: str) -> str:
     if catalog_emoji:
         title = f"{catalog_emoji} {title}".strip()
     rendered_notice = offer_description_notice_text(lang)
+    description_html = (
+        offer_description_text(offer, lang)
+        if show_stored_description else rendered_notice
+    )
     warranty = warranty_service.offer_warranty_label(offer, lang=lang)
     period = warranty_service.offer_period_label(offer, lang=lang)
     try:
@@ -236,7 +246,7 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         "sold": f"<b>{html.escape(str(sold))}</b>",
         "period": f"<b>{html.escape(str(period))}</b>",
         "warranty": f"<b>{html.escape(str(warranty)[:120])}</b>",
-        "description": rendered_notice,
+        "description": description_html,
         "bulk_price": f"<b>{bulk_price:.2f}</b>",
         "bulk_quantity": f"<b>{bulk_quantity}</b>",
     }
@@ -327,11 +337,14 @@ def compact_offer_text(offer: dict, lang: str) -> str:
         re.sub(r"<[^>]+>", "", rendered_notice),
     ).strip()
     if (
-        visible_notice
+        not show_stored_description
+        and visible_notice
         and visible_notice != "—"
         and visible_notice not in visible_card
     ):
         rendered = f"{rendered.rstrip()}\n{rendered_notice}"
+    if show_stored_description and len(rendered) > 3500:
+        rendered = rendered[:3500].rsplit("<", 1)[0] + "…"
     if is_methods_catalog:
         rendered = join_methods_description_title(rendered)
         if is_bmc_vip_product(offer):

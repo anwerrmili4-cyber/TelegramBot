@@ -481,7 +481,7 @@ async def reply_admin_offer_validation(message, offer_id, title):
     preview = ""
     if offer:
         try:
-            preview = compact_offer_text(offer, "en")
+            preview = compact_offer_text(offer, "en", show_stored_description=True)
         except Exception:
             log.warning("Admin offer preview failed for %s", offer_id, exc_info=True)
     heading = f"✅ <b>{html.escape(str(title).removeprefix('✅').strip())}</b>"
@@ -5098,10 +5098,9 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await q.answer("Offre introuvable.", show_alert=True)
             return
 
-        # Keep the admin preview identical to the public product card.  Reusing
-        # the customer formatter also makes future display changes visible here
-        # automatically instead of letting the two screens drift apart.
-        preview_text = compact_offer_text(off, lang_of(uid))
+        preview_text = compact_offer_text(
+            off, lang_of(uid), show_stored_description=True,
+        )
         await q.edit_message_text(
             preview_text,
             parse_mode=ParseMode.HTML,
