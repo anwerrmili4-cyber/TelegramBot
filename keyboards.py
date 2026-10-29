@@ -1,6 +1,7 @@
 """Constructeurs de claviers inline et reply."""
 import html
 import re
+import unicodedata
 
 from telegram import CopyTextButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram import InlineKeyboardButton as _InlineKeyboardButton
@@ -147,6 +148,14 @@ def clean_button_name(value):
         r"[\s\W\U00010000-\U0010ffff\u2600-\u27bf\u2300-\u23ff\u2b00-\u2bff\u2000-\u206f]+$"
     )
     return pattern.sub("", text).strip()
+
+
+def product_name_sort_key(name):
+    """Sort products A–Z without letting a leading emoji decide the position."""
+    cleaned = clean_button_name(name) or str(name or "")
+    folded = unicodedata.normalize("NFKD", cleaned)
+    letters = "".join(character for character in folded if not unicodedata.combining(character))
+    return letters.casefold()
 
 
 def valid_custom_emoji_id(*values):
@@ -616,12 +625,10 @@ def _catalog_offers_keyboard(lang, _catalog_notifications_enabled=True):
                     offer.get("custom_emoji_id"),
                     offer.get("service_custom_emoji_id"),
                 ),
-            )], not is_out))
+            )], product_name_sort_key(safe_offer["name"])))
 
-    # Sold-out entries sink below available ones; the sort is stable, so the
-    # admin-defined order is kept inside each group.
-    grouped_category_buttons.sort(key=lambda item: not item[1])
-    regular_offer_buttons.sort(key=lambda item: not item[1])
+    grouped_category_buttons.sort(key=lambda item: product_name_sort_key(item[0].text))
+    regular_offer_buttons.sort(key=lambda item: item[1])
 
     # 1. Place grouped category buttons (Adobe, ChatGPT, Telegram, VPNs, Netflix) AT THE TOP in rows of 2
     row = []
@@ -634,7 +641,7 @@ def _catalog_offers_keyboard(lang, _catalog_notifications_enabled=True):
         buttons.append(row)
 
     # 2. Add individual offer buttons below
-    buttons.extend(row_buttons for row_buttons, _in_stock in regular_offer_buttons)
+    buttons.extend(row_buttons for row_buttons, _name in regular_offer_buttons)
 
     buttons.append([
         translated_button(
@@ -667,7 +674,7 @@ def catalog_search_results_keyboard(lang, offers):
     price_tbd = t(lang, "price_tbd")
     stock_icon = db.get_text_override_icon("stock_label", lang) or None
 
-    for offer in offers:
+    for offer in sorted(offers, key=lambda item: product_name_sort_key(item.get("name"))):
         display_offer = dict(offer)
         service_name = clean_button_name(offer.get("service_name"))
         offer_name = clean_button_name(offer.get("name")) or f"Offer #{offer['id']}"
@@ -742,7 +749,7 @@ def offers_keyboard(lang, service_id):
                 callback_data=f"off:{vip['id']}",
                 style="primary",
             )])
-    for off in sorted(db.list_offers(service_id), key=lambda item: not offer_in_stock(item)):
+    for off in sorted(db.list_offers(service_id), key=lambda item: (product_name_sort_key(item.get("name")), int(item.get("id") or 0))):
         if db.is_bmc_vip_offer(off):
             continue
         safe_offer = dict(off)

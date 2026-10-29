@@ -1295,6 +1295,40 @@ def test_admin_text_browser_exposes_every_translation_key():
     assert "adm_text_key:order_created" in callbacks
 
 
+def test_catalog_products_are_alphabetical_and_ignore_emoji(monkeypatch):
+    monkeypatch.setattr(kb.db, "list_catalog_offers", lambda: [
+        {"id": 1, "service_id": 1, "name": "🎨 Canva Pro", "price": 1, "stock": 5, "unlimited_stock": True},
+        {"id": 2, "service_id": 2, "name": "Lovable Lite", "price": 5, "stock": 5, "unlimited_stock": True},
+        {"id": 3, "service_id": 3, "name": "🎵 Apple Music", "price": 2, "stock": 5, "unlimited_stock": True},
+        {"id": 4, "service_id": 4, "name": "Udemy Personal", "price": 3, "stock": 5, "unlimited_stock": True},
+    ])
+
+    labels = [
+        row[0].text.split(" | ", 1)[0]
+        for row in kb.catalog_offers_keyboard("en").inline_keyboard
+        if row and str(getattr(row[0], "callback_data", "") or "").startswith("off:")
+    ]
+
+    assert labels == ["Apple Music", "Canva Pro", "Lovable Lite", "Udemy Personal"]
+
+
+def test_service_products_are_alphabetical_and_ignore_emoji(monkeypatch):
+    monkeypatch.setattr(kb.db, "get_service", lambda _service_id: {"id": 7, "name": "Tools", "emoji": ""})
+    monkeypatch.setattr(kb.db, "list_offers", lambda _service_id: [
+        {"id": 1, "name": "🎨 Canva Pro", "price": 1, "stock": 5, "unlimited_stock": True},
+        {"id": 2, "name": "Lovable Lite", "price": 5, "stock": 5, "unlimited_stock": True},
+        {"id": 3, "name": "🎵 Apple Music", "price": 2, "stock": 5, "unlimited_stock": True},
+    ])
+
+    labels = [
+        row[0].text.split(" | ", 1)[0]
+        for row in kb.offers_keyboard("en", 7).inline_keyboard
+        if row and str(getattr(row[0], "callback_data", "") or "").startswith("off:")
+    ]
+
+    assert labels == ["Apple Music", "Canva Pro", "Lovable Lite"]
+
+
 def test_flat_catalog_keyboard_contains_only_offer_callbacks(monkeypatch):
     monkeypatch.setattr(kb.db, "list_catalog_offers", lambda: [
         {"id": 11, "name": "ChatGPT Plus", "price": 5.0, "stock": 8},
