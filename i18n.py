@@ -60,14 +60,14 @@ TRANSLATIONS = {
     "channel_member_welcome": {
         "fr": "🚀 *WELCOME TO {shop}*\n\nYou are officially inside our premium digital marketplace — verified products, competitive prices and fast delivery are now one tap away.\n\n🎁 *TURN YOUR NETWORK INTO CREDIT*\nShare your personal referral link and earn *2 USDT for every 10 qualified referrals*. A referral qualifies only after they buy from the bot for at least *1 USDT*. Your reward is added automatically to your wallet and can be used to buy any catalog product.\n\n🔗 *Your referral link*\n`{link}`\n\n🏆 *UNLOCK BIGGER DISCOUNTS AS YOU SHOP*\n🥉 *Bronze* — spend 25 USDT → *3% OFF*\n🥈 *Silver* — spend 70 USDT → *6% OFF*\n💎 *Platinum* — spend 200 USDT → *9% OFF*\n👑 *Diamond* — spend 500 USDT → *12% OFF*\n\nEach unlocked discount applies to every product for *3 days*.\n\n🔥 Start exploring today — every purchase brings you closer to a bigger reward.",
         "en": "🚀 *WELCOME TO {shop}*\n\nYou are officially inside our premium digital marketplace — verified products, competitive prices and fast delivery are now one tap away.\n\n🎁 *TURN YOUR NETWORK INTO CREDIT*\nShare your personal referral link and earn *2 USDT for every 10 qualified referrals*. A referral qualifies only after they buy from the bot for at least *1 USDT*. Your reward is added automatically to your wallet and can be used to buy any catalog product.\n\n🔗 *Your referral link*\n`{link}`\n\n🏆 *UNLOCK BIGGER DISCOUNTS AS YOU SHOP*\n🥉 *Bronze* — spend 25 USDT → *3% OFF*\n🥈 *Silver* — spend 70 USDT → *6% OFF*\n💎 *Platinum* — spend 200 USDT → *9% OFF*\n👑 *Diamond* — spend 500 USDT → *12% OFF*\n\nEach unlocked discount applies to every product for *3 days*.\n\n🔥 Start exploring today — every purchase brings you closer to a bigger reward.",
-        "ar": "🚀 *مرحبًا بك في {shop}*\n\nأنت الآن داخل سوقنا الرقمي المميز — منتجات موثوقة وأسعار تنافسية وتسليم سريع بلمسة واحدة.\n\n🎁 *حوّل شبكتك إلى رصيد*\nشارك رابط الإحالة الخاص بك واربح *2 USDT مقابل كل 10 إحالات مؤهلة*. تصبح الإحالة مؤهلة بعد شراء المدعو من البوت بما لا يقل عن *1 USDT*. تُضاف مكافأتك تلقائيًا إلى محفظتك ويمكنك استخدامها لشراء أي منتج من الكتالوج.\n\n🔗 *رابط الإحالة الخاص بك*\n`{link}`\n\n🏆 *احصل على خصومات أكبر أثناء التسوق*\n🥉 *برونزي* — أنفق 25 USDT ← *خصم 3٪*\n🥈 *فضي* — أنفق 70 USDT ← *خصم 6٪*\n💎 *بلاتيني* — أنفق 200 USDT ← *خصم 9٪*\n👑 *ماسي* — أنفق 500 USDT ← *خصم 12٪*\n\nيُطبّق كل خصم مُفعّل على جميع المنتجات لمدة *3 أيام*.\n\n🔥 ابدأ الاستكشاف الآن — كل عملية شراء تقرّبك من مكافأة أكبر.",
+        "ar": "🚀 *مرحبًا بك في {shop}*\n\nأنت الآن داخل سوقنا الرقمي المميز — منتجات موثوقة وأسعار تنافسية وتسليم سريع بلمسة واحدة.\n\n🎁 *حوّل شبكتك إلى رصيد*\nشارك رابط الإحالة الخاص بك واربح *2 USDT مقابل كل 10 إحالات مؤهلة*. تصبح الإحالة مؤهلة بعد شراء المدعو من البوت بما لا يقل عن *1 USDT*. تُضاف مكافأتك تلقائيًا إلى محفظتك ويمكنك استخدامها لشراء أي منتج من الكتالوج.\n\n🔗 *رابط الإحالة الخاص بك*\n`{link}`\n\n🏆 *احصل على خصومات أكبر أثناء التسوق*\n🥉 *برونزي* — أنفق 25 USDT → *خصم 3٪*\n🥈 *فضي* — أنفق 70 USDT → *خصم 6٪*\n💎 *بلاتيني* — أنفق 200 USDT → *خصم 9٪*\n👑 *ماسي* — أنفق 500 USDT → *خصم 12٪*\n\nيُطبّق كل خصم مُفعّل على جميع المنتجات لمدة *3 أيام*.\n\n🔥 ابدأ الاستكشاف الآن — كل عملية شراء تقرّبك من مكافأة أكبر.",
     },    # ---------------- Menu principal ----------------
     "menu_catalog": {"fr": "🛍️ Boutique", "en": "🛍️ Shop", "ar": "🛍️ المتجر"},
     "menu_lovable": {"fr": "💗 Lovable Unlimited Credit", "en": "💗 Lovable Unlimited Credit", "ar": "💗 رصيد Lovable غير محدود"},
     "lovable_title": {
         "fr": "💗 <b>LOVABLE UNLIMITED CREDIT</b>\n\nUtilisez Lovable avec des crédits illimités grâce à notre extension de navigateur dédiée. Une licence active est requise.\n\n🛡️ <b>Garantie complète</b> pendant toute la période de fonctionnement de l’extension.",
         "en": "💗 <b>LOVABLE UNLIMITED CREDIT</b>\n\nUse Lovable with unlimited credits through our dedicated browser extension. An active license is required.\n\n🛡️ <b>Full warranty</b> while the extension is operational.",
-        "ar": "💗 <b>LOVABLE UNLIMITED CREDIT</b>\n\nاستخدم Lovable برصيد غير محدود عبر إضافة المتصفح الخاصة بنا. يلزم ترخيص نشط.\n\n🛡️ <b>ضمان كامل</b> طوال فترة عمل الإضافة.",
+        "ar": "💗 <b>رصيد Lovable غير المحدود</b>\n\nاستخدم Lovable برصيد غير محدود عبر إضافة المتصفح الخاصة بنا. يلزم ترخيص نشط.\n\n🛡️ <b>ضمان كامل</b> طوال فترة عمل الإضافة.",
     },
     "lovable_how_to": {
         "fr": "📘 <b>COMMENT UTILISER L’EXTENSION</b>\n\n1. Téléchargez l’extension au format ZIP.\n2. Extrayez le fichier ZIP.\n3. Ouvrez la page <b>Extensions</b> de votre navigateur.\n4. Activez le <b>Mode développeur</b>.\n5. Cliquez sur <b>Charger l’extension non empaquetée</b>.\n6. Sélectionnez le dossier extrait.\n7. Épinglez puis ouvrez l’extension.\n8. Ouvrez Lovable, cliquez sur l’extension et saisissez votre licence.",
@@ -313,7 +313,7 @@ TRANSLATIONS = {
     "affiliate_title": {
         "fr": "🎊 *PROGRAMME D'AFFILIATION*\n\n💰 Gains : *{earned} USDT*\n💳 Portefeuille : *{balance} USDT*\n👥 Filleuls valides : *{referrals}*\n🎯 Progression : *{progress}/10*\n\n🛒 Chaque filleul doit acheter pour au moins *1 USDT* via le bot.\n💵 Invitez *10 filleuls qualifiés* et gagnez *2 USDT*.\n\n🔗 *Votre lien*\n`{link}`\n\n⚠️ Auto-parrainage et faux comptes refusés.",
         "en": "🎊 *AFFILIATE & REWARDS PROGRAM*\n\n📊 *Your affiliate progress*\n💰 Total earned: *{earned} USDT*\n💳 Wallet balance: *{balance} USDT*\n👥 Qualified referrals: *{referrals}*\n🎯 Next reward: *{progress}/10 referrals*\n\n🎁 *How affiliate rewards work*\nShare your personal link. A new, unique user qualifies only after they buy from the bot for at least *1 USDT*. Invite *10 qualified referrals* and *2 USDT* is automatically added to your wallet. You can use this balance to pay for products in the catalog.\n\n🏆 *Purchase discount levels*\n🥉 Bronze — spend *25 USDT*: *3% off*\n🥈 Silver — spend *70 USDT*: *6% off*\n💎 Platinum — spend *200 USDT*: *9% off*\n👑 Diamond — spend *500 USDT*: *12% off*\n\nDiscount levels are based on your cumulative confirmed purchases. Once activated, your discount applies to every product for *3 days*.\n\n🔗 *Your referral link*\n`{link}`\n\n⚠️ Self-referrals, duplicate users and fake accounts are not accepted.",
-        "ar": "🎊 *برنامج الإحالة*\n\n💰 الأرباح: *{earned} USDT*\n💳 المحفظة: *{balance} USDT*\n👥 الإحالات الصالحة: *{referrals}*\n🎯 التقدم: *{progress}/10*\n\n🛒 تُحتسب الإحالة بعد شراء ما لا يقل عن *1 USDT* من البوت.\n💵 ادعُ *10 إحالات مؤهلة* واربح *2 USDT*.\n\n🔗 `{link}`\n\n⚠️ الإحالة الذاتية والحسابات الوهمية مرفوضة.",
+        "ar": "🎊 *برنامج الإحالة والمكافآت*\n\n📊 *تقدم الإحالة*\n💰 إجمالي الأرباح: *{earned} USDT*\n💳 رصيد المحفظة: *{balance} USDT*\n👥 الإحالات المؤهلة: *{referrals}*\n🎯 المكافأة التالية: *{progress}/10 إحالات*\n\n🎁 *كيف تعمل مكافآت الإحالة*\nشارك رابطك الخاص. تُحتسب الإحالة لمستخدم جديد وفريد فقط بعد الشراء من البوت بما لا يقل عن *1 USDT*. ادعُ *10 إحالات مؤهلة* وتُضاف *2 USDT* تلقائياً إلى محفظتك. يمكنك استخدام هذا الرصيد لدفع ثمن المنتجات في الكتالوج.\n\n🏆 *مستويات خصم الشراء*\n🥉 برونزي — أنفق *25 USDT*: *خصم 3٪*\n🥈 فضي — أنفق *70 USDT*: *خصم 6٪*\n💎 بلاتيني — أنفق *200 USDT*: *خصم 9٪*\n👑 ماسي — أنفق *500 USDT*: *خصم 12٪*\n\nتعتمد مستويات الخصم على مشترياتك المؤكدة المتراكمة. بعد التفعيل، يُطبّق خصمك على كل منتج لمدة *3 أيام*.\n\n🔗 *رابط الإحالة الخاص بك*\n`{link}`\n\n⚠️ الإحالات الذاتية والمستخدمون المكررون والحسابات الوهمية غير مقبولة.",
     },
     "affiliate_copy": {"fr": "🔗 Copier le lien", "en": "🔗 Copy Link", "ar": "🔗 نسخ الرابط"},
     "affiliate_copy_message": {
@@ -347,7 +347,7 @@ TRANSLATIONS = {
     "channel_affiliate_reward": {
         "fr": "🎉 *AFFILIATE REWARD UNLOCKED!*\n\n🏆 A community member reached *{count} valid referrals*\n💰 *{reward} USDT* was added instantly to their wallet\n\n🔥 Share your referral link, grow the community and unlock your own rewards!",
         "en": "🎉 *AFFILIATE REWARD UNLOCKED!*\n\n🏆 A community member reached *{count} valid referrals*\n💰 *{reward} USDT* was added instantly to their wallet\n\n🔥 Share your referral link, grow the community and unlock your own rewards!",
-        "ar": "🎉 *AFFILIATE REWARD UNLOCKED!*\n\n🏆 A community member reached *{count} valid referrals*\n💰 *{reward} USDT* was added instantly to their wallet\n\n🔥 Share your referral link, grow the community and unlock your own rewards!",
+        "ar": "🎉 *تم فتح مكافأة الإحالة!*\n\n🏆 وصل أحد أعضاء المجتمع إلى *{count} إحالات صالحة*\n💰 تمت إضافة *{reward} USDT* فوراً إلى محفظته\n\n🔥 شارك رابط الإحالة، وكبّر المجتمع وافتح مكافآتك!",
     },
     "channel_stock_announcement": {
         "fr": "💫 *NOUVEAU DROP DISPONIBLE*\n\n🏷 Produit : {emoji} *{service} — {offer}*\n📅 Période : *{period}*\n🛡 Garantie : *{warranty}*\n\n💎 Prix : *{price} {cur}*\n📦 Stock : *{stock}*\n🆕 Ajout : *+{added}*\n\n⚡ Quantités limitées — commandez maintenant !",
@@ -590,12 +590,12 @@ TRANSLATIONS = {
     "order_created": {
         "fr": "🔥💳 *Binance Pay*\n--------------------\n\n🛍️ Produit : *{offer}*\n💫 Quantité : *{qty}*\n\n🚨 *ENVOYEZ EXACTEMENT : {total} {cur}*\n🧭 Binance ID : `{binance_id}`\n\nAprès le paiement, appuyez sur *Vérifier avec TXID* et envoyez l'identifiant de transaction ou l'Order ID affiché sur votre reçu Binance.\n\n🎯 Commande : *#{oid}*",
         "en": "🔥💳 *Binance Pay*\n--------------------\n\n🛍️ Product: *{offer}*\n💫 Quantity: *{qty}*\n\n🚨 *SEND EXACTLY: {total} {cur}*\n🧭 Binance ID: `{binance_id}`\n\nAfter paying, tap *Verify with TXID* and send the Transaction ID or Order ID shown on your Binance receipt.\n\n🎯 Order: *#{oid}*",
-        "ar": "🧾 *تم إنشاء الطلب #{oid}*\n\nالخدمة: *{service}*\nالعرض: *{offer}*\nالكمية: *{qty}*\nالمبلغ الإجمالي: *{total} {cur}*\n\n💳 *الدفع عبر Binance Pay*\n\n1️⃣ أرسل *{total} {cur}* إلى معرّف Binance Pay:\n`{binance_id}`\n\n2️⃣ بعد الدفع، اضغط الزر أدناه وأرسل *رقم معاملة Binance*.",
+        "ar": "🔥💳 *Binance Pay*\n--------------------\n\n🛍️ المنتج: *{offer}*\n💫 الكمية: *{qty}*\n\n🚨 *أرسل بالضبط: {total} {cur}*\n🧭 معرّف Binance: `{binance_id}`\n\nبعد الدفع، اضغط *التحقق باستخدام TXID* وأرسل رقم المعاملة أو رقم الطلب الظاهر في إيصال Binance.\n\n🎯 الطلب: *#{oid}*",
     },
     "bybit_order_created": {
         "fr": "🟠💳 *Bybit Pay*\n--------------------\n\n🛍️ Produit : *{offer}*\n💫 Quantité : *{qty}*\n\n🚨 *ENVOYEZ EXACTEMENT : {total} {cur}*\n🧭 UID Bybit : `{bybit_uid}`\n\nAprès le paiement, appuyez sur *Vérifier avec TXID* et envoyez le TXID affiché sur votre reçu Bybit.\n\n🎯 Commande : *#{oid}*",
         "en": "🟠💳 *Bybit Pay*\n--------------------\n\n🛍️ Product: *{offer}*\n💫 Quantity: *{qty}*\n\n🚨 *SEND EXACTLY: {total} {cur}*\n🧭 Bybit UID: `{bybit_uid}`\n\nAfter paying, tap *Verify with TXID* and send the TXID shown on your Bybit receipt.\n\n🎯 Order: *#{oid}*",
-        "ar": "🟠💳 *Bybit Pay*\n--------------------\n\n🛍️ Product: *{offer}*\n💫 Quantity: *{qty}*\n\n🚨 *SEND EXACTLY: {total} {cur}*\n🧭 Bybit UID: `{bybit_uid}`\n\nAfter paying, tap *Verify with TXID* and send the TXID shown on your Bybit receipt.\n\n🎯 Order: *#{oid}*",
+        "ar": "🟠💳 *Bybit Pay*\n--------------------\n\n🛍️ المنتج: *{offer}*\n💫 الكمية: *{qty}*\n\n🚨 *أرسل بالضبط: {total} {cur}*\n🧭 معرّف Bybit: `{bybit_uid}`\n\nبعد الدفع، اضغط *التحقق باستخدام TXID* وأرسل رقم المعاملة الظاهر في إيصال Bybit.\n\n🎯 الطلب: *#{oid}*",
     },
     "btn_paid": {
         "fr": '\U0001f525 V\xe9rifier le paiement',
@@ -610,7 +610,7 @@ TRANSLATIONS = {
     "ask_bybit_txid": {
         "fr": "✍️ Veuillez envoyer le *TXID Bybit* de votre paiement pour la commande #{oid}. Si cela échoue, contactez le support avec une capture du paiement :",
         "en": "✍️ Please send the *Bybit TXID* for order #{oid}. If it fails, contact support with a payment screenshot:",
-        "ar": "✍️ Please send the *Bybit TXID* for order #{oid}. If it fails, contact support with a payment screenshot:",
+        "ar": "✍️ الرجاء إرسال *رقم معاملة Bybit* للطلب #{oid}. إذا فشل التحقق، تواصل مع الدعم مع لقطة شاشة للدفع:",
     },
     "btn_verify_txid": {
         "fr": "🧾 Vérifier avec TXID",
@@ -645,7 +645,7 @@ TRANSLATIONS = {
     "btn_submit_chain_txid": {
         "fr": "🧾 Envoyer le TXID",
         "en": "🧾 Submit transaction ID",
-        "ar": "🧾 Submit transaction ID",
+        "ar": "🧾 إرسال رقم المعاملة",
     },
     "btn_reply_manual_order": {
         "fr": "💬 Répondre à l’administrateur",
@@ -670,17 +670,17 @@ TRANSLATIONS = {
     "onchain_order_created": {
         "fr": "💳 *PAIEMENT USDT — {network}*\n\n🛍️ Produit : *{offer}*\n📦 Quantité : *{qty}*\n🚨 Envoyez exactement : *{total} USDT*\n\n📍 Adresse :\n`{address}`\n\n⚠️ Utilisez uniquement le réseau *{network}*.\n{contract_warning}\nUne transaction envoyée sur un autre réseau peut être définitivement perdue.\n\nCommande : *#{oid}*",
         "en": "💳 *USDT PAYMENT — {network}*\n\n🛍️ Product: *{offer}*\n📦 Quantity: *{qty}*\n🚨 Send exactly: *{total} USDT*\n\n📍 Address:\n`{address}`\n\n⚠️ Use only the *{network}* network.\n{contract_warning}\nA transfer sent through another network may be permanently lost.\n\nOrder: *#{oid}*",
-        "ar": "💳 *USDT PAYMENT — {network}*\n\n🛍️ Product: *{offer}*\n📦 Quantity: *{qty}*\n🚨 Send exactly: *{total} USDT*\n\n📍 Address:\n`{address}`\n\n⚠️ Use only the *{network}* network.\n{contract_warning}\nA transfer sent through another network may be permanently lost.\n\nOrder: *#{oid}*",
+        "ar": "💳 *دفع USDT — {network}*\n\n🛍️ المنتج: *{offer}*\n📦 الكمية: *{qty}*\n🚨 أرسل بالضبط: *{total} USDT*\n\n📍 العنوان:\n`{address}`\n\n⚠️ استخدم شبكة *{network}* فقط.\n{contract_warning}\nقد يُفقد التحويل المرسل عبر شبكة أخرى بشكل نهائي.\n\nالطلب: *#{oid}*",
     },
     "ask_onchain_txid": {
         "fr": "✍️ Envoyez maintenant le hash/TXID de votre transaction USDT {network} pour la commande #{oid}.",
         "en": "✍️ Send the hash/transaction ID of your USDT {network} transfer for order #{oid}.",
-        "ar": "✍️ Send the hash/transaction ID of your USDT {network} transfer for order #{oid}.",
+        "ar": "✍️ أرسل هاش المعاملة أو رقمها لتحويل USDT على شبكة {network} للطلب #{oid}.",
     },
     "onchain_payment_submitted": {
         "fr": "🔎 *Transaction enregistrée*\n\nCommande #{oid} — USDT {network}\nVotre paiement attend maintenant la vérification de l’administrateur. La livraison commencera uniquement après confirmation.",
         "en": "🔎 *Transaction submitted*\n\nOrder #{oid} — USDT {network}\nYour payment is now awaiting administrator verification. Delivery starts only after confirmation.",
-        "ar": "🔎 *Transaction submitted*\n\nOrder #{oid} — USDT {network}\nYour payment is now awaiting administrator verification. Delivery starts only after confirmation.",
+        "ar": "🔎 *تم إرسال المعاملة*\n\nالطلب #{oid} — USDT {network}\nدفعتك الآن بانتظار تحقق المسؤول. يبدأ التسليم فقط بعد التأكيد.",
     },
     "onchain_payment_pending": {
         "fr": "⏳ La transaction de la commande #{oid} n’est pas encore confirmée. Réessayez avec le même TXID dans quelques secondes.",
@@ -690,7 +690,7 @@ TRANSLATIONS = {
     "onchain_payment_rejected": {
         "fr": "❌ *Paiement non accepté*\n\nLe paiement de la commande #{oid} sur {network} n’a pas été validé par l’administrateur. Vérifiez votre transfert puis soumettez un autre TXID, ou contactez le support.",
         "en": "❌ *Payment rejected*\n\nThe {network} payment for order #{oid} was not approved by the administrator. Check your transfer and submit another TXID, or contact support.",
-        "ar": "❌ *Payment rejected*\n\nThe {network} payment for order #{oid} was not approved by the administrator. Check your transfer and submit another TXID, or contact support.",
+        "ar": "❌ *تم رفض الدفع*\n\nلم يوافق المسؤول على دفع {network} للطلب #{oid}. تحقق من التحويل ثم أرسل رقم معاملة آخر، أو تواصل مع الدعم.",
     },
     "order_card": {
         "fr": "🧾 *COMMANDE #{oid}*\n\n🛍️ Produit : *{offer}*\n📦 Quantité : *{qty}*\n💎 Total : *{total} {cur}*\n📍 Statut : *{status}*",
@@ -750,12 +750,12 @@ TRANSLATIONS = {
     "otp_ask_service": {
         "fr": "Quel est le service ?",
         "en": "What's the service?",
-        "ar": "What's the service?",
+        "ar": "ما هي الخدمة؟",
     },
     "otp_ask_country": {
         "fr": "Service : *{service}*\n\nQuel est le pays ?",
         "en": "Service: *{service}*\n\nWhat's the country?",
-        "ar": "Service: *{service}*\n\nWhat's the country?",
+        "ar": "الخدمة: *{service}*\n\nما هي الدولة؟",
     },
     "otp_redirect_admin": {
         "fr": "*Demande OTP envoyée*\n\nCommande : *#{oid}*\nService : *{service}*\nPays : *{country}*\n\nVotre demande a été transmise. Vous recevrez le code ou la réponse directement dans ce bot.",
@@ -785,7 +785,7 @@ TRANSLATIONS = {
     "affiliate_program_update": {
         "fr": "🎁 *Affiliate program update*\n\nInvitations now count only after the invited user buys from the bot for at least *1 USDT*.\n\nYou still earn *2 USDT* for every *10 qualified referrals*.",
         "en": "🎁 *Affiliate program update*\n\nInvitations now count only after the invited user buys from the bot for at least *1 USDT*.\n\nYou still earn *2 USDT* for every *10 qualified referrals*.",
-        "ar": "🎁 *Affiliate program update*\n\nInvitations now count only after the invited user buys from the bot for at least *1 USDT*.\n\nYou still earn *2 USDT* for every *10 qualified referrals*.",
+        "ar": "🎁 *تحديث برنامج الإحالة*\n\nتُحتسب الدعوات الآن فقط بعد أن يشتري المستخدم المدعو من البوت بما لا يقل عن *1 USDT*.\n\nما زلت تربح *2 USDT* مقابل كل *10 إحالات مؤهلة*.",
     },
     "payment_manual_review": {
         "fr": "🔎 Le paiement de la commande #{oid} nécessite une vérification manuelle. Votre TXID est conservé et l’administrateur a été prévenu.",
@@ -881,7 +881,7 @@ TRANSLATIONS = {
     "help_text": {
         "fr": "ℹ️ *Aide {shop}*\n\n• Parcourez le *Catalogue*, choisissez un service puis une offre.\n• Payez via *Binance Pay* à l'ID indiqué.\n• Envoyez le *TXID ou Order ID* affiché sur votre reçu Binance.\n• Après confirmation, l'équipe vous livre votre produit ici.\n\nBesoin d'aide ? Contactez l'administrateur.",
         "en": "ℹ️ *{shop} Help*\n\n• Browse the *Catalog*, pick a service then an offer.\n• Pay via *Binance Pay* to the shown ID.\n• Send the *TXID or Order ID* shown on your Binance receipt.\n• After confirmation, the team delivers your product here.\n\nNeed help? Contact the administrator.",
-        "ar": "ℹ️ *مساعدة {shop}*\n\n• تصفّح *الكتالوج*، اختر خدمة ثم عرضاً.\n• ادفع عبر *Binance Pay* إلى المعرّف الظاهر.\n• أرسل *TXID أو Order ID* الظاهر في إيصال Binance.\n• بعد التأكيد، يقوم الفريق بتسليم منتجك هنا.\n\nتحتاج مساعدة؟ تواصل مع المشرف.",
+        "ar": "ℹ️ *مساعدة {shop}*\n\n• تصفّح *الكتالوج*، اختر خدمة ثم عرضاً.\n• ادفع عبر *Binance Pay* إلى المعرّف الظاهر.\n• أرسل *رقم المعاملة (TXID) أو رقم الطلب* الظاهر في إيصال Binance.\n• بعد التأكيد، يقوم الفريق بتسليم منتجك هنا.\n\nتحتاج مساعدة؟ تواصل مع المشرف.",
     },
     "cancelled_msg": {
         "fr": "❌ Opération annulée.",

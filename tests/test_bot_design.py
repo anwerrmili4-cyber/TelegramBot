@@ -566,6 +566,7 @@ def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb)
     assert {call.kwargs["chat_id"] for call in calls} == {101, 202}
     assert all(call.kwargs["chat_id"] != "@blackmarketBotChannel" for call in calls)
     assert all("NEW DROP AVAILABLE" in call.kwargs["text"] for call in calls)
+    assert all("دفعة" not in call.kwargs["text"] for call in calls)
     assert all("API" not in call.kwargs["text"] for call in calls)
     assert all("━━━━━━━━" not in call.kwargs["text"] for call in calls)
     assert all("🤖" in call.kwargs["text"] for call in calls)
@@ -574,6 +575,42 @@ def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb)
         and call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"off:{offer_id}"
         for call in calls
     )
+
+
+def test_arabic_restock_notice_is_not_sent_to_english_users(mock_mongodb):
+    service_id = db.add_service("Google one Pro", "💎")
+    offer_id = db.add_offer(
+        service_id, "Gemini Pro", 5.6, 50, period_value=18, period_unit="months",
+    )
+    mock_mongodb.users.insert_many([
+        {"telegram_id": 101, "lang": "en"},
+        {"telegram_id": 202, "lang": "ar"},
+        {"telegram_id": 303, "lang": ""},
+    ])
+    bot_client = SimpleNamespace(username="blackmarketa_bot", send_message=AsyncMock())
+
+    sent = asyncio.run(announce_channel_restock(SimpleNamespace(bot=bot_client), offer_id, 2, 50))
+
+    assert sent == 3
+    messages = {
+        call.kwargs["chat_id"]: call.kwargs["text"]
+        for call in bot_client.send_message.await_args_list
+    }
+    buttons = {
+        call.kwargs["chat_id"]: call.kwargs["reply_markup"].inline_keyboard[0][0].text
+        for call in bot_client.send_message.await_args_list
+    }
+    assert "NEW DROP AVAILABLE" in messages[101]
+    assert "دفعة" not in messages[101]
+    assert "شهر" not in messages[101]
+    assert "اشتر" not in buttons[101]
+    assert "دفعة جديدة متاحة" in messages[202]
+    assert "شهر" in messages[202]
+    assert "NEW DROP AVAILABLE" not in messages[202]
+    assert "اشتر" in buttons[202]
+    assert "NEW DROP AVAILABLE" in messages[303]
+    assert "دفعة" not in messages[303]
+    assert "اشتر" not in buttons[303]
 
 
 def test_announcement_buy_now_opens_product_sheet_before_checkout(

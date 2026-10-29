@@ -404,9 +404,7 @@ async def safely_announce_channel_purchase(context, order_id):
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     is_new = db.upsert_user(u.id, u.username or "", u.first_name or "")
-    lang = DEFAULT_LANG
-    if db.get_user_lang(u.id) != DEFAULT_LANG:
-        db.set_user_lang(u.id, DEFAULT_LANG)
+    lang = lang_of(u.id)
 
     pending = PENDING.get(u.id)
     referrer_id = pending[1] if pending and pending[0] == "await_channel_join" else 0
@@ -656,20 +654,56 @@ async def show_affiliate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def reseller_api_dashboard_text(user_id, *, revealed_key=None):
+def reseller_api_dashboard_text(user_id, *, revealed_key=None, lang="en"):
     summary = buyer_api_service.dashboard(user_id)
     endpoint = f"{public_base_url_from_environment()}/api/v2/telegram-buyer"
     key = summary.get("key") or {}
+    arabic = lang == "ar"
     if revealed_key:
         credential = html.escape(revealed_key)
-        key_note = "🔓 <i>Copy this key now. It will never be shown again.</i>"
+        key_note = (
+            "🔓 <i>انسخ هذا المفتاح الآن. لن يظهر مرة أخرى.</i>"
+            if arabic
+            else "🔓 <i>Copy this key now. It will never be shown again.</i>"
+        )
     elif key:
         credential = html.escape(f"{key.get('prefix', '')}{'•' * 20}")
-        key_note = "🔒 <i>The full key was shown once. Regenerate it to get a new one.</i>"
+        key_note = (
+            "🔒 <i>ظهر المفتاح الكامل مرة واحدة. أعد إنشاءه للحصول على مفتاح جديد.</i>"
+            if arabic
+            else "🔒 <i>The full key was shown once. Regenerate it to get a new one.</i>"
+        )
     else:
-        credential = "Not created yet"
-        key_note = "Create a key to start using the reseller API."
-    status = "🟢 Active" if summary["active"] else "⚪ Inactive"
+        credential = "لم يُنشأ بعد" if arabic else "Not created yet"
+        key_note = (
+            "أنشئ مفتاحاً لبدء استخدام واجهة الموزع."
+            if arabic
+            else "Create a key to start using the reseller API."
+        )
+    status = (
+        ("🟢 نشط" if summary["active"] else "⚪ غير نشط")
+        if arabic
+        else ("🟢 Active" if summary["active"] else "⚪ Inactive")
+    )
+    if arabic:
+        return (
+            "🔗 <b>لوحة واجهة الموزع</b>\n\n"
+            "<blockquote>"
+            f"الحالة: <b>{status}</b>\n"
+            f"الرصيد: <b>{summary['balance']:.2f} {html.escape(summary['currency'])}</b>\n"
+            f"إجمالي طلبات API: <b>{summary['total_orders']}</b>\n"
+            f"الإنفاق (30 يوماً): <b>{summary['spend_30d']:.2f} {html.escape(summary['currency'])}</b>"
+            "</blockquote>\n\n"
+            f"<b>الرابط</b>\n<code>{html.escape(endpoint)}</code>\n\n"
+            f"<b>مفتاح API الخاص بك</b>\n<code>{credential}</code>\n"
+            f"{key_note}\n\n"
+            "<b>ابدأ من هنا</b>\n"
+            "1. أنشئ المفتاح وانسخه.\n"
+            "2. اشحن محفظة Telegram هذه.\n"
+            "3. أرسل المفتاح بهذا الشكل <code>Authorization: Bearer &lt;API_KEY&gt;</code>.\n"
+            "4. افتح <b>دليل الإعداد</b> للمسارات والأمثلة واستلام الطلبات والأخطاء.\n\n"
+            "<i>عامل هذا المفتاح ككلمة مرور. لا تضعه في رابط أو في محتوى JSON.</i>"
+        )
     return (
         "🔗 <b>Reseller API Dashboard</b>\n\n"
         "<blockquote>"
@@ -769,7 +803,9 @@ async def show_reseller_api(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     chat = getattr(update, "effective_chat", None)
     if chat is not None and getattr(chat, "type", "private") != "private":
         await update.effective_message.reply_text(
-            "🔒 Open a private chat with the bot to manage your Reseller API key."
+            "🔒 افتح محادثة خاصة مع البوت لإدارة مفتاح واجهة الموزع."
+            if lang == "ar"
+            else "🔒 Open a private chat with the bot to manage your Reseller API key."
         )
         return
     summary = buyer_api_service.dashboard(uid)
@@ -778,7 +814,7 @@ async def show_reseller_api(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         has_key=summary["active"],
         docs_url=f"{public_base_url_from_environment()}/api/swagger",
     )
-    text = reseller_api_dashboard_text(uid, revealed_key=revealed_key)
+    text = reseller_api_dashboard_text(uid, revealed_key=revealed_key, lang=lang)
     query = getattr(update, "callback_query", None)
     if query is not None and getattr(query, "message", None) is not None:
         await show_callback_screen(
@@ -997,8 +1033,13 @@ async def send_lovable_extension(bot, user_id, lang):
         await bot.send_document(
             chat_id=int(user_id),
             document=extension["file_id"],
-            caption="💗 Lovable Unlimited Credit — Browser Extension\n\n"
-            "Extract this ZIP file, load the folder in Developer mode, then enter your license.",
+            caption=(
+                "💗 رصيد Lovable غير المحدود — إضافة المتصفح\n\n"
+                "فك ضغط ملف ZIP، حمّل المجلد في وضع المطور، ثم أدخل الترخيص."
+                if lang == "ar"
+                else "💗 Lovable Unlimited Credit — Browser Extension\n\n"
+                "Extract this ZIP file, load the folder in Developer mode, then enter your license."
+            ),
         )
         return True
     except Exception as exc:
@@ -1155,9 +1196,8 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cache_required_channel_member(uid)
         pending = PENDING.pop(uid, None)
         referrer_id = pending[1] if pending and pending[0] == "await_channel_join" else 0
-        db.set_user_lang(uid, DEFAULT_LANG)
         await register_start_referral(context, uid, referrer_id)
-        await send_channel_member_welcome(q.edit_message_text, context, uid, DEFAULT_LANG)
+        await send_channel_member_welcome(q.edit_message_text, context, uid, lang)
         return
     if data.startswith("tour:"):
         await q.edit_message_text(
@@ -2164,14 +2204,23 @@ async def handle_pending_input(update, context, lang):
     if kind == "adm_lovable_trial" and uid == ADMIN_ID:
         customer_id = int(ref)
         try:
-            await context.bot.send_message(
-                customer_id,
-                "🎁 <b>LOVABLE FREE TRIAL</b>\n\n"
+            customer_lang = lang_of(customer_id)
+            trial_text = (
+                "🎁 <b>تجربة Lovable المجانية</b>\n\n"
+                "ترخيص التجربة لمدة ساعة واحدة جاهز.\n\n"
+                f"🔑 <b>الترخيص</b>\n<code>{html.escape(text)}</code>\n\n"
+                "افتح الإضافة وأدخل هذا الترخيص."
+                if customer_lang == "ar"
+                else "🎁 <b>LOVABLE FREE TRIAL</b>\n\n"
                 "Your one-hour trial license is ready.\n\n"
                 f"🔑 <b>License</b>\n<code>{html.escape(text)}</code>\n\n"
-                "Open the extension and enter this license.",
+                "Open the extension and enter this license."
+            )
+            await context.bot.send_message(
+                customer_id,
+                trial_text,
                 parse_mode=ParseMode.HTML,
-                reply_markup=kb.lovable_back_keyboard(lang_of(customer_id)),
+                reply_markup=kb.lovable_back_keyboard(customer_lang),
             )
             license_row = await asyncio.to_thread(
                 lovable_service.complete_trial, customer_id, text,

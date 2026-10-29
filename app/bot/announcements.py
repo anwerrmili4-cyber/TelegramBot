@@ -41,6 +41,12 @@ def _default_language(_user_id):
     return DEFAULT_LANG
 
 
+def broadcast_lang(user):
+    """Arabic announcements go only to customers who chose Arabic."""
+    lang = str((user or {}).get("lang") or "").strip().lower()
+    return "ar" if lang == "ar" else DEFAULT_LANG
+
+
 _admin_id_provider = _default_admin_id
 _language_provider = _default_language
 _job_submitter_provider = None
@@ -251,7 +257,7 @@ async def announce_channel_restock(
 
     async def send_one(user):
         user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
+        lang = broadcast_lang(user)
         message_key = announcement_key_for_offer(
             "channel_stock_announcement"
             if added is not None
@@ -313,7 +319,7 @@ async def announce_flash_sale(context, offer_id):
 
     async def send_one(user):
         user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
+        lang = broadcast_lang(user)
         await send_broadcast_message_safe(
             context,
             chat_id=user_id,
@@ -432,7 +438,7 @@ async def announce_api_flash_sale(context, event):
 
     async def send_one(user):
         user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
+        lang = broadcast_lang(user)
         remaining = {
             "fr": "Disponibilité limitée",
             "ar": "متاح لفترة محدودة",
@@ -614,7 +620,7 @@ async def broadcast_affiliate_program_update(context):
 
     async def send_one(user):
         user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
+        lang = broadcast_lang(user)
         sent_message = await context.bot.send_message(
             chat_id=user_id,
             text=premium_customer_text(lang, "affiliate_program_update"),

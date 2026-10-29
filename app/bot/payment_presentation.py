@@ -12,6 +12,31 @@ def topup_provider_screen(lang, provider):
     provider_name = "Bybit Transfer (UID)" if is_bybit else "Binance Pay (ID)"
     pay_label = "Pay UID" if is_bybit else "Pay ID"
     pay_id = BYBIT_UID if is_bybit else BINANCE_PAY_ID
+    if lang == "ar":
+        provider_name = "تحويل Bybit (UID)" if is_bybit else "Binance Pay (المعرّف)"
+        pay_label = "معرّف الدفع UID" if is_bybit else "معرّف الدفع"
+        txid_note = (
+            "⚠️ <b>Bybit:</b> رقم المعاملة هو الرمز الذي يحتوي على شرطات — وليس "
+            "رقم الطلب أو الإيصال الطويل."
+            if is_bybit
+            else "⚠️ <b>Binance:</b> أرسل رقم المعاملة أو رقم الطلب من إيصال "
+            "Binance Pay. لا يوجد حد أدنى للإيداع. المبالغ الأقل من 0.01 USDT "
+            "تتراكم حتى تصل إلى سنت قابل للاستخدام."
+        )
+        return (
+            f"<b>{provider_name}</b>\n\n"
+            f"<b>{pay_label}</b>\n<code>{html.escape(str(pay_id))}</code>\n"
+            "👇 <i>اضغط الزر أدناه للنسخ</i>\n\n"
+            "<b>طريقة الإيداع</b>\n"
+            "<blockquote>1️⃣ انسخ المعرّف أعلاه\n"
+            "2️⃣ أرسل أي مبلغ USDT من محفظتك أو منصتك\n"
+            "3️⃣ انسخ رقم المعاملة (TXID)\n"
+            "4️⃣ الصق رقم المعاملة هنا في هذه المحادثة\n"
+            "5️⃣ التحقق التلقائي وإضافة الرصيد فوراً ⚡</blockquote>\n\n"
+            f"<blockquote>{txid_note}</blockquote>\n\n"
+            "<blockquote>⏰ أكمل الدفع خلال 30 دقيقة من فتح هذه "
+            "الشاشة لإضافة الرصيد تلقائياً.</blockquote>"
+        )
     txid_note = (
         "⚠️ <b>Bybit:</b> the Transaction ID is the code with dashes — not the "
         "long order/receipt number."
@@ -41,6 +66,23 @@ def topup_onchain_screen(lang, network, amount):
     is_bsc = str(network).lower() == "bsc"
     network_label = "BSC (BEP20)" if is_bsc else "Polygon"
     contract_suffix = "97955" if is_bsc else "58e8f"
+    if lang == "ar":
+        return (
+            f"<b>شحن USDT — {network_label}</b>\n\n"
+            f"<b>عنوان المحفظة</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
+            "👇 <i>اضغط الزر أدناه للنسخ</i>\n\n"
+            "<b>طريقة الإيداع</b>\n"
+            "<blockquote>1️⃣ انسخ عنوان المحفظة أعلاه\n"
+            f"2️⃣ أرسل بالضبط <b>{float(amount):.2f} USDT</b>\n"
+            f"3️⃣ اختر شبكة <b>{network_label}</b> فقط\n"
+            "4️⃣ انسخ رقم المعاملة (TXID/الهاش)\n"
+            "5️⃣ الصق رقم المعاملة هنا في هذه المحادثة\n"
+            "6️⃣ التحقق التلقائي وإضافة الرصيد فوراً ⚡</blockquote>\n\n"
+            f"<blockquote>⚠️ <b>{network_label} فقط:</b> تأكد أن عنوان عقد USDT "
+            f"ينتهي بـ <b>{contract_suffix}</b>.</blockquote>\n\n"
+            "<blockquote>⏰ أكمل الدفع خلال 30 دقيقة من فتح هذه الشاشة "
+            "لإضافة الرصيد تلقائياً.</blockquote>"
+        )
     return (
         f"<b>USDT TOP UP — {network_label}</b>\n\n"
         f"<b>Wallet Address</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
@@ -63,6 +105,25 @@ def onchain_payment_screen(lang, order):
     method = order.get("payment_method")
     network = "BSC (BEP20)" if method == "usdt_bsc" else "Polygon"
     contract_suffix = "97955" if method == "usdt_bsc" else "58e8f"
+    if lang == "ar":
+        return (
+            f"<b>دفع USDT — {network}</b>\n\n"
+            f"<b>المنتج</b>\n{html.escape(str(order.get('offer_name') or '—'))}\n"
+            f"<b>الطلب</b>\n#{int(order['id'])}\n\n"
+            f"<b>عنوان المحفظة</b>\n<code>{html.escape(str(USDT_EVM_ADDRESS))}</code>\n"
+            "👇 <i>اضغط الزر أدناه للنسخ</i>\n\n"
+            "<b>طريقة الدفع</b>\n"
+            "<blockquote>1️⃣ انسخ عنوان المحفظة أعلاه\n"
+            f"2️⃣ أرسل بالضبط <b>{float(order['total_price']):.2f} USDT</b>\n"
+            f"3️⃣ اختر شبكة <b>{network}</b> فقط\n"
+            "4️⃣ انسخ رقم المعاملة (TXID/الهاش)\n"
+            "5️⃣ اضغط إرسال رقم المعاملة والصقه في هذه المحادثة\n"
+            "6️⃣ التحقق التلقائي وبدء التسليم ⚡</blockquote>\n\n"
+            f"<blockquote>⚠️ <b>{network} فقط:</b> تأكد أن عنوان عقد USDT "
+            f"ينتهي بـ <b>{contract_suffix}</b>.</blockquote>\n\n"
+            "<blockquote>⏰ أكمل الدفع خلال 30 دقيقة من فتح هذه الشاشة "
+            "للتحقق التلقائي.</blockquote>"
+        )
     return (
         f"<b>USDT PAYMENT — {network}</b>\n\n"
         f"<b>Product</b>\n{html.escape(str(order.get('offer_name') or '—'))}\n"
