@@ -165,6 +165,9 @@ def _finalize_confirmed_payment_now(order_id: int, user_id: int, txid: str, meth
             result["order"] = db.get_order(order_id)
         else:
             result["status"] = "confirmed_no_delivery"
+            if not result.get("error_code") and not order.get("is_preorder"):
+                result["error_code"] = "out_of_stock"
+                result["error_message"] = "Inventory is not sufficient."
         db.audit_event(
             "payment.confirmed",
             actor_id=user_id,

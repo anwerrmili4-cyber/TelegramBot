@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -16,6 +17,69 @@ from pymongo.errors import DuplicateKeyError
 import database as db
 from app.domain import inventory_service, order_service, payment_service, reseller_service, warranty_service
 from config import CURRENCY
+
+log = logging.getLogger(__name__)
+
+_PROVIDER_STOCK_OR_BALANCE = (
+    "balance", "solde", "insufficient", "insuffisant",
+    "stock", "out of stock", "rupture", "sold out", "inventory",
+)
+
+
+def provider_delivery_needs_manual(payment: dict[str, Any] | None) -> bool:
+    """Return whether a paid API order failed because we could not supply it.
+
+    The buyer's own wallet balance is not included. Only an upstream reseller
+    balance problem, or stock we could not deliver, asks the admin to finish
+    the order by hand.
+    """
+    payment = payment or {}
+    if payment.get("status") != "confirmed_no_delivery":
+        return False
+    code = str(payment.get("error_code") or "")
+    if code == "out_of_stock" or code == "bmc_vip_link_unavailable":
+        return True
+    if not code.startswith("supplier_"):
+        return False
+    message = str(payment.get("error_message") or "").lower()
+    return any(word in message for word in _PROVIDER_STOCK_OR_BALANCE)
+
+
+def queue_provider_manual_delivery(order_id: int, payment: dict[str, Any]) -> None:
+    """Ask the admin for the same manual delivery used by a bot customer."""
+    from app.bot.supplier_incidents import supplier_delivery_problem_text
+    from app.jobs.handlers import queue_telegram_message
+    import admin
+    from config import ADMIN_ID
+
+    order = db.get_order(int(order_id))
+    if not order:
+        return
+    code = str((payment or {}).get("error_code") or "")
+    if code.startswith("supplier_"):
+        text = (
+            "📡 <b>Commande API revendeur</b>\n\n"
+            + supplier_delivery_problem_text(order_id, payment)
+        )
+        parse_mode = "HTML"
+    else:
+        text = (
+            "📦 *Livraison manuelle demandée — API revendeur*\n\n"
+            f"{admin.order_detail_text(order)}\n\n"
+            "Le client API a payé, mais le stock ou le solde fournisseur "
+            "n’a pas permis la livraison automatique.\n\n"
+            "Choisissez *Envoyer un message* pour informer le client sans "
+            "terminer la commande, ou *Envoyer la commande* pour transmettre "
+            "le compte/code et confirmer la livraison."
+        )
+        parse_mode = "Markdown"
+    queue_telegram_message(
+        ADMIN_ID,
+        text,
+        parse_mode=parse_mode,
+        reply_markup=admin.manual_delivery_request_keyboard(int(order_id)),
+    )
+
 
 KEY_PREFIX = "tgb_"
 RATE_LIMITS = {
@@ -537,6 +601,14 @@ def purchase(
                 "Inventory changed before the purchase could be completed.",
             )
         delivered = list(payment.get("delivered_content") or [])
+        if provider_delivery_needs_manual(payment):
+            try:
+                queue_provider_manual_delivery(int(order["id"]), payment)
+            except Exception:
+                log.exception(
+                    "Buyer API manual delivery alert failed for order #%s",
+                    order["id"],
+                )
         final_order = db.get_order(int(order["id"])) or order
         response_time = int(final_order.get("updated_at") or time.time())
         response = {

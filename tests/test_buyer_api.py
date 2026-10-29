@@ -202,6 +202,80 @@ def test_processing_purchase_becomes_available_through_status_and_replay(
     assert replay == current
 
 
+def test_provider_stock_or_balance_failure_asks_admin_for_manual_delivery(
+    monkeypatch, mock_mongodb,
+):
+    _issued, key, offer_id = _buyer_with_product(mock_mongodb)
+    alerts = []
+    monkeypatch.setattr(
+        buyer_api_service,
+        "queue_provider_manual_delivery",
+        lambda order_id, payment: alerts.append((order_id, payment.get("error_code"))),
+    )
+    monkeypatch.setattr(
+        buyer_api_service.payment_service,
+        "confirm_wallet_order",
+        lambda *_args: {
+            "status": "confirmed_no_delivery",
+            "delivered_content": None,
+            "error_code": "supplier_order_not_created",
+            "error_message": "Solde fournisseur insuffisant.",
+        },
+    )
+
+    status, pending, _replayed = buyer_api_service.purchase(
+        key,
+        product_id=str(offer_id),
+        quantity=1,
+        idempotency_key="partner-order-supplier-balance",
+    )
+
+    assert status == 202
+    assert pending["status"] == "processing"
+    assert pending["deliveredAccounts"] == []
+    assert alerts == [(int(pending["orderCode"].removeprefix("BM-")), "supplier_order_not_created")]
+
+
+def test_successful_api_delivery_does_not_ask_for_manual_delivery(
+    monkeypatch, mock_mongodb,
+):
+    _issued, key, offer_id = _buyer_with_product(mock_mongodb)
+    alerts = []
+    monkeypatch.setattr(
+        buyer_api_service,
+        "queue_provider_manual_delivery",
+        lambda *_args: alerts.append(True),
+    )
+
+    status, delivered, _replayed = buyer_api_service.purchase(
+        key,
+        product_id=str(offer_id),
+        quantity=1,
+        idempotency_key="partner-order-auto-ok",
+    )
+
+    assert status == 200
+    assert delivered["status"] == "delivered"
+    assert alerts == []
+
+
+def test_unrelated_supplier_error_does_not_ask_for_manual_delivery():
+    assert buyer_api_service.provider_delivery_needs_manual({
+        "status": "confirmed_no_delivery",
+        "error_code": "supplier_delivery_pending",
+        "error_message": "Le fournisseur est temporairement indisponible.",
+    }) is False
+    assert buyer_api_service.provider_delivery_needs_manual({
+        "status": "delivered",
+        "delivered_content": ["account"],
+    }) is False
+    assert buyer_api_service.provider_delivery_needs_manual({
+        "status": "confirmed_no_delivery",
+        "error_code": "out_of_stock",
+        "error_message": "Inventory is not sufficient.",
+    }) is True
+
+
 def test_order_status_is_scoped_to_the_key_that_created_it(mock_mongodb):
     _issued, owner_key, offer_id = _buyer_with_product(mock_mongodb)
     _status, purchase, _replayed = buyer_api_service.purchase(
