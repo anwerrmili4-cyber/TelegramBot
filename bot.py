@@ -1931,6 +1931,19 @@ def _quantity_screen_text(lang, offer, quantity):
     return rendered, ParseMode.HTML
 
 
+def _remember_quantity_screen(user_id, offer_id, message):
+    """Keep the open quantity message so a typed number can update it."""
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    if chat_id is None:
+        chat_id = getattr(message, "chat_id", None)
+    PENDING[user_id] = ("await_quantity", {
+        "offer_id": int(offer_id),
+        "chat_id": chat_id,
+        "message_id": getattr(message, "message_id", None),
+    })
+
+
 async def handle_custom_quantity(update, context, lang):
     """Ask the customer to type a quantity, using saved stock only."""
     del context
@@ -1940,7 +1953,7 @@ async def handle_custom_quantity(update, context, lang):
     if not offer or offer.get("price") is None or not db.offer_has_stock(offer):
         await q.message.reply_text(t(lang, "out_of_stock"))
         return
-    PENDING[q.from_user.id] = ("await_quantity", offer_id)
+    _remember_quantity_screen(q.from_user.id, offer_id, q.message)
     stock_display = "∞" if offer.get("unlimited_stock") else offer["stock"]
     await q.message.reply_text(
         t(lang, "quantity_manual_prompt", stock=stock_display),
@@ -1970,7 +1983,7 @@ async def handle_quantity_selection(update, context, lang):
         await q.message.reply_text(t(lang, "out_of_stock"))
         return
 
-    PENDING[q.from_user.id] = ("await_quantity", offer_id)
+    _remember_quantity_screen(q.from_user.id, offer_id, q.message)
     quantity = _bounded_purchase_quantity(offer, quantity)
     markup = kb.quantity_keyboard(lang, offer, quantity=quantity)
     quantity_text, parse_mode = _quantity_screen_text(lang, offer, quantity)
@@ -2158,8 +2171,14 @@ async def handle_pending_input(update, context, lang):
         return
 
     if kind == "await_quantity":
-        ref_id = ref
-        offer = _saved_listed_offer(int(ref_id))
+        if isinstance(ref, dict):
+            offer_id = int(ref.get("offer_id") or 0)
+            chat_id = ref.get("chat_id")
+            message_id = ref.get("message_id")
+        else:
+            offer_id = int(ref)
+            chat_id = message_id = None
+        offer = _saved_listed_offer(offer_id)
         try:
             qty = int(text)
         except ValueError:
@@ -2171,8 +2190,32 @@ async def handle_pending_input(update, context, lang):
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
-        PENDING.pop(uid, None)
-        await send_buy_confirmation(update.message.reply_text, uid, int(ref_id), qty, lang)
+        qty = _bounded_purchase_quantity(offer, qty)
+        quantity_text, parse_mode = _quantity_screen_text(lang, offer, qty)
+        markup = kb.quantity_keyboard(lang, offer, quantity=qty)
+        edited = False
+        if chat_id and message_id:
+            try:
+                await context.bot.edit_message_text(
+                    quantity_text,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode=parse_mode,
+                    reply_markup=markup,
+                )
+                edited = True
+            except Exception as exc:
+                if "message is not modified" in str(exc).lower():
+                    edited = True
+                else:
+                    log.warning("Typed quantity could not update the open screen: %s", exc)
+        if not edited:
+            sent = await update.message.reply_text(
+                quantity_text,
+                parse_mode=parse_mode,
+                reply_markup=markup,
+            )
+            _remember_quantity_screen(uid, offer_id, sent)
         return
 
     if kind == "catalog_search":

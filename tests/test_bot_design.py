@@ -755,7 +755,10 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
         "app.bot.handlers.catalog.reseller_service.refresh_supplier_stock",
         refresh,
     )
-    message = SimpleNamespace(text="Choose quantity", photo=None, reply_text=AsyncMock())
+    message = SimpleNamespace(
+        text="Choose quantity", photo=None, reply_text=AsyncMock(),
+        chat=SimpleNamespace(id=500), message_id=77,
+    )
     query = SimpleNamespace(
         data=f"qty_custom:{offer_id}",
         from_user=SimpleNamespace(id=101),
@@ -769,7 +772,8 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
     asyncio.run(cb_navigation(SimpleNamespace(callback_query=query), SimpleNamespace()))
 
     assert refresh.call_count == 0
-    assert PENDING.get(101) == ("await_quantity", offer_id)
+    assert PENDING.get(101)[1]["offer_id"] == offer_id
+    assert PENDING.get(101)[1]["message_id"] == 77
     prompt = message.reply_text.await_args
     assert "whole number" in prompt.args[0]
     assert "*1*" in prompt.args[0]
@@ -778,18 +782,26 @@ def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb
     query.edit_message_text.assert_not_awaited()
 
     typed = SimpleNamespace(text="4", reply_text=AsyncMock())
+    editor = AsyncMock()
     asyncio.run(handle_pending_input(
         SimpleNamespace(effective_user=SimpleNamespace(id=101), message=typed),
-        SimpleNamespace(),
+        SimpleNamespace(bot=SimpleNamespace(edit_message_text=editor)),
         "en",
     ))
 
-    assert PENDING.get(101) is None
-    confirmation = typed.reply_text.await_args.args[0]
-    assert "Order summary" in confirmation
-    assert "Gemini Pro" in confirmation
-    assert "*4*" in confirmation
-    assert "20.00" in confirmation
+    typed.reply_text.assert_not_awaited()
+    editor.assert_awaited()
+    updated = editor.await_args
+    assert "Order summary" not in updated.args[0]
+    assert "Gemini Pro" in updated.args[0]
+    assert "20.00" in updated.args[0]
+    assert updated.kwargs["chat_id"] == 500
+    assert updated.kwargs["message_id"] == 77
+    keyboard = updated.kwargs["reply_markup"].inline_keyboard
+    assert keyboard[0][1].text == "4"
+    assert keyboard[0][1].callback_data == f"qty_current:{offer_id}:4"
+    assert keyboard[2][0].callback_data == f"buyq:{offer_id}:4"
+    assert PENDING.get(101)[1]["offer_id"] == offer_id
 
 
 def test_custom_quantity_button_reports_missing_or_unsold_offer(monkeypatch, mock_mongodb):
