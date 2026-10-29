@@ -192,6 +192,37 @@ async def broadcast_in_batches(
     return sent
 
 
+def offer_lacks_period_and_warranty(offer):
+    """Return whether an announcement should use the no-terms design."""
+    offer = offer or {}
+    if offer.get("period_visible") is False:
+        has_period = False
+    else:
+        raw_period = offer.get("period_value")
+        if raw_period is None:
+            raw_period = offer.get("period_days")
+        try:
+            has_period = int(raw_period or 0) > 0
+        except (TypeError, ValueError):
+            has_period = False
+    if offer.get("warranty_visible") is False:
+        has_warranty = False
+    else:
+        label = warranty_service.offer_warranty_label(offer)
+        has_warranty = bool(label) and label != "NW"
+    return not has_period and not has_warranty
+
+
+def announcement_key_for_offer(key, offer):
+    """Use the separate design when a product has neither period nor warranty."""
+    if (
+        key in {"channel_stock_announcement", "offer_stock_announcement"}
+        and offer_lacks_period_and_warranty(offer)
+    ):
+        return "announcement_no_terms"
+    return key
+
+
 def offer_reaches_customers(offer):
     from app.domain.offer_stock_control import offer_reaches_bot_customers
 
@@ -221,10 +252,11 @@ async def announce_channel_restock(
     async def send_one(user):
         user_id = int(user["telegram_id"])
         lang = user.get("lang") or DEFAULT_LANG
-        message_key = (
+        message_key = announcement_key_for_offer(
             "channel_stock_announcement"
             if added is not None
-            else "offer_stock_announcement"
+            else "offer_stock_announcement",
+            offer,
         )
         values = {
             "emoji": announcement_service_emoji(service),
@@ -369,6 +401,7 @@ async def announce_supplier_change_admin(context, event, change_type):
                     else max(0, int(offer.get("stock") or 0))
                 ),
             })
+    key = announcement_key_for_offer(key, offer)
     await send_broadcast_message_safe(
         context,
         chat_id=admin_id,

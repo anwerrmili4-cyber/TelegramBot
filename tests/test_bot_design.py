@@ -2200,7 +2200,7 @@ def test_order_payment_values_are_individually_copyable():
     "topup_message", "topup_ask_txid",
     "topup_success", "topup_already_confirmed", "topup_failed",
     "channel_stock_announcement", "offer_stock_announcement",
-    "flash_sale_announcement",
+    "flash_sale_announcement", "announcement_no_terms",
     "affiliate_referral_success", "affiliate_ten_success", "channel_affiliate_reward",
 ])
 def test_all_payment_flow_texts_support_exact_premium_emoji(key):

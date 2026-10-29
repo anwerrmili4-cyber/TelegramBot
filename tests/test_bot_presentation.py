@@ -43,37 +43,37 @@ def test_bot_facade_reexports_methods_presentation_helpers():
     )
 
 
-def test_announcement_hides_empty_duration_and_nw_warranty():
-    from app.bot.methods_presentation import method_announcement_text
+def test_products_without_period_and_warranty_use_a_separate_announcement():
+    from app.bot.announcements import announcement_key_for_offer
 
-    text = (
-        "<b>Muse AI 31 B token</b>\n"
-        "<blockquote>"
-        '<tg-emoji emoji-id="duration-icon">📅</tg-emoji> Duration :\n'
-        '<tg-emoji emoji-id="warranty-icon">🛡</tg-emoji> Warranty : <b>NW</b>\n'
-        "Price : 2.50 USDT\n"
-        "Stock : 45"
-        "</blockquote>"
+    plain = {
+        "name": "Muse AI 31 B token",
+        "period_visible": False,
+        "warranty_days": 0,
+        "warranty_value": 0,
+    }
+    covered = {
+        "name": "Framer Pro",
+        "period_days": 365,
+        "period_value": 1,
+        "period_unit": "years",
+        "warranty_days": 30,
+        "warranty_value": 30,
+        "warranty_unit": "days",
+    }
+
+    assert announcement_key_for_offer("channel_stock_announcement", plain) == (
+        "announcement_no_terms"
     )
-
-    rendered = method_announcement_text(text, {"name": "AI"})
-
-    assert "Duration" not in rendered
-    assert "Warranty" not in rendered
-    assert "Price : 2.50 USDT" in rendered
-    assert "Stock : 45" in rendered
-    assert rendered.startswith("<b>Muse AI 31 B token</b>\n<blockquote>")
-    assert rendered.rstrip().endswith("</blockquote>")
-
-
-def test_announcement_keeps_duration_and_warranty_when_present():
-    from app.bot.methods_presentation import method_announcement_text
-
-    text = "Duration : 12 months\nWarranty : FW\nPrice : 17.00 USDT"
-
-    rendered = method_announcement_text(text, {"name": "Framer"})
-
-    assert rendered == text
+    assert announcement_key_for_offer("offer_stock_announcement", plain) == (
+        "announcement_no_terms"
+    )
+    assert announcement_key_for_offer("channel_stock_announcement", covered) == (
+        "channel_stock_announcement"
+    )
+    assert announcement_key_for_offer("flash_sale_announcement", plain) == (
+        "flash_sale_announcement"
+    )
 
 
 def test_bot_facade_reexports_offer_card_helpers():

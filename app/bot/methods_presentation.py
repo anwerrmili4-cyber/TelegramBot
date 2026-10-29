@@ -13,14 +13,6 @@ _METHOD_HIDDEN_DETAIL_LABELS = (
     "المدة", "الفترة", "الضمان", "المخزون",
 )
 _DESCRIPTION_LABEL_RE = re.compile(r"^(?:description|الوصف)\s*:?\s*$", re.IGNORECASE)
-_MISSING_TERM_LABELS = (
-    "duration", "period", "warranty",
-    "durée", "duree", "période", "periode", "garantie",
-    "المدة", "الفترة", "الضمان",
-)
-_MISSING_TERM_VALUES = {
-    "", "nw", "no warranty", "sans garantie", "non garanti", "بدون ضمان", "0",
-}
 _BMC_DURATION_WORD = (
     r"days?|day|j|jours?|mois|months?|ans?|years?|ann[eé]es?|an|"
     r"يوم|أيام|شهر|أشهر|اشهر|سنة|سنوات"
@@ -162,36 +154,10 @@ def method_announcement_description(value):
     ).strip()
 
 
-def announcement_term_value(line):
-    """Return the value after a duration or warranty label, if this line is one."""
-    visible = visible_message_line(line).casefold()
-    for label in _MISSING_TERM_LABELS:
-        if visible == label:
-            return ""
-        for separator in (f"{label} :", f"{label}:"):
-            if visible.startswith(separator):
-                return visible[len(separator):].strip(" .")
-    return None
-
-
-def hide_missing_announcement_terms(text):
-    """Drop a duration or warranty row when that value is missing."""
-    kept = []
-    for line in str(text or "").splitlines():
-        value = announcement_term_value(line)
-        if value is None or value not in _MISSING_TERM_VALUES:
-            kept.append(line)
-            continue
-        structural = "".join(re.findall(r"</?blockquote\b[^>]*>", line, flags=re.I))
-        if structural:
-            kept.append(structural)
-    return "\n".join(kept)
-
-
 def method_announcement_text(text, service, offer=None, lang="en"):
     """Replace period, warranty, and stock rows with the method description."""
     if str((service or {}).get("name") or "").strip().casefold() != "methods":
-        return hide_missing_announcement_terms(text)
+        return text
     raw_description = (
         (offer or {}).get("description_ar")
         if lang == "ar" and (offer or {}).get("description_ar")
@@ -231,7 +197,6 @@ __all__ = [
     "join_methods_description_title",
     "line_is_description_label",
     "line_opens_blockquote",
-    "hide_missing_announcement_terms",
     "method_announcement_description",
     "method_announcement_text",
     "methods_description_row",

@@ -124,6 +124,24 @@ def test_offer_detail_template_has_premium_sections():
     assert "*Access*" in message
 
 
+def test_no_terms_announcement_omits_period_and_warranty():
+    message = t(
+        "en",
+        "announcement_no_terms",
+        emoji="🍿",
+        service="AI",
+        offer="Muse AI 31 B token",
+        price="2.50",
+        cur="USDT",
+        stock=45,
+    )
+
+    assert "Muse AI 31 B token" in message
+    assert "2.50" in message
+    assert "Period" not in message
+    assert "Warranty" not in message
+
+
 def test_announcement_templates_include_product_catalog_period_and_warranty():
     for key in ("channel_stock_announcement", "offer_stock_announcement", "flash_sale_announcement"):
         for lang in ("en", "ar"):
