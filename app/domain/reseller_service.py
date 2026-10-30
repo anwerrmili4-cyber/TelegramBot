@@ -918,7 +918,7 @@ def provider_summaries() -> list[dict[str, Any]]:
             "id": TOOLORAX_PROVIDER,
             "name": "ToolOraX Store Bot",
             "configured": bool(TOOLORAX_API_KEY),
-            "documentation_url": "https://shopbot.00969600.xyz/shop-api/docs",
+            "documentation_url": f"{TOOLORAX_API_BASE.removesuffix('/v1')}/docs",
         },
         {
             "id": CGPT_ACTIVE_PROVIDER,
