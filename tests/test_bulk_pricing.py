@@ -94,6 +94,28 @@ def test_flash_sale_clamps_every_bulk_tier(mock_mongodb):
     assert [option["unit_price"] for option in sale["bulk_options"]] == [7, 7]
 
 
+def test_every_bulk_tier_is_listed_and_the_reached_one_is_charged(mock_mongodb):
+    offer_id = _offer(
+        mock_mongodb,
+        price=3.1,
+        bulk_price=2.6,
+        bulk_options=[
+            {"name": "Bulk", "min_quantity": 5, "unit_price": 2.6},
+            {"name": "Bulk Pro", "min_quantity": 10, "unit_price": 2.1},
+        ],
+    )
+    offer = db.get_offer(offer_id)
+
+    assert [tier["name"] for tier in db.list_bulk_tiers(offer)] == ["Bulk", "Bulk Pro"]
+    assert db.active_bulk_tier(offer, 7)["unit_price"] == 2.6
+    assert db.active_bulk_tier(offer, 10)["name"] == "Bulk Pro"
+    assert db.resolve_bulk_unit_price(offer, 10, offer["price"]) == 2.1
+    card = compact_offer_text(offer, "en")
+    assert "<b>Bulk:</b> <b>2.60</b>" in card
+    assert "<b>Bulk Pro:</b> <b>2.10</b>" in card
+    assert "× <b>10</b>+" in card
+
+
 def test_bulk_price_may_equal_normal_price(mock_mongodb):
     offer_id = _offer(mock_mongodb, price=10, bulk_price=10)
     offer = db.get_offer(offer_id)

@@ -519,9 +519,14 @@ TRANSLATIONS = {
         "ar": "✏️ *أدخل الكمية المطلوبة (1-{stock}):*\n\nالمنتج: {emoji}*{offer}*\nالمدة: *{period}*\nالضمان: *{warranty}*\nالمخزون المتاح: *{stock}*\nسعر الوحدة: *{price} {cur}*\nالإجمالي: *{total} {cur}*",
     },
     "bulk_price_line": {
-        "fr": "📦 Prix en gros dès *{quantity} unités* : *{price} {cur} / unité*",
-        "en": "📦 Bulk price from *{quantity} units*: *{price} {cur} / unit*",
-        "ar": "📦 سعر الجملة ابتداءً من *{quantity} وحدات*: *{price} {cur} / للوحدة*",
+        "fr": "{icon} Prix en gros dès *{quantity} unités* : *{price} {cur} / unité*",
+        "en": "{icon} Bulk price from *{quantity} units*: *{price} {cur} / unit*",
+        "ar": "{icon} سعر الجملة ابتداءً من *{quantity} وحدات*: *{price} {cur} / للوحدة*",
+    },
+    "bulk_price_named_line": {
+        "fr": "{icon} *{name}* dès *{quantity} unités* : *{price} {cur} / unité*",
+        "en": "{icon} *{name}* from *{quantity} units*: *{price} {cur} / unit*",
+        "ar": "{icon} *{name}* ابتداءً من *{quantity} وحدات*: *{price} {cur} / للوحدة*",
     },
     "affiliate_referral_success": {
         "fr": "🎉 *Nouveau filleul valide !*\n\nProgression : *{progress}/10*\nEncore *{remaining}* filleul(s) valide(s) pour gagner *2 USDT*.",

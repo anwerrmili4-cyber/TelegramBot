@@ -206,7 +206,7 @@ export function OfferForm({ services, offer, onAction, onClose, defaultChannel =
               ))}
               <button type="button" className="bulk-option-add" onClick={() => setForm((current) => ({ ...current, bulk_options: [...current.bulk_options, { name: "", min_quantity: "", unit_price: "" }] }))}>Ajouter une option</button>
             </div>
-            <p className="control-caption">La première option reste le palier du bot. À l’achat, le palier retenu est la plus grande quantité atteinte, à un prix inférieur au prix normal.</p>
+            <p className="control-caption">Chaque option s’affiche sur le produit. À l’achat, le palier retenu est la plus grande quantité atteinte, à un prix inférieur ou égal au prix normal.</p>
           </Field>
           <Field label="Seuil de stock">
             <input

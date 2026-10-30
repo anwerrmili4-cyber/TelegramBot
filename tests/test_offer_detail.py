@@ -320,6 +320,17 @@ def test_bulk_row_uses_editable_components_and_hides_when_disabled(monkeypatch, 
     assert "WHOLESALE" not in disabled
     assert "STOCK: <b>20</b>" in disabled
 
+    several = compact_offer_text({
+        "id": 12, "name": "Premium", "price": 4, "stock": 20,
+        "bulk_quantity": 5, "bulk_unit_price": 2.6,
+        "bulk_options": [
+            {"name": "Bulk", "min_quantity": 5, "unit_price": 2.6},
+            {"name": "Bulk Pro", "min_quantity": 10, "unit_price": 2.1},
+        ],
+    }, "en")
+    assert "WHOLESALE: Bulk: <b>2.60</b> <b>USDT</b> when buying <b>5</b>+" in several
+    assert "WHOLESALE: Bulk Pro: <b>2.10</b> <b>USDT</b> when buying <b>10</b>+" in several
+
 
 def test_admin_preview_decomposes_legacy_bulk_line():
     preview = bot.render_admin_text_preview(

@@ -1915,6 +1915,34 @@ def _quantity_product_emoji(offer):
     )
 
 
+def _plain_bulk_name(name):
+    """Keep a wholesale label from opening Markdown or HTML in the quantity text."""
+    return " ".join(str(name or "").replace("*", "").replace("_", "").replace("`", "").split())[:40]
+
+
+def _bulk_tier_lines(lang, offer, quantity):
+    """List every saved wholesale tier, and mark the one this quantity uses."""
+    tiers = db.list_bulk_tiers(offer)
+    if not tiers:
+        return ""
+    active = db.active_bulk_tier(offer, quantity)
+    lines = []
+    for tier in tiers:
+        icon = "✅" if active == tier else "📦"
+        name = _plain_bulk_name(tier.get("name"))
+        values = {
+            "icon": icon,
+            "quantity": tier["min_quantity"],
+            "price": f"{tier['unit_price']:.2f}",
+            "cur": CURRENCY,
+        }
+        if name:
+            lines.append(t(lang, "bulk_price_named_line", name=name, **values))
+        else:
+            lines.append(t(lang, "bulk_price_line", **values))
+    return "\n".join(lines)
+
+
 def _quantity_screen_text(lang, offer, quantity):
     """Build the quantity prompt, including the live total for this quantity."""
     emoji, premium = _quantity_product_emoji(offer)
@@ -1933,17 +1961,7 @@ def _quantity_screen_text(lang, offer, quantity):
         "total": f"{round(unit_price * quantity, 2):.2f}",
         "cur": CURRENCY,
     }
-    bulk_line = ""
-    try:
-        bulk_quantity = int(offer.get("bulk_quantity") or 0)
-        bulk_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and 0 <= bulk_price <= float(offer["price"]):
-            bulk_line = t(
-                lang, "bulk_price_line", quantity=bulk_quantity,
-                price=f"{bulk_price:.2f}", cur=CURRENCY,
-            )
-    except (TypeError, ValueError):
-        pass
+    bulk_line = _bulk_tier_lines(lang, offer, quantity)
     if not premium:
         text = t(lang, "choose_quantity", **values)
         if bulk_line:

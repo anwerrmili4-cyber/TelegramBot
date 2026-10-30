@@ -1589,6 +1589,62 @@ def bulk_fields_from_form(form, regular_price):
     return {"bulk_quantity": quantity, "bulk_unit_price": unit_price}
 
 
+def list_bulk_tiers(offer):
+    """Return every wholesale tier the customer can reach, cheapest threshold first."""
+    if not isinstance(offer, dict):
+        return []
+    try:
+        regular = float(offer.get("price"))
+    except (TypeError, ValueError):
+        return []
+    options = offer.get("bulk_options")
+    if not isinstance(options, list) or not options:
+        options = [{
+            "name": "",
+            "min_quantity": offer.get("bulk_quantity"),
+            "unit_price": offer.get("bulk_unit_price"),
+        }]
+    tiers = []
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        try:
+            threshold = int(option.get("min_quantity") or 0)
+            unit_price = round(float(option.get("unit_price")), 2)
+        except (TypeError, ValueError):
+            continue
+        if threshold > 0 and 0 <= unit_price <= regular:
+            tiers.append({
+                "name": str(option.get("name") or "").strip()[:40],
+                "min_quantity": threshold,
+                "unit_price": unit_price,
+            })
+    tiers.sort(key=lambda item: (
+        item["min_quantity"], item["unit_price"], item["name"].casefold(),
+    ))
+    return tiers
+
+
+def active_bulk_tier(offer, qty):
+    """Return the tier actually charged for this quantity, if one is reached."""
+    try:
+        quantity = int(qty)
+    except (TypeError, ValueError):
+        return None
+    best = None
+    for tier in list_bulk_tiers(offer):
+        if quantity >= tier["min_quantity"] and (
+            best is None
+            or tier["min_quantity"] > best["min_quantity"]
+            or (
+                tier["min_quantity"] == best["min_quantity"]
+                and tier["unit_price"] < best["unit_price"]
+            )
+        ):
+            best = tier
+    return best
+
+
 def resolve_bulk_unit_price(offer, qty, regular_price):
     """Pick the reached tier with the highest minimum quantity and a lower unit price."""
     regular = float(regular_price)
@@ -1604,25 +1660,12 @@ def resolve_bulk_unit_price(offer, qty, regular_price):
             "min_quantity": (offer or {}).get("bulk_quantity"),
             "unit_price": (offer or {}).get("bulk_unit_price"),
         }]
-    best = None
-    for option in candidates:
-        if not isinstance(option, dict):
-            continue
-        try:
-            threshold = int(option.get("min_quantity") or 0)
-            unit_price = float(option.get("unit_price"))
-        except (TypeError, ValueError):
-            continue
-        if (
-            threshold > 0
-            and quantity >= threshold
-            and 0 <= unit_price <= regular
-            and (best is None or threshold > best[0] or (threshold == best[0] and unit_price < best[1]))
-        ):
-            best = (threshold, unit_price)
-    if best is None:
+    reached = active_bulk_tier(
+        {"price": regular, "bulk_options": candidates}, quantity,
+    )
+    if reached is None:
         return regular
-    return round(best[1], 2)
+    return reached["unit_price"]
 
 
 def _synchronized_bulk_price_fields(offer, new_price, *, preserve_margin):

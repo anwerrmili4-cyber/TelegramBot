@@ -103,6 +103,40 @@ def decompose_legacy_bulk_line(template: str, lang: str = "en") -> str:
     )
 
 
+def _bulk_tier_label(name: str, *, html_template: bool) -> str:
+    cleaned = " ".join(str(name or "").split())[:40]
+    if html_template:
+        return html.escape(cleaned)
+    return cleaned.replace("*", "").replace("_", "").replace("`", "")
+
+
+def expand_bulk_tier_lines(template: str, tiers: list[dict]) -> str:
+    """Turn the single wholesale row into one row per saved tier."""
+    if len(tiers) <= 1:
+        return template
+    labels = ("BULK PRICE", "PRIX EN GROS", "سعر الجملة")
+    html_template = str(template).lstrip().startswith(("[[HTML]]", "[HTML]"))
+    output = []
+    for line in str(template).splitlines():
+        if "{bulk_price}" not in line and "{bulk_quantity}" not in line:
+            output.append(line)
+            continue
+        for index, tier in enumerate(tiers):
+            named = line
+            label = _bulk_tier_label(tier.get("name"), html_template=html_template)
+            if label and not any(marker in named for marker in labels):
+                named = named.replace("{bulk_price}", f"{label}: {{bulk_price}}", 1)
+            elif label:
+                for marker in labels:
+                    if marker in named:
+                        named = named.replace(marker, label, 1)
+                        break
+            named = named.replace("{bulk_price}", f"{{bulk_price_{index}}}")
+            named = named.replace("{bulk_quantity}", f"{{bulk_quantity_{index}}}")
+            output.append(named)
+    return "\n".join(output)
+
+
 def offer_description_text(offer: dict, lang: str) -> str:
     """Render the stored product description for its dedicated screen."""
     if lang == "ar" and offer.get("description_ar"):
@@ -219,16 +253,10 @@ def compact_offer_text(
     stock_val = (
         "∞" if offer.get("unlimited_stock") else int(offer.get("stock") or 0)
     )
-    bulk_enabled = False
-    bulk_quantity = 0
-    bulk_price = 0.0
-    try:
-        bulk_quantity = int(offer.get("bulk_quantity") or 0)
-        bulk_price = float(offer.get("bulk_unit_price"))
-        if bulk_quantity > 0 and 0 <= bulk_price <= float(offer.get("price")):
-            bulk_enabled = True
-    except (TypeError, ValueError):
-        pass
+    tiers = db.list_bulk_tiers(offer)
+    bulk_enabled = bool(tiers)
+    bulk_quantity = tiers[0]["min_quantity"] if tiers else 0
+    bulk_price = tiers[0]["unit_price"] if tiers else 0.0
     template = db.get_text_override("offer_card_template", lang)
     if not template:
         template = (
@@ -250,6 +278,9 @@ def compact_offer_text(
         "bulk_price": f"<b>{bulk_price:.2f}</b>",
         "bulk_quantity": f"<b>{bulk_quantity}</b>",
     }
+    for index, tier in enumerate(tiers):
+        replacements[f"bulk_price_{index}"] = f"<b>{tier['unit_price']:.2f}</b>"
+        replacements[f"bulk_quantity_{index}"] = f"<b>{tier['min_quantity']}</b>"
     tokens = {}
     protected_template = str(template)
     is_methods_catalog = catalog_name.casefold() == "methods"
@@ -320,6 +351,8 @@ def compact_offer_text(
         rf"`([^`\n]*(?:\{{(?:{value_placeholders})\}})[^`\n]*)`",
         r"\1", protected_template,
     )
+    if bulk_enabled:
+        protected_template = expand_bulk_tier_lines(protected_template, tiers)
     for index, (key, value) in enumerate(replacements.items()):
         token = f"OFCARDTOKEN{index}X"
         protected_template = protected_template.replace(f"{{{key}}}", token)

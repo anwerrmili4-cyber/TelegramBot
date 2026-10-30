@@ -15,6 +15,7 @@ from app.domain import affiliate_service, support_service
 from bot import (
     PENDING,
     _method_announcement_text,
+    _quantity_screen_text,
     admin_text_preview,
     announce_api_flash_sale,
     announce_channel_purchase,
@@ -782,6 +783,32 @@ def test_quantity_stepper_uses_premium_emoji_and_bulk_total(monkeypatch, mock_mo
     assert "20.00" in below_bulk
     assert "32.00" not in below_bulk
     assert "10.00" in below_bulk
+
+
+def test_quantity_screen_shows_every_bulk_tier_and_applies_the_reached_one(mock_mongodb):
+    service_id = db.add_service("Courses", "C")
+    offer_id = db.add_offer(
+        service_id, "Coursera Premium", 3.1, 250,
+        bulk_quantity=5, bulk_unit_price=2.6,
+        bulk_options=[
+            {"name": "Bulk", "min_quantity": 5, "unit_price": 2.6},
+            {"name": "Bulk Pro", "min_quantity": 10, "unit_price": 2.1},
+        ],
+    )
+    offer = db.get_offer(offer_id)
+
+    first, mode = _quantity_screen_text("en", offer, 7)
+    assert mode == ParseMode.MARKDOWN
+    assert "✅ *Bulk* from *5 units*" in first
+    assert "📦 *Bulk Pro* from *10 units*" in first
+    assert "2.60" in first
+    assert "2.10" in first
+    assert "18.20" in first
+
+    second, _mode = _quantity_screen_text("en", offer, 10)
+    assert "📦 *Bulk* from *5 units*" in second
+    assert "✅ *Bulk Pro* from *10 units*" in second
+    assert "21.00" in second
 
 
 def test_custom_quantity_button_accepts_a_typed_number(monkeypatch, mock_mongodb):
