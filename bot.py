@@ -53,6 +53,7 @@ from app.bot.presentation import (
     text_without_custom_emojis,
 )
 from app.domain import (
+    admin_search_service,
     affiliate_service,
     buyer_api_service,
     catalog_search_service,
@@ -886,6 +887,7 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "await_quantity",
         "catalog_search",
         "catalog_request",
+        "adm_search",
         "adm_setprice",
         "adm_flash_start",
         "adm_svcname",
@@ -2220,6 +2222,27 @@ async def handle_pending_input(update, context, lang):
     uid = update.effective_user.id
     kind, ref = PENDING.get(uid)
     text = update.message.text.strip()
+
+    if kind == "adm_search" and uid == ADMIN_ID:
+        found = admin_search_service.search(
+            text,
+            scope=(ref or {}).get("scope") if isinstance(ref, dict) else "all",
+            field=(ref or {}).get("field") if isinstance(ref, dict) else "all",
+            status=(ref or {}).get("status") if isinstance(ref, dict) else "",
+        )
+        if found is None:
+            prompt, markup = admin.admin_search_prompt(
+                ref if isinstance(ref, dict) else {},
+            )
+            await update.message.reply_text(
+                prompt, parse_mode=ParseMode.HTML, reply_markup=markup,
+            )
+            return
+        result_text, markup = admin.admin_search_results(found)
+        await update.message.reply_text(
+            result_text, parse_mode=ParseMode.HTML, reply_markup=markup,
+        )
+        return
 
     if kind == "adm_lovable_trial" and uid == ADMIN_ID:
         customer_id = int(ref)
@@ -4114,12 +4137,49 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     data = q.data
     await q.answer()
+    pending_search = PENDING.get(uid)
+    if (
+        pending_search
+        and pending_search[0] == "adm_search"
+        and data != "adm_search"
+        and not data.startswith(("adm_sset:", "adm_search_user:"))
+    ):
+        PENDING.pop(uid, None)
 
     if data == "adm_panel":
         await show_callback_screen(
             q,
             "🛠️ *Panneau Admin*",
             reply_markup=admin.admin_panel_keyboard(),
+        )
+        return
+
+    if data == "adm_search" or data.startswith("adm_sset:"):
+        current = PENDING.get(uid)
+        filters = admin_search_service.search_filters(
+            current[1] if current and current[0] == "adm_search" else {},
+        )
+        if data.startswith("adm_sset:"):
+            _prefix, kind_key, value = data.split(":", 2)
+            if kind_key == "s":
+                filters["scope"] = value
+            elif kind_key == "f":
+                filters["field"] = value
+            elif kind_key == "t":
+                filters["status"] = "" if value == "-" else value
+            filters = admin_search_service.search_filters(filters)
+        PENDING[uid] = ("adm_search", filters)
+        prompt, markup = admin.admin_search_prompt(filters)
+        await show_callback_screen(
+            q, prompt, parse_mode=ParseMode.HTML, reply_markup=markup,
+        )
+        return
+
+    if data.startswith("adm_search_user:"):
+        user_id = int(data.split(":", 1)[1])
+        text, markup = admin.admin_search_customer(user_id)
+        await show_callback_screen(
+            q, text, parse_mode=ParseMode.HTML, reply_markup=markup,
         )
         return
 

@@ -15,6 +15,17 @@ import database as db
 from app.domain import loyalty_service, reseller_service
 
 
+def _restrict_search(query: dict[str, Any], clauses: list[dict[str, Any]]) -> None:
+    """Apply a search without sending Mongo an empty ``$or``."""
+    if not clauses:
+        query["id"] = -1
+        return
+    if "$or" in query:
+        query["$and"] = [{"$or": query.pop("$or")}, {"$or": clauses}]
+    else:
+        query["$or"] = clauses
+
+
 def _admin_order(row: dict[str, Any] | None) -> dict[str, Any] | None:
     """Expose the full charged amount without changing payment-balance fields."""
     result = db._public(row)
@@ -132,10 +143,7 @@ def list_orders(params: dict[str, list[str]]) -> dict[str, Any]:
             clauses.append({"id": int(search)})
         if search.isdigit() and field in {"all", "user_id"}:
             clauses.append({"user_id": int(search)})
-        if "$or" in query:
-            query["$and"] = [{"$or": query.pop("$or")}, {"$or": clauses}]
-        else:
-            query["$or"] = clauses
+        _restrict_search(query, clauses)
 
     query = db.customer_order_query(query)
     collection = db.get_conn().orders
@@ -453,7 +461,7 @@ def list_tickets(params: dict[str, list[str]]) -> dict[str, Any]:
             clauses.append({"id": int(search)})
         if search.isdigit() and field in {"all", "user_id"}:
             clauses.append({"user_id": int(search)})
-        query["$or"] = clauses
+        _restrict_search(query, clauses)
 
     conn = db.get_conn()
     collection = conn.support_tickets
@@ -593,7 +601,7 @@ def list_customers(params: dict[str, list[str]]) -> dict[str, Any]:
             clauses.extend(({"first_name": pattern}, {"full_name": pattern}))
         if search.isdigit() and field in {"all", "telegram_id"}:
             clauses.append({"telegram_id": int(search)})
-        query["$or"] = clauses
+        _restrict_search(query, clauses)
     status = _first(params, "status") or "all"
     if status == "active":
         query["banned"] = {"$ne": True}

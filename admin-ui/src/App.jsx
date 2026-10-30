@@ -256,27 +256,59 @@ function Header({ activePage, alertCount, busyAction, density, isRefreshing, onL
   );
 }
 
+const SEARCH_SCOPES = [
+  ["all", "Tout"],
+  ["orders", "Commandes"],
+  ["customers", "Clients"],
+  ["products", "Produits"],
+  ["tickets", "Tickets"],
+  ["site", "Site"],
+];
+const ORDER_STATUSES = [
+  ["", "Tous les statuts"],
+  ["pending_payment", "En attente"],
+  ["paid", "Payée"],
+  ["payment_confirmed", "Confirmée"],
+  ["delivered", "Livrée"],
+  ["manual_review", "Vérification"],
+  ["cancelled", "Annulée"],
+];
+
 function SearchDialog({ data, onClose, onNavigate }) {
   const [query, setQuery] = useState("");
+  const [scope, setScope] = useState("all");
+  const [field, setField] = useState("all");
+  const [status, setStatus] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const normalized = query.trim().toLowerCase();
-  const results = useMemo(() => {
-    if (!normalized) return [];
-    const orders = (data.orders || []).filter((item) => `${item.id} ${item.user_id} ${item.username || ""} ${item.offer_name || ""} ${item.service_name || ""} ${item.txid || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `order-${item.id}`, title: `Commande #${item.id}`, detail: item.txid ? `${item.offer_name || "Produit"} · TXID ${item.txid}` : item.offer_name || `Client ${item.user_id}`, page: "orders", icon: ClipboardList }));
-    const customers = (data.users || []).filter((item) => `${item.telegram_id || item.user_id || ""} ${item.username || ""} ${item.first_name || ""} ${item.last_name || ""}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `customer-${item.telegram_id || item.user_id}`, title: item.username ? `@${item.username}` : `Client ${item.telegram_id || item.user_id}`, detail: [item.first_name, item.last_name].filter(Boolean).join(" ") || "Client Telegram", page: "customers", icon: Users }));
-    const services = (data.services || []).filter((item) => `${item.name || ""} ${(item.offers || []).map((offer) => `${offer.name} ${offer.supplier_provider || ""}`).join(" ")}`.toLowerCase().includes(normalized)).slice(0, 4).map((item) => ({ id: `service-${item.id}`, title: item.name, detail: `${item.offer_count || 0} offre(s)`, page: "catalog", icon: ShoppingBag }));
-    const tickets = (data.tickets || []).filter((item) => `${item.id} ${item.user_id} ${item.category || ""} ${item.message || ""}`.toLowerCase().includes(normalized)).slice(0, 3).map((item) => ({ id: `ticket-${item.id}`, entityId: item.id, title: item.category === "catalog_request" ? `Demande produit #${item.id}` : `Ticket #${item.id}`, detail: item.message || item.category || `Client ${item.user_id}`, page: item.category === "catalog_request" ? "product-requests" : "support", icon: item.category === "catalog_request" ? PackageSearch : Headphones }));
-    return [...orders, ...customers, ...services, ...tickets];
-  }, [data, normalized]);
-  const [siteResults, setSiteResults] = useState([]);
-  const [sitePending, setSitePending] = useState(false);
+  const products = useMemo(() => {
+    if (!normalized || !["all", "products"].includes(scope) || !["all", "product", "name"].includes(field)) return [];
+    const found = [];
+    for (const service of data.services || []) {
+      const serviceText = `${service.id} ${service.name || ""}`.toLowerCase();
+      if (serviceText.includes(normalized)) {
+        found.push({ id: `service-${service.id}`, group: "Produits", title: service.name, detail: `${service.offer_count || 0} offre(s)`, page: "catalog", extra: { search: service.name || "", searchField: "service" }, icon: ShoppingBag });
+      }
+      for (const offer of service.offers || []) {
+        const offerText = `${offer.id} ${offer.name || ""} ${offer.supplier_provider || ""} ${offer.supplier_product_id || ""}`.toLowerCase();
+        if (!offerText.includes(normalized)) continue;
+        found.push({ id: `offer-${offer.id}`, group: "Produits", title: offer.name || `Offre #${offer.id}`, detail: [service.name, offer.supplier_provider].filter(Boolean).join(" · ") || "Produit", page: "catalog", extra: { search: offer.name || String(offer.id), searchField: "product" }, icon: PackageSearch });
+      }
+    }
+    return found.slice(0, 8);
+  }, [data.services, field, normalized, scope]);
+  const [remoteResults, setRemoteResults] = useState([]);
+  const [pending, setPending] = useState(false);
   useEffect(() => {
     if (!normalized) {
-      setSiteResults([]);
-      setSitePending(false);
+      setRemoteResults([]);
+      setPending(false);
       return undefined;
     }
     const controller = new AbortController();
-    setSitePending(true);
+    setPending(true);
     const timer = window.setTimeout(async () => {
       try {
         const q = encodeURIComponent(query.trim());
@@ -284,47 +316,102 @@ function SearchDialog({ data, onClose, onNavigate }) {
           const response = await fetch(path, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
           return response.ok ? response.json() : { items: [] };
         };
-        const [orders, customers, deposits] = await Promise.all([
-          load(`/admin/api/site-orders?search=${q}&status=all&per_page=4`),
-          load(`/admin/api/site-customers?search=${q}&per_page=4`),
-          load(`/admin/api/site-deposits?search=${q}&status=all&per_page=4`),
-        ]);
-        setSiteResults([
-          ...(orders.items || []).map((cart) => ({ id: `site-cart-${cart.reference}`, title: `Panier ${cart.reference}`, detail: [cart.customer_name, cart.customer_email].filter(Boolean).join(" · ") || "Commande du site", page: "site-orders", entityId: cart.reference, extra: { search: cart.reference, status: "all" }, icon: ClipboardList })),
-          ...(customers.items || []).map((customer) => ({ id: `site-customer-${customer.id}`, title: customer.name || customer.email || `Client ${customer.id}`, detail: customer.email || "Client du site", page: "site-customers", entityId: customer.id, extra: { search: customer.email || customer.name || "" }, icon: Users })),
-          ...(deposits.items || []).map((deposit) => ({ id: `site-deposit-${deposit.id}`, title: `Recharge #${deposit.id}`, detail: [deposit.customer_name, deposit.transaction_reference].filter(Boolean).join(" · ") || "Recharge du site", page: "site-deposits", entityId: deposit.id, extra: { search: deposit.customer_email || deposit.transaction_reference || "", status: "all" }, icon: WalletCards })),
-        ]);
+        const requests = [];
+        if (["all", "orders"].includes(scope) && ["all", "order_id", "user_id", "txid", "product", "name"].includes(field)) {
+          const params = new URLSearchParams({ search: query.trim(), search_field: field === "customer" ? "user_id" : field === "product" ? "name" : field, per_page: "8" });
+          if (status) params.set("status", status);
+          if (dateFrom) params.set("date_from", dateFrom);
+          if (dateTo) params.set("date_to", dateTo);
+          requests.push(load(`/admin/api/orders?${params}`).then((payload) => (payload.items || []).map((item) => ({ id: `order-${item.id}`, group: "Commandes", title: `Commande #${item.id}`, detail: [item.offer_name || item.service_name, item.status, item.txid].filter(Boolean).join(" · "), page: "orders", entityId: item.id, extra: { search: String(item.id), searchField: "order_id", status: status || "all" }, icon: ClipboardList }))));
+        }
+        if (["all", "customers"].includes(scope) && ["all", "user_id", "name", "customer"].includes(field)) {
+          const customerField = field === "customer" ? "telegram_id" : field === "name" ? "name" : "all";
+          requests.push(load(`/admin/api/customers?search=${q}&search_field=${customerField}&per_page=6`).then((payload) => (payload.items || []).map((item) => ({ id: `customer-${item.telegram_id || item.user_id}`, group: "Clients", title: item.username ? `@${item.username}` : `Client ${item.telegram_id || item.user_id}`, detail: [item.first_name, item.last_name, item.full_name].filter(Boolean).join(" ") || "Client Telegram", page: "customers", entityId: item.telegram_id || item.user_id, extra: { search: item.username || String(item.telegram_id || item.user_id), searchField: "all" }, icon: Users }))));
+        }
+        if (["all", "tickets"].includes(scope) && ["all", "message", "user_id"].includes(field)) {
+          requests.push(load(`/admin/api/tickets?search=${q}&search_field=${field === "message" ? "message" : "all"}&per_page=6`).then((payload) => (payload.items || []).map((item) => ({ id: `ticket-${item.id}`, group: "Tickets", title: item.category === "catalog_request" ? `Demande produit #${item.id}` : `Ticket #${item.id}`, detail: item.message || item.category || `Client ${item.user_id}`, page: item.category === "catalog_request" ? "product-requests" : "support", entityId: item.id, icon: item.category === "catalog_request" ? PackageSearch : Headphones }))));
+        }
+        if (["all", "site"].includes(scope)) {
+          requests.push(Promise.all([
+            load(`/admin/api/site-orders?search=${q}&status=all&per_page=4`),
+            load(`/admin/api/site-customers?search=${q}&per_page=4`),
+            load(`/admin/api/site-deposits?search=${q}&status=all&per_page=4`),
+          ]).then(([orders, customers, deposits]) => [
+            ...(orders.items || []).map((cart) => ({ id: `site-cart-${cart.reference}`, group: "Site", title: `Panier ${cart.reference}`, detail: [cart.customer_name, cart.customer_email].filter(Boolean).join(" · ") || "Commande du site", page: "site-orders", entityId: cart.reference, extra: { search: cart.reference, status: "all" }, icon: ClipboardList })),
+            ...(customers.items || []).map((customer) => ({ id: `site-customer-${customer.id}`, group: "Site", title: customer.name || customer.email || `Client ${customer.id}`, detail: customer.email || "Client du site", page: "site-customers", entityId: customer.id, extra: { search: customer.email || customer.name || "" }, icon: Users })),
+            ...(deposits.items || []).map((deposit) => ({ id: `site-deposit-${deposit.id}`, group: "Site", title: `Recharge #${deposit.id}`, detail: [deposit.customer_name, deposit.transaction_reference].filter(Boolean).join(" · ") || "Recharge du site", page: "site-deposits", entityId: deposit.id, extra: { search: deposit.customer_email || deposit.transaction_reference || "", status: "all" }, icon: WalletCards })),
+          ]));
+        }
+        const groups = await Promise.all(requests);
+        setRemoteResults(groups.flat());
       } catch (error) {
-        if (error.name !== "AbortError") setSiteResults([]);
+        if (error.name !== "AbortError") setRemoteResults([]);
       } finally {
-        if (!controller.signal.aborted) setSitePending(false);
+        if (!controller.signal.aborted) setPending(false);
       }
     }, 250);
     return () => {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [normalized, query]);
-  const visibleResults = [...results, ...siteResults].slice(0, 14);
-
+  }, [dateFrom, dateTo, field, normalized, query, scope, status]);
+  const visibleResults = [...products, ...remoteResults].slice(0, 18);
+  useEffect(() => { setActiveIndex(0); }, [visibleResults.length, query, scope, field, status]);
+  const openResult = (result) => {
+    if (!result) return;
+    onNavigate(result.page, result.entityId, result.extra);
+    onClose();
+  };
   useEffect(() => {
-    const closeOnEscape = (event) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+    const onKey = (event) => {
+      if (event.key === "Escape") onClose();
+      const target = event.target;
+      if (target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type === "date")) return;
+      if (!visibleResults.length) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((index) => (index + 1) % visibleResults.length);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((index) => (index - 1 + visibleResults.length) % visibleResults.length);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        openResult(visibleResults[activeIndex]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activeIndex, onClose, visibleResults]);
 
+  let lastGroup = "";
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
-      <section className="search-dialog" role="dialog" aria-modal="true" aria-label="Recherche globale" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="search-dialog-input"><Search size={20} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom, commande, panier site, recharge, TXID, client ou ticket…" /><button onClick={onClose}><X size={18} /></button></div>
-        <div className="search-results">
-          {!normalized && <div className="search-empty"><Search size={25} /><strong>Recherche globale</strong><span>Saisissez un nom, un panier du site, une recharge, un TXID, un produit ou un ticket.</span></div>}
-          {normalized && visibleResults.length === 0 && !sitePending && <div className="search-empty"><strong>Aucun résultat</strong><span>Essayez un autre terme de recherche.</span></div>}
-          {visibleResults.map(({ id, entityId, title, detail, page, extra, icon: Icon }) => (
-            <button key={id} onClick={() => { onNavigate(page, entityId, extra); onClose(); }}><span><Icon size={17} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={16} /></button>
-          ))}
+      <section className="search-dialog search-dialog-advanced" role="dialog" aria-modal="true" aria-label="Recherche avancée" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="search-dialog-input"><Search size={20} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ID, TXID, produit, client, email, ticket ou panier…" /><button onClick={onClose}><X size={18} /></button></div>
+        <div className="search-advanced">
+          <div className="search-scopes">{SEARCH_SCOPES.map(([value, label]) => <button key={value} type="button" className={scope === value ? "active" : ""} onClick={() => setScope(value)}>{label}</button>)}</div>
+          <label>Champ<select value={field} onChange={(event) => setField(event.target.value)}><option value="all">Tout</option><option value="order_id">ID commande</option><option value="user_id">ID client</option><option value="txid">TXID</option><option value="product">Produit</option><option value="name">Nom</option><option value="message">Message</option></select></label>
+          {["all", "orders"].includes(scope) && <label>Statut<select value={status} onChange={(event) => setStatus(event.target.value)}>{ORDER_STATUSES.map(([value, label]) => <option key={value || "any"} value={value}>{label}</option>)}</select></label>}
+          {["all", "orders"].includes(scope) && <label>Du<input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>}
+          {["all", "orders"].includes(scope) && <label>Au<input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>}
         </div>
-        <footer><span>↵ ouvrir</span><span>Échap fermer</span></footer>
+        <div className="search-results">
+          {!normalized && <div className="search-empty"><Search size={25} /><strong>Recherche avancée</strong><span>Filtrez par type, statut et date, puis ouvrez la commande, le client, le produit ou le ticket.</span></div>}
+          {normalized && visibleResults.length === 0 && !pending && <div className="search-empty"><strong>Aucun résultat</strong><span>Élargissez le champ, changez le statut ou retirez les dates.</span></div>}
+          {pending && <div className="search-pending">Recherche…</div>}
+          {visibleResults.map((result, index) => {
+            const showGroup = result.group !== lastGroup;
+            lastGroup = result.group;
+            const Icon = result.icon;
+            return (
+              <div key={result.id}>
+                {showGroup && <div className="search-group">{result.group}</div>}
+                <button type="button" className={index === activeIndex ? "active" : ""} onMouseEnter={() => setActiveIndex(index)} onClick={() => openResult(result)}><span><Icon size={17} /></span><div><strong>{result.title}</strong><small>{result.detail}</small></div><ChevronRight size={16} /></button>
+              </div>
+            );
+          })}
+        </div>
+        <footer><span>↑↓ naviguer</span><span>↵ ouvrir</span><span>Échap fermer</span>{normalized && <span>{visibleResults.length} résultat(s)</span>}</footer>
       </section>
     </div>
   );

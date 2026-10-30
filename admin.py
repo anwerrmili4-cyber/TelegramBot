@@ -164,6 +164,7 @@ def admin_panel_keyboard():
         else "🟢 Full maintenance lock: OFF"
     )
     buttons = [
+        InlineKeyboardButton("🔎 Recherche avancée", callback_data="adm_search", style="primary"),
         InlineKeyboardButton("💸 Retraits en attente", callback_data="adm_withdrawals", style="danger"),
         InlineKeyboardButton(f"🛡 Warranty ({active_warranties})", callback_data="adm_warranties:0", style="danger" if active_warranties else "success"),
         InlineKeyboardButton(f"✅ Payment Confirmed ({confirmed_payments})", callback_data="adm_payments:0", style="success"),
@@ -190,6 +191,216 @@ def _admin_page_navigation(prefix, page, total, page_size):
     if page < total_pages - 1:
         row.append(InlineKeyboardButton("➡️", callback_data=f"{prefix}:{page + 1}"))
     return row
+
+
+_SEARCH_SCOPES = (
+    ("all", "Tout"),
+    ("orders", "Commandes"),
+    ("customers", "Clients"),
+    ("products", "Produits"),
+    ("tickets", "Tickets"),
+)
+_SEARCH_FIELDS = (
+    ("all", "Tout"),
+    ("order_id", "Commande"),
+    ("user_id", "Client"),
+    ("txid", "TXID"),
+    ("product", "Produit"),
+    ("name", "Nom"),
+    ("message", "Message"),
+)
+_SEARCH_STATUSES = (
+    ("", "Tous"),
+    ("pending_payment", "Attente"),
+    ("paid", "Payée"),
+    ("payment_confirmed", "Confirmée"),
+    ("delivered", "Livrée"),
+    ("manual_review", "Vérif."),
+    ("cancelled", "Annulée"),
+)
+
+
+def _search_choice(label, active):
+    return f"✓ {label}" if active else label
+
+
+def _search_label(value, choices):
+    return dict(choices).get(value, value or "Tous")
+
+
+def admin_search_keyboard(filters):
+    """Scope, field and order-status choices for the Telegram admin search."""
+    selected = filters if isinstance(filters, dict) else {}
+    scope = selected.get("scope") or "all"
+    field = selected.get("field") or "all"
+    status = selected.get("status") or ""
+    scope_buttons = [
+        InlineKeyboardButton(
+            _search_choice(label, scope == value),
+            callback_data=f"adm_sset:s:{value}",
+        )
+        for value, label in _SEARCH_SCOPES
+    ]
+    field_buttons = [
+        InlineKeyboardButton(
+            _search_choice(label, field == value),
+            callback_data=f"adm_sset:f:{value}",
+        )
+        for value, label in _SEARCH_FIELDS
+    ]
+    rows = _two_column_rows(scope_buttons) + _two_column_rows(field_buttons)
+    if scope in {"all", "orders"}:
+        status_buttons = [
+            InlineKeyboardButton(
+                _search_choice(label, status == value),
+                callback_data=f"adm_sset:t:{value or '-'}",
+            )
+            for value, label in _SEARCH_STATUSES
+        ]
+        rows.extend(_two_column_rows(status_buttons))
+    rows.append([InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def admin_search_prompt(filters):
+    """Explain the current advanced-search filters."""
+    selected = filters if isinstance(filters, dict) else {}
+    scope = selected.get("scope") or "all"
+    status = _search_label(selected.get("status") or "", _SEARCH_STATUSES)
+    lines = [
+        "🔎 <b>Recherche avancée</b>",
+        "",
+        f"Portée : <b>{html.escape(_search_label(scope, _SEARCH_SCOPES))}</b>",
+        f"Champ : <b>{html.escape(_search_label(selected.get('field') or 'all', _SEARCH_FIELDS))}</b>",
+    ]
+    if scope in {"all", "orders"}:
+        lines.append(f"Statut : <b>{html.escape(status)}</b>")
+    lines.extend([
+        "",
+        "Envoyez un ID, un TXID, un produit, un client ou un ticket.",
+        "Dates optionnelles : <code>du:2026-10-01 au:2026-10-30</code>",
+    ])
+    return "\n".join(lines), admin_search_keyboard(selected)
+
+
+def _clip(value, limit=60):
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def admin_search_results(found):
+    """Render grouped lookup results as text plus open buttons."""
+    query = html.escape(str((found or {}).get("query") or ""))
+    dates = (found or {}).get("dates") or {}
+    filters = (found or {}).get("filters") or {}
+    date_note = " ".join(
+        part for part in (
+            f"du {dates['date_from']}" if dates.get("date_from") else "",
+            f"au {dates['date_to']}" if dates.get("date_to") else "",
+        ) if part
+    )
+    lines = [
+        "🔎 <b>Résultats</b>",
+        f"Recherche : <code>{query or '—'}</code>",
+    ]
+    if date_note:
+        lines.append(html.escape(date_note))
+    lines.append(
+        "Filtres : "
+        f"{html.escape(_search_label(filters.get('scope') or 'all', _SEARCH_SCOPES))}"
+        f" · {html.escape(_search_label(filters.get('field') or 'all', _SEARCH_FIELDS))}"
+    )
+    buttons = []
+    groups = (found or {}).get("groups") or []
+    if not groups:
+        lines.extend(["", "Aucun résultat. Élargissez le champ ou retirez le statut."])
+    for group in groups:
+        lines.extend(["", f"<b>{html.escape(group['title'])}</b>"])
+        for item in group["items"]:
+            if group["key"] == "orders":
+                label = _clip(
+                    f"#{item.get('id')} · {item.get('offer_name') or item.get('service_name') or 'Commande'}"
+                    f" · {item.get('status') or ''}"
+                )
+                lines.append(f"• {html.escape(label)}")
+                buttons.append(InlineKeyboardButton(label, callback_data=f"adm_order:{int(item['id'])}"))
+            elif group["key"] == "customers":
+                username = str(item.get("username") or "").strip()
+                name = str(item.get("full_name") or item.get("first_name") or "Client").strip()
+                label = _clip(f"@{username} · {item.get('telegram_id')}" if username else f"{name} · {item.get('telegram_id')}")
+                lines.append(f"• {html.escape(label)}")
+                buttons.append(InlineKeyboardButton(label, callback_data=f"adm_search_user:{int(item['telegram_id'])}"))
+            elif group["key"] == "products":
+                if item.get("kind") == "service":
+                    label = _clip(f"Service · {item.get('name')}")
+                    callback = f"adm_svc:{int(item['id'])}"
+                else:
+                    label = _clip(" · ".join(part for part in (item.get("name"), item.get("service_name")) if part))
+                    callback = f"adm_off:{int(item['id'])}"
+                lines.append(f"• {html.escape(label)}")
+                buttons.append(InlineKeyboardButton(label, callback_data=callback))
+            else:
+                message = _clip(item.get("message") or item.get("category") or "Ticket", 42)
+                label = _clip(f"Ticket #{item.get('id')} · {message}")
+                lines.append(f"• {html.escape(label)}")
+                buttons.append(InlineKeyboardButton(label, callback_data=f"adm_ticket:{int(item['id'])}"))
+    rows = _two_column_rows(buttons)
+    rows.append([
+        InlineKeyboardButton("🔎 Nouvelle recherche", callback_data="adm_search"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
+    ])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+def admin_search_customer(telegram_id):
+    """Show one customer found by the advanced search."""
+    from app.domain import admin_search_service, wallet_service
+
+    found = admin_search_service.customer_lookup(telegram_id)
+    if not found:
+        return (
+            "👤 <b>Client introuvable</b>",
+            InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔎 Recherche", callback_data="adm_search"),
+                InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
+            ]]),
+        )
+    user = found["user"]
+    user_id = int(user.get("telegram_id") or 0)
+    username = str(user.get("username") or "").strip()
+    name = " ".join(
+        part for part in (
+            str(user.get("first_name") or "").strip(),
+            str(user.get("last_name") or "").strip(),
+        ) if part
+    ) or str(user.get("full_name") or "").strip() or "—"
+    balance = wallet_service.balance_cents(user_id) / 100
+    lines = [
+        "👤 <b>Client</b>",
+        f"ID : <code>{user_id}</code>",
+        f"Utilisateur : {html.escape('@' + username) if username else '—'}",
+        f"Nom : {html.escape(name)}",
+        f"Solde : <b>{balance:.2f} {html.escape(CURRENCY)}</b>",
+        "",
+        "<b>Dernières commandes</b>",
+    ]
+    buttons = []
+    if not found["orders"]:
+        lines.append("Aucune commande bot.")
+    for order in found["orders"]:
+        label = _clip(
+            f"#{order.get('id')} · {order.get('offer_name') or 'Commande'} · {order.get('status') or ''}"
+        )
+        lines.append(f"• {html.escape(label)}")
+        buttons.append(InlineKeyboardButton(label, callback_data=f"adm_order:{int(order['id'])}"))
+    rows = _two_column_rows(buttons)
+    rows.append([
+        InlineKeyboardButton("🔎 Recherche", callback_data="adm_search"),
+        InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),
+    ])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
 def available_products_screen():
