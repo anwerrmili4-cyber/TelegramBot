@@ -217,8 +217,10 @@ VENTEBOT_API_BASE: str = normalized_http_url(first_env_value(
 # ---------------------------------------------------------------------------
 # Fournisseur revendeur Shop Phá Giá (API client v2)
 # ---------------------------------------------------------------------------
-PHAGIA_API_KEY: str = env_value("HP_PHAGIA_API_KEY")
-PHAGIA_API_BASE: str = normalized_http_url(env_value("HP_PHAGIA_API_BASE"))
+PHAGIA_API_KEY: str = "".join(env_value("HP_PHAGIA_API_KEY").split())
+PHAGIA_API_BASE: str = normalized_http_url(
+    env_value("HP_PHAGIA_API_BASE") or "https://api-de19ce3a.bug.edu.vn"
+)
 
 # ---------------------------------------------------------------------------
 # Fournisseur revendeur Safwan Tiger (@SafwanTigerShopbot)

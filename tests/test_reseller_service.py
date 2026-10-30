@@ -1336,7 +1336,13 @@ def test_phagia_purchase_uses_only_documented_order_fields(
     assert reseller_service.fulfill_paid_order(102) == ["login:password"]
     assert calls == [("/api/v2/client/orders", {
         "method": "POST",
-        "body": {"product_id": 81, "quantity": 1},
+        "body": {
+            "product_id": 81,
+            "qty": 1,
+            "plan_id": None,
+            "customer_input": None,
+            "idempotency_key": "BM-102",
+        },
     })]
     fulfillment = mock_mongodb.reseller_fulfillments.find_one({"order_id": 102})
     assert fulfillment["supplier_order_id"] == "991"

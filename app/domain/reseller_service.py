@@ -920,7 +920,8 @@ def _phagia_request_json(
     body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Call Shop Phá Giá's documented client-v2 endpoints."""
-    if not PHAGIA_API_KEY:
+    api_key = "".join(str(PHAGIA_API_KEY or "").split())
+    if not api_key:
         raise ResellerApiError(
             "Shop Phá Giá n’est pas configuré. Ajoutez HP_PHAGIA_API_KEY."
         )
@@ -933,7 +934,7 @@ def _phagia_request_json(
     request = Request(
         f"{PHAGIA_API_BASE}{path}",
         headers={
-            "Authorization": f"Bearer {PHAGIA_API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
             **({"Content-Type": "application/json"} if body is not None else {}),
             "User-Agent": "BlackMarket-Reseller/1.0",
@@ -952,20 +953,25 @@ def _phagia_request_json(
                 error_payload = decoded
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
+        nested = error_payload.get("error") if isinstance(error_payload.get("error"), dict) else {}
         message = str(
             error_payload.get("message")
+            or nested.get("message")
             or error_payload.get("detail")
-            or error_payload.get("error")
+            or nested.get("code")
             or ""
         )[:300]
         if exc.code in {401, 403}:
             raise ResellerApiError(
-                "Clé API Shop Phá Giá refusée. Remplacez-la par une clé active."
+                "Clé API Shop Phá Giá refusée. Collez la clé sur une seule ligne, "
+                "au format chat_id:token, puis redéployez."
+                + (f" ({message})" if message else "")
             ) from exc
-        if "balance" in message.lower() or "số dư" in message.lower():
+        lowered = message.lower()
+        if any(word in lowered for word in ("balance", "solde", "số dư", "stock", "hết hàng", "tồn kho")):
             raise ResellerOrderNotCreatedError(
                 message
-                or "Solde Shop Phá Giá insuffisant : aucune commande n’a été créée."
+                or "Solde ou stock Shop Phá Giá insuffisant : aucune commande n’a été créée."
             ) from exc
         error_type = (
             ResellerOrderNotCreatedError
@@ -981,11 +987,15 @@ def _phagia_request_json(
         payload = {"data": payload}
     if not isinstance(payload, dict):
         raise ResellerApiError("Réponse Shop Phá Giá invalide.")
-    if payload.get("success") is False or payload.get("ok") is False:
+    code = str(payload.get("code") or "").strip().upper()
+    if payload.get("success") is False or payload.get("ok") is False or (
+        code and code not in {"OK", "SUCCESS"}
+    ):
         message = str(
             payload.get("message") or payload.get("error") or "Requête Shop Phá Giá refusée."
         )[:300]
-        if "balance" in message.lower() or "số dư" in message.lower():
+        lowered = message.lower()
+        if any(word in lowered for word in ("balance", "solde", "số dư", "stock", "hết hàng", "tồn kho")):
             raise ResellerOrderNotCreatedError(message)
         raise ResellerApiError(message)
     return payload
@@ -1600,7 +1610,15 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
             if isinstance(wallet_payload.get("wallet"), dict)
             else wallet_payload
         )
-        reseller = {"balance": wallet_data.get("balance", wallet_data.get("amount", 0))}
+        try:
+            raw_balance = float(wallet_data.get("balance", wallet_data.get("amount", 0)) or 0)
+        except (TypeError, ValueError):
+            raw_balance = 0.0
+        wallet_currency = str(wallet_data.get("currency") or "").upper()
+        if wallet_currency == "VND" or (not wallet_currency and raw_balance >= 1000):
+            rate = get_nastele_vnd_rate()
+            raw_balance = round(raw_balance / rate, 2) if rate else 0.0
+        reseller = {"balance": raw_balance}
         supplier_name = "Shop Phá Giá"
     else:
         payload = _request_json("/api/reseller/products")
@@ -1682,8 +1700,16 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
             elif provider == MEGAMARKET_PROVIDER:
                 wholesale = float(Decimal(str(raw.get("sell_price") or 0)))
             elif provider == PHAGIA_PROVIDER:
+                plans = raw.get("plans") if isinstance(raw.get("plans"), list) else []
+                plan_prices = [
+                    plan.get("price")
+                    for plan in plans
+                    if isinstance(plan, dict) and plan.get("price") not in (None, "")
+                ]
                 phagia_price = (
-                    raw.get("reseller_price")
+                    min(plan_prices)
+                    if plan_prices
+                    else raw.get("reseller_price")
                     or raw.get("wholesale_price")
                     or raw.get("price")
                     or raw.get("unit_price")
@@ -1693,6 +1719,15 @@ def _catalog(provider: str = PROVIDER) -> dict[str, Any]:
                 if isinstance(phagia_price, dict):
                     phagia_price = phagia_price.get("amount", 0)
                 wholesale = float(Decimal(str(phagia_price)))
+                price_display = str(raw.get("price_display") or "")
+                price_currency = str(raw.get("currency") or "").upper()
+                if (
+                    price_currency == "VND"
+                    or "₫" in price_display
+                    or (not price_currency and wholesale >= 1000)
+                ):
+                    rate = get_nastele_vnd_rate()
+                    wholesale = round(wholesale / rate, 4) if rate else 0.0
             elif provider == CATAISHOP_PROVIDER:
                 rate = get_cataishop_vnd_rate()
                 vnd_price = float(Decimal(str(raw.get("price") or 0)))
@@ -2321,6 +2356,7 @@ def _delivery_items(payload: dict[str, Any]) -> list[str]:
     raw_items: Any = None
     for candidate in candidates:
         for key in (
+            "delivered_data",
             "delivery",
             "delivery_items",
             "delivered_keys",
@@ -2627,6 +2663,7 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
             )
         elif provider == PHAGIA_PROVIDER:
             supplier_product_id = str(offer["supplier_product_id"])
+            customer_input = str(order.get("customer_email") or "").strip() or None
             response = _phagia_request_json(
                 "/api/v2/client/orders",
                 method="POST",
@@ -2636,7 +2673,10 @@ def fulfill_paid_order(order_id: int) -> list[str] | None:
                         if supplier_product_id.isdigit()
                         else supplier_product_id
                     ),
-                    "quantity": int(order.get("qty") or 1),
+                    "qty": int(order.get("qty") or 1),
+                    "plan_id": None,
+                    "customer_input": customer_input,
+                    "idempotency_key": external_order_id,
                 },
             )
         else:
