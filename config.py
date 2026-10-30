@@ -4,6 +4,7 @@ Toutes les valeurs sensibles sont lues depuis les variables d'environnement.
 """
 import os
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 
@@ -247,11 +248,32 @@ UPIBOT_API_BASE: str = os.environ.get(
 
 # ---------------------------------------------------------------------------
 # Fournisseur revendeur ToolOraX Store Bot
+# Shop API moved from shopbot.00969600.xyz to toolorax.shop. The /shop-api/v1
+# paths are unchanged. Keys issued on the old host must be rotated on the new site.
 # ---------------------------------------------------------------------------
+_TOOLORAX_RETIRED_HOST = "shopbot.00969600.xyz"
+_TOOLORAX_API_HOST = "toolorax.shop"
+_TOOLORAX_API_BASE_DEFAULT = "https://toolorax.shop/shop-api/v1"
+
+
+def toolorax_api_base_from_environment() -> str:
+    """Return the ToolOraX Shop API base, rewriting the retired shopbot host."""
+    raw = os.environ.get("HP_TOOLORAX_API_BASE", _TOOLORAX_API_BASE_DEFAULT).strip()
+    parts = urlsplit(raw)
+    if parts.hostname == _TOOLORAX_RETIRED_HOST:
+        port = f":{parts.port}" if parts.port else ""
+        raw = urlunsplit((
+            parts.scheme or "https",
+            f"{_TOOLORAX_API_HOST}{port}",
+            parts.path,
+            parts.query,
+            parts.fragment,
+        ))
+    return raw.rstrip("/")
+
+
 TOOLORAX_API_KEY: str = env_value("HP_TOOLORAX_API_KEY")
-TOOLORAX_API_BASE: str = os.environ.get(
-    "HP_TOOLORAX_API_BASE", "https://shopbot.00969600.xyz/shop-api/v1"
-).rstrip("/")
+TOOLORAX_API_BASE: str = toolorax_api_base_from_environment()
 
 # ---------------------------------------------------------------------------
 # Fournisseur revendeur Cataishop (@cataishop_bot, API Telehub)
