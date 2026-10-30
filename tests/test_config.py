@@ -53,6 +53,39 @@ def test_explicit_public_url_overrides_railway_domain(monkeypatch):
     assert config.public_base_url_from_environment() == "https://shop.example"
 
 
+def test_toolorax_api_base_defaults_to_the_new_domain(monkeypatch):
+    monkeypatch.delenv("HP_TOOLORAX_API_BASE", raising=False)
+
+    assert (
+        config.toolorax_api_base_from_environment()
+        == "https://toolorax.shop/shop-api/v1"
+    )
+
+
+def test_toolorax_api_base_rewrites_the_retired_shopbot_host(monkeypatch):
+    monkeypatch.setenv(
+        "HP_TOOLORAX_API_BASE",
+        "https://shopbot.00969600.xyz/shop-api/v1/",
+    )
+
+    assert (
+        config.toolorax_api_base_from_environment()
+        == "https://toolorax.shop/shop-api/v1"
+    )
+
+
+def test_toolorax_api_base_keeps_a_custom_host(monkeypatch):
+    monkeypatch.setenv(
+        "HP_TOOLORAX_API_BASE",
+        "https://supplier.example/shop-api/v1/",
+    )
+
+    assert (
+        config.toolorax_api_base_from_environment()
+        == "https://supplier.example/shop-api/v1"
+    )
+
+
 def test_configuration_reports_invalid_mongodb_uri(monkeypatch):
     monkeypatch.setattr(config, "BOT_TOKEN", "token")
     monkeypatch.setattr(config, "ADMIN_ID", 123)

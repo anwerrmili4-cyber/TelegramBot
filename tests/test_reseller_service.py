@@ -1431,6 +1431,19 @@ def test_supplier_price_drop_preserves_profit_amount_and_creates_flash_event(
     assert db.get_offer(offer_id)["price"] == 14.0
 
 
+def test_toolorax_documentation_follows_the_shop_api_host():
+    summary = next(
+        item for item in reseller_service.provider_summaries()
+        if item["id"] == "toolorax"
+    )
+
+    assert summary["documentation_url"] == (
+        f"{reseller_service.TOOLORAX_API_BASE.removesuffix('/v1')}/docs"
+    )
+    assert "shopbot.00969600.xyz" not in summary["documentation_url"]
+    assert "shopbot.00969600.xyz" not in reseller_service.TOOLORAX_API_BASE
+
+
 def test_all_supplier_bot_usernames_are_registered():
     assert reseller_service.PROVIDER_BOT_USERNAMES == {
         "mailreader": "dodistore_bot",
