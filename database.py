@@ -19,7 +19,7 @@ from config import INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -408,6 +408,8 @@ def init_db():
     if not schema or int(schema.get("version") or 0) < 26:
         db.drop_collection("admin_passkeys")
         db.drop_collection("admin_webauthn_challenges")
+    if not schema or int(schema.get("version") or 0) < 30:
+        remove_new_drop_announcements(db)
     if os.environ.get("HP_SEED_DEFAULT_CATALOG", "").strip().lower() in {"1", "true", "yes"}:
         _seed_catalog()
     db.schema_meta.update_one(
@@ -416,6 +418,12 @@ def init_db():
         upsert=True,
     )
     _schema_initialized = True
+
+
+NEW_DROP_ANNOUNCEMENT_KEYS = (
+    "channel_stock_announcement",
+    "offer_stock_announcement",
+)
 
 
 def _remove_legacy_announcement_overrides(conn):
@@ -433,6 +441,21 @@ def _remove_legacy_announcement_overrides(conn):
         ]},
         "text": {"$regex": legacy_heading, "$options": "i"},
     })
+    return int(result.deleted_count)
+
+
+def remove_new_drop_announcements(conn=None):
+    """Delete the retired new-drop templates and any saved copies."""
+    conn = conn or get_conn()
+    result = conn.text_overrides.delete_many({
+        "key": {"$in": list(NEW_DROP_ANNOUNCEMENT_KEYS)},
+    })
+    conn.settings.delete_many({
+        "key": {"$in": ["announcement_new_stock", "announcement_restock"]},
+    })
+    for key in NEW_DROP_ANNOUNCEMENT_KEYS:
+        for lang in ("en", "ar", "fr"):
+            _text_override_cache.pop((key, lang), None)
     return int(result.deleted_count)
 
 
@@ -1933,6 +1956,9 @@ def get_text_override_icon(key, lang):
 
 
 def set_text_override(key, lang, text, custom_emoji_id=""):
+    if str(key) in NEW_DROP_ANNOUNCEMENT_KEYS:
+        remove_new_drop_announcements()
+        return
     get_conn().text_overrides.update_one(
         {"key": str(key), "lang": str(lang)},
         {"$set": {
@@ -2225,28 +2251,16 @@ def shop_settings():
         "terms_message": "",
         "privacy_message": "",
         "active_languages": "en,ar",
-        "announcement_new_stock": "",
         "announcement_flash_sale": "",
-        "announcement_restock": "",
     }
     rows = {row["key"]: row.get("value") for row in get_conn().settings.find({"key": {"$in": list(defaults)}})}
     result = defaults | rows
     try:
         from i18n import TRANSLATIONS
-        if not result.get("announcement_new_stock"):
-            result["announcement_new_stock"] = (
-                get_text_override("channel_stock_announcement", "en")
-                or TRANSLATIONS.get("channel_stock_announcement", {}).get("en", "")
-            )
         if not result.get("announcement_flash_sale"):
             result["announcement_flash_sale"] = (
                 get_text_override("flash_sale_announcement", "en")
                 or TRANSLATIONS.get("flash_sale_announcement", {}).get("en", "")
-            )
-        if not result.get("announcement_restock"):
-            result["announcement_restock"] = (
-                get_text_override("offer_stock_announcement", "en")
-                or TRANSLATIONS.get("offer_stock_announcement", {}).get("en", "")
             )
     except Exception:
         pass
@@ -2833,8 +2847,7 @@ def list_users(limit=100):
 
 
 CATALOG_UPDATE_BROADCAST_KINDS = {
-    "stock", "restock_digest", "flash_sale", "api_flash_sale",
-    "supplier_price_update",
+    "flash_sale", "api_flash_sale",
 }
 
 

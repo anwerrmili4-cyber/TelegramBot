@@ -50,7 +50,7 @@ BUTTON_TEXT_KEYS = {
     "reseller_api_docs", "reseller_api_setup", "reseller_api_copy_base",
     "reseller_api_refresh", "reseller_api_cancel",
     "affiliate_copy", "affiliate_share", "orders_all", "btn_join_channel", "btn_join_group",
-    "btn_verify_join", "btn_channel_buy_now",
+    "btn_verify_join",
 }
 
 
@@ -220,13 +220,6 @@ def lang_keyboard():
         for code in active
     ]])
 
-
-def channel_offer_keyboard(lang, bot_username, offer_id):
-    """Open a restocked offer privately from a public channel post."""
-    deep_link = f"https://t.me/{str(bot_username).lstrip('@')}?start=offer_{int(offer_id)}"
-    return InlineKeyboardMarkup([[
-        translated_button(lang, "btn_channel_buy_now", url=deep_link, style="success"),
-    ]])
 
 def channel_join_keyboard(lang):
     """Offer the required channel link before unlocking the customer menu."""

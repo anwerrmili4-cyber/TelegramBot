@@ -1198,59 +1198,43 @@ async def _send_broadcast_message_safe(context, chat_id, text, reply_markup=None
 
 
 async def announce_supplier_change_admin(context, event, change_type):
-    """Send the normal bot-product design privately when a promo is unsuitable."""
-    if not ADMIN_ID:
+    """Privately tell the admin about a supplier discount that customers will not see."""
+    if change_type != "price" or not ADMIN_ID:
         return 0
     event = event or {}
     offer = db.get_offer(int(event.get("offer_id") or 0)) or {}
     if not offer:
         return 0
+    old_price = float(event.get("previous_price") or 0)
+    new_price = float(event.get("price") or 0)
+    if not old_price or new_price >= old_price:
+        return 0
     lang = lang_of(ADMIN_ID)
     service = db.get_service(offer.get("service_id")) or {}
-    values = {
-        "emoji": _announcement_service_emoji(service),
-        "service": _announcement_plain(service.get("name") or SHOP_NAME),
-        "offer": _announcement_plain(offer.get("name") or f"Offer #{offer.get('id', 0)}"),
-        "period": kb.offer_period_label(lang, offer),
-        "warranty": warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-        "cur": CURRENCY,
-    }
-    if change_type == "stock":
-        key = "channel_stock_announcement"
-        values.update({
-            "price": f"{float(offer.get('price') or 0):.2f}",
-            "stock": max(0, int(event.get("stock") or 0)),
-            "added": max(0, int(event.get("added") or 0)),
-        })
-    else:
-        old_price = float(event.get("previous_price") or 0)
-        new_price = float(event.get("price") or 0)
-        if new_price < old_price:
-            key = "flash_sale_announcement"
-            values.update({
-                "old_price": f"{old_price:.2f}",
-                "price": f"{new_price:.2f}",
-                "discount": round(((old_price - new_price) / old_price) * 100)
-                if old_price else 0,
-                "remaining": {
-                    "fr": "Disponibilité limitée",
-                    "ar": "متاح لفترة محدودة",
-                }.get(lang, "Limited availability"),
-            })
-        else:
-            key = "offer_stock_announcement"
-            values.update({
-                "price": f"{new_price:.2f}",
-                "stock": (
-                    "∞" if offer.get("unlimited_stock")
-                    else max(0, int(offer.get("stock") or 0))
-                ),
-            })
     await _send_broadcast_message_safe(
         context,
         chat_id=ADMIN_ID,
         text=_method_announcement_text(
-            premium_customer_text(lang, key, **values), service, offer, lang,
+            premium_customer_text(
+                lang,
+                "flash_sale_announcement",
+                emoji=_announcement_service_emoji(service, "🎁"),
+                service=_announcement_plain(service.get("name") or SHOP_NAME),
+                offer=_announcement_plain(offer.get("name") or f"Offer #{offer.get('id', 0)}"),
+                period=kb.offer_period_label(lang, offer),
+                warranty=warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
+                old_price=f"{old_price:.2f}",
+                price=f"{new_price:.2f}",
+                cur=CURRENCY,
+                discount=round(((old_price - new_price) / old_price) * 100),
+                remaining={
+                    "fr": "Disponibilité limitée",
+                    "ar": "متاح لفترة محدودة",
+                }.get(lang, "Limited availability"),
+            ),
+            service,
+            offer,
+            lang,
         ),
         reply_markup=kb.offer_detail_keyboard(lang, offer),
     )
@@ -1260,58 +1244,13 @@ async def announce_supplier_change_admin(context, event, change_type):
 async def announce_channel_restock(
     context, offer_id, added, stock, supplier_event=None,
 ):
-    """Broadcast a private new-stock advert to every active bot user."""
-    offer = db.get_offer(int(offer_id))
-    if not offer or not offer.get("active", 1):
-        return await announce_supplier_change_admin(
-            context,
-            supplier_event or {
-                "offer_id": offer_id, "added": added, "stock": stock,
-            },
-            "stock",
-        ) if supplier_event else 0
-    unlimited = bool(offer.get("unlimited_stock"))
-    if not unlimited and int(stock or 0) <= 0:
-        return 0
-    if added is not None and int(added or 0) <= 0:
-        return 0
-    service = db.get_service(offer["service_id"]) or {}
-    price = "—" if offer.get("price") is None else f"{float(offer['price']):.2f}"
-    async def send_one(user):
-        user_id = int(user["telegram_id"])
-        lang = user.get("lang") or DEFAULT_LANG
-        message_key = "channel_stock_announcement" if added is not None else "offer_stock_announcement"
-        values = {
-            "emoji": _announcement_service_emoji(service),
-            "service": _announcement_plain(service.get("name") or SHOP_NAME),
-            "offer": _announcement_plain(offer.get("name") or f"Offer #{offer_id}"),
-            "period": kb.offer_period_label(lang, offer),
-            "warranty": warranty_service.offer_warranty_label(offer, lang=lang) or "NW",
-            "price": price,
-            "cur": CURRENCY,
-            "stock": "∞" if unlimited else int(stock),
-        }
-        if added is not None:
-            values["added"] = int(added)
-        await _send_broadcast_message_safe(
-            context,
-            chat_id=user_id,
-            text=_method_announcement_text(
-                premium_customer_text(lang, message_key, **values), service, offer, lang,
-            ),
-            reply_markup=kb.offer_detail_keyboard(lang, offer),
-        )
-    return await _broadcast_in_batches(
-        send_one,
-        label="New-stock broadcast",
-        catalog_updates_only=True,
-        catalog_offer_id=offer_id,
-    )
+    """Retired: new-drop announcements are never sent."""
+    return 0
 
 
 async def send_new_stock_broadcast(context, offer_id, added, stock):
-    """Finish the broadcast before a serverless webhook request can terminate."""
-    return await announce_channel_restock(context, offer_id, added, stock)
+    """Retired: new-drop announcements are never sent."""
+    return 0
 
 
 async def announce_flash_sale(context, offer_id):
@@ -1405,17 +1344,8 @@ async def announce_api_flash_sale(context, event):
 
 
 async def announce_supplier_price_update(context, event):
-    """Reuse the bot's manual new-drop design after a supplier price update."""
-    offer = db.get_offer(int(event["offer_id"]))
-    if not offer or not offer.get("active", 1) or not db.offer_has_stock(offer):
-        return await announce_supplier_change_admin(context, event, "price")
-    stock = "∞" if offer.get("unlimited_stock") else max(0, int(offer.get("stock") or 0))
-    return await announce_channel_restock(
-        context,
-        int(offer["id"]),
-        None,
-        stock,
-    )
+    """Retired: supplier price increases are not announced."""
+    return 0
 
 
 async def broadcast_admin_message(context, source_chat_id, message_id):
@@ -1431,16 +1361,8 @@ async def broadcast_admin_message(context, source_chat_id, message_id):
 
 
 async def announce_restock_digest(context, events):
-    """Legacy compatibility: announce every restock as its own message."""
-    sent = 0
-    for event in list(events or [])[:12]:
-        sent += await announce_channel_restock(
-            context,
-            int(event.get("offer_id") or 0),
-            max(0, int(event.get("added") or 0)),
-            max(0, int(event.get("stock") or 0)),
-        )
-    return sent
+    """Retired: restock digests are not announced."""
+    return 0
 
 
 async def delete_broadcast_messages(context, target_job_id):
@@ -1511,22 +1433,12 @@ async def _execute_broadcast_job(job):
         payload = job.get("payload") or {}
         kind = job.get("kind")
         sent = 0
-        if kind == "stock":
-            sent = await announce_channel_restock(
-                context,
-                payload["offer_id"],
-                payload.get("added"),
-                payload.get("stock"),
-                payload.get("supplier_event"),
-            )
-        elif kind == "restock_digest":
-            sent = await announce_restock_digest(context, payload.get("events") or [])
+        if kind in {"stock", "restock_digest", "supplier_price_update"}:
+            sent = 0
         elif kind == "flash_sale":
             sent = await announce_flash_sale(context, payload["offer_id"])
         elif kind == "api_flash_sale":
             sent = await announce_api_flash_sale(context, payload["event"])
-        elif kind == "supplier_price_update":
-            sent = await announce_supplier_price_update(context, payload["event"])
         elif kind == "admin_message":
             sent = await broadcast_admin_message(context, payload["source_chat_id"], payload["message_id"])
         elif kind == "delete_broadcast":
@@ -3635,6 +3547,10 @@ async def handle_pending_input(update, context, lang):
             if len(parts) != 3 or parts[1] not in {"en", "ar"} or not parts[0] or not parts[2]:
                 await update.message.reply_text("⚠️ Format : `key | en/ar | new text`", parse_mode=ParseMode.MARKDOWN)
                 return
+            if parts[0] in db.NEW_DROP_ANNOUNCEMENT_KEYS:
+                PENDING.pop(uid, None)
+                await update.message.reply_text("⚠️ Cette annonce a été retirée.")
+                return
             db.set_text_override(parts[0], parts[1], parts[2])
             saved_key = parts[0]
         PENDING.pop(uid, None)
@@ -4360,13 +4276,9 @@ async def handle_pending_input(update, context, lang):
             return
         PENDING.pop(uid, None)
         stock = inventory_service.sync_offer_stock(ref)
-        queued = None
-        if added:
-            queued = queue_broadcast("stock", offer_id=ref, added=added, stock=stock)
         await update.message.reply_text(
             f"✅ {added} compte(s) ajouté(s) et chiffré(s).\n"
-            f"📦 Stock affiché synchronisé dans le bot : {stock}\n"
-            f"📣 Alerte mise en file pour {(queued or {}).get('recipient_count', 0)} utilisateur(s).",
+            f"📦 Stock affiché synchronisé dans le bot : {stock}",
             reply_markup=admin.offer_admin_keyboard(ref),
         )
         return
@@ -4388,13 +4300,9 @@ async def handle_pending_input(update, context, lang):
             unlimited_stock=False,
         )
         PENDING.pop(uid, None)
-        queued = None
-        if stock > 0:
-            queued = queue_broadcast("stock", offer_id=ref, added=stock, stock=stock)
         await update.message.reply_text(
             f"✅ Stock manuel activé : {stock}\n"
             "📦 Ce nombre est maintenant visible publiquement.\n"
-            f"📣 Alerte mise en file pour {(queued or {}).get('recipient_count', 0)} utilisateur(s).\n"
             "🤖 Après paiement, le bot vous demandera de répondre directement au client.",
             reply_markup=admin.offer_admin_keyboard(ref),
         )
@@ -6040,6 +5948,9 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("adm_text_key:"):
         key = data.split(":", 1)[1]
+        if key not in TRANSLATIONS:
+            await q.answer("Ce texte n’existe plus.", show_alert=True)
+            return
         await q.edit_message_text(
             admin_text_preview(key),
             parse_mode=ParseMode.HTML,
@@ -6204,15 +6115,6 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(
             f"📱 Send the Codex number for order #{oid}.\n\n"
             "The customer will receive an I agree button."
-        )
-        return
-    if data == "adm_alert_design":
-        await q.edit_message_text(
-            "✨ *Design des alertes*\n\n"
-            "Modifiez les annonces de nouveaux stocks et de ventes flash. "
-            "La mise en forme et les emojis Premium Telegram sont conservés.",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=admin.alert_design_keyboard(),
         )
         return
     if data == "adm_ticket_style":
@@ -6482,29 +6384,7 @@ async def cb_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     if data.startswith("adm_broadcast_offer:"):
-        oid = int(data.split(":")[1])
-        off = db.get_offer(oid)
-        if not off:
-            await q.answer("Offre introuvable.", show_alert=True)
-            return
-        if off.get("archived") == 1:
-            db.unarchive_offer(oid)
-            off["archived"] = 0
-            off["active"] = 1
-        elif not off.get("active", 1):
-            db.update_offer(oid, active=1)
-            off["active"] = 1
-        stock = int(off.get("stock") or 0)
-        if stock <= 0 and not off.get("unlimited_stock"):
-            await q.answer("Aucun stock disponible à annoncer.", show_alert=True)
-            return
-        queued = queue_broadcast("stock", offer_id=oid, added=None, stock=stock)
-        await q.message.reply_text(
-            f"✅ Annonce mise en file pour {queued['recipient_count']} utilisateur(s).\n"
-            "L’envoi continue en arrière-plan.\n"
-            f"💵 Prix actuel : {float(off.get('price') or 0):.2f} {CURRENCY}\n"
-            f"📦 Stock annoncé : {'∞' if off.get('unlimited_stock') else stock}"
-        )
+        await q.answer("Cette annonce a été retirée.", show_alert=True)
         return
     if data.startswith("adm_offdel:"):
         oid = int(data.split(":")[1])

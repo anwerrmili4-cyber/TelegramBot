@@ -726,24 +726,8 @@ class handler(BaseHTTPRequestHandler):
                 return
             try:
                 result = reseller_service.detect_restock_events()
-                queued_jobs = []
-                for event in result["events"]:
-                    event_source = {"window": int(time.time() // 300), "event": event}
-                    event_key = "restock:" + hashlib.sha256(
-                        json.dumps(event_source, sort_keys=True).encode()
-                    ).hexdigest()[:32]
-                    queued_jobs.append(queue_broadcast(
-                        "stock",
-                        offer_id=int(event["offer_id"]),
-                        added=max(0, int(event.get("added") or 0)),
-                        stock=max(0, int(event.get("stock") or 0)),
-                        supplier_event=event,
-                        dedupe_key=event_key,
-                    ))
-                result["queued_broadcasts"] = sum(1 for job in queued_jobs if job["queued"])
-                result["queued_recipients"] = sum(
-                    job.get("recipient_count", 0) for job in queued_jobs if job["queued"]
-                )
+                result["queued_broadcasts"] = 0
+                result["queued_recipients"] = 0
                 result["announced_messages"] = 0
                 db.set_setting("stock_cron_last_run_at", int(time.time()))
                 db.set_setting("stock_cron_last_status", "ok" if result["ok"] else "partial")
@@ -775,10 +759,12 @@ class handler(BaseHTTPRequestHandler):
                 queued = 0
                 queued_recipients = 0
                 for event in result["changes"]:
+                    if not event.get("decreased"):
+                        continue
                     dedupe_source = {"window": int(time.time() // 300), "event": event}
                     dedupe_key = "api-price:" + hashlib.sha256(json.dumps(dedupe_source, sort_keys=True).encode()).hexdigest()[:32]
                     job = queue_broadcast(
-                        "api_flash_sale" if event.get("decreased") else "supplier_price_update",
+                        "api_flash_sale",
                         event=event,
                         dedupe_key=dedupe_key,
                     )
@@ -2744,18 +2730,11 @@ class handler(BaseHTTPRequestHandler):
                 db.set_setting("terms_message", form.get("terms_message", "").strip()[:4000])
                 db.set_setting("privacy_message", form.get("privacy_message", "").strip()[:4000])
                 db.set_setting("active_languages", active_languages)
-                ann_new = form.get("announcement_new_stock", "").strip()
                 ann_flash = form.get("announcement_flash_sale", "").strip()
-                ann_restock = form.get("announcement_restock", "").strip()
-                if ann_new:
-                    db.set_setting("announcement_new_stock", ann_new)
-                    db.set_text_override("channel_stock_announcement", "en", ann_new)
                 if ann_flash:
                     db.set_setting("announcement_flash_sale", ann_flash)
                     db.set_text_override("flash_sale_announcement", "en", ann_flash)
-                if ann_restock:
-                    db.set_setting("announcement_restock", ann_restock)
-                    db.set_text_override("offer_stock_announcement", "en", ann_restock)
+                db.remove_new_drop_announcements()
                 db.audit_event("settings.updated")
 
             elif action == "save_reseller_product":
