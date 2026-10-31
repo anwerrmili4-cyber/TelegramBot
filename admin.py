@@ -198,6 +198,7 @@ _SEARCH_SCOPES = (
     ("customers", "Clients"),
     ("products", "Produits"),
     ("tickets", "Tickets"),
+    ("customize", "Textes"),
 )
 _SEARCH_FIELDS = (
     ("all", "Tout"),
@@ -276,7 +277,7 @@ def admin_search_prompt(filters):
         lines.append(f"Statut : <b>{html.escape(status)}</b>")
     lines.extend([
         "",
-        "Envoyez un ID, un TXID, un produit, un client ou un ticket.",
+        "Envoyez un ID, un TXID, un produit, un client, un ticket ou un texte à modifier.",
         "Dates optionnelles : <code>du:2026-10-01 au:2026-10-30</code>",
     ])
     return "\n".join(lines), admin_search_keyboard(selected)
@@ -312,6 +313,7 @@ def admin_search_results(found):
         f" · {html.escape(_search_label(filters.get('field') or 'all', _SEARCH_FIELDS))}"
     )
     buttons = []
+    wide_buttons = []
     groups = (found or {}).get("groups") or []
     if not groups:
         lines.extend(["", "Aucun résultat. Élargissez le champ ou retirez le statut."])
@@ -340,12 +342,18 @@ def admin_search_results(found):
                     callback = f"adm_off:{int(item['id'])}"
                 lines.append(f"• {html.escape(label)}")
                 buttons.append(InlineKeyboardButton(label, callback_data=callback))
+            elif group["key"] == "customize":
+                label = _clip(item.get("title") or "Texte")
+                lines.append(f"• {html.escape(label)} — {html.escape(item.get('detail') or '')}")
+                wide_buttons.append(InlineKeyboardButton(
+                    label, callback_data=str(item.get("callback") or "adm_customize"),
+                ))
             else:
                 message = _clip(item.get("message") or item.get("category") or "Ticket", 42)
                 label = _clip(f"Ticket #{item.get('id')} · {message}")
                 lines.append(f"• {html.escape(label)}")
                 buttons.append(InlineKeyboardButton(label, callback_data=f"adm_ticket:{int(item['id'])}"))
-    rows = _two_column_rows(buttons)
+    rows = [[button] for button in wide_buttons] + _two_column_rows(buttons)
     rows.append([
         InlineKeyboardButton("🔎 Nouvelle recherche", callback_data="adm_search"),
         InlineKeyboardButton("⬅️ Administration", callback_data="adm_panel"),

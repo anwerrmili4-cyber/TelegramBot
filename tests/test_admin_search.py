@@ -69,6 +69,31 @@ def test_admin_search_respects_field_status_and_dates(mock_mongodb):
     assert admin_search_service.search("   ") is None
 
 
+def test_admin_search_opens_the_customization_section(mock_mongodb):
+    found = admin_search_service.search("fiche produit")
+    customize = next(group for group in found["groups"] if group["key"] == "customize")
+    assert customize["items"][0]["callback"] == "adm_text_key:offer_card_template"
+
+    screens = admin_search_service.search("design des tickets", scope="customize")
+    assert [item["callback"] for item in screens["groups"][0]["items"]] == ["adm_ticket_style"]
+
+    welcome = admin_search_service.search("bienvenue sur black market")
+    callbacks = [
+        item["callback"]
+        for group in welcome["groups"] if group["key"] == "customize"
+        for item in group["items"]
+    ]
+    assert "adm_text_key:welcome" in callbacks
+
+    text, markup = admin.admin_search_results(found)
+    assert "Personnalisation" in text
+    assert "adm_text_key:offer_card_template" in [
+        button.callback_data
+        for row in markup.inline_keyboard
+        for button in row
+    ]
+
+
 def test_admin_panel_search_opens_filters_and_returns_a_result(monkeypatch, mock_mongodb):
     admin_id = 9001
     monkeypatch.setattr("bot.ADMIN_ID", admin_id)
