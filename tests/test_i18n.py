@@ -124,22 +124,13 @@ def test_offer_detail_template_has_premium_sections():
     assert "*Access*" in message
 
 
-def test_no_terms_announcement_omits_period_and_warranty():
-    message = t(
-        "en",
-        "announcement_no_terms",
-        emoji="🍿",
-        service="AI",
-        offer="Muse AI 31 B token",
-        price="2.50",
-        cur="USDT",
-        stock=45,
-    )
+def test_retired_local_announcement_template_is_gone():
+    from i18n import TRANSLATIONS
 
-    assert "Muse AI 31 B token" in message
-    assert "2.50" in message
-    assert "Period" not in message
-    assert "Warranty" not in message
+    assert "announcement_no_terms" not in TRANSLATIONS
+    for lang_copy in TRANSLATIONS["channel_stock_announcement"].values():
+        assert "Period" in lang_copy or "Période" in lang_copy or "المدة" in lang_copy
+        assert "Warranty" in lang_copy or "Garantie" in lang_copy or "الضمان" in lang_copy
 
 
 def test_announcement_templates_include_product_catalog_period_and_warranty():

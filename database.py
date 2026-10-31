@@ -19,7 +19,7 @@ from config import ADMIN_ID, INVENTORY_KEY, MONGODB_DB, MONGODB_URI
 _client = None
 _db = None
 _schema_initialized = False
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 CODEX_ACCEPTANCE_SECONDS = 5 * 60
 _text_override_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 TEXT_OVERRIDE_CACHE_SECONDS = 60
@@ -554,6 +554,8 @@ def init_db():
             })
     if not schema or int(schema.get("version") or 0) < 33:
         _normalize_stored_bulk_prices(db)
+    if not schema or int(schema.get("version") or 0) < 34:
+        _remove_no_terms_announcement(db)
     if os.environ.get("HP_SEED_DEFAULT_CATALOG", "").strip().lower() in {"1", "true", "yes"}:
         _seed_catalog()
     db.schema_meta.update_one(
@@ -600,6 +602,14 @@ _SAME_PRODUCT_FIELDS = frozenset({
     "active",
     "service_id",
 })
+
+
+def _remove_no_terms_announcement(conn):
+    """Drop the local-only card that omitted period and warranty."""
+    result = conn.text_overrides.delete_many({"key": "announcement_no_terms"})
+    for lang in ("en", "ar", "fr"):
+        _text_override_cache.pop(("announcement_no_terms", lang), None)
+    return int(result.deleted_count)
 
 
 def _remove_legacy_announcement_overrides(conn):
@@ -2983,6 +2993,9 @@ def get_text_override_icon(key, lang):
 
 
 def set_text_override(key, lang, text, custom_emoji_id=""):
+    if str(key) == "announcement_no_terms":
+        _remove_no_terms_announcement(get_conn())
+        return
     get_conn().text_overrides.update_one(
         {"key": str(key), "lang": str(lang)},
         {"$set": {

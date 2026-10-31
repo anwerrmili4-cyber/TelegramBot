@@ -57,7 +57,7 @@ TEXT_CATEGORIES = [
 def text_category_for_key(key):
     if key in {
         "channel_stock_announcement", "offer_stock_announcement",
-        "flash_sale_announcement", "announcement_no_terms",
+        "flash_sale_announcement",
     }:
         return "alerts"
     rules = [
@@ -112,7 +112,6 @@ def text_entry_label(key):
         "topup_onchain": "Onchain",
         "topup_bsc": "USDT - BEP20",
         "topup_polygon": "USDT - POLY",
-        "announcement_no_terms": "Sans période ni garantie",
     }
     descriptions = {
         "menus": "Menu button",
@@ -837,7 +836,6 @@ def alert_design_keyboard():
         InlineKeyboardButton("✨ Nouveau stock (un produit)", callback_data="adm_text_key:channel_stock_announcement"),
         InlineKeyboardButton("✨ Offre remise en avant", callback_data="adm_text_key:offer_stock_announcement"),
         InlineKeyboardButton("🔥 Vente flash", callback_data="adm_text_key:flash_sale_announcement"),
-        InlineKeyboardButton("📦 Sans période ni garantie", callback_data="adm_text_key:announcement_no_terms"),
     ])
     rows.append(
         [InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")],

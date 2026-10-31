@@ -578,6 +578,42 @@ def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb)
     )
 
 
+def test_local_product_without_terms_uses_the_external_announcement(mock_mongodb):
+    service_id = db.add_service("Muse AI", "🤖")
+    offer_id = db.add_offer(
+        service_id, "Muse AI 31 B token", 1.80, 1,
+        period_days=0, warranty_days=0,
+    )
+    db.update_offer(
+        offer_id,
+        period_visible=False,
+        warranty_visible=False,
+        period_value=0,
+        warranty_value=0,
+        supplier_provider="",
+    )
+    db.set_text_override(
+        "announcement_no_terms",
+        "en",
+        "💫 NEW DROP AVAILABLE\nProduct only",
+    )
+    mock_mongodb.users.insert_one({"telegram_id": 101, "lang": "en"})
+    bot_client = SimpleNamespace(send_message=AsyncMock())
+
+    sent = asyncio.run(announce_channel_restock(
+        SimpleNamespace(bot=bot_client), offer_id, 1, 1,
+    ))
+
+    assert sent == 1
+    text = bot_client.send_message.await_args.kwargs["text"]
+    assert "Muse AI 31 B token" in text
+    assert "NEW DROP AVAILABLE" in text
+    assert "Period" in text
+    assert "Warranty" in text
+    assert "Product only" not in text
+    assert db.get_text_override("announcement_no_terms", "en") is None
+
+
 def test_arabic_restock_notice_is_not_sent_to_english_users(mock_mongodb):
     service_id = db.add_service("Google one Pro", "💎")
     offer_id = db.add_offer(
@@ -2264,7 +2300,7 @@ def test_order_payment_values_are_individually_copyable():
     "topup_message", "topup_ask_txid",
     "topup_success", "topup_already_confirmed", "topup_failed",
     "channel_stock_announcement", "offer_stock_announcement",
-    "flash_sale_announcement", "announcement_no_terms",
+    "flash_sale_announcement",
     "affiliate_referral_success", "affiliate_ten_success", "channel_affiliate_reward",
 ])
 def test_all_payment_flow_texts_support_exact_premium_emoji(key):

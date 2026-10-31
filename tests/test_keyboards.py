@@ -464,7 +464,7 @@ def test_stock_label_is_listed_in_catalog_admin_category():
 def test_stock_and_flash_templates_have_a_dedicated_editable_admin_section():
     expected_keys = {
         "channel_stock_announcement", "offer_stock_announcement",
-        "flash_sale_announcement", "announcement_no_terms",
+        "flash_sale_announcement",
     }
     assert all(admin.text_category_for_key(key) == "alerts" for key in expected_keys)
 
@@ -474,6 +474,7 @@ def test_stock_and_flash_templates_have_a_dedicated_editable_admin_section():
         for button in row
     }
     assert {f"adm_text_key:{key}" for key in expected_keys} <= callbacks
+    assert "adm_text_key:announcement_no_terms" not in callbacks
     assert any(
         button.callback_data == "adm_alert_design"
         for row in admin.customize_keyboard().inline_keyboard

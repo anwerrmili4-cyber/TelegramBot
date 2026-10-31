@@ -359,11 +359,6 @@ TRANSLATIONS = {
         "en": "🔥 *FLASH SALE — LIMITED DROP*\n\n🏷 Product : {emoji} *{service} — {offer}*\n📅 Period : *{period}*\n🛡 Warranty : *{warranty}*\n\n🏷 Old price: *{old_price} {cur}*\n⚡ Flash price: *{price} {cur}*\n🎯 Save: *{discount}%*\n⌛ Ends in: *{remaining}*\n\n🛒 Tap below to claim the deal!",
         "ar": "🔥 *تخفيض سريع — عرض محدود*\n\n🏷 المنتج : {emoji} *{service} — {offer}*\n📅 المدة : *{period}*\n🛡 الضمان : *{warranty}*\n\n🏷 السعر السابق: *{old_price} {cur}*\n⚡ سعر العرض: *{price} {cur}*\n🎯 الخصم: *{discount}%*\n⌛ ينتهي خلال: *{remaining}*\n\n🛒 اضغط أدناه للاستفادة من العرض!",
     },
-    "announcement_no_terms": {
-        "fr": "💫 *NOUVEAU DROP DISPONIBLE*\n\n🏷 Produit : {emoji} *{service} — {offer}*\n\n💎 Prix : *{price} {cur}*\n📦 Stock : *{stock}*\n\n⚡ Quantités limitées — commandez maintenant !",
-        "en": "💫 *NEW DROP AVAILABLE*\n\n🏷 Product : {emoji} *{service} — {offer}*\n\n💎 Price: *{price} {cur}*\n📦 Stock: *{stock}*\n\n⚡ Limited quantities — claim yours now!",
-        "ar": "💫 *دفعة جديدة متاحة*\n\n🏷 المنتج : {emoji} *{service} — {offer}*\n\n💎 السعر: *{price} {cur}*\n📦 المخزون: *{stock}*\n\n⚡ الكمية محدودة — اطلب الآن!",
-    },
     "offer_stock_announcement": {
         "fr": "💫 *NOUVEAU DROP DISPONIBLE*\n\n🏷 Produit : {emoji} *{service} — {offer}*\n📅 Période : *{period}*\n🛡 Garantie : *{warranty}*\n\n💎 Prix : *{price} {cur}*\n📦 Stock : *{stock}*\n\n⚡ Quantités limitées — commandez maintenant !",
         "en": "💫 *NEW DROP AVAILABLE*\n\n🏷 Product : {emoji} *{service} — {offer}*\n📅 Period : *{period}*\n🛡 Warranty : *{warranty}*\n\n💎 Price: *{price} {cur}*\n📦 Stock: *{stock}*\n\n⚡ Limited quantities — claim yours now!",

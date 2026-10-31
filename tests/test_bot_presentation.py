@@ -43,37 +43,10 @@ def test_bot_facade_reexports_methods_presentation_helpers():
     )
 
 
-def test_products_without_period_and_warranty_use_a_separate_announcement():
-    from app.bot.announcements import announcement_key_for_offer
+def test_local_product_announcement_matches_the_external_template():
+    from i18n import TRANSLATIONS
 
-    plain = {
-        "name": "Muse AI 31 B token",
-        "period_visible": False,
-        "warranty_days": 0,
-        "warranty_value": 0,
-    }
-    covered = {
-        "name": "Framer Pro",
-        "period_days": 365,
-        "period_value": 1,
-        "period_unit": "years",
-        "warranty_days": 30,
-        "warranty_value": 30,
-        "warranty_unit": "days",
-    }
-
-    assert announcement_key_for_offer("channel_stock_announcement", plain) == (
-        "announcement_no_terms"
-    )
-    assert announcement_key_for_offer("offer_stock_announcement", plain) == (
-        "announcement_no_terms"
-    )
-    assert announcement_key_for_offer("channel_stock_announcement", covered) == (
-        "channel_stock_announcement"
-    )
-    assert announcement_key_for_offer("flash_sale_announcement", plain) == (
-        "flash_sale_announcement"
-    )
+    assert "announcement_no_terms" not in TRANSLATIONS
 
 
 def test_bot_facade_reexports_offer_card_helpers():
