@@ -2217,6 +2217,15 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
                               ))
 
 
+def _catalog_search_message(lang, key, query):
+    """Render a catalog-search notice, including a stored ``[[HTML]]`` design."""
+    text = t(lang, key, query=html.escape(query))
+    stored = str(text).lstrip()
+    if stored.startswith(("[[HTML]]", "[HTML]")):
+        return render_stored_rich_text(stored)
+    return text
+
+
 # ---------------- Saisie en attente (txid / admin) ----------------
 async def handle_pending_input(update, context, lang):
     uid = update.effective_user.id
@@ -2361,14 +2370,14 @@ async def handle_pending_input(update, context, lang):
         if matches:
             PENDING.pop(uid, None)
             await update.message.reply_text(
-                t(lang, "catalog_search_results", query=html.escape(query)),
+                _catalog_search_message(lang, "catalog_search_results", query),
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb.catalog_search_results_keyboard(lang, matches),
             )
             return
         PENDING[uid] = ("catalog_request", query[:200])
         await update.message.reply_text(
-            t(lang, "catalog_search_no_results", query=html.escape(query)),
+            _catalog_search_message(lang, "catalog_search_no_results", query),
             parse_mode=ParseMode.HTML,
         )
         return

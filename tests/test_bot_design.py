@@ -2825,6 +2825,33 @@ def test_catalog_search_returns_matching_purchase_buttons(monkeypatch, mock_mong
     assert PENDING.get(42) is None
 
 
+def test_catalog_search_results_hide_the_stored_html_marker(monkeypatch, mock_mongodb):
+    db.set_text_override(
+        "catalog_search_results",
+        "en",
+        '[[HTML]]<tg-emoji emoji-id="1">🔎</tg-emoji> <b>Results for:</b> {query}\n'
+        "<blockquote>Choose a matching product.</blockquote>",
+    )
+    monkeypatch.setattr("bot.db.list_catalog_offers", lambda: [{
+        "id": 11, "service_id": 1, "service_name": "Canva", "name": "Canva Pro",
+        "price": 1.0, "currency": "USDT", "stock": 2, "unlimited_stock": False,
+    }])
+    message = SimpleNamespace(text="canva", reply_text=AsyncMock())
+    PENDING[42] = ("catalog_search", 0)
+
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(effective_user=SimpleNamespace(id=42), message=message),
+        SimpleNamespace(),
+        "en",
+    ))
+
+    reply = message.reply_text.await_args
+    assert "[[HTML]]" not in reply.args[0]
+    assert "<b>Results for:</b> canva" in reply.args[0]
+    assert "<blockquote>Choose a matching product.</blockquote>" in reply.args[0]
+    assert reply.kwargs["parse_mode"] == ParseMode.HTML
+
+
 def test_catalog_search_without_matches_enters_product_request_flow(monkeypatch, mock_mongodb):
     monkeypatch.setattr("bot.db.list_catalog_offers", lambda: [])
     message = SimpleNamespace(text="Adobe Firefly annual", reply_text=AsyncMock())
