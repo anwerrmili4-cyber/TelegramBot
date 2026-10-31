@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import contextlib
 import html
 
 import database as db
 from app.bot.presentation import render_stored_rich_text
-from i18n import t
+from i18n import format_customer_template, t
 
 
 def premium_customer_text(lang: str, key: str, **kwargs) -> str:
@@ -38,8 +37,7 @@ def premium_customer_text(lang: str, key: str, **kwargs) -> str:
                     for name in ("total", "binance_id"):
                         if name in format_kwargs:
                             format_kwargs[name] = f"<code>{format_kwargs[name]}</code>"
-            with contextlib.suppress(KeyError, IndexError, ValueError):
-                raw_value = raw_value.format(**format_kwargs)
+            raw_value = format_customer_template(raw_value, **format_kwargs)
     else:
         raw_value = t(lang, key, **kwargs)
     if key == "order_created" and not raw_value.startswith(("[[HTML]]", "[HTML]")):

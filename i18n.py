@@ -2,10 +2,10 @@
 Internationalisation FR / EN / AR.
 Usage : t(lang, "key", **kwargs)
 """
-import contextlib
 import re
 
 CUSTOM_EMOJI_TOKEN_RE = re.compile(r"\[\[TGEMOJI:[0-9A-Za-z_-]+:[0-9a-fA-F]+\]\]")
+_TEMPLATE_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def without_custom_emoji_tokens(value):
@@ -896,6 +896,26 @@ TRANSLATIONS = {
 }
 
 
+def format_customer_template(template, **kwargs):
+    """Fill the placeholders that were provided.
+
+    One field the saved text mentions and this send does not have, such as
+    ``{added}`` on a price-and-stock reannounce, must not leave the price,
+    name, and stock as raw braces.
+    """
+    template = str(template)
+    if not kwargs:
+        return template
+    values = {
+        str(key): "" if value is None else str(value)
+        for key, value in kwargs.items()
+    }
+    return _TEMPLATE_PLACEHOLDER_RE.sub(
+        lambda match: values.get(match.group(1), ""),
+        template,
+    )
+
+
 def t(lang, key, **kwargs):
     if lang not in ("en", "ar"):
         lang = "en"
@@ -907,14 +927,12 @@ def t(lang, key, **kwargs):
     if override is not None and str(override).strip():
         override = without_custom_emoji_tokens(override)
         if kwargs:
-            with contextlib.suppress(KeyError, IndexError, ValueError):
-                return override.format(**kwargs)
+            return format_customer_template(override, **kwargs)
         return override
     entry = TRANSLATIONS.get(key, {})
     text = entry.get(lang) or entry.get("en") or key
     if kwargs:
-        with contextlib.suppress(KeyError, IndexError):
-            text = text.format(**kwargs)
+        text = format_customer_template(text, **kwargs)
     return text
 
 

@@ -578,6 +578,48 @@ def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb)
     )
 
 
+def test_manual_airdrop_announcement_fills_saved_placeholders(mock_mongodb):
+    db.set_text_override(
+        "offer_stock_announcement",
+        "en",
+        "🔥 AIRDROP\n\n{emoji} {offer}\n\n"
+        "💰 Price : {price} {cur}\n"
+        "📦 Stock : {stock}\n"
+        "➕ Added : +{added}",
+    )
+    service_id = db.add_service("Muse AI", "🤖")
+    offer_id = db.add_offer(
+        service_id, "Muse AI 31 B token", 1.80, 1,
+        period_days=0, warranty_days=0,
+    )
+    db.update_offer(
+        offer_id,
+        period_visible=False,
+        warranty_visible=False,
+        supplier_provider="",
+    )
+    mock_mongodb.users.insert_one({"telegram_id": 101, "lang": "en"})
+    bot_client = SimpleNamespace(send_message=AsyncMock())
+
+    sent = asyncio.run(announce_channel_restock(
+        SimpleNamespace(bot=bot_client), offer_id, None, 1,
+    ))
+
+    assert sent == 1
+    text = bot_client.send_message.await_args.kwargs["text"]
+    assert "{emoji}" not in text
+    assert "{offer}" not in text
+    assert "{price}" not in text
+    assert "{cur}" not in text
+    assert "{stock}" not in text
+    assert "{added}" not in text
+    assert "AIRDROP" in text
+    assert "Muse AI 31 B token" in text
+    assert "1.80" in text
+    assert "USDT" in text
+    assert "Added : +1" in text
+
+
 def test_local_product_without_terms_uses_the_external_announcement(mock_mongodb):
     service_id = db.add_service("Muse AI", "🤖")
     offer_id = db.add_offer(

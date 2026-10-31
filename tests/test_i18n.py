@@ -1,6 +1,6 @@
 """Tests for translated bot copy."""
 
-from i18n import t
+from i18n import format_customer_template, t
 
 
 def test_removed_french_language_falls_back_to_english():
@@ -122,6 +122,23 @@ def test_offer_detail_template_has_premium_sections():
     assert "*Duration*" in message
     assert "*Mail*" in message
     assert "*Access*" in message
+
+
+def test_one_missing_placeholder_does_not_leave_the_others_raw():
+    rendered = format_customer_template(
+        "🔥 AIRDROP\n{emoji} {offer}\nPrice : {price} {cur}\nAdded : +{added}",
+        emoji="🤖",
+        offer="Muse AI 31 B token",
+        price="1.80",
+        cur="USDT",
+    )
+
+    assert "{emoji}" not in rendered
+    assert "{price}" not in rendered
+    assert "Muse AI 31 B token" in rendered
+    assert "1.80 USDT" in rendered
+    assert "Added : +" in rendered
+    assert "{added}" not in rendered
 
 
 def test_retired_local_announcement_template_is_gone():

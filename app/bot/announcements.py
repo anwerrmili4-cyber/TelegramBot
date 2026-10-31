@@ -241,9 +241,11 @@ async def announce_channel_restock(
             "price": price,
             "cur": CURRENCY,
             "stock": "∞" if unlimited else int(stock),
+            "added": (
+                int(added) if added is not None
+                else 0 if unlimited else int(stock)
+            ),
         }
-        if added is not None:
-            values["added"] = int(added)
         await send_broadcast_message_safe(
             context,
             chat_id=user_id,
