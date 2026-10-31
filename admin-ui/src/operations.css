@@ -72,3 +72,12 @@
   .mail-app.is-composing .mail-list-pane{display:none}
 }
 @media(prefers-reduced-motion:reduce){.mail-row{transition:none}}
+.flash-preview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.flash-preview>div{display:grid;gap:4px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel-soft)}
+.flash-preview span{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+.flash-preview strong{font-size:16px;letter-spacing:-.3px}
+.flash-preview s{color:var(--muted);font-size:14px;font-weight:650}
+.flash-custom-duration{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.flash-options{display:grid;gap:14px}
+.flash-options summary{cursor:pointer;font-weight:700}
+@media(max-width:800px){.flash-preview{grid-template-columns:1fr 1fr}}

@@ -17,6 +17,7 @@ import {
   Save,
   ShoppingBag,
   Sparkles,
+  Zap,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -626,7 +627,7 @@ export default function SiteCatalogPage({ onAction }) {
                       return <tr key={row.id} className={`offer-row ${enabled ? "" : "inactive"}`}>
                         <td className="catalog-col-name"><div className="site-offer-cell">
                           {row.site_image_url || row.category_logo_url || row.service_logo_url ? <img className="site-thumb" src={row.site_image_url || row.category_logo_url || row.service_logo_url} alt="" loading="lazy" /> : <span className="site-thumb">{row.service_emoji || <ShoppingBag size={15} />}</span>}
-                          <div><strong>{row.name}</strong><small>{row.service_name}{row.site_featured && <em className="site-chip"><Sparkles size={11} />Vedette</em>}{row.site_badge && <em className="site-chip">{row.site_badge}</em>}</small></div>
+                          <div><strong>{row.name}</strong><small>{row.service_name}{row.site_featured && <em className="site-chip"><Sparkles size={11} />Vedette</em>}{row.site_flash_active && <em className="site-chip"><Zap size={11} />Vente flash</em>}{row.site_badge && <em className="site-chip">{row.site_badge}</em>}</small></div>
                         </div></td>
                         <td>{row.bot_price_usdt} USDT</td>
                         <td className="catalog-col-price">{row.tn_price_millimes ? <strong>{dinars(row.tn_price_millimes)}</strong> : <small>Suggestion {dinars(row.suggested_price_millimes)}</small>}</td>

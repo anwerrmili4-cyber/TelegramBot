@@ -8,6 +8,11 @@ export function money(millimes: number): string {
   return `${dinars.format((Number(millimes) || 0) / 1000)} DT`;
 }
 
+/** A site flash sale keeps the previous dinar price beside the lower one. */
+export function isSiteFlash(offer: { price_millimes: number; compare_millimes?: number }): boolean {
+  return (offer.compare_millimes ?? 0) > offer.price_millimes;
+}
+
 const dateTimes = new Intl.DateTimeFormat("fr-FR", {
   day: "numeric",
   month: "short",

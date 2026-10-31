@@ -13,7 +13,7 @@ import { HowItWorks } from "@/components/HowItWorks";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { accountPath } from "@/lib/accountPath";
-import { money } from "@/lib/format";
+import { isSiteFlash, money } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { Link, navigate, ROUTES } from "@/lib/router";
 import { trackInteraction, trackSearch } from "@/lib/track";
@@ -173,7 +173,10 @@ export function ProductTile({ offer, onOpen, index = 0 }: { offer: Offer; onOpen
         </div>
         <button type="button" className="prod-tile-copy is-rest" onClick={() => onOpen(offer)}>
           <span className="prod-tile-foot">
-            <b>{money(offer.price_millimes)}</b>
+            <b>
+              {isSiteFlash(offer) ? <s className="price-was">{money(offer.compare_millimes ?? 0)}</s> : null}
+              {money(offer.price_millimes)}
+            </b>
             <span className="go" aria-hidden="true">
               <ArrowUpRight size={16} />
             </span>
@@ -354,7 +357,10 @@ export function Hero({ offers, categories, onOpenOffer }: HeroProps) {
                         <strong>{offer.name}</strong>
                         <small>{offer.service_name}</small>
                       </span>
-                      <b>{money(offer.price_millimes)}</b>
+                      <b>
+                        {isSiteFlash(offer) ? <s className="price-was">{money(offer.compare_millimes ?? 0)}</s> : null}
+                        {money(offer.price_millimes)}
+                      </b>
                     </button>
                   </li>
                 );

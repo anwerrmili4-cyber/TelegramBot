@@ -4,7 +4,7 @@ import { FavoriteButton } from "@/components/FavoriteButton";
 import { Overlay } from "@/components/Overlay";
 import { QuantityStepper } from "@/components/QuantityStepper";
 import { assetUrl } from "@/lib/api";
-import { maxOrderable, money, periodLabel } from "@/lib/format";
+import { dateTime, isSiteFlash, maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import type { Offer } from "@/types";
 
@@ -74,7 +74,10 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
               ) : (
                 <span className="prod-ph">{shown.service_emoji}</span>
               )}
-              <span className="pricechip">{money(shown.price_millimes)}</span>
+              <span className="pricechip">
+                {isSiteFlash(shown) ? <s className="price-was">{money(shown.compare_millimes ?? 0)}</s> : null}
+                {money(shown.price_millimes)}
+              </span>
             </div>
 
             <div className="pdp-tags">
@@ -91,6 +94,13 @@ export function ProductDialog({ offer, inCart, cartIsFull, onClose, onAdd, onBuy
                 </span>
               ) : null}
               {shown.badge ? <span className="tag">{shown.badge}</span> : null}
+              {isSiteFlash(shown) ? (
+                <span className="tag tag-blue">
+                  <Zap size={13} aria-hidden="true" />
+                  {shown.flash_label || "Vente flash"}
+                  {shown.flash_ends_at ? ` · jusqu'au ${dateTime(shown.flash_ends_at)}` : ""}
+                </span>
+              ) : null}
             </div>
 
             <h2 id="product-title">{shown.name}</h2>

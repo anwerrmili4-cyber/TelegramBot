@@ -303,6 +303,13 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
     category = _category(service, offer)
     methods = db.is_methods_service(service)
     price_millimes = _price_millimes(offer)
+    flash_ends = int(offer.get("site_flash_ends_at") or 0)
+    flash_on = bool(offer.get("site_flash_active")) and flash_ends > int(time.time())
+    compare_millimes = int(offer.get("site_flash_original_millimes") or 0) if flash_on else 0
+    if compare_millimes <= price_millimes:
+        compare_millimes = 0
+        flash_ends = 0
+        flash_on = False
     unlimited = bool(offer.get("unlimited_stock"))
     stock = max(0, int(offer.get("stock") or 0))
     minimum = max(1, int(offer.get("min_quantity") or 1))
@@ -338,6 +345,12 @@ def _public_offer(service: dict[str, Any], offer: dict[str, Any]) -> dict[str, A
         "bulk_unit_millimes": bulk_unit_millimes,
         "remark": _plain_text(offer.get("site_remark"), limit=400),
         "requires_info": offer.get("site_requires_info") is True,
+        "compare_millimes": compare_millimes,
+        "flash_ends_at": flash_ends if flash_on else 0,
+        "flash_label": (
+            str(offer.get("site_flash_label") or "Vente flash").strip()[:24]
+            if flash_on else ""
+        ),
     }
 
 
@@ -383,6 +396,11 @@ _CATALOG_OFFER_FIELDS = {
     "flash_sale_ends_at": 1,
     "flash_sale_original_price": 1,
     "flash_sale_price": 1,
+    "site_flash_active": 1,
+    "site_flash_original_millimes": 1,
+    "site_flash_price_millimes": 1,
+    "site_flash_ends_at": 1,
+    "site_flash_label": 1,
     "stock_control_hold": 1,
 }
 
@@ -399,12 +417,20 @@ def note_catalog_view() -> None:
     reseller_service.refresh_supplier_stock_in_background()
 
 
+def _expire_site_flash_sales() -> None:
+    """Restore dinar prices whose sale is over before the catalog is read."""
+    from app.domain.storefront_flash_service import expire_due
+
+    expire_due()
+
+
 def catalog() -> dict[str, Any]:
     """Project the bot's live MongoDB catalog into a customer-safe response.
 
     Supplier stock is refreshed off the request path; the stock writes it
     makes invalidate the cached catalog, so the next view shows them.
     """
+    _expire_site_flash_sales()
     note_catalog_view()
     return cache.get_or_set(CATALOG_PREFIX + "storefront", CATALOG_CACHE_SECONDS, _build_catalog)
 
@@ -417,6 +443,7 @@ def catalog_body() -> bytes:
     """
     import orjson
 
+    _expire_site_flash_sales()
     note_catalog_view()
     if CATALOG_CACHE_SECONDS <= 0:
         return orjson.dumps(_build_catalog())
@@ -542,6 +569,7 @@ def public_offer(offer_id: int) -> dict[str, Any] | None:
         offer_id = int(offer_id)
     except (TypeError, ValueError):
         return None
+    _expire_site_flash_sales()
     offer = db.get_offer(offer_id)
     if not offer:
         return None
@@ -607,6 +635,7 @@ def _resolved_line(offer_id: int, quantity: int, info: str = "") -> dict[str, An
     """Validate one cart line against the live catalog and price it in TND."""
     from app.domain import reseller_service
 
+    _expire_site_flash_sales()
     offer = db.get_offer(offer_id)
     if offer and offer.get("supplier_provider"):
         # A supplier timeout must not turn a paid transfer into a generic outage.

@@ -48,6 +48,7 @@ import {
   Wrench,
   WalletCards,
   X,
+  Zap,
 } from "lucide-react";
 
 const NAV_GROUPS = [
@@ -95,6 +96,7 @@ const SITE_NAV_GROUPS = [
   ] },
   { label: "Catalogue & finance", items: [
     { id: "site-catalog", label: "Mon catalogue", icon: ShoppingBag },
+    { id: "site-flash", label: "Vente flash", icon: Zap },
     { id: "site-product-buyers", label: "Acheteurs", icon: Users },
     { id: "site-inventory", label: "Inventaire", icon: Boxes },
     { id: "site-deposits", label: "Dépôts & paiements", icon: CircleDollarSign },
@@ -542,6 +544,8 @@ function describeAdminChange(params = {}) {
     message_customer: ["Envoyer ce message", "Le client recevra le message saisi depuis le bot."],
     site_mail_send: ["Envoyer ce message", "Il part aux clients choisis du site, depuis l’adresse déjà configurée. Une adresse inconnue ne peut pas être ajoutée."],
     site_notify_publish: ["Publier cette notification", "Elle apparaît dans la cloche des clients vérifiés et part aussi par email. Une adresse inconnue ne peut pas être ajoutée."],
+    site_flash_start: ["Lancer cette vente flash", "Le prix en dinars du site baisse pendant la durée choisie. Les clients vérifiés reçoivent l'annonce par email et dans la cloche."],
+    site_flash_stop: ["Arrêter cette vente flash", "Le prix d'avant la vente revient tout de suite sur le site."],
     run_external_connector: ["Exécuter cette requête", "La requête sera envoyée au connecteur externe sélectionné."],
     save_external_connector: ["Enregistrer cette API", "La configuration du connecteur sera chiffrée puis enregistrée."],
     save_reseller_product: ["Enregistrer ce produit", "Le prix, la disponibilité et les réglages reseller seront mis à jour."],

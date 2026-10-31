@@ -260,13 +260,19 @@ def announce_balance(customer_id: int, delta: int, balance_after: int) -> None:
         log.exception("Storefront balance notification failed")
 
 
-def publish(form: dict[str, Any]) -> dict[str, Any]:
-    """Publish one notification and email it to every verified site customer."""
+def publish(form: dict[str, Any], *, allow_flash: bool = False) -> dict[str, Any]:
+    """Publish one notification and email it to every verified site customer.
+
+    A flash sale is started from its own admin page, which is the only caller
+    allowed to publish ``kind="flash"``.
+    """
     kind = str(form.get("kind") or "").strip()
     title = str(form.get("title") or "").strip()
     body = str(form.get("body") or form.get("message") or "").strip()
+    if kind == "flash" and not allow_flash:
+        raise NotificationError("Une vente flash se lance depuis la page Vente flash.")
     if kind not in _KINDS:
-        raise NotificationError("Choisis un type : nouveauté, vente flash, message ou actualité.")
+        raise NotificationError("Choisis un type : nouveauté, message ou actualité.")
     if not 3 <= len(title) <= 120:
         raise NotificationError("Le titre doit faire entre 3 et 120 caractères.")
     if not 8 <= len(body) <= 2000:

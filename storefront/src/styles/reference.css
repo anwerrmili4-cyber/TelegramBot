@@ -1571,6 +1571,23 @@
   font-weight: 800;
 }
 
+.price-was {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-mute);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-decoration: line-through;
+}
+
+.pricechip .price-was {
+  color: inherit;
+  opacity: 0.62;
+  font-size: 11px;
+  text-align: right;
+}
+
 .pdp-tags {
   display: flex;
   flex-wrap: wrap;

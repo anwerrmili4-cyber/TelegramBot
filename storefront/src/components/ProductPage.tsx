@@ -5,7 +5,7 @@ import { QuantityStepper } from "@/components/QuantityStepper";
 import { OfferReviews } from "@/components/PublicReviews";
 import { requestStockAlert, assetUrl, errorMessage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { maxOrderable, money, periodLabel } from "@/lib/format";
+import { dateTime, isSiteFlash, maxOrderable, money, periodLabel } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { LoadMark } from "@/components/LoadMark";
 import { scrollToElement } from "@/components/motion/SmoothScroll";
@@ -267,7 +267,10 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
               <span className="prod-ph">{offer.service_emoji}</span>
             )}
             {offer.available ? null : <span className="sold-stamp">Épuisé</span>}
-            <span className="pricechip">{money(offer.price_millimes)}</span>
+            <span className="pricechip">
+              {isSiteFlash(offer) ? <s className="price-was">{money(offer.compare_millimes ?? 0)}</s> : null}
+              {money(offer.price_millimes)}
+            </span>
           </div>
 
           <div className="pdp-tags">
@@ -284,6 +287,13 @@ export function ProductPage({ offer, loading, related, inCart, cartIsFull, onOpe
               </span>
             ) : null}
             {offer.badge ? <span className="tag">{offer.badge}</span> : null}
+            {isSiteFlash(offer) ? (
+              <span className="tag tag-blue">
+                <Zap size={13} aria-hidden="true" />
+                {offer.flash_label || "Vente flash"}
+                {offer.flash_ends_at ? ` · jusqu'au ${dateTime(offer.flash_ends_at)}` : ""}
+              </span>
+            ) : null}
           </div>
 
           <h1 id="product-title">{offer.name}</h1>

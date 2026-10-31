@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type AnimationEvent, type CSSProperties, type PointerEvent } from "react";
 import { ArrowRight, ChevronLeft, ChevronRight, Layers, ShieldCheck, ShieldOff } from "lucide-react";
 import { assetUrl } from "@/lib/api";
-import { money } from "@/lib/format";
+import { isSiteFlash, money } from "@/lib/format";
 import { warrantyBadgeClass, warrantyView } from "@/lib/warranty";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { Link, productPath } from "@/lib/router";
@@ -205,6 +205,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
             const active = slideIndex === current;
             const picture = offer.image_url || offer.service_logo_url;
             const deal = isDeal(offer);
+            const flash = !deal && isSiteFlash(offer);
             const showTerms = offer.show_terms !== false;
             const warranty = warrantyView(offer);
             const percent = discountPercent(offer);
@@ -217,7 +218,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
               leaving === slideIndex ||
               slideIndex === (current + 1) % count ||
               slideIndex === (current + count - 1) % count;
-            const kicker = deal ? `Offre groupe · dès ${offer.bulk_quantity}+` : offer.badge || "Sélection";
+            const kicker = deal ? `Offre groupe · dès ${offer.bulk_quantity}+` : flash ? offer.flash_label || "Vente flash" : offer.badge || "Sélection";
             const promo = !deal && kicker.trim().toUpperCase() === "PROMO";
             return (
               <Link
@@ -268,7 +269,7 @@ export function FilmReel({ offers }: { offers: Offer[] }) {
                   <div className="poster-price">
                     <b>{money(unit)}</b>
                     {deal ? <em>l'unité dès {offer.bulk_quantity}+</em> : <em>{offer.service_name}</em>}
-                    {deal ? <s>{money(offer.price_millimes)}</s> : null}
+                    {deal ? <s>{money(offer.price_millimes)}</s> : flash ? <s>{money(offer.compare_millimes ?? 0)}</s> : null}
                   </div>
                   <span className="poster-cta">
                     {deal ? "Voir les prix groupe" : "Voir le produit"}

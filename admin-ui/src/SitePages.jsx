@@ -1,6 +1,6 @@
 import { lazyPage, PageSuspense } from "./lazy-page.jsx";
 
-export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-product-buyers", "site-inventory", "site-customers", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-stats", "site-settings"]);
+export const SITE_PAGE_IDS = new Set(["site-overview", "site-orders", "site-deposits", "site-catalog", "site-flash", "site-product-buyers", "site-inventory", "site-customers", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-stats", "site-settings"]);
 
 const InventoryPage = lazyPage(() => import("./pages/InventoryPage.jsx"));
 const ProductRequestsPage = lazyPage(() => import("./pages/ProductRequestsPage.jsx"));
@@ -12,6 +12,7 @@ const PAGES = {
   "site-orders": [lazyPage(() => import("./pages/SiteOrdersPage.jsx")), {}],
   "site-deposits": [lazyPage(() => import("./pages/SiteDepositsPage.jsx")), {}],
   "site-catalog": [lazyPage(() => import("./pages/SiteCatalogPage.jsx")), {}],
+  "site-flash": [lazyPage(() => import("./pages/SiteFlashPage.jsx")), {}],
   "site-product-buyers": [lazyPage(() => import("./pages/ProductBuyersPage.jsx")), { channel: "site" }],
   "site-inventory": [InventoryPage, { shared: true }],
   "site-customers": [lazyPage(() => import("./pages/SiteCustomersPage.jsx")), {}],

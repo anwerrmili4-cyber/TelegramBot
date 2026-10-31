@@ -60,6 +60,7 @@ from app.domain import (
     site_stats_service,
     storefront_auth_service,
     storefront_favorite_service,
+    storefront_flash_service,
     storefront_invoice_service,
     storefront_notification_service,
     storefront_receipt_service,
@@ -918,7 +919,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "product-buyers", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-stats", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-inventory", "site-product-buyers", "catalog", "api-products", "provider-history", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
+        admin_tabs = {"overview", "control-center", "phone", "data-explorer", "ai-manager", "api-clients", "orders", "product-buyers", "site-overview", "site-orders", "site-deposits", "site-catalog", "site-customers", "site-settings", "site-stats", "site-support", "site-product-requests", "site-warranties", "site-reviews", "site-mail", "site-notifications", "site-flash", "site-inventory", "site-product-buyers", "catalog", "api-products", "provider-history", "inventory", "customers", "deposits", "withdrawals", "finance", "warranties", "support", "product-requests", "interactions", "activity", "settings", "binance-wallet"}
         react_admin_route = (
             path in {"/admin", "/admin-v2", "/admin/login"}
             or path.startswith("/admin-v2/")
@@ -1283,6 +1284,13 @@ class handler(BaseHTTPRequestHandler):
                 self._reply(401, {"ok": False, "error": "Unauthorized"})
                 return
             self._reply(200, storefront_notification_service.admin_list())
+            return
+
+        elif path == "/admin/api/site-flash":
+            if not self._dashboard_authorized():
+                self._reply(401, {"ok": False, "error": "Unauthorized"})
+                return
+            self._reply(200, storefront_flash_service.admin_list())
             return
 
         elif path == "/admin/api/site-mail":
@@ -2611,6 +2619,14 @@ class handler(BaseHTTPRequestHandler):
 
             elif action == "site_notify_publish":
                 self._reply(200, storefront_notification_service.publish(form))
+                return
+
+            elif action == "site_flash_start":
+                self._reply(200, storefront_flash_service.start(form))
+                return
+
+            elif action == "site_flash_stop":
+                self._reply(200, storefront_flash_service.stop(form))
                 return
 
             elif action == "site_review_approve":

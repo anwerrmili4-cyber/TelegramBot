@@ -39,6 +39,12 @@ export type Offer = {
   remark?: string;
   /** The customer must send details for this product at checkout. */
   requires_info?: boolean;
+  /** Dinar price before a site flash sale. `0` when the product is at its normal price. */
+  compare_millimes?: number;
+  /** Unix seconds when the site flash sale ends. `0` when there is none. */
+  flash_ends_at?: number;
+  /** Short label shown while the flash sale is running. */
+  flash_label?: string;
 };
 
 export type Category = { id: string; label: string };

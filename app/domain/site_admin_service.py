@@ -171,6 +171,9 @@ def _catalog_row(service: dict[str, Any], offer: dict[str, Any], rate: float) ->
         ),
         "tn_price_millimes": price or None,
         "suggested_price_millimes": storefront_service.suggested_price_millimes(offer, rate),
+        "site_flash_active": bool(offer.get("site_flash_active")),
+        "site_flash_original_millimes": int(offer.get("site_flash_original_millimes") or 0) or None,
+        "site_flash_ends_at": int(offer.get("site_flash_ends_at") or 0) or None,
         "site_enabled": storefront_service.site_enabled(offer),
         "site_featured": bool(offer.get("site_featured")),
         "site_badge": str(offer.get("site_badge") or ""),
@@ -274,6 +277,9 @@ def catalog(params: dict[str, list[str]]) -> dict[str, Any]:
     Disabled offers and services are listed too so they can be re-enabled from
     the site space; they are simply never sold.
     """
+    from app.domain.storefront_flash_service import expire_due
+
+    expire_due()
     db.clear_methods_terms()
     status = _first(params, "status") or "all"
     search = _first(params, "search").lower()[:80]
@@ -358,13 +364,25 @@ def _dinar_millimes(value: Any) -> int | None:
 
 def update_offer(form: dict[str, Any]) -> dict[str, Any]:
     """Save the storefront fields of one offer."""
+    from app.domain.storefront_flash_service import expire_due, price_edit_block
+
+    expire_due()
     try:
         offer_id = int(form.get("offer_id"))
     except (TypeError, ValueError) as exc:
         raise SiteAdminError("Offre invalide.") from exc
     offer = db.get_conn().offers.find_one(
         {"id": offer_id},
-        {"name": 1, "tn_price_millimes": 1, "site_enabled": 1, "archived": 1, "active": 1, "service_id": 1},
+        {
+            "name": 1,
+            "tn_price_millimes": 1,
+            "site_enabled": 1,
+            "archived": 1,
+            "active": 1,
+            "service_id": 1,
+            "site_flash_active": 1,
+            "site_flash_ends_at": 1,
+        },
     )
     if not offer:
         raise SiteAdminError("Offre introuvable.")
@@ -373,6 +391,9 @@ def update_offer(form: dict[str, Any]) -> dict[str, Any]:
     if category and category not in storefront_service.CATEGORY_LABELS:
         raise SiteAdminError("Catégorie inconnue.")
     price = _dinar_millimes(form.get("tn_price"))
+    blocked = price_edit_block(offer, price)
+    if blocked:
+        raise SiteAdminError(blocked)
     changes: dict[str, Any] = {
         "site_enabled": _truthy(form.get("site_enabled")),
         "site_featured": _truthy(form.get("site_featured")),
@@ -700,6 +721,9 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
     Methods have no duration and no warranty. Stock mode is shared. A new
     product starts off on the bot.
     """
+    from app.domain.storefront_flash_service import expire_due, price_edit_block
+
+    expire_due()
     offer_id = _optional_id(form.get("offer_id"), "Offre")
     previous = db.get_offer(offer_id) if offer_id is not None else None
     if offer_id is not None and not previous:
@@ -720,6 +744,9 @@ def save_offer(form: dict[str, Any]) -> dict[str, Any]:
         raise SiteAdminError("Catégorie inconnue.")
 
     tn_price = _dinar_millimes(form.get("tn_price"))
+    blocked = price_edit_block(previous, tn_price)
+    if blocked:
+        raise SiteAdminError(blocked)
     vip_bot_price = _parse_vip_bot_price(previous, form)
     methods = db.is_methods_service(service)
     if methods:
