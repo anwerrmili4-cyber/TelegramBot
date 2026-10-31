@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import UTC, datetime
 
 import database as db
 
-SCOPES = ("all", "orders", "customers", "products", "tickets")
+SCOPES = ("all", "orders", "customers", "products", "tickets", "customize")
 FIELDS = ("all", "order_id", "user_id", "txid", "product", "name", "message")
 STATUSES = (
     "",
@@ -175,6 +176,75 @@ def _products(query: str, field: str) -> list[dict]:
     return items[:_LIMIT]
 
 
+_CUSTOMIZE_SCREENS = (
+    ("Page d'accueil", "Page d'accueil", "adm_text_key:welcome", "accueil welcome home page"),
+    ("Fiche produit", "Carte produit", "adm_text_key:offer_card_template", "fiche produit offer card template"),
+    ("Avertissement produit", "Avertissement avant achat", "adm_text_key:offer_description_notice", "avertissement warning description notice"),
+    ("Alertes stocks & flash", "Annonces stock et flash", "adm_alert_design", "alerte alertes stock flash annonce"),
+    ("Textes du bot", "Textes par catégorie", "adm_texts", "textes texte messages categorie"),
+    ("Boutons du bot", "Boutons et liens", "adm_buttons", "boutons bouton buttons lien liens"),
+    ("Design des tickets", "Titre et signature des tickets", "adm_ticket_style", "design ticket tickets style"),
+    ("Nouveau stock", "Annonce de stock", "adm_text_key:channel_stock_announcement", "nouveau stock drop"),
+    ("Offre remise en avant", "Annonce de restock", "adm_text_key:offer_stock_announcement", "remise restock offre"),
+    ("Vente flash", "Annonce flash", "adm_text_key:flash_sale_announcement", "vente flash promo"),
+    ("Sans période ni garantie", "Annonce sans durée", "adm_text_key:announcement_no_terms", "sans periode garantie"),
+)
+
+
+def _fold(value) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    letters = "".join(character for character in text if not unicodedata.combining(character))
+    return letters.casefold()
+
+
+def _customize(query: str) -> list[dict]:
+    """Find a customization screen or bot text the admin wants to edit."""
+    needle = _fold(query).strip()
+    if len(needle) < 2:
+        return []
+    import admin
+    from i18n import TRANSLATIONS
+
+    found = []
+    seen = set()
+
+    def add(title, detail, callback, priority):
+        if callback in seen or len(callback.encode("utf-8")) > 64:
+            return
+        seen.add(callback)
+        found.append({
+            "title": title,
+            "detail": detail,
+            "callback": callback,
+            "priority": priority,
+        })
+
+    for title, detail, callback, aliases in _CUSTOMIZE_SCREENS:
+        if needle in _fold(f"{title} {detail} {aliases}"):
+            add(title, detail, callback, 0)
+    overrides: dict[str, list[str]] = {}
+    for row in db.get_conn().text_overrides.find({}, {"key": 1, "text": 1}):
+        overrides.setdefault(str(row.get("key") or ""), []).append(str(row.get("text") or ""))
+    categories = dict(admin.TEXT_CATEGORIES)
+    for key, texts in TRANSLATIONS.items():
+        label = admin.text_entry_label(key)
+        category = categories.get(admin.text_category_for_key(key), "Texte")
+        if needle in _fold(f"{label} {key} {category}"):
+            add(label, category, f"adm_text_key:{key}", 1)
+            continue
+        if len(needle) < 4:
+            continue
+        stored = " ".join(overrides.get(key, []))
+        body = " ".join(str(texts.get(lang) or "") for lang in ("fr", "en", "ar"))
+        if needle in _fold(f"{stored} {body}"):
+            add(label, category, f"adm_text_key:{key}", 2)
+    found.sort(key=lambda item: (item["priority"], _fold(item["title"])))
+    return [
+        {"title": item["title"], "detail": item["detail"], "callback": item["callback"]}
+        for item in found[:8]
+    ]
+
+
 def _tickets(query: str, field: str) -> list[dict]:
     if not query or field not in {"all", "message", "user_id"}:
         return []
@@ -226,6 +296,15 @@ def search(text: str, *, scope: str = "all", field: str = "all", status: str = "
             "key": "tickets",
             "title": "Tickets",
             "items": _tickets(query, filters["field"]),
+        })
+    if query and (
+        selected == "customize"
+        or (selected == "all" and filters["field"] in {"all", "name", "message"})
+    ):
+        groups.append({
+            "key": "customize",
+            "title": "Personnalisation",
+            "items": _customize(query),
         })
     return {
         "query": query,

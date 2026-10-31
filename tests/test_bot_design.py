@@ -1878,16 +1878,16 @@ def test_admin_can_edit_topup_and_profile_even_when_text_matches_current_button(
 def test_main_menu_is_compact_and_actions_match_labels():
     keyboard = kb.main_menu_keyboard("en", user_id=42)
 
-    labels = [[button.text for button in row] for row in keyboard.keyboard[:3]]
+    labels = [[button.text for button in row] for row in keyboard.keyboard[:4]]
     assert labels == [
         [t("en", "menu_catalog"), t("en", "menu_orders")],
-        [t("en", "menu_bot_like_mine")],
         [t("en", "menu_topup")],
-    ]
-    assert [[button.text for button in row] for row in keyboard.keyboard[3:5]] == [
         [t("en", "menu_account"), t("en", "menu_affiliate")],
         [t("en", "menu_support"), t("en", "menu_lang")],
     ]
+    assert t("en", "menu_bot_like_mine") not in {
+        button.text for row in keyboard.keyboard for button in row
+    }
     assert "profile" in t("en", "menu_account").lower()
 
 
@@ -2823,6 +2823,33 @@ def test_catalog_search_returns_matching_purchase_buttons(monkeypatch, mock_mong
     assert "off:11" in callbacks
     assert "catalog_request" in callbacks
     assert PENDING.get(42) is None
+
+
+def test_catalog_search_results_hide_the_stored_html_marker(monkeypatch, mock_mongodb):
+    db.set_text_override(
+        "catalog_search_results",
+        "en",
+        '[[HTML]]<tg-emoji emoji-id="1">🔎</tg-emoji> <b>Results for:</b> {query}\n'
+        "<blockquote>Choose a matching product.</blockquote>",
+    )
+    monkeypatch.setattr("bot.db.list_catalog_offers", lambda: [{
+        "id": 11, "service_id": 1, "service_name": "Canva", "name": "Canva Pro",
+        "price": 1.0, "currency": "USDT", "stock": 2, "unlimited_stock": False,
+    }])
+    message = SimpleNamespace(text="canva", reply_text=AsyncMock())
+    PENDING[42] = ("catalog_search", 0)
+
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(effective_user=SimpleNamespace(id=42), message=message),
+        SimpleNamespace(),
+        "en",
+    ))
+
+    reply = message.reply_text.await_args
+    assert "[[HTML]]" not in reply.args[0]
+    assert "<b>Results for:</b> canva" in reply.args[0]
+    assert "<blockquote>Choose a matching product.</blockquote>" in reply.args[0]
+    assert reply.kwargs["parse_mode"] == ParseMode.HTML
 
 
 def test_catalog_search_without_matches_enters_product_request_flow(monkeypatch, mock_mongodb):

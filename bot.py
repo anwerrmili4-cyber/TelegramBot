@@ -930,13 +930,9 @@ async def on_text_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_methods(update, context, lang)
     elif text == t(lang, "menu_bot_like_mine"):
         clear_support_pending()
-        offer_id = db.ensure_bot_like_mine_feature()
-        offer = db.get_offer(offer_id)
         await update.message.reply_text(
-            compact_offer_text(offer, lang),
-            parse_mode=ParseMode.HTML,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-            reply_markup=kb.offer_detail_keyboard(lang, offer),
+            t(lang, "bot_like_mine_unavailable"),
+            reply_markup=kb.main_menu_keyboard(lang, uid),
         )
     elif text == t(lang, "menu_lovable"):
         clear_support_pending()
@@ -1464,7 +1460,11 @@ async def cb_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_methods(update, context, lang)
         return
     if data == "bot_like_mine":
-        data = f"off:{db.ensure_bot_like_mine_feature()}"
+        await q.message.reply_text(
+            t(lang, "bot_like_mine_unavailable"),
+            reply_markup=kb.home_keyboard(lang, q.from_user.id),
+        )
+        return
     if data.startswith("bot_package_preview:"):
         offer_id = int(data.split(":", 1)[1])
         offer = db.get_offer(offer_id)
@@ -2217,6 +2217,15 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
                               ))
 
 
+def _catalog_search_message(lang, key, query):
+    """Render a catalog-search notice, including a stored ``[[HTML]]`` design."""
+    text = t(lang, key, query=html.escape(query))
+    stored = str(text).lstrip()
+    if stored.startswith(("[[HTML]]", "[HTML]")):
+        return render_stored_rich_text(stored)
+    return text
+
+
 # ---------------- Saisie en attente (txid / admin) ----------------
 async def handle_pending_input(update, context, lang):
     uid = update.effective_user.id
@@ -2361,14 +2370,14 @@ async def handle_pending_input(update, context, lang):
         if matches:
             PENDING.pop(uid, None)
             await update.message.reply_text(
-                t(lang, "catalog_search_results", query=html.escape(query)),
+                _catalog_search_message(lang, "catalog_search_results", query),
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb.catalog_search_results_keyboard(lang, matches),
             )
             return
         PENDING[uid] = ("catalog_request", query[:200])
         await update.message.reply_text(
-            t(lang, "catalog_search_no_results", query=html.escape(query)),
+            _catalog_search_message(lang, "catalog_search_no_results", query),
             parse_mode=ParseMode.HTML,
         )
         return
