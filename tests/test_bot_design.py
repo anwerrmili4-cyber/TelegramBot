@@ -2848,8 +2848,25 @@ def test_catalog_search_results_hide_the_stored_html_marker(monkeypatch, mock_mo
     reply = message.reply_text.await_args
     assert "[[HTML]]" not in reply.args[0]
     assert "<b>Results for:</b> canva" in reply.args[0]
+    assert "&lt;b&gt;" not in reply.args[0]
     assert "<blockquote>Choose a matching product.</blockquote>" in reply.args[0]
     assert reply.kwargs["parse_mode"] == ParseMode.HTML
+
+    db.set_text_override(
+        "catalog_search_results",
+        "en",
+        "[[HTML]]&lt;b&gt;Results for:&lt;/b&gt; {query}\n<blockquote>Choose a matching product.</blockquote>",
+    )
+    message.reply_text.reset_mock()
+    PENDING[42] = ("catalog_search", 0)
+    asyncio.run(handle_pending_input(
+        SimpleNamespace(effective_user=SimpleNamespace(id=42), message=message),
+        SimpleNamespace(),
+        "en",
+    ))
+    escaped = message.reply_text.await_args.args[0]
+    assert "&lt;b&gt;" not in escaped
+    assert "<b>Results for:</b> canva" in escaped
 
 
 def test_catalog_search_without_matches_enters_product_request_flow(monkeypatch, mock_mongodb):

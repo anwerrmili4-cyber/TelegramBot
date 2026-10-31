@@ -87,7 +87,7 @@ from config import (
     configuration_issues,
     public_base_url_from_environment,
 )
-from i18n import TRANSLATIONS, status_label, t
+from i18n import TRANSLATIONS, format_customer_template, status_label, t, without_custom_emoji_tokens
 
 _is_bmc_vip_product = _methods_presentation.is_bmc_vip_product
 _announcement_service_emoji = _announcements.announcement_service_emoji
@@ -2217,13 +2217,32 @@ async def handle_buy_confirmed(update, context, lang, payment_method="binance"):
                               ))
 
 
+def _unescape_stored_html(value):
+    """Turn saved ``&lt;b&gt;`` tags back into tags Telegram can render."""
+    text = str(value or "")
+    for _ in range(2):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def _catalog_search_message(lang, key, query):
     """Render a catalog-search notice, including a stored ``[[HTML]]`` design."""
-    text = t(lang, key, query=html.escape(query))
+    selected = lang if lang in ("en", "ar") else "en"
+    override = db.get_text_override(key, selected)
+    if override is not None and str(override).strip():
+        template = without_custom_emoji_tokens(override)
+    else:
+        entry = TRANSLATIONS.get(key, {})
+        template = entry.get(selected) or entry.get("en") or ""
+    template = _unescape_stored_html(template)
+    text = format_customer_template(template, query=html.escape(query))
     stored = str(text).lstrip()
     if stored.startswith(("[[HTML]]", "[HTML]")):
         return render_stored_rich_text(stored)
-    return text
+    return stored
 
 
 # ---------------- Saisie en attente (txid / admin) ----------------
