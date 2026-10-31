@@ -387,24 +387,18 @@ def test_stock_label_is_listed_in_catalog_admin_category():
     assert admin.text_category_for_key("stock_label") == "catalog"
 
 
-def test_stock_and_flash_templates_have_a_dedicated_editable_admin_section():
-    expected_keys = {
-        "channel_stock_announcement", "offer_stock_announcement",
-        "flash_sale_announcement",
-    }
-    assert all(admin.text_category_for_key(key) == "alerts" for key in expected_keys)
+def test_flash_sale_template_stays_editable_from_customization():
+    assert admin.text_category_for_key("flash_sale_announcement") == "alerts"
 
     callbacks = {
         button.callback_data
-        for row in admin.alert_design_keyboard().inline_keyboard
-        for button in row
-    }
-    assert {f"adm_text_key:{key}" for key in expected_keys} <= callbacks
-    assert any(
-        button.callback_data == "adm_alert_design"
         for row in admin.customize_keyboard().inline_keyboard
         for button in row
-    )
+    }
+    assert "adm_text_key:flash_sale_announcement" in callbacks
+    assert "adm_text_key:channel_stock_announcement" not in callbacks
+    assert "adm_text_key:offer_stock_announcement" not in callbacks
+    assert "adm_alert_design" not in callbacks
 
 
 def test_official_preorder_catalog_uses_its_own_row(monkeypatch):
@@ -747,7 +741,7 @@ def test_admin_cannot_manually_modify_offer_stock(monkeypatch):
     assert not any(value and value.startswith("adm_setstock:") for value in callbacks)
 
 
-def test_admin_offer_panel_can_broadcast_current_price_and_stock(monkeypatch):
+def test_admin_offer_panel_does_not_offer_stock_announcements(monkeypatch):
     monkeypatch.setattr(
         admin.db,
         "get_offer",
@@ -763,7 +757,7 @@ def test_admin_offer_panel_can_broadcast_current_price_and_stock(monkeypatch):
         for button in row
     ]
 
-    assert "adm_broadcast_offer:4" in callbacks
+    assert "adm_broadcast_offer:4" not in callbacks
     assert "adm_inventory:4" in callbacks
     assert "adm_offmove:4" in callbacks
 
@@ -801,9 +795,15 @@ def test_admin_offer_options_are_arranged_two_per_row(monkeypatch):
 
     rows = admin.offer_admin_keyboard(4).inline_keyboard
 
-    assert all(len(row) == 2 for row in rows[:-1])
-    assert len(rows[-1]) == 1
     assert rows[-1][0].callback_data == "adm_svc:1"
+    assert len(rows[-1]) == 1
+    assert [button.callback_data for button in rows[-2]] == [
+        "adm_offtoggle:4", "adm_offdel:4",
+    ]
+    option_rows = rows[:-2]
+    assert option_rows
+    assert all(len(row) == 2 for row in option_rows[:-1])
+    assert len(option_rows[-1]) in {1, 2}
 
 
 def test_admin_panel_has_custom_announcement_button():

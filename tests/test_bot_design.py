@@ -497,7 +497,7 @@ def test_empty_method_cannot_be_finished_and_text_delivery_is_supported(mock_mon
     assert db.get_order(999)["status"] == "delivered"
 
 
-def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb):
+def test_inventory_restock_is_not_announced(mock_mongodb):
     service_id = db.add_service("Chat GPT", "🤖")
     offer_id = db.add_offer(service_id, "Premium 30 days", 5.0, 3)
     mock_mongodb.users.insert_many([
@@ -508,24 +508,14 @@ def test_inventory_restock_is_broadcast_privately_to_all_bot_users(mock_mongodb)
 
     sent = asyncio.run(announce_channel_restock(SimpleNamespace(bot=bot_client), offer_id, 3, 3))
 
-    assert sent == 2
-    assert bot_client.send_message.await_count == 2
-    calls = bot_client.send_message.await_args_list
-    assert {call.kwargs["chat_id"] for call in calls} == {101, 202}
-    assert all(call.kwargs["chat_id"] != "@blackmarketBotChannel" for call in calls)
-    assert all("NEW DROP AVAILABLE" in call.kwargs["text"] for call in calls)
-    assert all("API" not in call.kwargs["text"] for call in calls)
-    assert all("━━━━━━━━" not in call.kwargs["text"] for call in calls)
-    assert all("🤖" in call.kwargs["text"] for call in calls)
-    assert all(
-        call.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"buy:{offer_id}"
-        for call in calls
-    )
+    assert sent == 0
+    bot_client.send_message.assert_not_awaited()
 
 
 def test_catalog_updates_skip_customers_who_disabled_alerts(mock_mongodb):
     service_id = db.add_service("Chat GPT", "🤖")
     offer_id = db.add_offer(service_id, "Premium 30 days", 5.0, 3)
+    db.start_flash_sale(offer_id, 3.0, 60)
     mock_mongodb.users.insert_many([
         {"telegram_id": 101, "lang": "en"},
         {
@@ -537,7 +527,7 @@ def test_catalog_updates_skip_customers_who_disabled_alerts(mock_mongodb):
     bot_client = SimpleNamespace(send_message=AsyncMock())
 
     sent = asyncio.run(
-        announce_channel_restock(SimpleNamespace(bot=bot_client), offer_id, 3, 3)
+        announce_flash_sale(SimpleNamespace(bot=bot_client), offer_id)
     )
 
     assert sent == 1
@@ -548,6 +538,8 @@ def test_catalog_updates_respect_each_customers_product_preferences(mock_mongodb
     service_id = db.add_service("AI", "🤖")
     muted_offer_id = db.add_offer(service_id, "Muted product", 5.0, 3)
     followed_offer_id = db.add_offer(service_id, "Followed product", 6.0, 3)
+    db.start_flash_sale(muted_offer_id, 3.0, 60)
+    db.start_flash_sale(followed_offer_id, 4.0, 60)
     mock_mongodb.users.insert_many([
         {"telegram_id": 101, "lang": "en"},
         {"telegram_id": 202, "lang": "en"},
@@ -555,15 +547,15 @@ def test_catalog_updates_respect_each_customers_product_preferences(mock_mongodb
     db.set_product_notifications_enabled(202, muted_offer_id, False)
     bot_client = SimpleNamespace(send_message=AsyncMock())
 
-    muted_sent = asyncio.run(announce_channel_restock(
-        SimpleNamespace(bot=bot_client), muted_offer_id, 3, 3,
+    muted_sent = asyncio.run(announce_flash_sale(
+        SimpleNamespace(bot=bot_client), muted_offer_id,
     ))
     muted_recipients = {
         call.kwargs["chat_id"] for call in bot_client.send_message.await_args_list
     }
     bot_client.send_message.reset_mock()
-    followed_sent = asyncio.run(announce_channel_restock(
-        SimpleNamespace(bot=bot_client), followed_offer_id, 3, 3,
+    followed_sent = asyncio.run(announce_flash_sale(
+        SimpleNamespace(bot=bot_client), followed_offer_id,
     ))
 
     assert muted_sent == 1
@@ -627,16 +619,17 @@ def test_service_premium_emoji_is_included_in_customized_announcement(mock_mongo
         "Capcut", emoji="📦", custom_emoji_id="5978895591894161700",
     )
     offer_id = db.add_offer(service_id, "Capcut Pro", 5.0, 2)
+    db.start_flash_sale(offer_id, 3.0, 60)
     mock_mongodb.users.insert_one({"telegram_id": 101, "lang": "en"})
     db.set_text_override(
-        "channel_stock_announcement",
+        "flash_sale_announcement",
         "en",
         "[[HTML]]{emoji} <b>{service}</b> — {offer}",
     )
     bot_client = SimpleNamespace(send_message=AsyncMock())
 
-    sent = asyncio.run(announce_channel_restock(
-        SimpleNamespace(bot=bot_client), offer_id, 2, 2,
+    sent = asyncio.run(announce_flash_sale(
+        SimpleNamespace(bot=bot_client), offer_id,
     ))
 
     assert sent == 1
@@ -674,6 +667,40 @@ def test_schema_migration_removes_only_obsolete_announcement_designs(mock_mongod
     assert mock_mongodb.text_overrides.find_one({"key": "welcome"}) is not None
 
 
+def test_schema_migration_removes_new_drop_announcements(mock_mongodb):
+    mock_mongodb.text_overrides.insert_many([
+        {
+            "key": "channel_stock_announcement", "lang": "en",
+            "text": "💫 NEW DROP AVAILABLE\n{service}",
+        },
+        {
+            "key": "offer_stock_announcement", "lang": "ar",
+            "text": "دفعة جديدة",
+        },
+        {
+            "key": "flash_sale_announcement", "lang": "en",
+            "text": "🔥 FLASH SALE",
+        },
+    ])
+    mock_mongodb.settings.insert_many([
+        {"key": "announcement_new_stock", "value": "NEW DROP AVAILABLE"},
+        {"key": "announcement_restock", "value": "NEW DROP AVAILABLE"},
+        {"key": "announcement_flash_sale", "value": "FLASH SALE"},
+    ])
+
+    removed = db.remove_new_drop_announcements(mock_mongodb)
+
+    assert removed == 2
+    assert mock_mongodb.text_overrides.find_one({"key": "channel_stock_announcement"}) is None
+    assert mock_mongodb.text_overrides.find_one({"key": "offer_stock_announcement"}) is None
+    assert mock_mongodb.text_overrides.find_one({"key": "flash_sale_announcement"})["text"] == "🔥 FLASH SALE"
+    assert mock_mongodb.settings.find_one({"key": "announcement_new_stock"}) is None
+    assert mock_mongodb.settings.find_one({"key": "announcement_restock"}) is None
+    assert mock_mongodb.settings.find_one({"key": "announcement_flash_sale"})["value"] == "FLASH SALE"
+    assert db.set_text_override("channel_stock_announcement", "en", "NEW DROP AVAILABLE") is None
+    assert mock_mongodb.text_overrides.find_one({"key": "channel_stock_announcement"}) is None
+
+
 def test_ventebot_retirement_archives_offers_but_preserves_history(mock_mongodb):
     mock_mongodb.offers.insert_many([
         {"id": 701, "supplier_provider": "ventebot", "active": 1, "auto_delivery": True},
@@ -702,7 +729,7 @@ def test_ventebot_retirement_archives_offers_but_preserves_history(mock_mongodb)
     assert mock_mongodb.reseller_fulfillments.find_one({"external_order_id": "BM-703"}) is not None
 
 
-def test_supplier_restocks_are_sent_as_individual_product_messages(mock_mongodb):
+def test_supplier_restocks_are_not_announced(mock_mongodb):
     first_service = db.add_service("AI", "🤖")
     second_service = db.add_service("Learning", "🎓")
     first_offer = db.add_offer(first_service, "ChatGPT Plus", 5.0, 8)
@@ -718,16 +745,8 @@ def test_supplier_restocks_are_sent_as_individual_product_messages(mock_mongodb)
         {"offer_id": second_offer, "added": 2, "stock": 4},
     ]))
 
-    assert sent == 4
-    assert bot_client.send_message.await_count == 4
-    texts = [call.kwargs["text"] for call in bot_client.send_message.await_args_list]
-    assert sum("ChatGPT Plus" in text for text in texts) == 2
-    assert sum("Coursera Plus" in text for text in texts) == 2
-    for call in bot_client.send_message.await_args_list:
-        assert "API" not in call.kwargs["text"]
-        assert "NEW DROP" in call.kwargs["text"] or "NOUVEAU DROP" in call.kwargs["text"]
-        assert "━━━━━━━━" not in call.kwargs["text"]
-        assert len(call.kwargs["reply_markup"].inline_keyboard) == 2
+    assert sent == 0
+    bot_client.send_message.assert_not_awaited()
 
 
 def test_broadcast_jobs_are_persisted_claimed_and_completed(mock_mongodb):
@@ -773,8 +792,9 @@ def test_sent_campaign_can_be_deleted_for_every_recipient(mock_mongodb):
         {"telegram_id": 101, "lang": "en"},
         {"telegram_id": 202, "lang": "en"},
     ])
+    db.start_flash_sale(offer_id, 3.0, 60)
     job, _created = db.create_broadcast_job(
-        "stock", {"offer_id": offer_id, "added": 3, "stock": 3},
+        "flash_sale", {"offer_id": offer_id},
     )
     send_message = AsyncMock(side_effect=[
         SimpleNamespace(message_id=501),
@@ -783,10 +803,10 @@ def test_sent_campaign_can_be_deleted_for_every_recipient(mock_mongodb):
     send_context = SimpleNamespace(
         bot=SimpleNamespace(send_message=send_message),
         broadcast_job_id=job["id"],
-        broadcast_kind="stock",
+        broadcast_kind="flash_sale",
     )
 
-    sent = asyncio.run(announce_channel_restock(send_context, offer_id, 3, 3))
+    sent = asyncio.run(announce_flash_sale(send_context, offer_id))
     db.complete_broadcast_job(job["id"], sent)
 
     assert len(db.list_broadcast_messages(job["id"])) == 2
@@ -840,7 +860,7 @@ def test_automatic_flash_sale_uses_common_design_without_api_mention(mock_mongod
     assert "40%" in text
 
 
-def test_inactive_supplier_restock_falls_back_to_private_admin_alert(
+def test_inactive_supplier_restock_is_not_announced(
     monkeypatch, mock_mongodb,
 ):
     monkeypatch.setattr("bot.ADMIN_ID", 999)
@@ -863,13 +883,8 @@ def test_inactive_supplier_restock_falls_back_to_private_admin_alert(
         },
     ))
 
-    assert sent == 1
-    call = bot_client.send_message.await_args.kwargs
-    assert call["chat_id"] == 999
-    assert "NEW DROP AVAILABLE" in call["text"]
-    assert "11" in call["text"]
-    assert "Supplier" not in call["text"]
-    assert call["reply_markup"].inline_keyboard[-1][0].callback_data == "catalog"
+    assert sent == 0
+    bot_client.send_message.assert_not_awaited()
 
 
 def test_out_of_stock_supplier_discount_uses_bot_flash_sale_design(
@@ -900,7 +915,7 @@ def test_out_of_stock_supplier_discount_uses_bot_flash_sale_design(
     assert call["reply_markup"].inline_keyboard[-1][0].callback_data == "catalog"
 
 
-def test_supplier_price_increase_is_broadcast_as_customer_new_drop(
+def test_supplier_price_increase_is_not_announced(
     monkeypatch, mock_mongodb,
 ):
     monkeypatch.setattr("bot.ADMIN_ID", 999)
@@ -921,16 +936,11 @@ def test_supplier_price_increase_is_broadcast_as_customer_new_drop(
         },
     ))
 
-    assert sent == 2
-    calls = bot_client.send_message.await_args_list
-    assert {call.kwargs["chat_id"] for call in calls} == {101, 102}
-    assert "NEW DROP AVAILABLE" in calls[0].kwargs["text"]
-    assert "7.00 USDT" in calls[0].kwargs["text"]
-    assert "Previous price" not in calls[0].kwargs["text"]
-    assert calls[0].kwargs["reply_markup"].inline_keyboard[0][0].callback_data == f"buy:{offer_id}"
+    assert sent == 0
+    bot_client.send_message.assert_not_awaited()
 
 
-def test_admin_can_reannounce_current_offer_without_adding_stock(mock_mongodb):
+def test_restock_without_added_count_is_not_announced(mock_mongodb):
     service_id = db.add_service("Chat GPT", "🤖")
     offer_id = db.add_offer(service_id, "Premium 30 days", 7.5, 4)
     mock_mongodb.users.insert_one({"telegram_id": 101, "lang": "en"})
@@ -940,11 +950,8 @@ def test_admin_can_reannounce_current_offer_without_adding_stock(mock_mongodb):
         announce_channel_restock(SimpleNamespace(bot=bot_client), offer_id, None, 4)
     )
 
-    assert sent == 1
-    text = bot_client.send_message.await_args.kwargs["text"]
-    assert "NEW DROP AVAILABLE" in text
-    assert "7.50 USDT" in text
-    assert "Stock: <b>4</b>" in text
+    assert sent == 0
+    bot_client.send_message.assert_not_awaited()
 
 
 def test_admin_custom_announcement_is_copied_to_all_active_users(mock_mongodb):
@@ -1585,13 +1592,13 @@ def test_channel_message_accepts_exact_premium_emojis_and_rich_text(mock_mongodb
 
 def test_admin_text_editor_shows_rendered_telegram_preview_not_html_source(mock_mongodb):
     db.set_text_override(
-        "channel_stock_announcement",
+        "flash_sale_announcement",
         "en",
         '[[HTML]]<tg-emoji emoji-id="premium-drop">💫</tg-emoji> <b>New drop</b>',
         "premium-drop",
     )
 
-    preview = admin_text_preview("channel_stock_announcement")
+    preview = admin_text_preview("flash_sale_announcement")
 
     assert "[[HTML]]" not in preview
     assert "<pre>" not in preview
@@ -1636,13 +1643,13 @@ def test_delivery_template_accepts_legacy_single_html_marker(mock_mongodb):
 
 def test_premium_channel_html_also_renders_admin_markdown_markers(mock_mongodb):
     db.set_text_override(
-        "channel_stock_announcement",
+        "flash_sale_announcement",
         "en",
         '[[HTML]]<tg-emoji emoji-id="premium-new">🆕</tg-emoji> *NEW STOCK* — _limited_',
         "premium-new",
     )
 
-    rendered = premium_customer_text("en", "channel_stock_announcement")
+    rendered = premium_customer_text("en", "flash_sale_announcement")
 
     assert '<tg-emoji emoji-id="premium-new">🆕</tg-emoji>' in rendered
     assert "<b>NEW STOCK</b>" in rendered
@@ -1817,7 +1824,6 @@ def test_order_payment_values_are_individually_copyable():
     "loyalty_activated", "affiliate_rewarded",
     "topup_message", "topup_ask_txid",
     "topup_success", "topup_already_confirmed", "topup_failed",
-    "channel_stock_announcement", "offer_stock_announcement",
     "flash_sale_announcement",
     "affiliate_referral_success", "affiliate_ten_success", "channel_affiliate_reward",
 ])

@@ -117,7 +117,7 @@ def test_offer_detail_template_has_premium_sections():
 
 
 def test_announcement_templates_include_product_catalog_period_and_warranty():
-    for key in ("channel_stock_announcement", "offer_stock_announcement", "flash_sale_announcement"):
+    for key in ("flash_sale_announcement",):
         for lang in ("en", "ar"):
             msg = t(
                 lang,
@@ -139,3 +139,20 @@ def test_announcement_templates_include_product_catalog_period_and_warranty():
             assert "Netflix 4K Ultra" in msg
             assert "30 days" in msg
             assert "NW" in msg
+
+
+def test_new_drop_announcement_copy_is_gone():
+    from i18n import TRANSLATIONS
+
+    assert "channel_stock_announcement" not in TRANSLATIONS
+    assert "offer_stock_announcement" not in TRANSLATIONS
+    assert "btn_channel_buy_now" not in TRANSLATIONS
+    joined = "\n".join(
+        text
+        for entry in TRANSLATIONS.values()
+        for text in entry.values()
+        if isinstance(text, str)
+    )
+    assert "NEW DROP AVAILABLE" not in joined
+    assert "NOUVEAU DROP DISPONIBLE" not in joined
+    assert "Limited quantities — claim yours now!" not in joined

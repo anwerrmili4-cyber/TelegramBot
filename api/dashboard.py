@@ -2996,9 +2996,7 @@ def render_dashboard(
                     <div class="form-group"><label>Conditions</label><textarea id="terms-message-input" name="terms_message"></textarea></div>
                     <div class="form-group"><label>Confidentialité</label><textarea id="privacy-message-input" name="privacy_message"></textarea></div>
                     <div class="form-group"><label>Langues actives (en,ar)</label><input id="active-languages-input" name="active_languages" value="en,ar"></div>
-                    <div class="form-group"><label>Annonce Nouveau Stock (variables : {emoji}, {service}, {offer}, {period}, {warranty}, {price}, {cur}, {stock}, {added})</label><textarea id="announcement-new-stock-input" name="announcement_new_stock" rows="4"></textarea></div>
                     <div class="form-group"><label>Annonce Vente Flash (variables : {emoji}, {service}, {offer}, {period}, {warranty}, {old_price}, {price}, {cur}, {discount}, {remaining})</label><textarea id="announcement-flash-sale-input" name="announcement_flash_sale" rows="4"></textarea></div>
-                    <div class="form-group"><label>Annonce Restock / Produit disponible (variables : {emoji}, {service}, {offer}, {period}, {warranty}, {price}, {cur}, {stock})</label><textarea id="announcement-restock-input" name="announcement_restock" rows="4"></textarea></div>
                     <button class="btn btn-primary" type="submit">💾 Enregistrer la configuration</button>
                 </form>
             </div>
@@ -4399,9 +4397,7 @@ def render_dashboard(
             document.getElementById("terms-message-input").value = dashboardData.terms_message || "";
             document.getElementById("privacy-message-input").value = dashboardData.privacy_message || "";
             document.getElementById("active-languages-input").value = dashboardData.active_languages || "en,ar";
-            if (document.getElementById("announcement-new-stock-input")) document.getElementById("announcement-new-stock-input").value = dashboardData.announcement_new_stock || "";
             if (document.getElementById("announcement-flash-sale-input")) document.getElementById("announcement-flash-sale-input").value = dashboardData.announcement_flash_sale || "";
-            if (document.getElementById("announcement-restock-input")) document.getElementById("announcement-restock-input").value = dashboardData.announcement_restock || "";
         }
 
         // Actions Ajax

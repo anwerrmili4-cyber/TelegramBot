@@ -56,10 +56,7 @@ TEXT_CATEGORIES = [
 
 
 def text_category_for_key(key):
-    if key in {
-        "channel_stock_announcement", "offer_stock_announcement",
-        "flash_sale_announcement",
-    }:
+    if key == "flash_sale_announcement":
         return "alerts"
     rules = [
         ("admin", ("admin_",)),
@@ -607,25 +604,13 @@ def customize_keyboard():
     rows = _two_column_rows([
         InlineKeyboardButton("🏠 Page d’accueil", callback_data="adm_text_key:welcome"),
         InlineKeyboardButton("🧾 Fiche produit", callback_data="adm_text_key:offer_card_template"),
-        InlineKeyboardButton("✨ Alertes stocks & flash", callback_data="adm_alert_design"),
+        InlineKeyboardButton("🔥 Vente flash", callback_data="adm_text_key:flash_sale_announcement"),
         InlineKeyboardButton("✏️ Textes du bot", callback_data="adm_texts"),
         InlineKeyboardButton("🔘 Boutons du bot", callback_data="adm_buttons"),
         InlineKeyboardButton("🎨 Design des tickets", callback_data="adm_ticket_style"),
     ])
     rows.append(
         [InlineKeyboardButton("⬅️ Retour", callback_data="adm_panel")],
-    )
-    return InlineKeyboardMarkup(rows)
-
-
-def alert_design_keyboard():
-    rows = _two_column_rows([
-        InlineKeyboardButton("✨ Nouveau stock (un produit)", callback_data="adm_text_key:channel_stock_announcement"),
-        InlineKeyboardButton("✨ Offre remise en avant", callback_data="adm_text_key:offer_stock_announcement"),
-        InlineKeyboardButton("🔥 Vente flash", callback_data="adm_text_key:flash_sale_announcement"),
-    ])
-    rows.append(
-        [InlineKeyboardButton("⬅️ Personnalisation", callback_data="adm_customize")],
     )
     return InlineKeyboardMarkup(rows)
 
@@ -974,10 +959,6 @@ def offer_admin_keyboard(offer_id):
                 if off.get("flash_sale_active")
                 else f"adm_flash_start:{offer_id}"
             ),
-        ),
-        InlineKeyboardButton(
-            "📣 Envoyer une annonce (prix + stock)",
-            callback_data=f"adm_broadcast_offer:{offer_id}",
         ),
         InlineKeyboardButton(
             "♾ Désactiver le stock illimité" if off.get("unlimited_stock")
