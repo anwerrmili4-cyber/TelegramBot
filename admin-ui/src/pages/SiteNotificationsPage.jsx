@@ -33,7 +33,7 @@ export default function SiteNotificationsPage({ onAction }) {
         kind,
         title,
         body,
-        offer_id: kind === "novelty" ? offerId : "",
+        offer_id: kind === "novelty" || kind === "flash" ? offerId : "",
       });
       if (answer?.message) {
         setDone(answer.message);
@@ -62,11 +62,12 @@ export default function SiteNotificationsPage({ onAction }) {
             <Field label="Type">
               <select value={kind} onChange={(event) => setKind(event.target.value)} aria-label="Type">
                 <option value="novelty">Nouveauté</option>
+                <option value="flash">Vente flash</option>
                 <option value="admin">Message</option>
                 <option value="news">Actualité</option>
               </select>
             </Field>
-            {kind === "novelty" ? (
+            {kind === "novelty" || kind === "flash" ? (
               <Field label="Produit">
                 <select value={offerId} onChange={(event) => setOfferId(event.target.value)} required aria-label="Produit">
                   <option value="">Choisir…</option>
@@ -98,7 +99,7 @@ export default function SiteNotificationsPage({ onAction }) {
           <span>{loading ? "Chargement…" : `${items.length} notification${items.length > 1 ? "s" : ""}`}</span>
         </header>
         {!loading && !items.length ? (
-          <Empty icon={Bell} title="Aucune notification publiée." text="Les nouveautés, messages et actualités apparaîtront ici." />
+          <Empty icon={Bell} title="Aucune notification publiée." text="Les nouveautés, ventes flash, messages et actualités apparaîtront ici." />
         ) : null}
         {items.length ? (
           <div className="operation-list">

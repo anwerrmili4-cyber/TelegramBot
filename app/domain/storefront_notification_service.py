@@ -1,7 +1,7 @@
 """In-site notifications for verified Tunisian shop customers.
 
-One document is the announcement. Read state is stored per customer. Nothing
-is emailed: Courrier remains the only mail tool.
+One document is the announcement. Read state is stored per customer.
+Publishing also emails every verified customer in the shop notification design.
 """
 
 from __future__ import annotations
@@ -18,12 +18,14 @@ log = logging.getLogger(__name__)
 _MAX_AUDIENCE = 100
 _KINDS = {
     "novelty": "Nouveauté",
+    "flash": "Vente flash",
     "admin": "Message",
     "news": "Actualité",
     "stock": "Stock",
     "price": "Prix",
     "balance": "Solde",
 }
+_PRODUCT_KINDS = frozenset({"novelty", "flash", "stock", "price"})
 
 
 class NotificationError(ValueError):
@@ -80,7 +82,7 @@ def _item(row: dict[str, Any], read_ids: set[int], catalog_ids: set[int]) -> dic
     offer_id = int(row.get("offer_id") or 0)
     if kind == "balance":
         href = "/mon-compte?onglet=portefeuille"
-    elif kind in {"novelty", "stock", "price"} and offer_id in catalog_ids:
+    elif kind in _PRODUCT_KINDS and offer_id in catalog_ids:
         href = f"/produit/{offer_id}"
     else:
         href = ""
@@ -107,7 +109,7 @@ def for_customer(customer: dict[str, Any]) -> dict[str, Any]:
             {"notification_id": 1},
         )
     }
-    catalog_ids = _catalog_ids() if any(row.get("kind") in {"novelty", "stock", "price"} for row in rows) else set()
+    catalog_ids = _catalog_ids() if any(row.get("kind") in _PRODUCT_KINDS for row in rows) else set()
     items = [_item(row, read_ids, catalog_ids) for row in rows]
     return {"ok": True, "unread": sum(1 for item in items if not item["read"]), "items": items}
 
@@ -264,14 +266,14 @@ def publish(form: dict[str, Any]) -> dict[str, Any]:
     title = str(form.get("title") or "").strip()
     body = str(form.get("body") or form.get("message") or "").strip()
     if kind not in _KINDS:
-        raise NotificationError("Choisis un type : nouveauté, message ou actualité.")
+        raise NotificationError("Choisis un type : nouveauté, vente flash, message ou actualité.")
     if not 3 <= len(title) <= 120:
         raise NotificationError("Le titre doit faire entre 3 et 120 caractères.")
     if not 8 <= len(body) <= 2000:
         raise NotificationError("Le message doit faire entre 8 et 2 000 caractères.")
 
     offer_id = 0
-    if kind == "novelty":
+    if kind in {"novelty", "flash"}:
         try:
             offer_id = int(form.get("offer_id"))
         except (TypeError, ValueError) as exc:
@@ -299,7 +301,10 @@ def publish(form: dict[str, Any]) -> dict[str, Any]:
         "offer_id": offer_id,
     })
     account_link = f"{email_service.site_url()}/mon-compte?onglet=notifications"
-    product_link = f"{email_service.site_url()}/produit/{offer_id}" if kind == "novelty" and offer_id else ""
+    product_link = (
+        f"{email_service.site_url()}/produit/{offer_id}"
+        if kind in {"novelty", "flash"} and offer_id else ""
+    )
     for person in people:
         email_service.send_notification(
             person["email"],

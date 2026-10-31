@@ -131,6 +131,76 @@ def test_stock_price_and_balance_reach_the_right_customer(mock_mongodb, site_cus
     assert [item["title"] for item in storefront_notification_service.for_customer(owner)["items"]] == titles
 
 
+def test_flash_sale_is_emailed_to_every_verified_member(mock_mongodb, site_customer, sent_emails):
+    site_customer()
+    site_customer(name="Sana", email="sana@example.com")
+    unverified = {
+        "id": db._next_id("storefront_customers"),
+        "name": "Inconnu",
+        "email": "pending@example.com",
+        "email_verified": False,
+        "created_at": 1,
+    }
+    mock_mongodb.storefront_customers.insert_one(unverified)
+    offer_id = _offer()
+    sent_emails.clear()
+
+    result = storefront_notification_service.publish({
+        "kind": "flash",
+        "title": "ChatGPT en vente flash",
+        "body": "Le prix baisse pendant quelques heures.",
+        "offer_id": offer_id,
+    })
+
+    assert "2 clients" in result["message"]
+    stored = mock_mongodb.storefront_notifications.find_one({"kind": "flash"})
+    assert stored["offer_id"] == offer_id
+    assert stored["audience_count"] == 2
+    feed = storefront_notification_service.for_customer(
+        mock_mongodb.storefront_customers.find_one({"email": "amine@example.com"})
+    )
+    flash = next(item for item in feed["items"] if item["kind"] == "flash")
+    assert flash["kind_label"] == "Vente flash"
+    assert flash["href"] == f"/produit/{offer_id}"
+    recipients = [message["to"][0] for message in sent_emails]
+    assert recipients.count("amine@example.com") == 1
+    assert recipients.count("sana@example.com") == 1
+    assert "pending@example.com" not in recipients
+    mail = sent_emails[0]
+    assert mail["subject"].startswith("Vente flash — ")
+    assert "ChatGPT en vente flash" in mail["subject"]
+    assert "BLACKMARKET" in mail["html"]
+    assert "Voir le produit" in mail["html"]
+    assert "Voir mes notifications" in mail["html"]
+    assert f"/produit/{offer_id}" in mail["text"]
+    assert "onglet=notifications" in mail["text"]
+    novelty = storefront_notification_service.publish({
+        "kind": "novelty",
+        "title": "Nouveau ChatGPT",
+        "body": "ChatGPT Plus vient d'arriver sur la boutique.",
+        "offer_id": offer_id,
+    })
+    assert novelty["ok"] is True
+    flash_html = mail["html"]
+    novelty_html = next(message["html"] for message in sent_emails if message["subject"].startswith("Nouveauté"))
+    assert "BLACKMARKET" in novelty_html
+    assert "Voir le produit" in flash_html and "Voir le produit" in novelty_html
+
+
+def test_flash_sale_requires_a_catalog_product(mock_mongodb, site_customer):
+    site_customer()
+    try:
+        storefront_notification_service.publish({
+            "kind": "flash",
+            "title": "Vente flash",
+            "body": "Choisis un produit avant d'envoyer.",
+        })
+    except storefront_notification_service.NotificationError as exc:
+        assert "produit" in str(exc).casefold()
+    else:
+        raise AssertionError("a flash sale without a product was published")
+
+
 def test_an_unknown_notification_cannot_be_marked_read(mock_mongodb, site_customer):
     customer = site_customer()
     try:
