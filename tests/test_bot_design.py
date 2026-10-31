@@ -1878,16 +1878,16 @@ def test_admin_can_edit_topup_and_profile_even_when_text_matches_current_button(
 def test_main_menu_is_compact_and_actions_match_labels():
     keyboard = kb.main_menu_keyboard("en", user_id=42)
 
-    labels = [[button.text for button in row] for row in keyboard.keyboard[:3]]
+    labels = [[button.text for button in row] for row in keyboard.keyboard[:4]]
     assert labels == [
         [t("en", "menu_catalog"), t("en", "menu_orders")],
-        [t("en", "menu_bot_like_mine")],
         [t("en", "menu_topup")],
-    ]
-    assert [[button.text for button in row] for row in keyboard.keyboard[3:5]] == [
         [t("en", "menu_account"), t("en", "menu_affiliate")],
         [t("en", "menu_support"), t("en", "menu_lang")],
     ]
+    assert t("en", "menu_bot_like_mine") not in {
+        button.text for row in keyboard.keyboard for button in row
+    }
     assert "profile" in t("en", "menu_account").lower()
 
 

@@ -1106,15 +1106,14 @@ def test_home_uses_green_shop_blue_actions_and_red_support(mock_mongodb):
     assert {actions[action].style for action in ("topup", "account", "language")} == {"primary"}
     assert {"profile_withdraw", "profile_notifications", "warranty"}.isdisjoint(actions)
     assert actions["support"].style == "danger"
-    assert [len(row) for row in keyboard.inline_keyboard[:5]] == [1, 1, 2, 2, 2]
+    assert [len(row) for row in keyboard.inline_keyboard[:5]] == [1, 1, 1, 2, 2]
     assert [button.callback_data for button in keyboard.inline_keyboard[2]] == [
-        "methods", "bot_like_mine",
+        "methods",
     ]
     assert [button.callback_data for button in keyboard.inline_keyboard[4]] == [
         "language", "support",
     ]
-    assert actions["bot_like_mine"].text == "BOT LIKE MINE"
-    assert actions["bot_like_mine"].style == "success"
+    assert "bot_like_mine" not in actions
     assert "lovable" not in actions
 
     shop = kb.catalog_offers_keyboard("en")

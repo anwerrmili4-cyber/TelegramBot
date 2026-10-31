@@ -339,7 +339,6 @@ def main_menu_keyboard(lang, user_id):
     hidden = set(filter(None, (db.get_setting("hidden_home_actions", "") or "").split(",")))
     candidates = [
         [("catalog", t(lang, "menu_catalog")), ("orders", t(lang, "menu_orders"))],
-        [("bot_like_mine", t(lang, "menu_bot_like_mine"))],
         [("topup", t(lang, "menu_topup"))],
         [("account", t(lang, "menu_account")), ("affiliate", t(lang, "menu_affiliate"))],
         [("support", t(lang, "menu_support")), ("language", t(lang, "menu_lang"))],
@@ -359,8 +358,6 @@ def home_keyboard(lang, user_id):
     notifications_label = notifications_button_label(lang, user_id, unread_notifications)
     if notifications_icon and not unread_notifications:
         notifications_label = notifications_label.removeprefix("🔔 ")
-    bot_like_service = db.get_conn().services.find_one({"feature_key": "bot_like_mine"}) or {}
-    bot_like_icon = str(bot_like_service.get("custom_emoji_id") or "").strip()
     candidate_rows = [
         [translated_button(lang, "menu_catalog", callback_data="catalog", style="success")],
         [InlineKeyboardButton(
@@ -369,13 +366,7 @@ def home_keyboard(lang, user_id):
             style="danger" if unread_notifications else "primary",
             icon_custom_emoji_id=notifications_icon,
         )],
-        [
-            translated_button(lang, "menu_methods", callback_data="methods", style="primary"),
-            translated_button(
-                lang, "menu_bot_like_mine", callback_data="bot_like_mine", style="success",
-                icon_custom_emoji_id=bot_like_icon or None,
-            ),
-        ],
+        [translated_button(lang, "menu_methods", callback_data="methods", style="primary")],
         [
             translated_button(lang, "profile_deposit", callback_data="topup", style="primary"),
             translated_button(lang, "menu_account", callback_data="account", style="primary"),

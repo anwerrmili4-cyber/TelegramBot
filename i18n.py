@@ -108,6 +108,11 @@ TRANSLATIONS = {
         "en": "BOT LIKE MINE",
         "ar": "بوت مثلي",
     },
+    "bot_like_mine_unavailable": {
+        "fr": "⏳ BOT LIKE MINE n’est pas disponible pour le moment.",
+        "en": "⏳ BOT LIKE MINE is not available right now.",
+        "ar": "⏳ BOT LIKE MINE غير متاح حالياً.",
+    },
     "menu_warranty": {"fr": "🛡️ Garantie", "en": "🛡️ Warranty", "ar": "🛡️ الضمان"},
     "menu_reseller_api": {"fr": "🔧 API Développeur", "en": "🔧 Developer API", "ar": "🔧 واجهة المطور"},
     "reseller_api_create": {"fr": "🔑 Créer ma clé API", "en": "🔑 Create my API key", "ar": "🔑 إنشاء مفتاح API الخاص بي"},
