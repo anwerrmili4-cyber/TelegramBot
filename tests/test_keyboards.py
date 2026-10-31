@@ -82,7 +82,7 @@ def test_profile_keyboard_matches_customer_profile_navigation():
         ["topup"],
         ["profile_withdraw", "profile_notifications"],
         ["orders", "warranty"],
-        ["affiliate", "catalog"],
+        ["affiliate"],
         ["reseller_api"],
         ["home"],
     ]
@@ -96,7 +96,7 @@ def test_profile_keyboard_matches_customer_profile_navigation():
     assert styles["home"] == "danger"
     assert {
         styles[action]
-        for action in ("profile_withdraw", "profile_notifications", "orders", "warranty", "affiliate", "catalog")
+        for action in ("profile_withdraw", "profile_notifications", "orders", "warranty", "affiliate")
     } == {"primary"}
 
 
